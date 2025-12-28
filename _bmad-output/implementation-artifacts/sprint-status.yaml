@@ -66,7 +66,7 @@ development_status:
 
   # Epic 4: Knowledge Ingestion Pipeline
   epic-4: in-progress
-  4-1-url-documentation-crawling: backlog
+  4-1-url-documentation-crawling: done
   4-2-pdf-document-parsing: backlog
   4-3-agentic-entity-extraction: backlog
   4-4-knowledge-graph-visualization: backlog
