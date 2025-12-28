@@ -4,7 +4,7 @@ import logging
 import os
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 import psycopg
 from starlette.responses import JSONResponse
@@ -63,10 +63,10 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     """Create the FastAPI application."""
-    return FastAPI(title="Agentic RAG Backend", version="0.1.0", lifespan=lifespan)
-
-
-app = create_app()
+    app = FastAPI(title="Agentic RAG Backend", version="0.1.0", lifespan=lifespan)
+    install_middleware(app)
+    app.include_router(router)
+    return app
 
 
 def get_settings(request: Request) -> Settings:
@@ -84,31 +84,35 @@ def get_rate_limiter(request: Request) -> RateLimiter:
     return request.app.state.rate_limiter
 
 
-@app.middleware("http")
-async def enforce_request_size(request: Request, call_next):
-    settings = request.app.state.settings
-    content_length = request.headers.get("content-length")
-    if content_length:
-        try:
-            if int(content_length) > settings.request_max_bytes:
+router = APIRouter()
+
+
+def install_middleware(app: FastAPI) -> None:
+    @app.middleware("http")
+    async def enforce_request_size(request: Request, call_next):
+        settings = request.app.state.settings
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > settings.request_max_bytes:
+                    return JSONResponse(
+                        status_code=413,
+                        content={"detail": "Request body too large"},
+                    )
+            except ValueError:
                 return JSONResponse(
-                    status_code=413,
-                    content={"detail": "Request body too large"},
+                    status_code=400,
+                    content={"detail": "Invalid content-length header"},
                 )
-        except ValueError:
-            return JSONResponse(
-                status_code=400,
-                content={"detail": "Invalid content-length header"},
-            )
-    return await call_next(request)
+        return await call_next(request)
 
 
-@app.get("/health")
+@router.get("/health")
 def health_check() -> dict:
     return {"status": "ok"}
 
 
-@app.post("/query", response_model=QueryEnvelope)
+@router.post("/query", response_model=QueryEnvelope)
 async def run_query(
     payload: QueryRequest,
     orchestrator: OrchestratorAgent = Depends(get_orchestrator),
@@ -140,7 +144,9 @@ async def run_query(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except psycopg.OperationalError as exc:
         logger.exception("Database unavailable")
-        raise HTTPException(status_code=503, detail="Service temporarily unavailable") from exc
+        raise HTTPException(
+            status_code=503, detail="Service temporarily unavailable"
+        ) from exc
     except Exception as exc:
         logger.exception("Unexpected error processing query")
         raise HTTPException(status_code=500, detail="Internal server error") from exc
@@ -151,3 +157,6 @@ def run() -> None:
 
     settings = load_settings()
     uvicorn.run("agentic_rag_backend.main:app", host=settings.backend_host, port=settings.backend_port)
+
+
+app = create_app()

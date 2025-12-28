@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Optional
 from uuid import UUID, uuid4
 
 import psycopg
 from psycopg_pool import ConnectionPool
 
-EVENT_THOUGHT = "thought"
-EVENT_ACTION = "action"
-EVENT_OBSERVATION = "observation"
+class EventType(str, Enum):
+    THOUGHT = "thought"
+    ACTION = "action"
+    OBSERVATION = "observation"
 
 def create_pool(database_url: str, min_size: int, max_size: int) -> ConnectionPool:
     """Create a connection pool for trajectory storage."""
@@ -49,18 +51,18 @@ class TrajectoryLogger:
 
     def log_thought(self, tenant_id: str, trajectory_id: UUID, content: str) -> None:
         """Record a thought event for a trajectory."""
-        self._log_event(tenant_id, trajectory_id, EVENT_THOUGHT, content)
+        self._log_event(tenant_id, trajectory_id, EventType.THOUGHT, content)
 
     def log_action(self, tenant_id: str, trajectory_id: UUID, content: str) -> None:
         """Record an action event for a trajectory."""
-        self._log_event(tenant_id, trajectory_id, EVENT_ACTION, content)
+        self._log_event(tenant_id, trajectory_id, EventType.ACTION, content)
 
     def log_observation(self, tenant_id: str, trajectory_id: UUID, content: str) -> None:
         """Record an observation event for a trajectory."""
-        self._log_event(tenant_id, trajectory_id, EVENT_OBSERVATION, content)
+        self._log_event(tenant_id, trajectory_id, EventType.OBSERVATION, content)
 
     def log_events(
-        self, tenant_id: str, trajectory_id: UUID, events: list[tuple[str, str]]
+        self, tenant_id: str, trajectory_id: UUID, events: list[tuple[EventType, str]]
     ) -> None:
         """Record multiple events in a single transaction."""
         if not events:
@@ -73,7 +75,7 @@ class TrajectoryLogger:
                     values (%s, %s, %s, %s, %s)
                     """,
                     [
-                        (uuid4(), trajectory_id, tenant_id, event_type, content)
+                        (uuid4(), trajectory_id, tenant_id, event_type.value, content)
                         for event_type, content in events
                     ],
                 )
@@ -83,7 +85,7 @@ class TrajectoryLogger:
         self,
         tenant_id: str,
         trajectory_id: UUID,
-        event_type: str,
+        event_type: EventType,
         content: str,
     ) -> None:
         """Record a single event within its own transaction."""
@@ -94,6 +96,6 @@ class TrajectoryLogger:
                     insert into trajectory_events (id, trajectory_id, tenant_id, event_type, content)
                     values (%s, %s, %s, %s, %s)
                     """,
-                    (uuid4(), trajectory_id, tenant_id, event_type, content),
+                    (uuid4(), trajectory_id, tenant_id, event_type.value, content),
                 )
             conn.commit()

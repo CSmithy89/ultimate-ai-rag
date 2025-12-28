@@ -19,6 +19,9 @@ uv run alembic upgrade head
 uv run agentic-rag-backend
 ```
 
+Notes:
+- Rate limiting is in-memory per process; for multi-worker deployments use a shared store (e.g., Redis).
+
 ### Frontend
 
 ```bash

@@ -3,7 +3,7 @@ import os
 import pytest
 from psycopg import OperationalError, errors
 
-from agentic_rag_backend.trajectory import TrajectoryLogger, create_pool
+from agentic_rag_backend.trajectory import EventType, TrajectoryLogger, create_pool
 
 
 @pytest.mark.integration
@@ -21,7 +21,7 @@ def test_trajectory_events_isolated_by_tenant() -> None:
     logger.log_events(
         tenant_a,
         trajectory_id,
-        [("thought", "a thought"), ("action", "an action")],
+        [(EventType.THOUGHT, "a thought"), (EventType.ACTION, "an action")],
     )
 
     try:

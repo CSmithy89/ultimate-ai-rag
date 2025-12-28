@@ -7,12 +7,7 @@ from uuid import UUID
 
 from ..retrieval_router import RetrievalStrategy, select_retrieval_strategy
 from ..schemas import PlanStep
-from ..trajectory import (
-    EVENT_ACTION,
-    EVENT_OBSERVATION,
-    EVENT_THOUGHT,
-    TrajectoryLogger,
-)
+from ..trajectory import EventType, TrajectoryLogger
 
 try:
     from agno.agent import Agent
@@ -26,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class OrchestratorResult:
+    """Result payload returned by the orchestrator."""
     answer: str
     plan: list[PlanStep]
     thoughts: list[str]
@@ -58,11 +54,11 @@ class OrchestratorAgent:
         )
         plan = self._build_plan(query)
         logger.debug("Generated plan with %s steps", len(plan))
-        thoughts, events = self._execute_plan(plan)
+        completed_plan, thoughts, events = self._execute_plan(plan)
         strategy = select_retrieval_strategy(query)
         strategy_note = f"Selected retrieval strategy: {strategy.value}"
         thoughts.append(strategy_note)
-        events.append((EVENT_ACTION, strategy_note))
+        events.append((EventType.ACTION, strategy_note))
         logger.debug("Retrieval strategy selected: %s", strategy.value)
 
         if self._agent:
@@ -70,16 +66,19 @@ class OrchestratorAgent:
             content = getattr(response, "content", response)
             answer = str(content)
         else:
+            logger.warning("Agno agent unavailable; returning placeholder response.")
             answer = f"Received query: {query}"
 
-        events.append((EVENT_OBSERVATION, f"Generated response ({len(answer)} chars)"))
+        events.append(
+            (EventType.OBSERVATION, f"Generated response ({len(answer)} chars)")
+        )
 
         if self._logger and trajectory_id:
             self._logger.log_events(tenant_id, trajectory_id, events)
 
         return OrchestratorResult(
             answer=answer,
-            plan=plan,
+            plan=completed_plan,
             thoughts=thoughts,
             retrieval_strategy=strategy,
             trajectory_id=trajectory_id,
@@ -119,13 +118,16 @@ class OrchestratorAgent:
         index = steps.index(anchor)
         return steps[: index + 1] + [new_step] + steps[index + 1 :]
 
-    def _execute_plan(self, plan: List[PlanStep]) -> tuple[list[str], list[tuple[str, str]]]:
-        """Execute a plan and return thought strings plus log events."""
+    def _execute_plan(
+        self, plan: list[PlanStep]
+    ) -> tuple[list[PlanStep], list[str], list[tuple[EventType, str]]]:
+        """Execute a plan and return updated steps, thoughts, and log events."""
         thoughts: list[str] = []
-        events: list[tuple[str, str]] = []
+        events: list[tuple[EventType, str]] = []
+        completed_plan: list[PlanStep] = []
         for step in plan:
             thought = f"Plan step: {step.step}"
             thoughts.append(thought)
-            events.append((EVENT_THOUGHT, thought))
-            step.status = "completed"
-        return thoughts, events
+            events.append((EventType.THOUGHT, thought))
+            completed_plan.append(PlanStep(step=step.step, status="completed"))
+        return completed_plan, thoughts, events

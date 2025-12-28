@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from agentic_rag_backend.agents import orchestrator as orchestrator_module
 from agentic_rag_backend.agents.orchestrator import OrchestratorAgent
+from agentic_rag_backend.trajectory import EventType
 
 
 class StubLogger:
@@ -29,6 +30,6 @@ def test_orchestrator_builds_plan_and_logs_events(monkeypatch) -> None:
     assert result.plan
     assert any("Break down" in step.step for step in result.plan)
     assert any("Refine plan" in step.step for step in result.plan)
-    assert any(event[0] == "thought" for event in logger.events)
-    assert any(event[0] == "action" for event in logger.events)
-    assert any(event[0] == "observation" for event in logger.events)
+    assert any(event[0] == EventType.THOUGHT for event in logger.events)
+    assert any(event[0] == EventType.ACTION for event in logger.events)
+    assert any(event[0] == EventType.OBSERVATION for event in logger.events)

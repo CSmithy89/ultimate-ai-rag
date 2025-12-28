@@ -22,6 +22,7 @@ class QueryRequest(BaseModel):
     @field_validator("query")
     @classmethod
     def validate_query(cls, value: str) -> str:
+        """Validate query input."""
         trimmed = value.strip()
         if not trimmed:
             raise ValueError("query must not be blank")
@@ -32,6 +33,7 @@ class QueryRequest(BaseModel):
     @field_validator("tenant_id")
     @classmethod
     def validate_tenant_id(cls, value: str) -> str:
+        """Validate tenant identifier input."""
         trimmed = value.strip()
         if not trimmed:
             raise ValueError("tenant_id must not be blank")

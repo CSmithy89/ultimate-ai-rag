@@ -20,7 +20,7 @@ def upgrade() -> None:
     op.create_table(
         "trajectories",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
-        sa.Column("tenant_id", sa.Text(), nullable=False, server_default=sa.text("'unknown'")),
+        sa.Column("tenant_id", sa.Text(), nullable=False, server_default="unknown"),
         sa.Column("session_id", sa.Text(), nullable=True),
         sa.Column(
             "created_at",
@@ -38,7 +38,7 @@ def upgrade() -> None:
             sa.ForeignKey("trajectories.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column("tenant_id", sa.Text(), nullable=False, server_default=sa.text("'unknown'")),
+        sa.Column("tenant_id", sa.Text(), nullable=False, server_default="unknown"),
         sa.Column("event_type", sa.Text(), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
         sa.Column(

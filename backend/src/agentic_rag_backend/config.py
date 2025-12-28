@@ -25,6 +25,7 @@ class Settings:
 def load_settings() -> Settings:
     load_dotenv()
 
+    min_pool_size = 1
     try:
         backend_port = int(os.getenv("BACKEND_PORT", "8000"))
     except ValueError as exc:
@@ -32,7 +33,7 @@ def load_settings() -> Settings:
             "BACKEND_PORT must be a valid integer. Check your .env file."
         ) from exc
     try:
-        db_pool_min = int(os.getenv("DB_POOL_MIN", "1"))
+        db_pool_min = int(os.getenv("DB_POOL_MIN", str(min_pool_size)))
         db_pool_max = int(os.getenv("DB_POOL_MAX", "50"))
         request_max_bytes = int(os.getenv("REQUEST_MAX_BYTES", "1048576"))
         rate_limit_per_minute = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
@@ -41,7 +42,7 @@ def load_settings() -> Settings:
             "DB_POOL_MIN, DB_POOL_MAX, REQUEST_MAX_BYTES, and RATE_LIMIT_PER_MINUTE "
             "must be valid integers. Check your .env file."
         ) from exc
-    if db_pool_min < 1 or db_pool_max < db_pool_min:
+    if db_pool_min < min_pool_size or db_pool_max < db_pool_min:
         raise RuntimeError(
             "DB_POOL_MIN must be >= 1 and DB_POOL_MAX must be >= DB_POOL_MIN."
         )
