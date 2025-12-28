@@ -8,6 +8,8 @@
 cp .env.example .env
 ```
 
+Edit `.env` and set at least `OPENAI_API_KEY` and database credentials.
+
 ### Backend
 
 ```bash
