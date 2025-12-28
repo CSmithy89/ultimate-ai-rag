@@ -20,7 +20,7 @@ uv run agentic-rag-backend
 ```
 
 Notes:
-- Rate limiting is in-memory per process; for multi-worker deployments use a shared store (e.g., Redis).
+- Rate limiting supports `RATE_LIMIT_BACKEND=redis` for multi-worker deployments; the in-memory limiter is per-process.
 
 ### Frontend
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import asyncio
 import logging
 import re
 from uuid import UUID
@@ -43,12 +44,12 @@ class OrchestratorAgent:
         if Agent and OpenAIChat:
             self._agent = Agent(model=OpenAIChat(api_key=api_key, id=model_id))
 
-    def run(
+    async def run(
         self, query: str, tenant_id: str, session_id: str | None = None
     ) -> OrchestratorResult:
         """Run the orchestrator for a query and return the response payload."""
         trajectory_id = (
-            self._logger.start_trajectory(tenant_id, session_id)
+            await self._logger.start_trajectory(tenant_id, session_id)
             if self._logger
             else None
         )
@@ -62,7 +63,7 @@ class OrchestratorAgent:
         logger.debug("Retrieval strategy selected: %s", strategy.value)
 
         if self._agent:
-            response = self._agent.run(query)
+            response = await asyncio.to_thread(self._agent.run, query)
             content = getattr(response, "content", response)
             answer = str(content)
         else:
@@ -74,7 +75,7 @@ class OrchestratorAgent:
         )
 
         if self._logger and trajectory_id:
-            self._logger.log_events(tenant_id, trajectory_id, events)
+            await self._logger.log_events(tenant_id, trajectory_id, events)
 
         return OrchestratorResult(
             answer=answer,

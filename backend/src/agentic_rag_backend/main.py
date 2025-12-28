@@ -5,7 +5,6 @@ import os
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
-from fastapi.concurrency import run_in_threadpool
 import psycopg
 from starlette.responses import JSONResponse
 
@@ -13,7 +12,9 @@ from pydantic import ValidationError
 
 from .config import Settings, load_settings
 from .agents.orchestrator import OrchestratorAgent
-from .rate_limit import RateLimiter
+import redis.asyncio as redis
+
+from .rate_limit import InMemoryRateLimiter, RateLimiter, RedisRateLimiter, close_redis
 from .schemas import QueryEnvelope, QueryRequest, QueryResponse, ResponseMeta
 from .trajectory import TrajectoryLogger, close_pool, create_pool
 
@@ -32,10 +33,11 @@ async def lifespan(app: FastAPI):
     if _should_skip_pool():
         app.state.pool = None
         app.state.trajectory_logger = None
-        app.state.rate_limiter = RateLimiter(
+        app.state.rate_limiter = InMemoryRateLimiter(
             max_requests=settings.rate_limit_per_minute,
             window_seconds=60,
         )
+        app.state.redis = None
         app.state.orchestrator = OrchestratorAgent(
             api_key=settings.openai_api_key,
             model_id=settings.openai_model_id,
@@ -45,20 +47,34 @@ async def lifespan(app: FastAPI):
         return
 
     pool = create_pool(settings.database_url, settings.db_pool_min, settings.db_pool_max)
+    await pool.open()
     app.state.pool = pool
     trajectory_logger = TrajectoryLogger(pool=pool)
     app.state.trajectory_logger = trajectory_logger
-    app.state.rate_limiter = RateLimiter(
-        max_requests=settings.rate_limit_per_minute,
-        window_seconds=60,
-    )
+    if settings.rate_limit_backend == "redis":
+        redis_client = redis.from_url(settings.redis_url, decode_responses=True)
+        app.state.redis = redis_client
+        app.state.rate_limiter = RedisRateLimiter(
+            client=redis_client,
+            max_requests=settings.rate_limit_per_minute,
+            window_seconds=60,
+            key_prefix=settings.rate_limit_redis_prefix,
+        )
+    else:
+        app.state.redis = None
+        app.state.rate_limiter = InMemoryRateLimiter(
+            max_requests=settings.rate_limit_per_minute,
+            window_seconds=60,
+        )
     app.state.orchestrator = OrchestratorAgent(
         api_key=settings.openai_api_key,
         model_id=settings.openai_model_id,
         logger=trajectory_logger,
     )
     yield
-    await run_in_threadpool(close_pool, pool)
+    if app.state.redis:
+        await close_redis(app.state.redis)
+    await close_pool(pool)
 
 
 def create_app() -> FastAPI:
@@ -119,10 +135,9 @@ async def run_query(
     limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> QueryEnvelope:
     try:
-        if not limiter.allow(payload.tenant_id):
+        if not await limiter.allow(payload.tenant_id):
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
-        result = await run_in_threadpool(
-            orchestrator.run,
+        result = await orchestrator.run(
             payload.query,
             payload.tenant_id,
             payload.session_id,

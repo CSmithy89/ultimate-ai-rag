@@ -13,6 +13,8 @@ class Settings:
     db_pool_max: int
     request_max_bytes: int
     rate_limit_per_minute: int
+    rate_limit_backend: str
+    rate_limit_redis_prefix: str
     neo4j_uri: str
     neo4j_user: str
     neo4j_password: str
@@ -37,6 +39,8 @@ def load_settings() -> Settings:
         db_pool_max = int(os.getenv("DB_POOL_MAX", "50"))
         request_max_bytes = int(os.getenv("REQUEST_MAX_BYTES", "1048576"))
         rate_limit_per_minute = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
+        rate_limit_backend = os.getenv("RATE_LIMIT_BACKEND", "memory")
+        rate_limit_redis_prefix = os.getenv("RATE_LIMIT_REDIS_PREFIX", "rate-limit")
     except ValueError as exc:
         raise RuntimeError(
             "DB_POOL_MIN, DB_POOL_MAX, REQUEST_MAX_BYTES, and RATE_LIMIT_PER_MINUTE "
@@ -50,6 +54,8 @@ def load_settings() -> Settings:
         raise RuntimeError("REQUEST_MAX_BYTES must be >= 1.")
     if rate_limit_per_minute < 1:
         raise RuntimeError("RATE_LIMIT_PER_MINUTE must be >= 1.")
+    if rate_limit_backend not in {"memory", "redis"}:
+        raise RuntimeError("RATE_LIMIT_BACKEND must be 'memory' or 'redis'.")
 
     required = [
         "OPENAI_API_KEY",
@@ -76,6 +82,8 @@ def load_settings() -> Settings:
         db_pool_max=db_pool_max,
         request_max_bytes=request_max_bytes,
         rate_limit_per_minute=rate_limit_per_minute,
+        rate_limit_backend=rate_limit_backend,
+        rate_limit_redis_prefix=rate_limit_redis_prefix,
         neo4j_uri=values["NEO4J_URI"],
         neo4j_user=values["NEO4J_USER"],
         neo4j_password=values["NEO4J_PASSWORD"],

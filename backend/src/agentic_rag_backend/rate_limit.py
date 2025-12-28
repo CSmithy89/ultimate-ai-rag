@@ -2,12 +2,21 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-from threading import Lock
 from time import time
+import asyncio
+
+import redis.asyncio as redis
+
+
+class RateLimiter:
+    """Async rate limiter interface."""
+
+    async def allow(self, key: str) -> bool:  # pragma: no cover - interface
+        raise NotImplementedError
 
 
 @dataclass
-class RateLimiter:
+class InMemoryRateLimiter(RateLimiter):
     """In-memory rate limiter (per process).
 
     Note: In multi-worker deployments, each worker maintains its own limiter state.
@@ -18,16 +27,15 @@ class RateLimiter:
     window_seconds: int
 
     def __post_init__(self) -> None:
-        """Initialize rate limiter state."""
-        self._lock = Lock()
+        self._lock = asyncio.Lock()
         self._requests: dict[str, deque[float]] = {}
         self._last_seen: dict[str, float] = {}
         self._inactive_ttl = self.window_seconds * 2
 
-    def allow(self, key: str) -> bool:
+    async def allow(self, key: str) -> bool:
         now = time()
         cutoff = now - self.window_seconds
-        with self._lock:
+        async with self._lock:
             self._cleanup(now)
             bucket = self._requests.setdefault(key, deque())
             while bucket and bucket[0] < cutoff:
@@ -47,3 +55,26 @@ class RateLimiter:
             if last_seen < stale_before:
                 self._last_seen.pop(key, None)
                 self._requests.pop(key, None)
+
+
+@dataclass
+class RedisRateLimiter(RateLimiter):
+    """Redis-backed rate limiter (global across workers)."""
+
+    client: redis.Redis
+    max_requests: int
+    window_seconds: int
+    key_prefix: str = "rate-limit"
+
+    async def allow(self, key: str) -> bool:
+        bucket = int(time() / self.window_seconds)
+        redis_key = f"{self.key_prefix}:{key}:{bucket}"
+        pipeline = self.client.pipeline()
+        pipeline.incr(redis_key)
+        pipeline.expire(redis_key, self.window_seconds * 2)
+        current, _ = await pipeline.execute()
+        return int(current) <= self.max_requests
+
+
+async def close_redis(client: redis.Redis) -> None:
+    await client.close()

@@ -8,7 +8,9 @@ import psycopg
 
 
 class DummyOrchestrator:
-    def run(self, query: str, tenant_id: str, session_id: str | None = None) -> OrchestratorResult:
+    async def run(
+        self, query: str, tenant_id: str, session_id: str | None = None
+    ) -> OrchestratorResult:
         return OrchestratorResult(
             answer="ok",
             plan=[PlanStep(step="Step", status="completed")],
@@ -19,12 +21,16 @@ class DummyOrchestrator:
 
 
 class ErrorOrchestrator:
-    def run(self, query: str, tenant_id: str, session_id: str | None = None) -> OrchestratorResult:
+    async def run(
+        self, query: str, tenant_id: str, session_id: str | None = None
+    ) -> OrchestratorResult:
         raise RuntimeError("boom")
 
 
 class DbErrorOrchestrator:
-    def run(self, query: str, tenant_id: str, session_id: str | None = None) -> OrchestratorResult:
+    async def run(
+        self, query: str, tenant_id: str, session_id: str | None = None
+    ) -> OrchestratorResult:
         raise psycopg.OperationalError("db down")
 
 
