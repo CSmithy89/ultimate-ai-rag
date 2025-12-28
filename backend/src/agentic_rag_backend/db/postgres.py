@@ -1,4 +1,4 @@
-"""PostgreSQL async client for documents and jobs tables."""
+"""PostgreSQL async client for documents, jobs, and chunks tables."""
 
 from datetime import datetime
 from typing import Any, Optional
@@ -15,9 +15,10 @@ logger = structlog.get_logger(__name__)
 
 class PostgresClient:
     """
-    Async PostgreSQL client for managing documents and ingestion jobs.
+    Async PostgreSQL client for managing documents, ingestion jobs, and chunks.
 
     Implements multi-tenancy through tenant_id filtering on all queries.
+    Supports pgvector for chunk embedding storage and similarity search.
     """
 
     def __init__(self, url: str) -> None:
@@ -58,10 +59,13 @@ class PostgresClient:
         """
         Create required tables if they don't exist.
 
-        This creates the documents and ingestion_jobs tables with proper
-        indexes for multi-tenancy and status filtering.
+        This creates the documents, ingestion_jobs, and chunks tables with proper
+        indexes for multi-tenancy, status filtering, and vector similarity search.
         """
         async with self.pool.acquire() as conn:
+            # Enable pgvector extension
+            await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
             # Create documents table with Story 4.2 columns (file_size, page_count)
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS documents (
@@ -121,6 +125,45 @@ class PostgresClient:
                 CREATE INDEX IF NOT EXISTS idx_ingestion_jobs_status
                 ON ingestion_jobs(status)
             """)
+
+            # Story 4.3: Create chunks table with pgvector embedding
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS chunks (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    tenant_id UUID NOT NULL,
+                    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                    content TEXT NOT NULL,
+                    chunk_index INTEGER NOT NULL,
+                    token_count INTEGER NOT NULL,
+                    embedding vector(1536),
+                    metadata JSONB,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+
+            # Create indexes for chunks table
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_chunks_tenant_id
+                ON chunks(tenant_id)
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_chunks_document_id
+                ON chunks(document_id)
+            """)
+
+            # Create IVFFlat index for vector similarity search
+            # Note: This requires at least some data to be present for optimal list sizing
+            # Using a conservative list size for initial setup
+            try:
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_chunks_embedding
+                    ON chunks USING ivfflat (embedding vector_cosine_ops)
+                    WITH (lists = 100)
+                """)
+            except asyncpg.PostgresError:
+                # IVFFlat index creation may fail if no data exists yet
+                # Will be created when sufficient data is available
+                logger.warning("ivfflat_index_skipped", reason="may require data to exist first")
 
             logger.info("tables_created")
 
@@ -544,6 +587,248 @@ class PostgresClient:
                 return jobs
         except asyncpg.PostgresError as e:
             raise DatabaseError("list_jobs", str(e)) from e
+
+    # Story 4.3: Chunk storage methods
+
+    async def create_chunk(
+        self,
+        tenant_id: UUID,
+        document_id: UUID,
+        content: str,
+        chunk_index: int,
+        token_count: int,
+        embedding: Optional[list[float]] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> UUID:
+        """
+        Create a new chunk with embedding.
+
+        Args:
+            tenant_id: Tenant identifier
+            document_id: Parent document ID
+            content: Chunk text content
+            chunk_index: Position in document
+            token_count: Number of tokens in chunk
+            embedding: Optional 1536-dim embedding vector
+            metadata: Optional additional metadata
+
+        Returns:
+            UUID of the created chunk
+
+        Raises:
+            DatabaseError: If creation fails
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                # Convert embedding list to string format for pgvector
+                embedding_str = None
+                if embedding is not None:
+                    embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO chunks (tenant_id, document_id, content, chunk_index, token_count, embedding, metadata)
+                    VALUES ($1, $2, $3, $4, $5, $6::vector, $7)
+                    RETURNING id
+                    """,
+                    tenant_id,
+                    document_id,
+                    content,
+                    chunk_index,
+                    token_count,
+                    embedding_str,
+                    metadata,
+                )
+                chunk_id = row["id"]
+                logger.debug(
+                    "chunk_created",
+                    chunk_id=str(chunk_id),
+                    document_id=str(document_id),
+                    chunk_index=chunk_index,
+                )
+                return chunk_id
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("create_chunk", str(e)) from e
+
+    async def get_chunk(
+        self,
+        chunk_id: UUID,
+        tenant_id: UUID,
+    ) -> Optional[dict[str, Any]]:
+        """
+        Get a chunk by ID with tenant filtering.
+
+        Args:
+            chunk_id: Chunk UUID
+            tenant_id: Tenant identifier for access control
+
+        Returns:
+            Chunk record as dictionary, or None if not found
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT id, tenant_id, document_id, content, chunk_index, token_count, metadata, created_at
+                    FROM chunks
+                    WHERE id = $1 AND tenant_id = $2
+                    """,
+                    chunk_id,
+                    tenant_id,
+                )
+                return dict(row) if row else None
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("get_chunk", str(e)) from e
+
+    async def get_chunks_by_document(
+        self,
+        document_id: UUID,
+        tenant_id: UUID,
+    ) -> list[dict[str, Any]]:
+        """
+        Get all chunks for a document.
+
+        Args:
+            document_id: Document UUID
+            tenant_id: Tenant identifier for access control
+
+        Returns:
+            List of chunk records ordered by chunk_index
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, tenant_id, document_id, content, chunk_index, token_count, metadata, created_at
+                    FROM chunks
+                    WHERE document_id = $1 AND tenant_id = $2
+                    ORDER BY chunk_index
+                    """,
+                    document_id,
+                    tenant_id,
+                )
+                return [dict(row) for row in rows]
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("get_chunks_by_document", str(e)) from e
+
+    async def search_similar_chunks(
+        self,
+        tenant_id: UUID,
+        embedding: list[float],
+        limit: int = 10,
+        similarity_threshold: float = 0.7,
+    ) -> list[dict[str, Any]]:
+        """
+        Search for similar chunks using cosine similarity.
+
+        Args:
+            tenant_id: Tenant identifier for filtering
+            embedding: Query embedding vector (1536 dimensions)
+            limit: Maximum number of results
+            similarity_threshold: Minimum similarity score (0.0-1.0)
+
+        Returns:
+            List of chunk records with similarity scores
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                # Convert embedding to string format
+                embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
+                rows = await conn.fetch(
+                    """
+                    SELECT
+                        id, tenant_id, document_id, content, chunk_index, token_count, metadata, created_at,
+                        1 - (embedding <=> $2::vector) as similarity
+                    FROM chunks
+                    WHERE tenant_id = $1
+                        AND embedding IS NOT NULL
+                        AND 1 - (embedding <=> $2::vector) >= $3
+                    ORDER BY embedding <=> $2::vector
+                    LIMIT $4
+                    """,
+                    tenant_id,
+                    embedding_str,
+                    similarity_threshold,
+                    limit,
+                )
+                return [dict(row) for row in rows]
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("search_similar_chunks", str(e)) from e
+
+    async def delete_chunks_by_document(
+        self,
+        document_id: UUID,
+        tenant_id: UUID,
+    ) -> int:
+        """
+        Delete all chunks for a document.
+
+        Args:
+            document_id: Document UUID
+            tenant_id: Tenant identifier
+
+        Returns:
+            Number of chunks deleted
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                result = await conn.execute(
+                    """
+                    DELETE FROM chunks
+                    WHERE document_id = $1 AND tenant_id = $2
+                    """,
+                    document_id,
+                    tenant_id,
+                )
+                # Parse "DELETE N" result
+                count = int(result.split(" ")[1]) if result else 0
+                logger.info(
+                    "chunks_deleted",
+                    document_id=str(document_id),
+                    count=count,
+                )
+                return count
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("delete_chunks_by_document", str(e)) from e
+
+    async def get_chunk_count(
+        self,
+        tenant_id: UUID,
+        document_id: Optional[UUID] = None,
+    ) -> int:
+        """
+        Get the count of chunks for a tenant or document.
+
+        Args:
+            tenant_id: Tenant identifier
+            document_id: Optional document filter
+
+        Returns:
+            Number of chunks
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                if document_id:
+                    row = await conn.fetchrow(
+                        """
+                        SELECT COUNT(*) as count FROM chunks
+                        WHERE tenant_id = $1 AND document_id = $2
+                        """,
+                        tenant_id,
+                        document_id,
+                    )
+                else:
+                    row = await conn.fetchrow(
+                        """
+                        SELECT COUNT(*) as count FROM chunks
+                        WHERE tenant_id = $1
+                        """,
+                        tenant_id,
+                    )
+                return row["count"] if row else 0
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("get_chunk_count", str(e)) from e
 
 
 # Global PostgreSQL client instance

@@ -1,5 +1,15 @@
 """pytest fixtures for Agentic RAG Backend tests."""
 
+import os
+
+# Set environment variables BEFORE any imports
+os.environ.setdefault("OPENAI_API_KEY", "test-key")
+os.environ.setdefault("DATABASE_URL", "postgresql://localhost/test")
+os.environ.setdefault("NEO4J_URI", "bolt://localhost:7687")
+os.environ.setdefault("NEO4J_USER", "neo4j")
+os.environ.setdefault("NEO4J_PASSWORD", "test")
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379")
+
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -16,6 +26,12 @@ def sample_tenant_id():
 @pytest.fixture
 def sample_job_id():
     """Provide a sample job ID."""
+    return uuid4()
+
+
+@pytest.fixture
+def sample_document_id():
+    """Provide a sample document ID."""
     return uuid4()
 
 
@@ -89,6 +105,35 @@ def mock_postgres_client(sample_job_id, sample_tenant_id):
     client.connect = AsyncMock()
     client.disconnect = AsyncMock()
     client.create_tables = AsyncMock()
+    # Story 4.3 chunk methods
+    client.create_chunk = AsyncMock(return_value=uuid4())
+    client.get_chunk = AsyncMock(return_value=None)
+    client.get_chunks_by_document = AsyncMock(return_value=[])
+    client.search_similar_chunks = AsyncMock(return_value=[])
+    return client
+
+
+@pytest.fixture
+def mock_neo4j_client():
+    """Mock Neo4jClient wrapper."""
+    from agentic_rag_backend.db.neo4j import Neo4jClient
+
+    client = MagicMock(spec=Neo4jClient)
+    client.find_similar_entity = AsyncMock(return_value=None)
+    client.create_entity = AsyncMock(return_value={"id": "test-id"})
+    client.create_relationship = AsyncMock(return_value=True)
+    client.create_document_node = AsyncMock(return_value={})
+    client.create_chunk_node = AsyncMock(return_value={})
+    client.link_chunk_to_entity = AsyncMock(return_value=True)
+    client.get_graph_stats = AsyncMock(return_value={
+        "entity_count": 0,
+        "document_count": 0,
+        "chunk_count": 0,
+        "relationship_count": 0,
+    })
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock()
+    client.create_indexes = AsyncMock()
     return client
 
 

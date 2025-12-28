@@ -21,6 +21,11 @@ dependencies = [
   "docling>=2.15.0",
   "python-multipart>=0.0.6",
   "aiofiles>=24.1.0",
+  # Story 4.3 - Agentic Entity Extraction
+  "neo4j>=5.0.0",
+  "tiktoken>=0.5.0",
+  "openai>=1.0.0",
+  "pgvector>=0.2.0",
 ]
 
 [project.scripts]

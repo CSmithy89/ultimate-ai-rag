@@ -27,6 +27,12 @@ class Settings:
     max_upload_size_mb: int
     temp_upload_dir: str
     docling_service_url: Optional[str]
+    # Story 4.3 - Agentic Entity Extraction settings
+    entity_extraction_model: str
+    embedding_model: str
+    chunk_size: int
+    chunk_overlap: int
+    entity_similarity_threshold: float
 
 
 def load_settings() -> Settings:
@@ -57,6 +63,22 @@ def load_settings() -> Settings:
         max_upload_size_mb = int(os.getenv("MAX_UPLOAD_SIZE_MB", "100"))
     except ValueError:
         max_upload_size_mb = 100
+
+    # Story 4.3 settings parsing
+    try:
+        chunk_size = int(os.getenv("CHUNK_SIZE", "512"))
+    except ValueError:
+        chunk_size = 512
+
+    try:
+        chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "64"))
+    except ValueError:
+        chunk_overlap = 64
+
+    try:
+        entity_similarity_threshold = float(os.getenv("ENTITY_SIMILARITY_THRESHOLD", "0.95"))
+    except ValueError:
+        entity_similarity_threshold = 0.95
 
     required = [
         "OPENAI_API_KEY",
@@ -91,4 +113,10 @@ def load_settings() -> Settings:
         max_upload_size_mb=max_upload_size_mb,
         temp_upload_dir=os.getenv("TEMP_UPLOAD_DIR", "/tmp/uploads"),
         docling_service_url=os.getenv("DOCLING_SERVICE_URL"),
+        # Story 4.3 - Agentic Entity Extraction settings
+        entity_extraction_model=os.getenv("ENTITY_EXTRACTION_MODEL", "gpt-4o"),
+        embedding_model=os.getenv("EMBEDDING_MODEL", "text-embedding-ada-002"),
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        entity_similarity_threshold=entity_similarity_threshold,
     )

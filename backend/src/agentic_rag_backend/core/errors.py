@@ -25,6 +25,13 @@ class ErrorCode(str, Enum):
     PASSWORD_PROTECTED = "password_protected"
     PARSE_FAILED = "parse_failed"
     STORAGE_ERROR = "storage_error"
+    # Story 4.3 - Agentic Entity Extraction error codes
+    EXTRACTION_FAILED = "extraction_failed"
+    EMBEDDING_FAILED = "embedding_failed"
+    GRAPH_BUILD_FAILED = "graph_build_failed"
+    NEO4J_ERROR = "neo4j_error"
+    DEDUPLICATION_FAILED = "deduplication_failed"
+    CHUNKING_FAILED = "chunking_failed"
 
 
 class AppError(Exception):
@@ -213,6 +220,84 @@ class StorageError(AppError):
             code=ErrorCode.STORAGE_ERROR,
             message=f"Storage error during {operation}: {reason}",
             status=500,
+        )
+
+
+# Story 4.3 - Agentic Entity Extraction Errors
+
+
+class ExtractionError(AppError):
+    """Error during entity extraction."""
+
+    def __init__(self, chunk_id: str, reason: str) -> None:
+        super().__init__(
+            code=ErrorCode.EXTRACTION_FAILED,
+            message=f"Entity extraction failed: {reason}",
+            status=500,
+            details={"chunk_id": chunk_id},
+        )
+
+
+class EmbeddingError(AppError):
+    """Error during embedding generation."""
+
+    def __init__(self, reason: str, batch_size: Optional[int] = None) -> None:
+        details = {}
+        if batch_size is not None:
+            details["batch_size"] = batch_size
+        super().__init__(
+            code=ErrorCode.EMBEDDING_FAILED,
+            message=f"Embedding generation failed: {reason}",
+            status=500,
+            details=details,
+        )
+
+
+class GraphBuildError(AppError):
+    """Error during knowledge graph construction."""
+
+    def __init__(self, operation: str, reason: str) -> None:
+        super().__init__(
+            code=ErrorCode.GRAPH_BUILD_FAILED,
+            message=f"Graph build failed during {operation}: {reason}",
+            status=500,
+            details={"operation": operation},
+        )
+
+
+class Neo4jError(AppError):
+    """Neo4j database operation error."""
+
+    def __init__(self, operation: str, reason: str) -> None:
+        super().__init__(
+            code=ErrorCode.NEO4J_ERROR,
+            message=f"Neo4j error during {operation}: {reason}",
+            status=500,
+            details={"operation": operation},
+        )
+
+
+class DeduplicationError(AppError):
+    """Error during entity deduplication."""
+
+    def __init__(self, entity_name: str, reason: str) -> None:
+        super().__init__(
+            code=ErrorCode.DEDUPLICATION_FAILED,
+            message=f"Entity deduplication failed for '{entity_name}': {reason}",
+            status=500,
+            details={"entity_name": entity_name},
+        )
+
+
+class ChunkingError(AppError):
+    """Error during document chunking."""
+
+    def __init__(self, document_id: str, reason: str) -> None:
+        super().__init__(
+            code=ErrorCode.CHUNKING_FAILED,
+            message=f"Document chunking failed: {reason}",
+            status=500,
+            details={"document_id": document_id},
         )
 
 
