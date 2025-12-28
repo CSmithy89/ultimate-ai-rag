@@ -30,4 +30,4 @@
 ### PASS
 
 Notes:
-- Frontend test script reports "No tests configured"; backend test tasks are not configured in Turbo.
+- Frontend test script reports "No tests configured"; backend tests added but not executed in this report.

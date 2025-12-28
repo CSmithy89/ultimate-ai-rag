@@ -20,59 +20,6 @@ def close_pool(pool: ConnectionPool) -> None:
     pool.close()
 
 
-def ensure_trajectory_schema(pool: ConnectionPool) -> None:
-    """Ensure trajectory tables and indexes exist."""
-    with pool.connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                create table if not exists trajectories (
-                    id uuid primary key,
-                    tenant_id text not null default 'unknown',
-                    session_id text,
-                    created_at timestamptz not null default now()
-                );
-                """
-            )
-            cursor.execute(
-                """
-                create table if not exists trajectory_events (
-                    id uuid primary key,
-                    trajectory_id uuid not null references trajectories(id) on delete cascade,
-                    tenant_id text not null default 'unknown',
-                    event_type text not null,
-                    content text not null,
-                    created_at timestamptz not null default now()
-                );
-                """
-            )
-            cursor.execute(
-                "alter table trajectories add column if not exists tenant_id text not null default 'unknown'"
-            )
-            cursor.execute(
-                "alter table trajectory_events add column if not exists tenant_id text not null default 'unknown'"
-            )
-            cursor.execute(
-                "create index if not exists idx_trajectory_events_trajectory_id on trajectory_events (trajectory_id)"
-            )
-            cursor.execute(
-                "create index if not exists idx_trajectory_events_created_at on trajectory_events (created_at)"
-            )
-            cursor.execute(
-                "create index if not exists idx_trajectory_events_event_type on trajectory_events (event_type)"
-            )
-            cursor.execute(
-                "create index if not exists idx_trajectories_session_id on trajectories (session_id)"
-            )
-            cursor.execute(
-                "create index if not exists idx_trajectories_tenant_id on trajectories (tenant_id)"
-            )
-            cursor.execute(
-                "create index if not exists idx_trajectory_events_tenant_id on trajectory_events (tenant_id)"
-            )
-        conn.commit()
-
-
 @dataclass
 class TrajectoryLogger:
     pool: ConnectionPool

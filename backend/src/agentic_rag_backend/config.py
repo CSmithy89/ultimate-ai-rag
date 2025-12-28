@@ -31,7 +31,7 @@ def load_settings() -> Settings:
         ) from exc
     try:
         db_pool_min = int(os.getenv("DB_POOL_MIN", "1"))
-        db_pool_max = int(os.getenv("DB_POOL_MAX", "5"))
+        db_pool_max = int(os.getenv("DB_POOL_MAX", "50"))
     except ValueError as exc:
         raise RuntimeError(
             "DB_POOL_MIN and DB_POOL_MAX must be valid integers. Check your .env file."

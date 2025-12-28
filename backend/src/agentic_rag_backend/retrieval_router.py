@@ -58,4 +58,4 @@ def select_retrieval_strategy(query: str) -> RetrievalStrategy:
 
 
 def _matches_any(text: str, hints: set[str]) -> bool:
-    return any(re.search(rf"\\b{re.escape(token)}\\b", text) for token in hints)
+    return any(re.search(rf"\b{re.escape(token)}\b", text) for token in hints)

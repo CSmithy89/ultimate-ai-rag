@@ -47,5 +47,5 @@ def test_query_endpoint_envelope(monkeypatch) -> None:
     assert "meta" in body
     assert body["data"]["answer"] == "ok"
     assert body["data"]["retrieval_strategy"] == "vector"
-    assert body["meta"]["request_id"]
+    assert body["meta"]["requestId"]
     assert body["meta"]["timestamp"]

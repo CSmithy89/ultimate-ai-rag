@@ -15,6 +15,7 @@ Edit `.env` and set at least `OPENAI_API_KEY` and database credentials.
 ```bash
 cd backend
 uv sync
+uv run alembic upgrade head
 uv run agentic-rag-backend
 ```
 

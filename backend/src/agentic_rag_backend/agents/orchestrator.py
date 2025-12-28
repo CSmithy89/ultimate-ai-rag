@@ -94,22 +94,29 @@ class OrchestratorAgent:
             "Synthesize response",
         ]
         if self._has_token(query, "compare") or self._has_token(query, "versus"):
-            base_steps.insert(2, "Break down into sub-questions")
-
-        plan = [PlanStep(step=step, status="pending") for step in base_steps]
-
-        if self._has_token(query, "if") or self._has_token(query, "depending"):
-            plan.insert(
-                3,
-                PlanStep(
-                    step="Refine plan based on intermediate signals", status="pending"
-                ),
+            base_steps = self._insert_after(
+                base_steps,
+                "Understand the question intent",
+                "Break down into sub-questions",
             )
 
-        return plan
+        if self._has_token(query, "if") or self._has_token(query, "depending"):
+            base_steps = self._insert_after(
+                base_steps,
+                "Gather evidence",
+                "Refine plan based on intermediate signals",
+            )
+
+        return [PlanStep(step=step, status="pending") for step in base_steps]
 
     def _has_token(self, query: str, token: str) -> bool:
-        return re.search(rf"\\b{re.escape(token)}\\b", query.lower()) is not None
+        return re.search(rf"\b{re.escape(token)}\b", query.lower()) is not None
+
+    def _insert_after(self, steps: List[str], anchor: str, new_step: str) -> List[str]:
+        if anchor not in steps:
+            return steps + [new_step]
+        index = steps.index(anchor)
+        return steps[: index + 1] + [new_step] + steps[index + 1 :]
 
     def _execute_plan(self, plan: List[PlanStep]) -> tuple[List[str], list[tuple[str, str]]]:
         thoughts: List[str] = []

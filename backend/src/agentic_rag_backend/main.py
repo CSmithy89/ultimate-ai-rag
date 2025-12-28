@@ -8,10 +8,12 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 import psycopg
 
+from pydantic import ValidationError
+
 from .config import Settings, load_settings
 from .agents.orchestrator import OrchestratorAgent
 from .schemas import QueryEnvelope, QueryRequest, QueryResponse, ResponseMeta
-from .trajectory import TrajectoryLogger, close_pool, create_pool, ensure_trajectory_schema
+from .trajectory import TrajectoryLogger, close_pool, create_pool
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +47,6 @@ async def lifespan(app: FastAPI):
         model_id=settings.openai_model_id,
         logger=trajectory_logger,
     )
-    await run_in_threadpool(ensure_trajectory_schema, pool)
     yield
     await run_in_threadpool(close_pool, pool)
 
@@ -97,12 +98,15 @@ async def run_query(
             timestamp=datetime.now(timezone.utc),
         )
         return QueryEnvelope(data=data, meta=meta)
+    except ValidationError as exc:
+        logger.exception("Validation error")
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except psycopg.OperationalError as exc:
         logger.exception("Database unavailable")
-        raise HTTPException(status_code=503, detail="Database unavailable") from exc
+        raise HTTPException(status_code=503, detail="Service temporarily unavailable") from exc
     except Exception as exc:
-        logger.exception("Query processing failed")
-        raise HTTPException(status_code=500, detail="Query processing failed") from exc
+        logger.exception("Unexpected error processing query")
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 def run() -> None:

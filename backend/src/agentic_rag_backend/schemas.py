@@ -1,9 +1,11 @@
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class QueryRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
     query: str = Field(..., min_length=1, max_length=10000)
     tenant_id: str = Field(
         ...,
@@ -37,8 +39,8 @@ class QueryRequest(BaseModel):
 
 
 class PlanStep(BaseModel):
-    step: str
-    status: str
+    step: str = Field(..., min_length=1)
+    status: Literal["pending", "in_progress", "completed"]
 
 
 class QueryResponse(BaseModel):
@@ -50,7 +52,8 @@ class QueryResponse(BaseModel):
 
 
 class ResponseMeta(BaseModel):
-    request_id: str
+    model_config = ConfigDict(populate_by_name=True)
+    request_id: str = Field(alias="requestId")
     timestamp: datetime
 
 
