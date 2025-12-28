@@ -1,4 +1,5 @@
 from enum import Enum
+import re
 
 
 class RetrievalStrategy(str, Enum):
@@ -36,16 +37,16 @@ HYBRID_HINTS = {
     "multi-hop",
     "multi hop",
     "across",
-    "and",
     "combine",
 }
 
 
 def select_retrieval_strategy(query: str) -> RetrievalStrategy:
+    """Select a retrieval strategy based on query hints."""
     normalized = query.lower()
-    semantic = any(token in normalized for token in SEMANTIC_HINTS)
-    relational = any(token in normalized for token in RELATIONAL_HINTS)
-    hybrid = any(token in normalized for token in HYBRID_HINTS)
+    semantic = _matches_any(normalized, SEMANTIC_HINTS)
+    relational = _matches_any(normalized, RELATIONAL_HINTS)
+    hybrid = _matches_any(normalized, HYBRID_HINTS)
 
     if (semantic and relational) or (hybrid and (semantic or relational)):
         return RetrievalStrategy.HYBRID
@@ -54,3 +55,7 @@ def select_retrieval_strategy(query: str) -> RetrievalStrategy:
     if semantic:
         return RetrievalStrategy.VECTOR
     return RetrievalStrategy.VECTOR
+
+
+def _matches_any(text: str, hints: set[str]) -> bool:
+    return any(re.search(rf"\\b{re.escape(token)}\\b", text) for token in hints)

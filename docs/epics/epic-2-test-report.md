@@ -27,7 +27,7 @@
 - Branch coverage: N/A
 
 ## Gate Decision
-**PASS**
+### PASS
 
 Notes:
 - Frontend test script reports "No tests configured"; backend test tasks are not configured in Turbo.

@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 @dataclass(frozen=True)
 class Settings:
     openai_api_key: str
+    openai_model_id: str
     database_url: str
     neo4j_uri: str
     neo4j_user: str
@@ -46,6 +47,7 @@ def load_settings() -> Settings:
 
     return Settings(
         openai_api_key=values["OPENAI_API_KEY"],
+        openai_model_id=os.getenv("OPENAI_MODEL_ID", "gpt-4o-mini"),
         database_url=values["DATABASE_URL"],
         neo4j_uri=values["NEO4J_URI"],
         neo4j_user=values["NEO4J_USER"],
