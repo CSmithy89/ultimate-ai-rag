@@ -2,3 +2,9 @@
 .claude/
 .codex/
 .gemini/
+node_modules/
+frontend/node_modules/
+frontend/.turbo/
+frontend/.next/
+**/*.tsbuildinfo
+pnpm-debug.log*
