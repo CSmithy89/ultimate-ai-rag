@@ -56,7 +56,7 @@ gpt-5
 ### File List
 
 - backend/src/agentic_rag_backend/retrieval_router.py
-- backend/src/agentic_rag_backend/orchestrator.py
+- backend/src/agentic_rag_backend/agents/orchestrator.py
 - backend/src/agentic_rag_backend/schemas.py
 - backend/src/agentic_rag_backend/main.py
 

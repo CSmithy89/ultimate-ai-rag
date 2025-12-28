@@ -33,7 +33,7 @@ so that sophisticated questions are broken down and answered systematically.
 
 ### Project Structure Notes
 
-- Orchestrator logic lives in `backend/src/agentic_rag_backend/orchestrator.py`.
+- Orchestrator logic lives in `backend/src/agentic_rag_backend/agents/orchestrator.py`.
 - API schemas live in `backend/src/agentic_rag_backend/schemas.py`.
 
 ### References
@@ -57,7 +57,7 @@ gpt-5
 
 ### File List
 
-- backend/src/agentic_rag_backend/orchestrator.py
+- backend/src/agentic_rag_backend/agents/orchestrator.py
 - backend/src/agentic_rag_backend/schemas.py
 - backend/src/agentic_rag_backend/main.py
 

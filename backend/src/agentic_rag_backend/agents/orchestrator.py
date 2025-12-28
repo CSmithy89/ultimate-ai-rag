@@ -6,9 +6,14 @@ import re
 from typing import List
 from uuid import UUID
 
-from .retrieval_router import RetrievalStrategy, select_retrieval_strategy
-from .schemas import PlanStep
-from .trajectory import TrajectoryLogger
+from ..retrieval_router import RetrievalStrategy, select_retrieval_strategy
+from ..schemas import PlanStep
+from ..trajectory import (
+    EVENT_ACTION,
+    EVENT_OBSERVATION,
+    EVENT_THOUGHT,
+    TrajectoryLogger,
+)
 
 try:
     from agno.agent import Agent
@@ -54,11 +59,11 @@ class OrchestratorAgent:
         )
         plan = self._build_plan(query)
         logger.debug("Generated plan with %s steps", len(plan))
-        thoughts = self._execute_plan(tenant_id, plan, trajectory_id)
+        thoughts, events = self._execute_plan(plan)
         strategy = select_retrieval_strategy(query)
         strategy_note = f"Selected retrieval strategy: {strategy.value}"
         thoughts.append(strategy_note)
-        self._log_action(tenant_id, trajectory_id, strategy_note)
+        events.append((EVENT_ACTION, strategy_note))
         logger.debug("Retrieval strategy selected: %s", strategy.value)
 
         if self._agent:
@@ -68,9 +73,10 @@ class OrchestratorAgent:
         else:
             answer = f"Received query: {query}"
 
-        self._log_observation(
-            tenant_id, trajectory_id, f"Generated response ({len(answer)} chars)"
-        )
+        events.append((EVENT_OBSERVATION, f"Generated response ({len(answer)} chars)"))
+
+        if self._logger and trajectory_id:
+            self._logger.log_events(tenant_id, trajectory_id, events)
 
         return OrchestratorResult(
             answer=answer,
@@ -105,27 +111,12 @@ class OrchestratorAgent:
     def _has_token(self, query: str, token: str) -> bool:
         return re.search(rf"\\b{re.escape(token)}\\b", query.lower()) is not None
 
-    def _execute_plan(
-        self, tenant_id: str, plan: List[PlanStep], trajectory_id: UUID | None
-    ) -> List[str]:
+    def _execute_plan(self, plan: List[PlanStep]) -> tuple[List[str], list[tuple[str, str]]]:
         thoughts: List[str] = []
+        events: list[tuple[str, str]] = []
         for step in plan:
             thought = f"Plan step: {step.step}"
             thoughts.append(thought)
-            self._log_thought(tenant_id, trajectory_id, thought)
+            events.append((EVENT_THOUGHT, thought))
             step.status = "completed"
-        return thoughts
-
-    def _log_thought(self, tenant_id: str, trajectory_id: UUID | None, content: str) -> None:
-        if self._logger and trajectory_id:
-            self._logger.log_thought(tenant_id, trajectory_id, content)
-
-    def _log_action(self, tenant_id: str, trajectory_id: UUID | None, content: str) -> None:
-        if self._logger and trajectory_id:
-            self._logger.log_action(tenant_id, trajectory_id, content)
-
-    def _log_observation(
-        self, tenant_id: str, trajectory_id: UUID | None, content: str
-    ) -> None:
-        if self._logger and trajectory_id:
-            self._logger.log_observation(tenant_id, trajectory_id, content)
+        return thoughts, events

@@ -29,7 +29,7 @@ for later retrieval and UI work while meeting response-time and concurrency targ
 - Response includes final answer plus a summarized execution plan.
 
 ### Orchestrator Agent
-- New module: `backend/src/agentic_rag_backend/orchestrator.py`.
+- New module: `backend/src/agentic_rag_backend/agents/orchestrator.py`.
 - Uses Agno agent patterns to:
   - Parse the query and generate a step plan.
   - Execute steps in order with adaptive branching.

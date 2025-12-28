@@ -9,6 +9,8 @@ class Settings:
     openai_api_key: str
     openai_model_id: str
     database_url: str
+    db_pool_min: int
+    db_pool_max: int
     neo4j_uri: str
     neo4j_user: str
     neo4j_password: str
@@ -27,6 +29,17 @@ def load_settings() -> Settings:
         raise RuntimeError(
             "BACKEND_PORT must be a valid integer. Check your .env file."
         ) from exc
+    try:
+        db_pool_min = int(os.getenv("DB_POOL_MIN", "1"))
+        db_pool_max = int(os.getenv("DB_POOL_MAX", "5"))
+    except ValueError as exc:
+        raise RuntimeError(
+            "DB_POOL_MIN and DB_POOL_MAX must be valid integers. Check your .env file."
+        ) from exc
+    if db_pool_min < 1 or db_pool_max < db_pool_min:
+        raise RuntimeError(
+            "DB_POOL_MIN must be >= 1 and DB_POOL_MAX must be >= DB_POOL_MIN."
+        )
 
     required = [
         "OPENAI_API_KEY",
@@ -49,6 +62,8 @@ def load_settings() -> Settings:
         openai_api_key=values["OPENAI_API_KEY"],
         openai_model_id=os.getenv("OPENAI_MODEL_ID", "gpt-4o-mini"),
         database_url=values["DATABASE_URL"],
+        db_pool_min=db_pool_min,
+        db_pool_max=db_pool_max,
         neo4j_uri=values["NEO4J_URI"],
         neo4j_user=values["NEO4J_USER"],
         neo4j_password=values["NEO4J_PASSWORD"],

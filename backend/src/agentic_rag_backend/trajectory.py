@@ -10,26 +10,18 @@ EVENT_THOUGHT = "thought"
 EVENT_ACTION = "action"
 EVENT_OBSERVATION = "observation"
 
-_POOL: ConnectionPool | None = None
+def create_pool(database_url: str, min_size: int, max_size: int) -> ConnectionPool:
+    """Create a connection pool for trajectory storage."""
+    return ConnectionPool(conninfo=database_url, min_size=min_size, max_size=max_size, open=True)
 
 
-def get_pool(database_url: str) -> ConnectionPool:
-    """Return a singleton connection pool for trajectory storage."""
-    global _POOL
-    if _POOL is None:
-        _POOL = ConnectionPool(conninfo=database_url, min_size=1, max_size=5, open=True)
-    return _POOL
+def close_pool(pool: ConnectionPool) -> None:
+    """Close a connection pool."""
+    pool.close()
 
 
-def close_pool() -> None:
-    """Close the shared connection pool."""
-    if _POOL is not None:
-        _POOL.close()
-
-
-def ensure_trajectory_schema(database_url: str) -> None:
+def ensure_trajectory_schema(pool: ConnectionPool) -> None:
     """Ensure trajectory tables and indexes exist."""
-    pool = get_pool(database_url)
     with pool.connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
@@ -65,6 +57,9 @@ def ensure_trajectory_schema(database_url: str) -> None:
             )
             cursor.execute(
                 "create index if not exists idx_trajectory_events_created_at on trajectory_events (created_at)"
+            )
+            cursor.execute(
+                "create index if not exists idx_trajectory_events_event_type on trajectory_events (event_type)"
             )
             cursor.execute(
                 "create index if not exists idx_trajectories_session_id on trajectories (session_id)"
@@ -105,6 +100,26 @@ class TrajectoryLogger:
     def log_observation(self, tenant_id: str, trajectory_id: UUID, content: str) -> None:
         """Record an observation event for a trajectory."""
         self._log_event(tenant_id, trajectory_id, EVENT_OBSERVATION, content)
+
+    def log_events(
+        self, tenant_id: str, trajectory_id: UUID, events: list[tuple[str, str]]
+    ) -> None:
+        """Record multiple events in a single transaction."""
+        if not events:
+            return
+        with self.pool.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.executemany(
+                    """
+                    insert into trajectory_events (id, trajectory_id, tenant_id, event_type, content)
+                    values (%s, %s, %s, %s, %s)
+                    """,
+                    [
+                        (uuid4(), trajectory_id, tenant_id, event_type, content)
+                        for event_type, content in events
+                    ],
+                )
+            conn.commit()
 
     def _log_event(
         self,

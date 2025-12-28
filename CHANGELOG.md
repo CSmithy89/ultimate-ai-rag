@@ -7,6 +7,10 @@
 - Multi-step execution planning with visible plan and thought list
 - Retrieval strategy selection (vector/graph/hybrid)
 - Persistent trajectory logging with Postgres storage
+- Tenant-aware trajectory logging with indexes
+- Query response envelope with request metadata
+- Alembic scaffolding for database migrations
+- Basic backend tests for routing and query responses
 
 ### Changed
 - None
