@@ -4,11 +4,13 @@
   "private": true,
   "packageManager": "pnpm@9.1.0",
   "scripts": {
+    "prepare": "husky install",
     "test": "turbo test",
     "type-check": "turbo type-check",
     "lint": "turbo lint"
   },
   "devDependencies": {
+    "husky": "^9.0.11",
     "turbo": "^1.13.3"
   }
 }

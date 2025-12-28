@@ -10,6 +10,8 @@
 - [x] Update frontend healthcheck to use Node http instead of fetch.
 - [x] Clarify README env setup instructions.
 - [x] Add RootLayout return type annotation.
+- [x] Add husky pre-commit lint/type-check hooks.
+- [x] Add backend lint (ruff) and type-check (mypy) in CI.
 - [x] Gemini Code Assist bot is active on the repo (GitHub App).
 
 ## Optional / Future

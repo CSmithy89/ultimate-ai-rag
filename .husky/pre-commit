@@ -1,0 +1,10 @@
+#!/bin/sh
+repo_root=$(git rev-parse --show-toplevel)
+export UV_CACHE_DIR="$repo_root/.uv-cache"
+
+pnpm turbo lint
+pnpm turbo type-check
+
+cd "$repo_root/backend"
+uv run ruff check src
+uv run mypy src

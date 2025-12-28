@@ -8,3 +8,6 @@ frontend/.turbo/
 frontend/.next/
 **/*.tsbuildinfo
 pnpm-debug.log*
+.ruff_cache/
+.mypy_cache/
+.uv-cache/
