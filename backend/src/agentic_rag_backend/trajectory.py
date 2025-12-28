@@ -4,15 +4,30 @@ from dataclasses import dataclass
 from typing import Optional
 from uuid import UUID, uuid4
 
-import psycopg
+from psycopg_pool import ConnectionPool
 
 EVENT_THOUGHT = "thought"
 EVENT_ACTION = "action"
 EVENT_OBSERVATION = "observation"
 
+_POOL: ConnectionPool | None = None
+
+
+def get_pool(database_url: str) -> ConnectionPool:
+    global _POOL
+    if _POOL is None:
+        _POOL = ConnectionPool(conninfo=database_url, min_size=1, max_size=5, open=True)
+    return _POOL
+
+
+def close_pool() -> None:
+    if _POOL is not None:
+        _POOL.close()
+
 
 def ensure_trajectory_schema(database_url: str) -> None:
-    with psycopg.connect(database_url) as conn:
+    pool = get_pool(database_url)
+    with pool.connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
@@ -39,11 +54,11 @@ def ensure_trajectory_schema(database_url: str) -> None:
 
 @dataclass
 class TrajectoryLogger:
-    database_url: str
+    pool: ConnectionPool
 
     def start_trajectory(self, session_id: Optional[str]) -> UUID:
         trajectory_id = uuid4()
-        with psycopg.connect(self.database_url) as conn:
+        with self.pool.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
                     "insert into trajectories (id, session_id) values (%s, %s)",
@@ -62,7 +77,7 @@ class TrajectoryLogger:
         self._log_event(trajectory_id, EVENT_OBSERVATION, content)
 
     def _log_event(self, trajectory_id: UUID, event_type: str, content: str) -> None:
-        with psycopg.connect(self.database_url) as conn:
+        with self.pool.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """

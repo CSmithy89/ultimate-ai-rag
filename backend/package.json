@@ -1,0 +1,9 @@
+{
+  "name": "agentic-rag-backend",
+  "private": true,
+  "scripts": {
+    "test": "uv run pytest",
+    "lint": "uv run ruff check .",
+    "type-check": "uv run mypy src"
+  }
+}

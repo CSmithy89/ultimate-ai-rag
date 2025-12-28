@@ -3,10 +3,11 @@ from fastapi import FastAPI
 from .config import load_settings
 from .orchestrator import OrchestratorAgent
 from .schemas import QueryRequest, QueryResponse
-from .trajectory import TrajectoryLogger, ensure_trajectory_schema
+from .trajectory import TrajectoryLogger, close_pool, ensure_trajectory_schema, get_pool
 
 settings = load_settings()
-trajectory_logger = TrajectoryLogger(database_url=settings.database_url)
+pool = get_pool(settings.database_url)
+trajectory_logger = TrajectoryLogger(pool=pool)
 orchestrator = OrchestratorAgent(
     api_key=settings.openai_api_key,
     logger=trajectory_logger,
@@ -23,6 +24,11 @@ def health_check() -> dict:
 @app.on_event("startup")
 def prepare_storage() -> None:
     ensure_trajectory_schema(settings.database_url)
+
+
+@app.on_event("shutdown")
+def shutdown_storage() -> None:
+    close_pool()
 
 
 @app.post("/query", response_model=QueryResponse)
