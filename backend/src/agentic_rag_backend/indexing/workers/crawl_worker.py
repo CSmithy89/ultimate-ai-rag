@@ -265,10 +265,12 @@ async def run_crawl_worker(
     )
 
     # Setup signal handlers for graceful shutdown
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
+    _shutdown_task = None
 
     def signal_handler() -> None:
-        loop.create_task(worker.shutdown())
+        nonlocal _shutdown_task
+        _shutdown_task = loop.create_task(worker.shutdown())
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, signal_handler)

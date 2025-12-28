@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import re
+import time
 from datetime import datetime, timezone
 from typing import AsyncGenerator, Optional
 from urllib.parse import urljoin, urlparse
@@ -338,11 +339,11 @@ class CrawlerService:
 
     async def _rate_limit_wait(self) -> None:
         """Wait to respect rate limit."""
-        now = asyncio.get_event_loop().time()
+        now = time.monotonic()
         elapsed = now - self._last_request_time
         if elapsed < self.delay:
             await asyncio.sleep(self.delay - elapsed)
-        self._last_request_time = asyncio.get_event_loop().time()
+        self._last_request_time = time.monotonic()
 
     @retry(
         stop=stop_after_attempt(3),
