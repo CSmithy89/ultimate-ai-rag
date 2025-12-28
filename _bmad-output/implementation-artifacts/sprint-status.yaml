@@ -46,7 +46,7 @@ development_status:
   1-2-frontend-project-initialization: done
   1-3-docker-compose-development-environment: done
   1-4-environment-configuration-system: done
-  epic-1-retrospective: optional
+  epic-1-retrospective: done
 
   # Epic 2: Agentic Query & Reasoning
   epic-2: backlog
