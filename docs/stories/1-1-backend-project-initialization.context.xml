@@ -1,0 +1,25 @@
+<storyContext>
+  <story id="1.1" title="Backend Project Initialization" epic="1" />
+
+  <summary>
+    Initialize the backend using the Agno agent-api starter to provide a FastAPI
+    foundation with agent scaffolding. Ensure dependencies can be installed with
+    uv and the structure is aligned to the architecture decisions.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Run `uv sync` in backend to install deps.</acceptanceCriteria>
+    <acceptanceCriteria>Include Agno v2.3.21 and FastAPI in pyproject.toml.</acceptanceCriteria>
+    <acceptanceCriteria>Structure matches Agno starter conventions.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Python 3.11+ with uv for dependency management.</constraint>
+    <constraint>Backend path: backend/.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="_bmad-output/project-planning-artifacts/epics.md" section="Epic 1 / Story 1.1" />
+    <reference path="_bmad-output/architecture.md" section="Starter Template Evaluation" />
+  </references>
+</storyContext>

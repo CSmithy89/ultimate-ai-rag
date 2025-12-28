@@ -1,0 +1,14 @@
+{
+  "name": "ultimate-ai-rag",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.1.0",
+  "scripts": {
+    "test": "turbo test",
+    "type-check": "turbo type-check",
+    "lint": "turbo lint"
+  },
+  "devDependencies": {
+    "turbo": "^1.13.3"
+  }
+}

@@ -1,0 +1,23 @@
+<storyContext>
+  <story id="1.4" title="Environment Configuration System" epic="1" />
+
+  <summary>
+    Add a root .env.example and backend configuration loader that validates
+    required environment variables with clear error messages.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Backend reads configuration from environment.</acceptanceCriteria>
+    <acceptanceCriteria>Database URLs are configurable.</acceptanceCriteria>
+    <acceptanceCriteria>Required vars validated on startup with clear errors.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>.env.example stored at repo root.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="_bmad-output/project-planning-artifacts/epics.md" section="Epic 1 / Story 1.4" />
+    <reference path="_bmad-output/architecture.md" section="Technical Constraints & Dependencies" />
+  </references>
+</storyContext>
