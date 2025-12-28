@@ -19,6 +19,12 @@ class ErrorCode(str, Enum):
     REDIS_ERROR = "redis_error"
     RATE_LIMIT_EXCEEDED = "rate_limit_exceeded"
     INTERNAL_ERROR = "internal_error"
+    # Story 4.2 - PDF Document Parsing error codes
+    INVALID_PDF = "invalid_pdf"
+    FILE_TOO_LARGE = "file_too_large"
+    PASSWORD_PROTECTED = "password_protected"
+    PARSE_FAILED = "parse_failed"
+    STORAGE_ERROR = "storage_error"
 
 
 class AppError(Exception):
@@ -144,6 +150,68 @@ class RedisError(AppError):
         super().__init__(
             code=ErrorCode.REDIS_ERROR,
             message=f"Redis error during {operation}: {reason}",
+            status=500,
+        )
+
+
+# Story 4.2 - PDF Document Parsing Errors
+
+
+class InvalidPdfError(AppError):
+    """Error for invalid PDF files."""
+
+    def __init__(self, filename: str, reason: str = "File is not a valid PDF document") -> None:
+        super().__init__(
+            code=ErrorCode.INVALID_PDF,
+            message=f"Invalid PDF: {reason}",
+            status=400,
+            details={"filename": filename},
+        )
+
+
+class FileTooLargeError(AppError):
+    """Error when uploaded file exceeds size limit."""
+
+    def __init__(self, filename: str, max_size_mb: int) -> None:
+        super().__init__(
+            code=ErrorCode.FILE_TOO_LARGE,
+            message=f"File size exceeds the maximum allowed size of {max_size_mb}MB",
+            status=413,
+            details={"filename": filename, "max_size_mb": max_size_mb},
+        )
+
+
+class PasswordProtectedError(AppError):
+    """Error for password-protected PDFs (not supported in MVP)."""
+
+    def __init__(self, filename: str) -> None:
+        super().__init__(
+            code=ErrorCode.PASSWORD_PROTECTED,
+            message="Password-protected PDFs are not supported",
+            status=400,
+            details={"filename": filename},
+        )
+
+
+class ParseError(AppError):
+    """Error during document parsing."""
+
+    def __init__(self, filename: str, reason: str) -> None:
+        super().__init__(
+            code=ErrorCode.PARSE_FAILED,
+            message=f"Failed to parse document: {reason}",
+            status=500,
+            details={"filename": filename},
+        )
+
+
+class StorageError(AppError):
+    """Error during file storage operations."""
+
+    def __init__(self, operation: str, reason: str) -> None:
+        super().__init__(
+            code=ErrorCode.STORAGE_ERROR,
+            message=f"Storage error during {operation}: {reason}",
             status=500,
         )
 

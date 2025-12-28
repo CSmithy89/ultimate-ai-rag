@@ -111,3 +111,52 @@ class JobStatus(BaseModel):
     completed_at: Optional[datetime] = Field(
         default=None, description="Job completion timestamp"
     )
+
+
+# Story 4.2 - PDF Document Parsing Models
+
+
+class DocumentUploadResponse(BaseModel):
+    """Response model for document upload."""
+
+    job_id: UUID = Field(..., description="Unique identifier for the parse job")
+    status: JobStatusEnum = Field(
+        default=JobStatusEnum.QUEUED, description="Initial job status"
+    )
+    filename: str = Field(..., description="Uploaded filename")
+    file_size: int = Field(..., ge=0, description="File size in bytes")
+
+    model_config = {"json_schema_extra": {"examples": [
+        {
+            "job_id": "123e4567-e89b-12d3-a456-426614174000",
+            "status": "queued",
+            "filename": "document.pdf",
+            "file_size": 1024567,
+        }
+    ]}}
+
+
+class ParseProgress(BaseModel):
+    """Progress metrics for a parse job."""
+
+    pages_parsed: int = Field(default=0, ge=0, description="Number of pages parsed")
+    total_pages: int = Field(default=0, ge=0, description="Total pages in document")
+    tables_extracted: int = Field(default=0, ge=0, description="Number of tables extracted")
+    sections_extracted: int = Field(default=0, ge=0, description="Number of sections extracted")
+    current_page: Optional[int] = Field(
+        default=None, ge=1, description="Current page being processed"
+    )
+    processing_time_ms: Optional[int] = Field(
+        default=None, ge=0, description="Processing time in milliseconds"
+    )
+
+    model_config = {"json_schema_extra": {"examples": [
+        {
+            "pages_parsed": 25,
+            "total_pages": 50,
+            "tables_extracted": 5,
+            "sections_extracted": 12,
+            "current_page": 26,
+            "processing_time_ms": 45000,
+        }
+    ]}}

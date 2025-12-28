@@ -62,7 +62,7 @@ class PostgresClient:
         indexes for multi-tenancy and status filtering.
         """
         async with self.pool.acquire() as conn:
-            # Create documents table
+            # Create documents table with Story 4.2 columns (file_size, page_count)
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS documents (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -72,6 +72,8 @@ class PostgresClient:
                     filename TEXT,
                     content_hash VARCHAR(64) NOT NULL,
                     status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                    file_size BIGINT,
+                    page_count INTEGER,
                     metadata JSONB,
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -93,7 +95,7 @@ class PostgresClient:
                 ON documents(content_hash)
             """)
 
-            # Create ingestion_jobs table
+            # Create ingestion_jobs table with Story 4.2 column (processing_time_ms)
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS ingestion_jobs (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -103,6 +105,7 @@ class PostgresClient:
                     status VARCHAR(20) NOT NULL DEFAULT 'queued',
                     progress JSONB,
                     error_message TEXT,
+                    processing_time_ms INTEGER,
                     started_at TIMESTAMPTZ,
                     completed_at TIMESTAMPTZ,
                     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -128,6 +131,8 @@ class PostgresClient:
         content_hash: str,
         source_url: Optional[str] = None,
         filename: Optional[str] = None,
+        file_size: Optional[int] = None,
+        page_count: Optional[int] = None,
         metadata: Optional[dict[str, Any]] = None,
     ) -> UUID:
         """
@@ -139,6 +144,8 @@ class PostgresClient:
             content_hash: SHA-256 hash of content for deduplication
             source_url: Source URL for web documents
             filename: Filename for uploaded documents
+            file_size: File size in bytes (for PDF documents)
+            page_count: Number of pages (for PDF documents)
             metadata: Additional document metadata
 
         Returns:
@@ -151,8 +158,8 @@ class PostgresClient:
             async with self.pool.acquire() as conn:
                 row = await conn.fetchrow(
                     """
-                    INSERT INTO documents (tenant_id, source_type, source_url, filename, content_hash, metadata)
-                    VALUES ($1, $2, $3, $4, $5, $6)
+                    INSERT INTO documents (tenant_id, source_type, source_url, filename, content_hash, file_size, page_count, metadata)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                     ON CONFLICT (tenant_id, content_hash) DO UPDATE
                     SET updated_at = NOW()
                     RETURNING id
@@ -162,6 +169,8 @@ class PostgresClient:
                     source_url,
                     filename,
                     content_hash,
+                    file_size,
+                    page_count,
                     metadata,
                 )
                 doc_id = row["id"]
@@ -231,6 +240,39 @@ class PostgresClient:
                 return result == "UPDATE 1"
         except asyncpg.PostgresError as e:
             raise DatabaseError("update_document_status", str(e)) from e
+
+    async def update_document_page_count(
+        self,
+        document_id: UUID,
+        tenant_id: UUID,
+        page_count: int,
+    ) -> bool:
+        """
+        Update document page count after parsing.
+
+        Args:
+            document_id: Document UUID
+            tenant_id: Tenant identifier
+            page_count: Number of pages in the document
+
+        Returns:
+            True if updated, False if not found
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                result = await conn.execute(
+                    """
+                    UPDATE documents
+                    SET page_count = $3, updated_at = NOW()
+                    WHERE id = $1 AND tenant_id = $2
+                    """,
+                    document_id,
+                    tenant_id,
+                    page_count,
+                )
+                return result == "UPDATE 1"
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("update_document_page_count", str(e)) from e
 
     async def create_job(
         self,
@@ -393,6 +435,46 @@ class PostgresClient:
                 return updated
         except asyncpg.PostgresError as e:
             raise DatabaseError("update_job_status", str(e)) from e
+
+    async def update_job_processing_time(
+        self,
+        job_id: UUID,
+        tenant_id: UUID,
+        processing_time_ms: int,
+    ) -> bool:
+        """
+        Update job processing time for NFR2 performance tracking.
+
+        Args:
+            job_id: Job UUID
+            tenant_id: Tenant identifier
+            processing_time_ms: Processing time in milliseconds
+
+        Returns:
+            True if updated, False if not found
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                result = await conn.execute(
+                    """
+                    UPDATE ingestion_jobs
+                    SET processing_time_ms = $3
+                    WHERE id = $1 AND tenant_id = $2
+                    """,
+                    job_id,
+                    tenant_id,
+                    processing_time_ms,
+                )
+                updated = result == "UPDATE 1"
+                if updated:
+                    logger.info(
+                        "job_processing_time_updated",
+                        job_id=str(job_id),
+                        processing_time_ms=processing_time_ms,
+                    )
+                return updated
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("update_job_processing_time", str(e)) from e
 
     async def list_jobs(
         self,
