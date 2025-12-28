@@ -29,3 +29,14 @@ pnpm dev
 ```bash
 docker compose up -d
 ```
+
+## Epic Progress
+
+### Epic 1: Foundation & Developer Quick Start
+- Status: Complete
+- Stories: 4/4 completed
+- Key Features:
+  - Backend scaffold using Agno agent-api + FastAPI
+  - Frontend scaffold using Next.js App Router + CopilotKit deps
+  - Docker Compose dev stack with Postgres/pgvector, Neo4j, Redis
+  - Environment configuration via .env validation
