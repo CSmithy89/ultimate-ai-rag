@@ -1,3 +1,5 @@
+"""Configuration management for the Agentic RAG Backend."""
+
 import os
 from dataclasses import dataclass
 
@@ -6,6 +8,8 @@ from dotenv import load_dotenv
 
 @dataclass(frozen=True)
 class Settings:
+    """Application settings loaded from environment variables."""
+
     openai_api_key: str
     database_url: str
     neo4j_uri: str
@@ -15,9 +19,20 @@ class Settings:
     backend_host: str
     backend_port: int
     frontend_url: str
+    # Epic 4 - Crawl settings
+    crawl4ai_rate_limit: float
 
 
 def load_settings() -> Settings:
+    """
+    Load settings from environment variables.
+
+    Returns:
+        Settings instance with all configuration values
+
+    Raises:
+        RuntimeError: If required environment variables are missing
+    """
     load_dotenv()
 
     try:
@@ -26,6 +41,11 @@ def load_settings() -> Settings:
         raise RuntimeError(
             "BACKEND_PORT must be a valid integer. Check your .env file."
         ) from exc
+
+    try:
+        crawl4ai_rate_limit = float(os.getenv("CRAWL4AI_RATE_LIMIT", "1.0"))
+    except ValueError:
+        crawl4ai_rate_limit = 1.0
 
     required = [
         "OPENAI_API_KEY",
@@ -54,4 +74,5 @@ def load_settings() -> Settings:
         backend_host=os.getenv("BACKEND_HOST", "0.0.0.0"),
         backend_port=backend_port,
         frontend_url=os.getenv("FRONTEND_URL", "http://localhost:3000"),
+        crawl4ai_rate_limit=crawl4ai_rate_limit,
     )
