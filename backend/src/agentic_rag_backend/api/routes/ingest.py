@@ -10,6 +10,8 @@ import aiofiles
 import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from agentic_rag_backend.config import get_settings
 from agentic_rag_backend.core.errors import (
@@ -36,6 +38,9 @@ from agentic_rag_backend.models.ingest import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Rate limiter instance - key function extracts client IP
+limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter(prefix="/ingest", tags=["ingestion"])
 
@@ -91,8 +96,10 @@ async def get_postgres(request: Request) -> PostgresClient:
     summary="Start URL crawl job",
     description="Trigger autonomous crawling of a documentation website.",
 )
+@limiter.limit("10/minute")
 async def create_crawl_job(
-    request: CrawlRequest,
+    request: Request,
+    crawl_request: CrawlRequest,
     redis: RedisClient = Depends(get_redis),
     postgres: PostgresClient = Depends(get_postgres),
 ) -> dict[str, Any]:
@@ -104,7 +111,8 @@ async def create_crawl_job(
     can be tracked via the job status endpoint.
 
     Args:
-        request: Crawl request with URL and options
+        request: FastAPI request object (used by rate limiter)
+        crawl_request: Crawl request with URL and options
         redis: Redis client for job queue
         postgres: PostgreSQL client for job tracking
 
@@ -114,7 +122,7 @@ async def create_crawl_job(
     Raises:
         HTTPException: If URL is invalid or processing fails
     """
-    url_str = str(request.url)
+    url_str = str(crawl_request.url)
 
     # Validate URL
     if not is_valid_url(url_str):
@@ -123,14 +131,14 @@ async def create_crawl_job(
     logger.info(
         "creating_crawl_job",
         url=url_str,
-        tenant_id=str(request.tenant_id),
-        max_depth=request.max_depth,
+        tenant_id=str(crawl_request.tenant_id),
+        max_depth=crawl_request.max_depth,
     )
 
     try:
         # Create job in database
         job_id = await postgres.create_job(
-            tenant_id=request.tenant_id,
+            tenant_id=crawl_request.tenant_id,
             job_type=JobType.CRAWL,
         )
 
@@ -139,10 +147,10 @@ async def create_crawl_job(
             stream=CRAWL_JOBS_STREAM,
             job_data={
                 "job_id": str(job_id),
-                "tenant_id": str(request.tenant_id),
+                "tenant_id": str(crawl_request.tenant_id),
                 "url": url_str,
-                "max_depth": request.max_depth,
-                "options": request.options.model_dump(),
+                "max_depth": crawl_request.max_depth,
+                "options": crawl_request.options.model_dump(),
             },
         )
 
@@ -172,7 +180,9 @@ async def create_crawl_job(
     summary="Upload and parse PDF document",
     description="Upload a PDF document for parsing via the Docling pipeline.",
 )
+@limiter.limit("5/minute")
 async def upload_document(
+    request: Request,
     file: UploadFile = File(..., description="PDF file to upload"),
     tenant_id: UUID = Form(..., description="Tenant identifier"),
     metadata: Optional[str] = Form(None, description="JSON metadata string"),
@@ -189,6 +199,7 @@ async def upload_document(
     4. Queues the job for async parsing via Redis Streams
 
     Args:
+        request: FastAPI request object (used by rate limiter)
         file: Uploaded PDF file
         tenant_id: Tenant identifier for multi-tenancy
         metadata: Optional JSON string with additional metadata

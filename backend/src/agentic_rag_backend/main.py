@@ -5,8 +5,11 @@ from typing import AsyncGenerator
 
 import structlog
 from fastapi import FastAPI
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from .api.routes import ingest_router, knowledge_router
+from .api.routes.ingest import limiter
 from .config import get_settings
 from .core.errors import AppError, app_error_handler
 
@@ -71,6 +74,10 @@ app = FastAPI(
     description="Backend API for the Agentic RAG + GraphRAG system",
     lifespan=lifespan,
 )
+
+# Register rate limiter
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Register exception handlers
 app.add_exception_handler(AppError, app_error_handler)

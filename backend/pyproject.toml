@@ -26,6 +26,8 @@ dependencies = [
   "tiktoken>=0.5.0",
   "openai>=1.0.0",
   "pgvector>=0.2.0",
+  # Rate limiting
+  "slowapi>=0.1.9",
 ]
 
 [project.scripts]

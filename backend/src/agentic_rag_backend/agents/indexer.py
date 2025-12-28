@@ -73,7 +73,6 @@ class IndexerAgent:
         entity_extractor: EntityExtractor,
         chunk_size: int = 512,
         chunk_overlap: int = 64,
-        similarity_threshold: float = 0.95,
     ) -> None:
         """
         Initialize the IndexerAgent.
@@ -85,7 +84,6 @@ class IndexerAgent:
             entity_extractor: LLM entity extractor
             chunk_size: Target tokens per chunk
             chunk_overlap: Token overlap between chunks
-            similarity_threshold: Threshold for entity deduplication (0.0-1.0)
         """
         self.postgres = postgres
         self.neo4j = neo4j
@@ -93,7 +91,6 @@ class IndexerAgent:
         self.entity_extractor = entity_extractor
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
-        self.similarity_threshold = similarity_threshold
 
         # Current trajectory for this agent instance
         self._trajectory: Optional[IndexerTrajectory] = None

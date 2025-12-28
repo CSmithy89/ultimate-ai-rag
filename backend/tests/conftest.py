@@ -154,6 +154,10 @@ def mock_crawler():
 def client(mock_redis_client, mock_postgres_client, monkeypatch):
     """Create FastAPI test client with mocked dependencies."""
     from agentic_rag_backend.main import app
+    from agentic_rag_backend.api.routes.ingest import limiter
+
+    # Disable rate limiting for tests
+    limiter.enabled = False
 
     # Mock the dependency injection functions
     async def mock_get_redis():
@@ -179,4 +183,6 @@ def client(mock_redis_client, mock_postgres_client, monkeypatch):
     with TestClient(app) as test_client:
         yield test_client
 
+    # Re-enable rate limiting after tests
+    limiter.enabled = True
     app.dependency_overrides.clear()

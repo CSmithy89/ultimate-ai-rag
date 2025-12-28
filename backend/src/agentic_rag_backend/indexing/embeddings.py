@@ -38,6 +38,7 @@ class EmbeddingGenerator:
         self,
         api_key: str,
         model: str = DEFAULT_EMBEDDING_MODEL,
+        timeout: float = 30.0,
     ) -> None:
         """
         Initialize embedding generator.
@@ -45,10 +46,14 @@ class EmbeddingGenerator:
         Args:
             api_key: OpenAI API key
             model: Embedding model ID (default: text-embedding-ada-002)
+            timeout: Request timeout in seconds (default: 30.0)
         """
-        self.client = AsyncOpenAI(api_key=api_key)
+        self.client = AsyncOpenAI(
+            api_key=api_key,
+            timeout=timeout,
+        )
         self.model = model
-        logger.info("embedding_generator_initialized", model=model)
+        logger.info("embedding_generator_initialized", model=model, timeout=timeout)
 
     @retry(
         stop=stop_after_attempt(5),

@@ -17,7 +17,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from agentic_rag_backend.api.routes.ingest import router, get_redis, get_postgres
+from agentic_rag_backend.api.routes.ingest import router, get_redis, get_postgres, limiter
 from agentic_rag_backend.core.errors import app_error_handler, AppError
 
 
@@ -60,6 +60,9 @@ def mock_settings():
 @pytest.fixture
 def app(mock_redis, mock_postgres):
     """Create a FastAPI test app with the ingest router and mocked dependencies."""
+    # Disable rate limiting for tests
+    limiter.enabled = False
+
     test_app = FastAPI()
     test_app.include_router(router, prefix="/api/v1")
     test_app.add_exception_handler(AppError, app_error_handler)
@@ -74,7 +77,10 @@ def app(mock_redis, mock_postgres):
     test_app.dependency_overrides[get_redis] = override_get_redis
     test_app.dependency_overrides[get_postgres] = override_get_postgres
 
-    return test_app
+    yield test_app
+
+    # Re-enable rate limiting after tests
+    limiter.enabled = True
 
 
 @pytest.fixture

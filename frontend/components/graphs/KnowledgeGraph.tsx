@@ -6,6 +6,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo } from 'react';
+import { ErrorBoundary } from 'react-error-boundary';
 import ReactFlow, {
   Background,
   Controls,
@@ -56,6 +57,20 @@ interface KnowledgeGraphProps {
   filters?: GraphFilterState;
   onNodeClick?: (node: GraphNode) => void;
   onEdgeClick?: (edge: GraphEdge) => void;
+}
+
+/**
+ * Error fallback component displayed when graph rendering fails.
+ */
+function GraphErrorFallback({ error }: { error: Error }) {
+  return (
+    <div className="flex items-center justify-center h-full">
+      <div className="text-center p-4">
+        <h2 className="text-red-600 font-semibold">Failed to render graph</h2>
+        <p className="text-gray-500 text-sm mt-2">{error.message}</p>
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -218,52 +233,54 @@ export function KnowledgeGraph({
 
   return (
     <div className="w-full h-full" style={{ minHeight: 500 }}>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onNodeClick={handleNodeClick}
-        onEdgeClick={handleEdgeClick}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        defaultEdgeOptions={defaultEdgeOptions}
-        fitView
-        fitViewOptions={{
-          padding: 0.2,
-          maxZoom: 1.5,
-        }}
-        attributionPosition="bottom-left"
-      >
-        <Controls />
-        <MiniMap
-          nodeColor={minimapNodeColor}
-          nodeStrokeWidth={3}
-          zoomable
-          pannable
-        />
-        <Background color="#E5E7EB" gap={16} />
-        
-        {/* Arrow marker definition */}
-        <svg>
-          <defs>
-            <marker
-              id="arrow"
-              viewBox="0 0 10 10"
-              refX="8"
-              refY="5"
-              markerWidth="6"
-              markerHeight="6"
-              orient="auto-start-reverse"
-            >
-              <path
-                d="M 0 0 L 10 5 L 0 10 z"
-                fill="#6B7280"
-              />
-            </marker>
-          </defs>
-        </svg>
-      </ReactFlow>
+      <ErrorBoundary FallbackComponent={GraphErrorFallback}>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onNodeClick={handleNodeClick}
+          onEdgeClick={handleEdgeClick}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          defaultEdgeOptions={defaultEdgeOptions}
+          fitView
+          fitViewOptions={{
+            padding: 0.2,
+            maxZoom: 1.5,
+          }}
+          attributionPosition="bottom-left"
+        >
+          <Controls />
+          <MiniMap
+            nodeColor={minimapNodeColor}
+            nodeStrokeWidth={3}
+            zoomable
+            pannable
+          />
+          <Background color="#E5E7EB" gap={16} />
+
+          {/* Arrow marker definition */}
+          <svg>
+            <defs>
+              <marker
+                id="arrow"
+                viewBox="0 0 10 10"
+                refX="8"
+                refY="5"
+                markerWidth="6"
+                markerHeight="6"
+                orient="auto-start-reverse"
+              >
+                <path
+                  d="M 0 0 L 10 5 L 0 10 z"
+                  fill="#6B7280"
+                />
+              </marker>
+            </defs>
+          </svg>
+        </ReactFlow>
+      </ErrorBoundary>
     </div>
   );
 }
