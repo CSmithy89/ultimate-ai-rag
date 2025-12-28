@@ -2,6 +2,7 @@
 
 import os
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -120,3 +121,17 @@ def load_settings() -> Settings:
         chunk_overlap=chunk_overlap,
         entity_similarity_threshold=entity_similarity_threshold,
     )
+
+
+@lru_cache()
+def get_settings() -> Settings:
+    """
+    Get cached settings instance.
+
+    Uses lru_cache to ensure settings are only loaded once
+    from environment variables.
+
+    Returns:
+        Cached Settings instance
+    """
+    return load_settings()

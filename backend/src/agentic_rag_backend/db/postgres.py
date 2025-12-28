@@ -1,6 +1,5 @@
 """PostgreSQL async client for documents, jobs, and chunks tables."""
 
-from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
@@ -525,7 +524,7 @@ class PostgresClient:
         status: Optional[JobStatusEnum] = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> list[JobStatus]:
+    ) -> tuple[list[JobStatus], int]:
         """
         List jobs for a tenant with optional status filter.
 
@@ -536,11 +535,20 @@ class PostgresClient:
             offset: Number of jobs to skip
 
         Returns:
-            List of JobStatus models
+            Tuple of (list of JobStatus models, total count)
         """
         try:
             async with self.pool.acquire() as conn:
+                # Get total count with the same WHERE clause
                 if status:
+                    count_row = await conn.fetchrow(
+                        """
+                        SELECT COUNT(*) as total FROM ingestion_jobs
+                        WHERE tenant_id = $1 AND status = $2
+                        """,
+                        tenant_id,
+                        status.value,
+                    )
                     rows = await conn.fetch(
                         """
                         SELECT * FROM ingestion_jobs
@@ -554,6 +562,13 @@ class PostgresClient:
                         offset,
                     )
                 else:
+                    count_row = await conn.fetchrow(
+                        """
+                        SELECT COUNT(*) as total FROM ingestion_jobs
+                        WHERE tenant_id = $1
+                        """,
+                        tenant_id,
+                    )
                     rows = await conn.fetch(
                         """
                         SELECT * FROM ingestion_jobs
@@ -565,6 +580,8 @@ class PostgresClient:
                         limit,
                         offset,
                     )
+
+                total = count_row["total"] if count_row else 0
 
                 jobs = []
                 for row in rows:
@@ -584,7 +601,7 @@ class PostgresClient:
                         completed_at=row["completed_at"],
                     ))
 
-                return jobs
+                return jobs, total
         except asyncpg.PostgresError as e:
             raise DatabaseError("list_jobs", str(e)) from e
 

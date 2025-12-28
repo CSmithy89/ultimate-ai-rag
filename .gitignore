@@ -1,10 +1,40 @@
+# AI/Editor directories
 .agent/
 .claude/
 .codex/
 .gemini/
+
+# Node.js
 node_modules/
 frontend/node_modules/
 frontend/.turbo/
 frontend/.next/
 **/*.tsbuildinfo
 pnpm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment
+.env
+.env.local
+*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

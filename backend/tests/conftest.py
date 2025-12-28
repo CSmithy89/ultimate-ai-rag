@@ -86,7 +86,7 @@ def mock_postgres_client(sample_job_id, sample_tenant_id):
         JobStatusEnum,
         JobType,
     )
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     client = MagicMock(spec=PostgresClient)
     client.create_job = AsyncMock(return_value=sample_job_id)
@@ -97,11 +97,12 @@ def mock_postgres_client(sample_job_id, sample_tenant_id):
             job_type=JobType.CRAWL,
             status=JobStatusEnum.QUEUED,
             progress=JobProgress(pages_crawled=0, pages_discovered=0, pages_failed=0),
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
     )
     client.update_job_status = AsyncMock(return_value=True)
-    client.list_jobs = AsyncMock(return_value=[])
+    # list_jobs now returns a tuple of (jobs, total_count)
+    client.list_jobs = AsyncMock(return_value=([], 0))
     client.connect = AsyncMock()
     client.disconnect = AsyncMock()
     client.create_tables = AsyncMock()

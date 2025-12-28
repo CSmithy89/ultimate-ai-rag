@@ -3,7 +3,7 @@
 import asyncio
 import json
 import signal
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 import structlog

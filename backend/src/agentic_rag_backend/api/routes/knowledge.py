@@ -1,15 +1,14 @@
 """Knowledge Graph API endpoints for visualization."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
 import structlog
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
-from agentic_rag_backend.config import load_settings
 from agentic_rag_backend.core.errors import Neo4jError
-from agentic_rag_backend.db.neo4j import Neo4jClient, get_neo4j_client
+from agentic_rag_backend.db.neo4j import Neo4jClient
 from agentic_rag_backend.models.graphs import (
     GraphData,
     GraphEdge,
@@ -36,19 +35,14 @@ def success_response(data: Any) -> dict[str, Any]:
         "data": data,
         "meta": {
             "requestId": str(uuid4()),
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         },
     }
 
 
-async def get_neo4j() -> Neo4jClient:
-    """Get Neo4j client dependency."""
-    settings = load_settings()
-    return await get_neo4j_client(
-        uri=settings.neo4j_uri,
-        user=settings.neo4j_user,
-        password=settings.neo4j_password,
-    )
+async def get_neo4j(request: Request) -> Neo4jClient:
+    """Get Neo4j client from app.state."""
+    return request.app.state.neo4j
 
 
 @router.get(
@@ -122,7 +116,7 @@ async def get_graph(
             tenant_id=str(tenant_id),
             error=str(e),
         )
-        raise Neo4jError("get_graph", str(e))
+        raise Neo4jError("get_graph", str(e)) from e
 
 
 @router.get(
@@ -176,7 +170,7 @@ async def get_stats(
             tenant_id=str(tenant_id),
             error=str(e),
         )
-        raise Neo4jError("get_stats", str(e))
+        raise Neo4jError("get_stats", str(e)) from e
 
 
 @router.get(
@@ -237,4 +231,4 @@ async def get_orphans(
             tenant_id=str(tenant_id),
             error=str(e),
         )
-        raise Neo4jError("get_orphans", str(e))
+        raise Neo4jError("get_orphans", str(e)) from e

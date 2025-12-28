@@ -269,10 +269,10 @@ def parse_pdf_elements(
         return {"page_count": page_count, "title": title}
 
     except ImportError as e:
-        raise ParseError(str(file_path), f"Docling not installed: {e}")
+        raise ParseError(str(file_path), f"Docling not installed: {e}") from e
     except Exception as e:
         logger.error("docling_parse_failed", file_path=str(file_path), error=str(e))
-        raise ParseError(str(file_path), str(e))
+        raise ParseError(str(file_path), str(e)) from e
 
 
 def parse_pdf(
@@ -381,7 +381,7 @@ def parse_pdf(
                     page_number=metadata.get("page_number", 1),
                 ))
     except Exception as e:
-        raise ParseError(file_path.name, str(e))
+        raise ParseError(file_path.name, str(e)) from e
 
     # Flush any remaining section
     flush_section()

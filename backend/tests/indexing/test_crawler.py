@@ -1,6 +1,6 @@
 """Tests for the crawler service."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -335,7 +335,7 @@ class TestCrawlerService:
                     title="Test",
                     content="# Test",
                     content_hash="a" * 64,
-                    crawl_timestamp=datetime.utcnow(),
+                    crawl_timestamp=datetime.now(timezone.utc),
                     links=[f"https://example.com/page{len(pages_crawled)}"],
                 )
             return None
@@ -367,7 +367,7 @@ async def test_crawl_url_function():
                 title="Test",
                 content="# Test",
                 content_hash="a" * 64,
-                crawl_timestamp=datetime.utcnow(),
+                crawl_timestamp=datetime.now(timezone.utc),
                 links=[],
             )
 

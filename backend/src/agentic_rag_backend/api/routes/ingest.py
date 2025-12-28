@@ -1,17 +1,17 @@
 """Ingestion API endpoints for URL crawling and document processing."""
 
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
 import aiofiles
 import structlog
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
 
-from agentic_rag_backend.config import load_settings
+from agentic_rag_backend.config import get_settings
 from agentic_rag_backend.core.errors import (
     AppError,
     FileTooLargeError,
@@ -20,19 +20,17 @@ from agentic_rag_backend.core.errors import (
     JobNotFoundError,
     StorageError,
 )
-from agentic_rag_backend.db.postgres import PostgresClient, get_postgres_client
+from agentic_rag_backend.db.postgres import PostgresClient
 from agentic_rag_backend.db.redis import (
     CRAWL_JOBS_STREAM,
     PARSE_JOBS_STREAM,
     RedisClient,
-    get_redis_client,
 )
 from agentic_rag_backend.indexing.crawler import is_valid_url
 from agentic_rag_backend.models.ingest import (
     CrawlRequest,
     CrawlResponse,
     DocumentUploadResponse,
-    JobStatus,
     JobStatusEnum,
     JobType,
 )
@@ -71,22 +69,20 @@ def success_response(data: Any) -> dict[str, Any]:
         "data": data,
         "meta": {
             "requestId": str(uuid4()),
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         },
     }
 
 
-# Dependency injection for database clients
-async def get_redis() -> RedisClient:
-    """Get Redis client dependency."""
-    settings = load_settings()
-    return await get_redis_client(settings.redis_url)
+# Dependency injection for database clients from app.state
+async def get_redis(request: Request) -> RedisClient:
+    """Get Redis client from app.state."""
+    return request.app.state.redis
 
 
-async def get_postgres() -> PostgresClient:
-    """Get PostgreSQL client dependency."""
-    settings = load_settings()
-    return await get_postgres_client(settings.database_url)
+async def get_postgres(request: Request) -> PostgresClient:
+    """Get PostgreSQL client from app.state."""
+    return request.app.state.postgres
 
 
 @router.post(
@@ -167,7 +163,7 @@ async def create_crawl_job(
         raise
     except Exception as e:
         logger.error("create_crawl_job_failed", error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to create crawl job")
+        raise HTTPException(status_code=500, detail="Failed to create crawl job") from e
 
 
 @router.post(
@@ -207,7 +203,7 @@ async def upload_document(
         FileTooLargeError: If file exceeds size limit
         StorageError: If file storage fails
     """
-    settings = load_settings()
+    settings = get_settings()
     max_file_size = settings.max_upload_size_mb * 1024 * 1024
 
     logger.info(
@@ -271,7 +267,7 @@ async def upload_document(
             async with aiofiles.open(temp_path, "wb") as f:
                 await f.write(contents)
         except Exception as e:
-            raise StorageError("save_file", str(e))
+            raise StorageError("save_file", str(e)) from e
 
         # Queue for parsing
         await redis.publish_job(
@@ -311,7 +307,7 @@ async def upload_document(
             filename=file.filename,
             error=str(e),
         )
-        raise HTTPException(status_code=500, detail="Failed to upload document")
+        raise HTTPException(status_code=500, detail="Failed to upload document") from e
 
 
 @router.get(
@@ -392,7 +388,7 @@ async def list_jobs(
         offset=offset,
     )
 
-    jobs = await postgres.list_jobs(
+    jobs, total = await postgres.list_jobs(
         tenant_id=tenant_id,
         status=status,
         limit=limit,
@@ -401,7 +397,7 @@ async def list_jobs(
 
     return success_response({
         "jobs": [job.model_dump(mode="json") for job in jobs],
-        "total": len(jobs),
+        "total": total,
         "limit": limit,
         "offset": offset,
     })

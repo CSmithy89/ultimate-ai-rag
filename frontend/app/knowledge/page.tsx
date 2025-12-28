@@ -18,16 +18,6 @@ import {
 import type { GraphFilterState, GraphNode, GraphEdge } from '../../types/graphs';
 import { entityColors } from '../../types/graphs';
 
-// Create a client
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30000,
-      refetchOnWindowFocus: false,
-    },
-  },
-});
-
 // Demo tenant ID for development - in production this would come from auth context
 const DEMO_TENANT_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -304,8 +294,21 @@ function KnowledgePageContent() {
 
 /**
  * Knowledge Graph page with query client provider.
+ * QueryClient is created inside the component using useState to avoid SSR issues.
  */
 export default function KnowledgePage() {
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 30000,
+            refetchOnWindowFocus: false,
+          },
+        },
+      })
+  );
+
   return (
     <QueryClientProvider client={queryClient}>
       <KnowledgePageContent />

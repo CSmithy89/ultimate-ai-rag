@@ -14,14 +14,13 @@ from uuid import UUID
 import structlog
 
 from agentic_rag_backend.agents.indexer import IndexerAgent
-from agentic_rag_backend.config import load_settings
+from agentic_rag_backend.config import get_settings
 from agentic_rag_backend.core.errors import AppError, ExtractionError
 from agentic_rag_backend.db.neo4j import Neo4jClient, get_neo4j_client
 from agentic_rag_backend.db.postgres import PostgresClient, get_postgres_client
 from agentic_rag_backend.db.redis import (
     INDEX_CONSUMER_GROUP,
     INDEX_JOBS_STREAM,
-    RedisClient,
     get_redis_client,
 )
 from agentic_rag_backend.indexing.embeddings import EmbeddingGenerator
@@ -220,7 +219,7 @@ async def process_index_job(
             job_id=str(job_id),
             error=str(e),
         )
-        raise ExtractionError(str(document_id), str(e))
+        raise ExtractionError(str(document_id), str(e)) from e
 
 
 async def run_index_worker(
@@ -241,7 +240,7 @@ async def run_index_worker(
         consumer_name: Unique identifier for this worker instance
         batch_size: Number of jobs to fetch at once
     """
-    settings = load_settings()
+    settings = get_settings()
 
     logger.info(
         "index_worker_starting",

@@ -3,7 +3,7 @@
 import asyncio
 import hashlib
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import AsyncGenerator, Optional
 from urllib.parse import urljoin, urlparse
 
@@ -16,7 +16,7 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-from agentic_rag_backend.core.errors import CrawlError, InvalidUrlError
+from agentic_rag_backend.core.errors import InvalidUrlError
 from agentic_rag_backend.models.documents import CrawledPage
 from agentic_rag_backend.models.ingest import CrawlOptions
 
@@ -411,7 +411,7 @@ class CrawlerService:
                 title=title,
                 content=markdown,
                 content_hash=content_hash,
-                crawl_timestamp=datetime.utcnow(),
+                crawl_timestamp=datetime.now(timezone.utc),
                 links=links,
             )
 

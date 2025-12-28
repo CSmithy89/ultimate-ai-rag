@@ -7,7 +7,7 @@ and knowledge graph construction.
 
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
@@ -105,14 +105,14 @@ class IndexerAgent:
             run_id=str(uuid4()),
             document_id=document_id,
             tenant_id=tenant_id,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(timezone.utc),
         )
         self._entity_cache = {}  # Reset cache for new document
 
     def _finish_trajectory(self) -> IndexerTrajectory:
         """Complete the current trajectory."""
         if self._trajectory:
-            self._trajectory.completed_at = datetime.utcnow()
+            self._trajectory.completed_at = datetime.now(timezone.utc)
         return self._trajectory
 
     def log_thought(self, content: str, **metadata: Any) -> None:
@@ -125,7 +125,7 @@ class IndexerAgent:
         """
         if self._trajectory:
             entry = TrajectoryEntry(
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 entry_type="thought",
                 content=content,
                 metadata=metadata,
@@ -143,7 +143,7 @@ class IndexerAgent:
         """
         if self._trajectory:
             entry = TrajectoryEntry(
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 entry_type="action",
                 content=action,
                 metadata=details,
@@ -161,7 +161,7 @@ class IndexerAgent:
         """
         if self._trajectory:
             entry = TrajectoryEntry(
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 entry_type="observation",
                 content=content,
                 metadata=metadata,

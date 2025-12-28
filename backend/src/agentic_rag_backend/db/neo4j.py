@@ -109,8 +109,8 @@ class Neo4jClient:
         """
         Create or merge an entity node.
 
-        Uses MERGE for idempotent creation. If entity exists, updates
-        properties and appends chunk reference to source_chunks array.
+        Uses MERGE with tenant_id for tenant isolation. If entity exists,
+        updates properties and appends chunk reference to source_chunks array.
 
         Args:
             entity_id: Unique entity identifier (UUID)
@@ -128,9 +128,8 @@ class Neo4jClient:
             async with self.driver.session() as session:
                 result = await session.run(
                     """
-                    MERGE (e:Entity {id: $id})
-                    SET e.tenant_id = $tenant_id,
-                        e.name = $name,
+                    MERGE (e:Entity {id: $id, tenant_id: $tenant_id})
+                    SET e.name = $name,
                         e.type = $type,
                         e.description = COALESCE($description, e.description),
                         e.properties = COALESCE($properties, e.properties),
@@ -359,6 +358,8 @@ class Neo4jClient:
         """
         Create or merge a document node in the graph.
 
+        Uses MERGE with tenant_id for tenant isolation.
+
         Args:
             document_id: Document UUID
             tenant_id: Tenant identifier
@@ -374,9 +375,8 @@ class Neo4jClient:
             async with self.driver.session() as session:
                 result = await session.run(
                     """
-                    MERGE (d:Document {id: $id})
-                    SET d.tenant_id = $tenant_id,
-                        d.title = COALESCE($title, d.title),
+                    MERGE (d:Document {id: $id, tenant_id: $tenant_id})
+                    SET d.title = COALESCE($title, d.title),
                         d.source_url = COALESCE($source_url, d.source_url),
                         d.source_type = COALESCE($source_type, d.source_type),
                         d.content_hash = COALESCE($content_hash, d.content_hash),
@@ -410,6 +410,8 @@ class Neo4jClient:
         """
         Create a chunk node and link it to its document.
 
+        Uses MERGE with tenant_id for tenant isolation.
+
         Args:
             chunk_id: Chunk UUID
             tenant_id: Tenant identifier
@@ -424,9 +426,8 @@ class Neo4jClient:
             async with self.driver.session() as session:
                 result = await session.run(
                     """
-                    MERGE (c:Chunk {id: $id})
-                    SET c.tenant_id = $tenant_id,
-                        c.document_id = $document_id,
+                    MERGE (c:Chunk {id: $id, tenant_id: $tenant_id})
+                    SET c.document_id = $document_id,
                         c.chunk_index = $chunk_index,
                         c.preview = $preview,
                         c.created_at = COALESCE(c.created_at, datetime())

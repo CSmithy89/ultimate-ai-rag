@@ -177,10 +177,10 @@ class TestTrajectoryEntry:
 
     def test_create_trajectory_entry(self):
         """Test creating a trajectory entry."""
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         entry = TrajectoryEntry(
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             entry_type="thought",
             content="Test content",
             metadata={"key": "value"},

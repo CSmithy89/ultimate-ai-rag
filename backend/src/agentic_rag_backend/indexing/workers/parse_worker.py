@@ -12,7 +12,7 @@ from uuid import UUID
 
 import structlog
 
-from agentic_rag_backend.config import load_settings
+from agentic_rag_backend.config import get_settings
 from agentic_rag_backend.core.errors import AppError, ParseError
 from agentic_rag_backend.db.postgres import PostgresClient, get_postgres_client
 from agentic_rag_backend.db.redis import (
@@ -89,7 +89,7 @@ async def process_parse_job(
             raise ParseError(filename, f"File not found: {file_path}")
 
         # Parse the PDF (runs in thread pool to avoid blocking)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         parsed_doc = await loop.run_in_executor(
             None,
             parse_pdf,
@@ -193,7 +193,7 @@ async def process_parse_job(
             job_id=str(job_id),
             error=str(e),
         )
-        raise ParseError(filename, str(e))
+        raise ParseError(filename, str(e)) from e
 
 
 async def run_parse_worker(
@@ -214,7 +214,7 @@ async def run_parse_worker(
         consumer_name: Unique identifier for this worker instance
         batch_size: Number of jobs to fetch at once
     """
-    settings = load_settings()
+    settings = get_settings()
 
     logger.info(
         "parse_worker_starting",

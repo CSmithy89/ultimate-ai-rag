@@ -10,14 +10,14 @@ Tests cover:
 """
 
 from io import BytesIO
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, MagicMock
 from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from agentic_rag_backend.api.routes.ingest import router
+from agentic_rag_backend.api.routes.ingest import router, get_redis, get_postgres
 from agentic_rag_backend.core.errors import app_error_handler, AppError
 
 
@@ -25,11 +25,55 @@ from agentic_rag_backend.core.errors import app_error_handler, AppError
 
 
 @pytest.fixture
-def app():
-    """Create a FastAPI test app with the ingest router."""
+def mock_postgres():
+    """Mock PostgreSQL client."""
+    mock = MagicMock()
+    mock.create_document = AsyncMock(return_value=uuid4())
+    mock.create_job = AsyncMock(return_value=uuid4())
+    return mock
+
+
+@pytest.fixture
+def mock_redis():
+    """Mock Redis client."""
+    mock = MagicMock()
+    mock.publish_job = AsyncMock(return_value="12345-0")
+    return mock
+
+
+@pytest.fixture
+def mock_settings():
+    """Mock settings."""
+    from dataclasses import dataclass
+
+    @dataclass
+    class MockSettings:
+        redis_url: str = "redis://localhost:6379"
+        database_url: str = "postgresql://test:test@localhost/test"
+        max_upload_size_mb: int = 100
+        temp_upload_dir: str = "/tmp/test_uploads"
+        docling_table_mode: str = "accurate"
+
+    return MockSettings()
+
+
+@pytest.fixture
+def app(mock_redis, mock_postgres):
+    """Create a FastAPI test app with the ingest router and mocked dependencies."""
     test_app = FastAPI()
     test_app.include_router(router, prefix="/api/v1")
     test_app.add_exception_handler(AppError, app_error_handler)
+
+    # Override dependencies
+    async def override_get_redis():
+        return mock_redis
+
+    async def override_get_postgres():
+        return mock_postgres
+
+    test_app.dependency_overrides[get_redis] = override_get_redis
+    test_app.dependency_overrides[get_postgres] = override_get_postgres
+
     return test_app
 
 
@@ -49,39 +93,6 @@ def sample_pdf_content():
 def sample_tenant_id():
     """Generate a random tenant ID."""
     return str(uuid4())
-
-
-@pytest.fixture
-def mock_postgres():
-    """Mock PostgreSQL client."""
-    mock = AsyncMock()
-    mock.create_document = AsyncMock(return_value=uuid4())
-    mock.create_job = AsyncMock(return_value=uuid4())
-    return mock
-
-
-@pytest.fixture
-def mock_redis():
-    """Mock Redis client."""
-    mock = AsyncMock()
-    mock.publish_job = AsyncMock(return_value="12345-0")
-    return mock
-
-
-@pytest.fixture
-def mock_settings():
-    """Mock settings."""
-    from dataclasses import dataclass
-
-    @dataclass
-    class MockSettings:
-        redis_url: str = "redis://localhost:6379"
-        database_url: str = "postgresql://test:test@localhost/test"
-        max_upload_size_mb: int = 100
-        temp_upload_dir: str = "/tmp/test_uploads"
-        docling_table_mode: str = "accurate"
-
-    return MockSettings()
 
 
 # Tests
@@ -104,22 +115,14 @@ class TestUploadDocument:
         mock_settings.temp_upload_dir = str(tmp_path)
 
         with patch(
-            "agentic_rag_backend.api.routes.ingest.get_redis_client",
-            return_value=mock_redis,
+            "agentic_rag_backend.api.routes.ingest.get_settings",
+            return_value=mock_settings,
         ):
-            with patch(
-                "agentic_rag_backend.api.routes.ingest.get_postgres_client",
-                return_value=mock_postgres,
-            ):
-                with patch(
-                    "agentic_rag_backend.api.routes.ingest.load_settings",
-                    return_value=mock_settings,
-                ):
-                    response = client.post(
-                        "/api/v1/ingest/document",
-                        files={"file": ("test.pdf", sample_pdf_content, "application/pdf")},
-                        data={"tenant_id": sample_tenant_id},
-                    )
+            response = client.post(
+                "/api/v1/ingest/document",
+                files={"file": ("test.pdf", sample_pdf_content, "application/pdf")},
+                data={"tenant_id": sample_tenant_id},
+            )
 
         assert response.status_code == 200
         data = response.json()
@@ -142,22 +145,14 @@ class TestUploadDocument:
     ):
         """Test upload with non-PDF content type."""
         with patch(
-            "agentic_rag_backend.api.routes.ingest.get_redis_client",
-            return_value=mock_redis,
+            "agentic_rag_backend.api.routes.ingest.get_settings",
+            return_value=mock_settings,
         ):
-            with patch(
-                "agentic_rag_backend.api.routes.ingest.get_postgres_client",
-                return_value=mock_postgres,
-            ):
-                with patch(
-                    "agentic_rag_backend.api.routes.ingest.load_settings",
-                    return_value=mock_settings,
-                ):
-                    response = client.post(
-                        "/api/v1/ingest/document",
-                        files={"file": ("test.txt", b"not a pdf", "text/plain")},
-                        data={"tenant_id": sample_tenant_id},
-                    )
+            response = client.post(
+                "/api/v1/ingest/document",
+                files={"file": ("test.txt", b"not a pdf", "text/plain")},
+                data={"tenant_id": sample_tenant_id},
+            )
 
         assert response.status_code == 400
         data = response.json()
@@ -174,22 +169,14 @@ class TestUploadDocument:
     ):
         """Test upload with wrong magic bytes but PDF content type."""
         with patch(
-            "agentic_rag_backend.api.routes.ingest.get_redis_client",
-            return_value=mock_redis,
+            "agentic_rag_backend.api.routes.ingest.get_settings",
+            return_value=mock_settings,
         ):
-            with patch(
-                "agentic_rag_backend.api.routes.ingest.get_postgres_client",
-                return_value=mock_postgres,
-            ):
-                with patch(
-                    "agentic_rag_backend.api.routes.ingest.load_settings",
-                    return_value=mock_settings,
-                ):
-                    response = client.post(
-                        "/api/v1/ingest/document",
-                        files={"file": ("test.pdf", b"NOT_A_PDF_FILE", "application/pdf")},
-                        data={"tenant_id": sample_tenant_id},
-                    )
+            response = client.post(
+                "/api/v1/ingest/document",
+                files={"file": ("test.pdf", b"NOT_A_PDF_FILE", "application/pdf")},
+                data={"tenant_id": sample_tenant_id},
+            )
 
         assert response.status_code == 400
         data = response.json()
@@ -212,22 +199,14 @@ class TestUploadDocument:
         large_content = b"%PDF-1.4\n" + b"x" * (2 * 1024 * 1024)  # ~2 MB
 
         with patch(
-            "agentic_rag_backend.api.routes.ingest.get_redis_client",
-            return_value=mock_redis,
+            "agentic_rag_backend.api.routes.ingest.get_settings",
+            return_value=mock_settings,
         ):
-            with patch(
-                "agentic_rag_backend.api.routes.ingest.get_postgres_client",
-                return_value=mock_postgres,
-            ):
-                with patch(
-                    "agentic_rag_backend.api.routes.ingest.load_settings",
-                    return_value=mock_settings,
-                ):
-                    response = client.post(
-                        "/api/v1/ingest/document",
-                        files={"file": ("large.pdf", large_content, "application/pdf")},
-                        data={"tenant_id": sample_tenant_id},
-                    )
+            response = client.post(
+                "/api/v1/ingest/document",
+                files={"file": ("large.pdf", large_content, "application/pdf")},
+                data={"tenant_id": sample_tenant_id},
+            )
 
         assert response.status_code == 413
         data = response.json()
@@ -288,22 +267,14 @@ class TestUploadDocument:
         mock_settings.temp_upload_dir = str(tmp_path)
 
         with patch(
-            "agentic_rag_backend.api.routes.ingest.get_redis_client",
-            return_value=mock_redis,
+            "agentic_rag_backend.api.routes.ingest.get_settings",
+            return_value=mock_settings,
         ):
-            with patch(
-                "agentic_rag_backend.api.routes.ingest.get_postgres_client",
-                return_value=mock_postgres,
-            ):
-                with patch(
-                    "agentic_rag_backend.api.routes.ingest.load_settings",
-                    return_value=mock_settings,
-                ):
-                    response = client.post(
-                        "/api/v1/ingest/document",
-                        files={"file": ("test.pdf", sample_pdf_content, "application/pdf")},
-                        data={"tenant_id": sample_tenant_id},
-                    )
+            response = client.post(
+                "/api/v1/ingest/document",
+                files={"file": ("test.pdf", sample_pdf_content, "application/pdf")},
+                data={"tenant_id": sample_tenant_id},
+            )
 
         assert response.status_code == 200
 
@@ -331,22 +302,14 @@ class TestUploadDocument:
         mock_settings.temp_upload_dir = str(tmp_path)
 
         with patch(
-            "agentic_rag_backend.api.routes.ingest.get_redis_client",
-            return_value=mock_redis,
+            "agentic_rag_backend.api.routes.ingest.get_settings",
+            return_value=mock_settings,
         ):
-            with patch(
-                "agentic_rag_backend.api.routes.ingest.get_postgres_client",
-                return_value=mock_postgres,
-            ):
-                with patch(
-                    "agentic_rag_backend.api.routes.ingest.load_settings",
-                    return_value=mock_settings,
-                ):
-                    response = client.post(
-                        "/api/v1/ingest/document",
-                        files={"file": ("test.pdf", sample_pdf_content, "application/pdf")},
-                        data={"tenant_id": sample_tenant_id},
-                    )
+            response = client.post(
+                "/api/v1/ingest/document",
+                files={"file": ("test.pdf", sample_pdf_content, "application/pdf")},
+                data={"tenant_id": sample_tenant_id},
+            )
 
         assert response.status_code == 200
 
@@ -377,22 +340,14 @@ class TestUploadDocument:
         expected_hash = hashlib.sha256(sample_pdf_content).hexdigest()
 
         with patch(
-            "agentic_rag_backend.api.routes.ingest.get_redis_client",
-            return_value=mock_redis,
+            "agentic_rag_backend.api.routes.ingest.get_settings",
+            return_value=mock_settings,
         ):
-            with patch(
-                "agentic_rag_backend.api.routes.ingest.get_postgres_client",
-                return_value=mock_postgres,
-            ):
-                with patch(
-                    "agentic_rag_backend.api.routes.ingest.load_settings",
-                    return_value=mock_settings,
-                ):
-                    response = client.post(
-                        "/api/v1/ingest/document",
-                        files={"file": ("test.pdf", sample_pdf_content, "application/pdf")},
-                        data={"tenant_id": sample_tenant_id},
-                    )
+            response = client.post(
+                "/api/v1/ingest/document",
+                files={"file": ("test.pdf", sample_pdf_content, "application/pdf")},
+                data={"tenant_id": sample_tenant_id},
+            )
 
         assert response.status_code == 200
 
@@ -414,22 +369,14 @@ class TestUploadDocument:
         mock_settings.temp_upload_dir = str(tmp_path)
 
         with patch(
-            "agentic_rag_backend.api.routes.ingest.get_redis_client",
-            return_value=mock_redis,
+            "agentic_rag_backend.api.routes.ingest.get_settings",
+            return_value=mock_settings,
         ):
-            with patch(
-                "agentic_rag_backend.api.routes.ingest.get_postgres_client",
-                return_value=mock_postgres,
-            ):
-                with patch(
-                    "agentic_rag_backend.api.routes.ingest.load_settings",
-                    return_value=mock_settings,
-                ):
-                    response = client.post(
-                        "/api/v1/ingest/document",
-                        files={"file": ("test.pdf", sample_pdf_content, "application/pdf")},
-                        data={"tenant_id": sample_tenant_id},
-                    )
+            response = client.post(
+                "/api/v1/ingest/document",
+                files={"file": ("test.pdf", sample_pdf_content, "application/pdf")},
+                data={"tenant_id": sample_tenant_id},
+            )
 
         assert response.status_code == 200
 
@@ -459,22 +406,14 @@ class TestResponseFormat:
         mock_settings.temp_upload_dir = str(tmp_path)
 
         with patch(
-            "agentic_rag_backend.api.routes.ingest.get_redis_client",
-            return_value=mock_redis,
+            "agentic_rag_backend.api.routes.ingest.get_settings",
+            return_value=mock_settings,
         ):
-            with patch(
-                "agentic_rag_backend.api.routes.ingest.get_postgres_client",
-                return_value=mock_postgres,
-            ):
-                with patch(
-                    "agentic_rag_backend.api.routes.ingest.load_settings",
-                    return_value=mock_settings,
-                ):
-                    response = client.post(
-                        "/api/v1/ingest/document",
-                        files={"file": ("test.pdf", sample_pdf_content, "application/pdf")},
-                        data={"tenant_id": sample_tenant_id},
-                    )
+            response = client.post(
+                "/api/v1/ingest/document",
+                files={"file": ("test.pdf", sample_pdf_content, "application/pdf")},
+                data={"tenant_id": sample_tenant_id},
+            )
 
         data = response.json()
 
@@ -500,22 +439,14 @@ class TestResponseFormat:
     ):
         """Test that error response follows RFC 7807 Problem Details format."""
         with patch(
-            "agentic_rag_backend.api.routes.ingest.get_redis_client",
-            return_value=mock_redis,
+            "agentic_rag_backend.api.routes.ingest.get_settings",
+            return_value=mock_settings,
         ):
-            with patch(
-                "agentic_rag_backend.api.routes.ingest.get_postgres_client",
-                return_value=mock_postgres,
-            ):
-                with patch(
-                    "agentic_rag_backend.api.routes.ingest.load_settings",
-                    return_value=mock_settings,
-                ):
-                    response = client.post(
-                        "/api/v1/ingest/document",
-                        files={"file": ("test.txt", b"not pdf", "text/plain")},
-                        data={"tenant_id": sample_tenant_id},
-                    )
+            response = client.post(
+                "/api/v1/ingest/document",
+                files={"file": ("test.txt", b"not pdf", "text/plain")},
+                data={"tenant_id": sample_tenant_id},
+            )
 
         data = response.json()
 
