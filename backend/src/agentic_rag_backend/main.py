@@ -7,11 +7,13 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 import psycopg
+from starlette.responses import JSONResponse
 
 from pydantic import ValidationError
 
 from .config import Settings, load_settings
 from .agents.orchestrator import OrchestratorAgent
+from .rate_limit import RateLimiter
 from .schemas import QueryEnvelope, QueryRequest, QueryResponse, ResponseMeta
 from .trajectory import TrajectoryLogger, close_pool, create_pool
 
@@ -30,6 +32,10 @@ async def lifespan(app: FastAPI):
     if _should_skip_pool():
         app.state.pool = None
         app.state.trajectory_logger = None
+        app.state.rate_limiter = RateLimiter(
+            max_requests=settings.rate_limit_per_minute,
+            window_seconds=60,
+        )
         app.state.orchestrator = OrchestratorAgent(
             api_key=settings.openai_api_key,
             model_id=settings.openai_model_id,
@@ -42,6 +48,10 @@ async def lifespan(app: FastAPI):
     app.state.pool = pool
     trajectory_logger = TrajectoryLogger(pool=pool)
     app.state.trajectory_logger = trajectory_logger
+    app.state.rate_limiter = RateLimiter(
+        max_requests=settings.rate_limit_per_minute,
+        window_seconds=60,
+    )
     app.state.orchestrator = OrchestratorAgent(
         api_key=settings.openai_api_key,
         model_id=settings.openai_model_id,
@@ -69,6 +79,30 @@ def get_orchestrator(request: Request) -> OrchestratorAgent:
     return request.app.state.orchestrator
 
 
+def get_rate_limiter(request: Request) -> RateLimiter:
+    """Provide the per-process rate limiter."""
+    return request.app.state.rate_limiter
+
+
+@app.middleware("http")
+async def enforce_request_size(request: Request, call_next):
+    settings = request.app.state.settings
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > settings.request_max_bytes:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": "Request body too large"},
+                )
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Invalid content-length header"},
+            )
+    return await call_next(request)
+
+
 @app.get("/health")
 def health_check() -> dict:
     return {"status": "ok"}
@@ -78,8 +112,11 @@ def health_check() -> dict:
 async def run_query(
     payload: QueryRequest,
     orchestrator: OrchestratorAgent = Depends(get_orchestrator),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> QueryEnvelope:
     try:
+        if not limiter.allow(payload.tenant_id):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
         result = await run_in_threadpool(
             orchestrator.run,
             payload.query,

@@ -78,10 +78,24 @@ def upgrade() -> None:
         "trajectory_events",
         ["tenant_id"],
     )
+    op.create_index(
+        "idx_trajectory_events_tenant_trajectory",
+        "trajectory_events",
+        ["tenant_id", "trajectory_id"],
+    )
+    op.create_index(
+        "idx_trajectories_tenant_session",
+        "trajectories",
+        ["tenant_id", "session_id"],
+    )
 
 
 def downgrade() -> None:
     op.drop_index("idx_trajectory_events_tenant_id", table_name="trajectory_events")
+    op.drop_index(
+        "idx_trajectory_events_tenant_trajectory", table_name="trajectory_events"
+    )
+    op.drop_index("idx_trajectories_tenant_session", table_name="trajectories")
     op.drop_index("idx_trajectories_tenant_id", table_name="trajectories")
     op.drop_index("idx_trajectories_session_id", table_name="trajectories")
     op.drop_index("idx_trajectory_events_event_type", table_name="trajectory_events")

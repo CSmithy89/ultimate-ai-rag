@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Optional
 from uuid import UUID, uuid4
 
+import psycopg
 from psycopg_pool import ConnectionPool
 
 EVENT_THOUGHT = "thought"
@@ -12,7 +13,17 @@ EVENT_OBSERVATION = "observation"
 
 def create_pool(database_url: str, min_size: int, max_size: int) -> ConnectionPool:
     """Create a connection pool for trajectory storage."""
-    return ConnectionPool(conninfo=database_url, min_size=min_size, max_size=max_size, open=True)
+    try:
+        return ConnectionPool(
+            conninfo=database_url,
+            min_size=min_size,
+            max_size=max_size,
+            open=True,
+        )
+    except psycopg.OperationalError as exc:
+        raise RuntimeError("Database connection failed during pool initialization.") from exc
+    except psycopg.Error as exc:
+        raise RuntimeError("Database error during pool initialization.") from exc
 
 
 def close_pool(pool: ConnectionPool) -> None:
@@ -75,6 +86,7 @@ class TrajectoryLogger:
         event_type: str,
         content: str,
     ) -> None:
+        """Record a single event within its own transaction."""
         with self.pool.connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(

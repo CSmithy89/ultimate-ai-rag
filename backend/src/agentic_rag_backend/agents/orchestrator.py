@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 import re
-from typing import List
 from uuid import UUID
 
 from ..retrieval_router import RetrievalStrategy, select_retrieval_strategy
@@ -28,8 +27,8 @@ logger = logging.getLogger(__name__)
 @dataclass
 class OrchestratorResult:
     answer: str
-    plan: List[PlanStep]
-    thoughts: List[str]
+    plan: list[PlanStep]
+    thoughts: list[str]
     retrieval_strategy: RetrievalStrategy
     trajectory_id: UUID | None
 
@@ -86,7 +85,7 @@ class OrchestratorAgent:
             trajectory_id=trajectory_id,
         )
 
-    def _build_plan(self, query: str) -> List[PlanStep]:
+    def _build_plan(self, query: str) -> list[PlanStep]:
         base_steps = [
             "Understand the question intent",
             "Select retrieval strategy",
@@ -110,16 +109,19 @@ class OrchestratorAgent:
         return [PlanStep(step=step, status="pending") for step in base_steps]
 
     def _has_token(self, query: str, token: str) -> bool:
+        """Return True when a token appears as a whole word in the query."""
         return re.search(rf"\b{re.escape(token)}\b", query.lower()) is not None
 
-    def _insert_after(self, steps: List[str], anchor: str, new_step: str) -> List[str]:
+    def _insert_after(self, steps: list[str], anchor: str, new_step: str) -> list[str]:
+        """Insert a step after the anchor label when present."""
         if anchor not in steps:
             return steps + [new_step]
         index = steps.index(anchor)
         return steps[: index + 1] + [new_step] + steps[index + 1 :]
 
-    def _execute_plan(self, plan: List[PlanStep]) -> tuple[List[str], list[tuple[str, str]]]:
-        thoughts: List[str] = []
+    def _execute_plan(self, plan: List[PlanStep]) -> tuple[list[str], list[tuple[str, str]]]:
+        """Execute a plan and return thought strings plus log events."""
+        thoughts: list[str] = []
         events: list[tuple[str, str]] = []
         for step in plan:
             thought = f"Plan step: {step.step}"
