@@ -17,3 +17,9 @@ cd frontend
 pnpm install
 pnpm dev
 ```
+
+### Full Stack (Docker Compose)
+
+```bash
+docker compose up -d
+```

@@ -1,0 +1,23 @@
+<storyContext>
+  <story id="1.3" title="Docker Compose Development Environment" epic="1" />
+
+  <summary>
+    Provide a docker-compose.yml that runs backend, frontend, Postgres (pgvector),
+    Neo4j, and Redis with health checks and hot reload for local development.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>All services start with docker compose up -d.</acceptanceCriteria>
+    <acceptanceCriteria>Health checks pass for all services.</acceptanceCriteria>
+    <acceptanceCriteria>Backend and frontend support hot reload.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Expose ports: 8000, 3000, 5432, 7474, 7687, 6379.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="_bmad-output/project-planning-artifacts/epics.md" section="Epic 1 / Story 1.3" />
+    <reference path="_bmad-output/architecture.md" section="Graph Database: Neo4j" />
+  </references>
+</storyContext>
