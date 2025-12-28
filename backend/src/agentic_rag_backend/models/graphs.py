@@ -166,3 +166,102 @@ class IndexingResult(BaseModel):
     relationships_extracted: int = Field(default=0, ge=0)
     entities_deduplicated: int = Field(default=0, ge=0)
     processing_time_ms: int = Field(default=0, ge=0)
+
+
+# Story 4.4 - Knowledge Graph Visualization Models
+
+
+class GraphNode(BaseModel):
+    """Node representation for graph visualization."""
+
+    id: str = Field(..., description="Node UUID")
+    label: str = Field(..., description="Display label (entity name)")
+    type: str = Field(..., description="Entity type (Person, Organization, Technology, Concept, Location)")
+    properties: Optional[dict[str, Any]] = Field(default=None, description="Additional node properties")
+    is_orphan: bool = Field(default=False, description="True if node has no relationships")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                    "label": "OpenAI",
+                    "type": "Organization",
+                    "properties": {"description": "AI research company"},
+                    "is_orphan": False,
+                }
+            ]
+        }
+    }
+
+
+class GraphEdge(BaseModel):
+    """Edge representation for graph visualization."""
+
+    id: str = Field(..., description="Edge identifier")
+    source: str = Field(..., description="Source node ID")
+    target: str = Field(..., description="Target node ID")
+    type: str = Field(..., description="Relationship type (MENTIONS, AUTHORED_BY, PART_OF, USES, RELATED_TO)")
+    label: str = Field(..., description="Display label for the edge")
+    properties: Optional[dict[str, Any]] = Field(default=None, description="Additional edge properties")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "id": "rel-123",
+                    "source": "node-1",
+                    "target": "node-2",
+                    "type": "USES",
+                    "label": "USES",
+                    "properties": {"confidence": 0.95},
+                }
+            ]
+        }
+    }
+
+
+class GraphData(BaseModel):
+    """Graph data containing nodes and edges for visualization."""
+
+    nodes: list[GraphNode] = Field(default_factory=list, description="List of graph nodes")
+    edges: list[GraphEdge] = Field(default_factory=list, description="List of graph edges")
+
+
+class GraphStats(BaseModel):
+    """Statistics for the knowledge graph."""
+
+    node_count: int = Field(..., ge=0, description="Total number of nodes")
+    edge_count: int = Field(..., ge=0, description="Total number of edges")
+    orphan_count: int = Field(..., ge=0, description="Number of nodes with no relationships")
+    entity_type_counts: dict[str, int] = Field(
+        default_factory=dict, description="Count of entities by type"
+    )
+    relationship_type_counts: dict[str, int] = Field(
+        default_factory=dict, description="Count of relationships by type"
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "node_count": 1500,
+                    "edge_count": 3200,
+                    "orphan_count": 12,
+                    "entity_type_counts": {"Person": 200, "Technology": 500, "Organization": 300},
+                    "relationship_type_counts": {"USES": 800, "MENTIONS": 500},
+                }
+            ]
+        }
+    }
+
+
+class GraphQueryParams(BaseModel):
+    """Query parameters for graph data retrieval."""
+
+    tenant_id: UUID = Field(..., description="Tenant identifier (required)")
+    limit: int = Field(default=100, ge=1, le=1000, description="Maximum nodes to return")
+    offset: int = Field(default=0, ge=0, description="Number of nodes to skip")
+    entity_type: Optional[str] = Field(None, description="Filter by entity type")
+    relationship_type: Optional[str] = Field(None, description="Filter by relationship type")
+    date_from: Optional[datetime] = Field(None, description="Filter entities created after this date")

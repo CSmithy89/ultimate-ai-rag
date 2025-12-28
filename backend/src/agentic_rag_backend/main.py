@@ -5,7 +5,7 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI
 
-from .api.routes import ingest_router
+from .api.routes import ingest_router, knowledge_router
 from .config import load_settings
 from .core.errors import AppError, app_error_handler
 
@@ -53,6 +53,7 @@ app.add_exception_handler(AppError, app_error_handler)
 
 # Register routers
 app.include_router(ingest_router, prefix="/api/v1")
+app.include_router(knowledge_router, prefix="/api/v1")
 
 
 @app.get("/health")

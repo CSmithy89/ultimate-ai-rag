@@ -545,6 +545,285 @@ class Neo4jClient:
             raise Neo4jError("get_graph_stats", str(e)) from e
 
 
+    # Story 4.4 - Knowledge Graph Visualization Methods
+
+    async def get_graph_data(
+        self,
+        tenant_id: str,
+        limit: int = 100,
+        offset: int = 0,
+        entity_type: Optional[str] = None,
+        relationship_type: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """
+        Fetch graph data for visualization.
+
+        Args:
+            tenant_id: Tenant identifier for filtering
+            limit: Maximum number of nodes to return
+            offset: Number of nodes to skip
+            entity_type: Optional filter by entity type
+            relationship_type: Optional filter by relationship type
+
+        Returns:
+            Dictionary with nodes and edges lists
+        """
+        try:
+            async with self.driver.session() as session:
+                # Build the query based on filters
+                if entity_type:
+                    node_query = """
+                    MATCH (n:Entity {tenant_id: $tenant_id, type: $entity_type})
+                    RETURN n
+                    ORDER BY n.name
+                    SKIP $offset
+                    LIMIT $limit
+                    """
+                    node_params = {
+                        "tenant_id": tenant_id,
+                        "entity_type": entity_type,
+                        "offset": offset,
+                        "limit": limit,
+                    }
+                else:
+                    node_query = """
+                    MATCH (n:Entity {tenant_id: $tenant_id})
+                    RETURN n
+                    ORDER BY n.name
+                    SKIP $offset
+                    LIMIT $limit
+                    """
+                    node_params = {
+                        "tenant_id": tenant_id,
+                        "offset": offset,
+                        "limit": limit,
+                    }
+
+                # Fetch nodes
+                node_result = await session.run(node_query, **node_params)
+                node_records = await node_result.data()
+
+                # Collect node IDs for edge query
+                node_ids = [r["n"]["id"] for r in node_records if r.get("n")]
+
+                # Check which nodes are orphans
+                orphan_ids = set()
+                if node_ids:
+                    orphan_query = """
+                    MATCH (n:Entity)
+                    WHERE n.id IN $node_ids AND n.tenant_id = $tenant_id
+                    AND NOT (n)-[]-()
+                    RETURN n.id as id
+                    """
+                    orphan_result = await session.run(
+                        orphan_query,
+                        node_ids=node_ids,
+                        tenant_id=tenant_id,
+                    )
+                    orphan_records = await orphan_result.data()
+                    orphan_ids = {r["id"] for r in orphan_records}
+
+                # Build nodes list
+                nodes = []
+                for record in node_records:
+                    if record.get("n"):
+                        node_data = dict(record["n"])
+                        nodes.append({
+                            "id": node_data.get("id", ""),
+                            "label": node_data.get("name", ""),
+                            "type": node_data.get("type", ""),
+                            "properties": {
+                                "description": node_data.get("description"),
+                                "source_chunks": node_data.get("source_chunks", []),
+                            },
+                            "is_orphan": node_data.get("id", "") in orphan_ids,
+                        })
+
+                # Fetch edges between these nodes
+                edges = []
+                edge_records = []
+                if len(node_ids) > 1:
+                    if relationship_type:
+                        # Validate relationship type
+                        valid_types = {"MENTIONS", "AUTHORED_BY", "PART_OF", "USES", "RELATED_TO"}
+                        if relationship_type in valid_types:
+                            edge_query = f"""
+                            MATCH (source:Entity)-[r:{relationship_type}]->(target:Entity)
+                            WHERE source.id IN $node_ids AND target.id IN $node_ids
+                            AND source.tenant_id = $tenant_id
+                            RETURN source.id as source_id, target.id as target_id, 
+                                   type(r) as rel_type, r.confidence as confidence,
+                                   r.description as description
+                            """
+                            edge_result = await session.run(
+                                edge_query,
+                                node_ids=node_ids,
+                                tenant_id=tenant_id,
+                            )
+                            edge_records = await edge_result.data()
+                    else:
+                        edge_query = """
+                        MATCH (source:Entity)-[r]->(target:Entity)
+                        WHERE source.id IN $node_ids AND target.id IN $node_ids
+                        AND source.tenant_id = $tenant_id
+                        AND type(r) IN ['MENTIONS', 'AUTHORED_BY', 'PART_OF', 'USES', 'RELATED_TO']
+                        RETURN source.id as source_id, target.id as target_id, 
+                               type(r) as rel_type, r.confidence as confidence,
+                               r.description as description
+                        """
+                        edge_result = await session.run(
+                            edge_query,
+                            node_ids=node_ids,
+                            tenant_id=tenant_id,
+                        )
+                        edge_records = await edge_result.data()
+
+                    for i, record in enumerate(edge_records):
+                        edges.append({
+                            "id": f"edge-{record['source_id'][:8]}-{record['target_id'][:8]}-{i}",
+                            "source": record["source_id"],
+                            "target": record["target_id"],
+                            "type": record["rel_type"],
+                            "label": record["rel_type"],
+                            "properties": {
+                                "confidence": record.get("confidence"),
+                                "description": record.get("description"),
+                            },
+                        })
+
+                return {"nodes": nodes, "edges": edges}
+
+        except Neo4jDriverError as e:
+            raise Neo4jError("get_graph_data", str(e)) from e
+
+    async def get_visualization_stats(self, tenant_id: str) -> dict[str, Any]:
+        """
+        Get detailed statistics for knowledge graph visualization.
+
+        Args:
+            tenant_id: Tenant identifier
+
+        Returns:
+            Dictionary with node count, edge count, orphan count, and type breakdowns
+        """
+        try:
+            async with self.driver.session() as session:
+                # Count total entities
+                entity_result = await session.run(
+                    "MATCH (e:Entity {tenant_id: $tenant_id}) RETURN count(e) as count",
+                    tenant_id=tenant_id,
+                )
+                entity_record = await entity_result.single()
+                node_count = entity_record["count"] if entity_record else 0
+
+                # Count entity-to-entity relationships
+                rel_result = await session.run(
+                    """
+                    MATCH (e1:Entity {tenant_id: $tenant_id})-[r]->(e2:Entity {tenant_id: $tenant_id})
+                    WHERE type(r) IN ['MENTIONS', 'AUTHORED_BY', 'PART_OF', 'USES', 'RELATED_TO']
+                    RETURN count(r) as count
+                    """,
+                    tenant_id=tenant_id,
+                )
+                rel_record = await rel_result.single()
+                edge_count = rel_record["count"] if rel_record else 0
+
+                # Count orphan nodes
+                orphan_result = await session.run(
+                    """
+                    MATCH (e:Entity {tenant_id: $tenant_id})
+                    WHERE NOT (e)-[]-()
+                    RETURN count(e) as count
+                    """,
+                    tenant_id=tenant_id,
+                )
+                orphan_record = await orphan_result.single()
+                orphan_count = orphan_record["count"] if orphan_record else 0
+
+                # Count by entity type
+                type_result = await session.run(
+                    """
+                    MATCH (e:Entity {tenant_id: $tenant_id})
+                    RETURN e.type as type, count(e) as count
+                    """,
+                    tenant_id=tenant_id,
+                )
+                type_records = await type_result.data()
+                entity_type_counts = {r["type"]: r["count"] for r in type_records if r.get("type")}
+
+                # Count by relationship type
+                rel_type_result = await session.run(
+                    """
+                    MATCH (e1:Entity {tenant_id: $tenant_id})-[r]->(e2:Entity {tenant_id: $tenant_id})
+                    WHERE type(r) IN ['MENTIONS', 'AUTHORED_BY', 'PART_OF', 'USES', 'RELATED_TO']
+                    RETURN type(r) as type, count(r) as count
+                    """,
+                    tenant_id=tenant_id,
+                )
+                rel_type_records = await rel_type_result.data()
+                relationship_type_counts = {r["type"]: r["count"] for r in rel_type_records if r.get("type")}
+
+                return {
+                    "node_count": node_count,
+                    "edge_count": edge_count,
+                    "orphan_count": orphan_count,
+                    "entity_type_counts": entity_type_counts,
+                    "relationship_type_counts": relationship_type_counts,
+                }
+
+        except Neo4jDriverError as e:
+            raise Neo4jError("get_visualization_stats", str(e)) from e
+
+    async def get_orphan_nodes(
+        self,
+        tenant_id: str,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """
+        Get nodes with no relationships (orphans).
+
+        Args:
+            tenant_id: Tenant identifier
+            limit: Maximum number of orphan nodes to return
+
+        Returns:
+            List of orphan node dictionaries
+        """
+        try:
+            async with self.driver.session() as session:
+                result = await session.run(
+                    """
+                    MATCH (e:Entity {tenant_id: $tenant_id})
+                    WHERE NOT (e)-[]-()
+                    RETURN e
+                    ORDER BY e.name
+                    LIMIT $limit
+                    """,
+                    tenant_id=tenant_id,
+                    limit=limit,
+                )
+                records = await result.data()
+                
+                orphans = []
+                for record in records:
+                    if record.get("e"):
+                        node_data = dict(record["e"])
+                        orphans.append({
+                            "id": node_data.get("id", ""),
+                            "label": node_data.get("name", ""),
+                            "type": node_data.get("type", ""),
+                            "properties": {
+                                "description": node_data.get("description"),
+                                "source_chunks": node_data.get("source_chunks", []),
+                            },
+                            "is_orphan": True,
+                        })
+                
+                return orphans
+
+        except Neo4jDriverError as e:
+            raise Neo4jError("get_orphan_nodes", str(e)) from e
+
 # Global Neo4j client instance
 _neo4j_client: Optional[Neo4jClient] = None
 
