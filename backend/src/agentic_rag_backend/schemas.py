@@ -14,3 +14,4 @@ class QueryResponse(BaseModel):
     answer: str
     plan: list[PlanStep]
     thoughts: list[str]
+    retrieval_strategy: str

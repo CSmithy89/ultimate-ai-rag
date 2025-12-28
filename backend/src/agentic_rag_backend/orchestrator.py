@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List
 
+from .retrieval_router import RetrievalStrategy, select_retrieval_strategy
+
 try:
     from agno.agent import Agent
     from agno.models.openai import OpenAIChat
@@ -22,6 +24,7 @@ class OrchestratorResult:
     answer: str
     plan: List[PlanStep]
     thoughts: List[str]
+    retrieval_strategy: RetrievalStrategy
 
 
 class OrchestratorAgent:
@@ -33,6 +36,8 @@ class OrchestratorAgent:
     def run(self, query: str) -> OrchestratorResult:
         plan = self._build_plan(query)
         thoughts = self._execute_plan(plan)
+        strategy = select_retrieval_strategy(query)
+        thoughts.append(f"Selected retrieval strategy: {strategy.value}")
 
         if self._agent:
             response = self._agent.run(query)
@@ -41,7 +46,12 @@ class OrchestratorAgent:
         else:
             answer = f"Received query: {query}"
 
-        return OrchestratorResult(answer=answer, plan=plan, thoughts=thoughts)
+        return OrchestratorResult(
+            answer=answer,
+            plan=plan,
+            thoughts=thoughts,
+            retrieval_strategy=strategy,
+        )
 
     def _build_plan(self, query: str) -> List[PlanStep]:
         base_steps = [

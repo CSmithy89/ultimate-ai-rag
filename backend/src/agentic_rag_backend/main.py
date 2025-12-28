@@ -18,7 +18,12 @@ def health_check() -> dict:
 @app.post("/query", response_model=QueryResponse)
 def run_query(payload: QueryRequest) -> QueryResponse:
     result = orchestrator.run(payload.query)
-    return QueryResponse(answer=result.answer, plan=result.plan, thoughts=result.thoughts)
+    return QueryResponse(
+        answer=result.answer,
+        plan=result.plan,
+        thoughts=result.thoughts,
+        retrieval_strategy=result.retrieval_strategy.value,
+    )
 
 
 def run() -> None:
