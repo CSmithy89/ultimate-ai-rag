@@ -2,6 +2,7 @@
 
 import os
 from dataclasses import dataclass
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -21,6 +22,11 @@ class Settings:
     frontend_url: str
     # Epic 4 - Crawl settings
     crawl4ai_rate_limit: float
+    # Story 4.2 - PDF Document Parsing settings
+    docling_table_mode: str
+    max_upload_size_mb: int
+    temp_upload_dir: str
+    docling_service_url: Optional[str]
 
 
 def load_settings() -> Settings:
@@ -46,6 +52,11 @@ def load_settings() -> Settings:
         crawl4ai_rate_limit = float(os.getenv("CRAWL4AI_RATE_LIMIT", "1.0"))
     except ValueError:
         crawl4ai_rate_limit = 1.0
+
+    try:
+        max_upload_size_mb = int(os.getenv("MAX_UPLOAD_SIZE_MB", "100"))
+    except ValueError:
+        max_upload_size_mb = 100
 
     required = [
         "OPENAI_API_KEY",
@@ -75,4 +86,9 @@ def load_settings() -> Settings:
         backend_port=backend_port,
         frontend_url=os.getenv("FRONTEND_URL", "http://localhost:3000"),
         crawl4ai_rate_limit=crawl4ai_rate_limit,
+        # Story 4.2 - PDF Document Parsing settings
+        docling_table_mode=os.getenv("DOCLING_TABLE_MODE", "accurate"),
+        max_upload_size_mb=max_upload_size_mb,
+        temp_upload_dir=os.getenv("TEMP_UPLOAD_DIR", "/tmp/uploads"),
+        docling_service_url=os.getenv("DOCLING_SERVICE_URL"),
     )

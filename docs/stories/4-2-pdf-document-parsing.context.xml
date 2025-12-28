@@ -1,0 +1,1125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>4.2</story-id>
+    <story-name>PDF Document Parsing</story-name>
+    <epic>Epic 4: Knowledge Ingestion Pipeline</epic>
+    <status>ready-for-dev</status>
+    <generated>2025-12-28</generated>
+    <depends-on>Story 4.1 (URL Documentation Crawling)</depends-on>
+  </metadata>
+
+  <summary>
+    <description>
+      Implement PDF document parsing using Docling to extract text, tables, and
+      structured content from complex PDF documents. Parsed content is normalized
+      to the UnifiedDocument format and queued for downstream indexing via Redis Streams.
+    </description>
+    <user-story>
+      As a data engineer,
+      I want to parse complex PDF documents with tables and structured layouts,
+      So that information is accurately extracted regardless of document format.
+    </user-story>
+  </summary>
+
+  <acceptance-criteria>
+    <criterion id="AC1">
+      Given a PDF file is provided, when the user uploads it via the ingestion API
+      (POST /api/v1/ingest/document), then Docling processes the document and returns
+      a job_id with status "queued".
+    </criterion>
+    <criterion id="AC2">
+      Given a PDF is being processed, when Docling encounters complex document layouts,
+      then it extracts text while preserving document structure (hierarchy, paragraphs, sections).
+    </criterion>
+    <criterion id="AC3">
+      Given a PDF contains tables, when Docling processes the document, then tables are
+      extracted and converted to structured markdown format with proper row/column alignment.
+    </criterion>
+    <criterion id="AC4">
+      Given a PDF contains document structure elements, when Docling processes the document,
+      then headers, sections, footnotes, and other structural elements are identified and
+      preserved with appropriate semantic markup.
+    </criterion>
+    <criterion id="AC5" nfr="NFR2">
+      Given a 50-page PDF document is uploaded, when the parsing pipeline processes it,
+      then the entire document is processed in less than 5 minutes.
+    </criterion>
+    <criterion id="AC6">
+      Given document content has been extracted, when the parsing completes, then output
+      is normalized to the UnifiedDocument format with standardized chunks ready for
+      embedding generation.
+    </criterion>
+  </acceptance-criteria>
+
+  <architecture-decisions>
+    <decision id="AD1" category="document-parsing">
+      <title>Docling Integration</title>
+      <description>
+        Use Docling v2.66.0 for PDF parsing with TableFormerMode.ACCURATE for precise
+        table extraction. Docling provides superior structure preservation compared to
+        alternatives like PyMuPDF or pdfplumber.
+      </description>
+      <code-example>
+        <![CDATA[
+from docling.document_converter import DocumentConverter
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import PdfPipelineOptions, TableStructureOptions, TableFormerMode
+
+pipeline_options = PdfPipelineOptions(
+    do_table_structure=True,
+    table_structure_options=TableStructureOptions(
+        mode=TableFormerMode.ACCURATE
+    )
+)
+
+converter = DocumentConverter()
+result = converter.convert(pdf_path, input_format=InputFormat.PDF)
+
+for element in result.document.iterate_items():
+    if element.type == "table":
+        markdown_table = element.export_to_markdown()
+    elif element.type == "heading":
+        # Preserve heading level
+        ...
+        ]]>
+      </code-example>
+    </decision>
+
+    <decision id="AD2" category="data-flow">
+      <title>Async Processing via Redis Streams</title>
+      <description>
+        PDF parsing jobs run asynchronously to avoid blocking API responses.
+        Redis Streams provides reliable message delivery with consumer groups.
+      </description>
+      <job-queue-flow>
+        API Request (file upload) -> Save to temp storage -> Redis Stream (parse.jobs)
+        -> Parse Worker -> Docling processing -> UnifiedDocument -> Redis Stream (index.jobs)
+      </job-queue-flow>
+    </decision>
+
+    <decision id="AD3" category="file-storage">
+      <title>Temporary File Storage Strategy</title>
+      <description>
+        For MVP, use local filesystem with cleanup:
+        1. Save uploaded file to {TEMP_UPLOAD_DIR}/{tenant_id}/{job_id}.pdf
+        2. Process with Docling
+        3. Delete temp file after successful processing
+        4. Keep temp file on failure for debugging (with TTL cleanup)
+      </description>
+    </decision>
+
+    <decision id="AD4" category="multi-tenancy">
+      <title>Multi-Tenancy Isolation</title>
+      <description>
+        Every database query MUST include tenant_id filtering.
+        Uploaded files are stored with tenant_id prefix.
+        Document and job records include tenant_id column.
+      </description>
+    </decision>
+
+    <decision id="AD5" category="idempotency">
+      <title>Content Hash Deduplication</title>
+      <description>
+        Documents are identified by content hash (SHA-256) to enable re-ingestion
+        without duplicates. Same PDF uploaded twice returns existing document.
+      </description>
+    </decision>
+  </architecture-decisions>
+
+  <technology-stack>
+    <technology name="Docling" version="2.66.0" purpose="PDF parsing with table extraction"/>
+    <technology name="python-multipart" version=">=0.0.6" purpose="Multipart form file uploads"/>
+    <technology name="Redis" version="7.x" purpose="Job queue via Redis Streams"/>
+    <technology name="PostgreSQL" version="16.x" purpose="Document and job metadata storage"/>
+    <technology name="FastAPI" version="0.111.0" purpose="API endpoints"/>
+    <technology name="Pydantic" version="2.x" purpose="Data validation and models"/>
+    <technology name="Python" version="3.11+" purpose="Backend runtime"/>
+  </technology-stack>
+
+  <api-endpoints>
+    <endpoint method="POST" path="/api/v1/ingest/document">
+      <description>Upload and parse PDF document</description>
+      <request-format>Multipart form with file upload + JSON metadata</request-format>
+      <request-fields>
+        <field name="file" type="UploadFile" required="true">PDF file to upload</field>
+        <field name="tenant_id" type="UUID" required="true">Tenant identifier</field>
+        <field name="metadata" type="JSON" required="false">Additional document metadata</field>
+      </request-fields>
+      <success-response>
+        <![CDATA[
+{
+  "data": {
+    "job_id": "uuid",
+    "status": "queued",
+    "filename": "document.pdf",
+    "file_size": 1024567
+  },
+  "meta": {
+    "requestId": "uuid",
+    "timestamp": "2025-12-28T10:00:00Z"
+  }
+}
+        ]]>
+      </success-response>
+    </endpoint>
+
+    <endpoint method="GET" path="/api/v1/ingest/jobs/{job_id}">
+      <description>Get job status with progress (existing from Story 4.1)</description>
+      <note>Reuse existing endpoint - no changes needed</note>
+    </endpoint>
+
+    <error-responses>
+      <error code="INVALID_PDF" status="400">
+        <![CDATA[
+{
+  "type": "https://api.example.com/errors/invalid-pdf",
+  "title": "Invalid Pdf",
+  "status": 400,
+  "detail": "The uploaded file is not a valid PDF document or is corrupted",
+  "instance": "/api/v1/ingest/document"
+}
+        ]]>
+      </error>
+      <error code="FILE_TOO_LARGE" status="413">
+        <![CDATA[
+{
+  "type": "https://api.example.com/errors/file-too-large",
+  "title": "File Too Large",
+  "status": 413,
+  "detail": "File size exceeds the maximum allowed size of 100MB",
+  "instance": "/api/v1/ingest/document"
+}
+        ]]>
+      </error>
+      <error code="PASSWORD_PROTECTED" status="400">
+        <![CDATA[
+{
+  "type": "https://api.example.com/errors/password-protected",
+  "title": "Password Protected",
+  "status": 400,
+  "detail": "Password-protected PDFs are not supported",
+  "instance": "/api/v1/ingest/document"
+}
+        ]]>
+      </error>
+    </error-responses>
+  </api-endpoints>
+
+  <database-schema>
+    <schema-updates>
+      <update table="documents">
+        <description>Add file_size and page_count columns for PDF documents</description>
+        <sql>
+          <![CDATA[
+-- Add new columns for PDF document support
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_size BIGINT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS page_count INTEGER;
+
+-- The source_type column already supports 'pdf' from Story 4.1
+-- UNIQUE constraint on (tenant_id, content_hash) prevents duplicates
+          ]]>
+        </sql>
+      </update>
+
+      <update table="ingestion_jobs">
+        <description>Add processing_time_ms column for NFR2 performance tracking</description>
+        <sql>
+          <![CDATA[
+-- Add processing time tracking for performance monitoring (NFR2)
+ALTER TABLE ingestion_jobs ADD COLUMN IF NOT EXISTS processing_time_ms INTEGER;
+          ]]>
+        </sql>
+      </update>
+    </schema-updates>
+  </database-schema>
+
+  <existing-code-patterns>
+    <pattern name="models-structure" source="Story 4.1">
+      <description>Follow existing Pydantic model patterns from models/documents.py and models/ingest.py</description>
+      <existing-models>
+        <model file="models/documents.py">
+          <![CDATA[
+# Existing enums to reuse:
+class SourceType(str, Enum):
+    URL = "url"
+    PDF = "pdf"  # Already defined
+    TEXT = "text"
+
+class DocumentStatus(str, Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+# Existing models to extend:
+class DocumentMetadata(BaseModel):
+    title: Optional[str] = None
+    page_count: Optional[int] = None  # Already supports page_count
+    # ... other fields
+
+class UnifiedDocument(BaseModel):
+    # Base document model - extend for parsed content
+    ...
+          ]]>
+        </model>
+        <model file="models/ingest.py">
+          <![CDATA[
+# Existing job types to use:
+class JobType(str, Enum):
+    CRAWL = "crawl"
+    PARSE = "parse"  # Use this for PDF parsing jobs
+    INDEX = "index"
+
+class JobStatusEnum(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+          ]]>
+        </model>
+      </existing-models>
+    </pattern>
+
+    <pattern name="db-client-pattern" source="Story 4.1">
+      <description>Follow PostgresClient pattern from db/postgres.py</description>
+      <example>
+        <![CDATA[
+# All queries must include tenant_id filtering
+async def create_document(
+    self,
+    tenant_id: UUID,
+    source_type: str,
+    content_hash: str,
+    filename: Optional[str] = None,
+    ...
+) -> UUID:
+    # Use ON CONFLICT for idempotent upserts
+    row = await conn.fetchrow("""
+        INSERT INTO documents (tenant_id, source_type, filename, content_hash, ...)
+        VALUES ($1, $2, $3, $4, ...)
+        ON CONFLICT (tenant_id, content_hash) DO UPDATE
+        SET updated_at = NOW()
+        RETURNING id
+    """, tenant_id, source_type, filename, content_hash, ...)
+        ]]>
+      </example>
+    </pattern>
+
+    <pattern name="redis-streams-pattern" source="Story 4.1">
+      <description>Follow Redis Streams pattern from db/redis.py</description>
+      <existing-streams>
+        <stream name="crawl.jobs" group="crawl-workers">For URL crawling</stream>
+        <stream name="parse.jobs" group="parse-workers">For PDF parsing (use this)</stream>
+        <stream name="index.jobs" group="index-workers">For indexing</stream>
+      </existing-streams>
+    </pattern>
+
+    <pattern name="api-response-pattern" source="Story 4.1">
+      <description>Follow success_response wrapper from api/routes/ingest.py</description>
+      <example>
+        <![CDATA[
+def success_response(data: Any) -> dict[str, Any]:
+    return {
+        "data": data,
+        "meta": {
+            "requestId": str(uuid4()),
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        },
+    }
+        ]]>
+      </example>
+    </pattern>
+
+    <pattern name="error-handling-pattern" source="Story 4.1">
+      <description>Follow RFC 7807 error pattern from core/errors.py</description>
+      <example>
+        <![CDATA[
+class ErrorCode(str, Enum):
+    # Add new error codes for PDF parsing
+    INVALID_PDF = "invalid_pdf"
+    FILE_TOO_LARGE = "file_too_large"
+    PASSWORD_PROTECTED = "password_protected"
+    PARSE_FAILED = "parse_failed"
+
+class InvalidPdfError(AppError):
+    def __init__(self, filename: str, reason: str) -> None:
+        super().__init__(
+            code=ErrorCode.INVALID_PDF,
+            message=f"Invalid PDF: {reason}",
+            status=400,
+            details={"filename": filename},
+        )
+        ]]>
+      </example>
+    </pattern>
+  </existing-code-patterns>
+
+  <files-to-create>
+    <file path="backend/src/agentic_rag_backend/indexing/parser.py">
+      <purpose>Docling parser wrapper with structure preservation and table extraction</purpose>
+      <key-functions>
+        <function name="parse_pdf" returns="ParsedDocument">Main PDF parsing function</function>
+        <function name="extract_tables" returns="list[TableContent]">Extract tables to markdown</function>
+        <function name="extract_sections" returns="list[DocumentSection]">Extract document structure</function>
+        <function name="validate_pdf" returns="bool">Check if file is valid PDF</function>
+      </key-functions>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/indexing/workers/parse_worker.py">
+      <purpose>Async parse worker consuming from Redis Streams (parse.jobs)</purpose>
+      <key-functions>
+        <function name="run_parse_worker">Main worker loop</function>
+        <function name="process_parse_job">Process single parse job</function>
+        <function name="track_processing_time">Track NFR2 metrics</function>
+      </key-functions>
+    </file>
+
+    <file path="backend/tests/indexing/test_parser.py">
+      <purpose>Unit tests for Docling parser functions</purpose>
+    </file>
+
+    <file path="backend/tests/api/test_ingest_document.py">
+      <purpose>API endpoint tests for document upload</purpose>
+    </file>
+
+    <file path="backend/tests/fixtures/sample_simple.pdf">
+      <purpose>Simple PDF fixture for testing</purpose>
+    </file>
+
+    <file path="backend/tests/fixtures/sample_tables.pdf">
+      <purpose>PDF with tables fixture for testing</purpose>
+    </file>
+
+    <file path="backend/tests/fixtures/sample_complex.pdf">
+      <purpose>Complex layout PDF fixture for testing</purpose>
+    </file>
+  </files-to-create>
+
+  <files-to-modify>
+    <file path="backend/src/agentic_rag_backend/models/documents.py">
+      <purpose>Add ParsedDocument, DocumentSection, TableContent, FootnoteContent models</purpose>
+      <changes>
+        <![CDATA[
+# Add new models for parsed PDF content:
+
+class DocumentSection(BaseModel):
+    """Represents a document section with hierarchy."""
+    heading: Optional[str] = None
+    level: int = Field(ge=1, le=6, description="Heading level 1-6")
+    content: str
+    page_number: int
+
+class TableContent(BaseModel):
+    """Extracted table in markdown format."""
+    caption: Optional[str] = None
+    markdown: str
+    row_count: int
+    column_count: int
+    page_number: int
+
+class FootnoteContent(BaseModel):
+    """Extracted footnote content."""
+    reference: str
+    content: str
+    page_number: int
+
+class ParsedDocument(BaseModel):
+    """Extended document model for parsed PDF content."""
+    id: UUID
+    tenant_id: UUID
+    source_type: Literal["pdf"] = "pdf"
+    filename: str
+    content_hash: str
+    file_size: int
+    page_count: int
+    sections: list[DocumentSection]
+    tables: list[TableContent]
+    footnotes: list[FootnoteContent]
+    metadata: DocumentMetadata
+    processing_time_ms: int
+    created_at: datetime
+        ]]>
+      </changes>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/models/ingest.py">
+      <purpose>Add DocumentUploadRequest and DocumentUploadResponse models</purpose>
+      <changes>
+        <![CDATA[
+# Add new models for document upload:
+
+class DocumentUploadResponse(BaseModel):
+    """Response model for document upload."""
+    job_id: UUID
+    status: JobStatusEnum = JobStatusEnum.QUEUED
+    filename: str
+    file_size: int
+
+class ParseProgress(BaseModel):
+    """Progress metrics for a parse job."""
+    pages_parsed: int = 0
+    total_pages: int = 0
+    tables_extracted: int = 0
+    sections_extracted: int = 0
+    current_page: Optional[int] = None
+        ]]>
+      </changes>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/api/routes/ingest.py">
+      <purpose>Add POST /api/v1/ingest/document endpoint</purpose>
+      <changes>
+        <![CDATA[
+# Add file upload endpoint:
+
+from fastapi import UploadFile, File, Form
+
+@router.post(
+    "/document",
+    response_model=SuccessResponse,
+    summary="Upload and parse PDF document",
+)
+async def upload_document(
+    file: UploadFile = File(..., description="PDF file to upload"),
+    tenant_id: UUID = Form(..., description="Tenant identifier"),
+    metadata: Optional[str] = Form(None, description="JSON metadata"),
+    redis: RedisClient = Depends(get_redis),
+    postgres: PostgresClient = Depends(get_postgres),
+) -> dict[str, Any]:
+    # Validate file type, size
+    # Save to temp storage
+    # Create job and queue to parse.jobs stream
+    ...
+        ]]>
+      </changes>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/core/errors.py">
+      <purpose>Add PDF-specific error types</purpose>
+      <changes>
+        <![CDATA[
+# Add new error codes to ErrorCode enum:
+INVALID_PDF = "invalid_pdf"
+FILE_TOO_LARGE = "file_too_large"
+PASSWORD_PROTECTED = "password_protected"
+PARSE_FAILED = "parse_failed"
+STORAGE_ERROR = "storage_error"
+
+# Add new error classes:
+class InvalidPdfError(AppError): ...
+class FileTooLargeError(AppError): ...
+class PasswordProtectedError(AppError): ...
+class ParseError(AppError): ...
+class StorageError(AppError): ...
+        ]]>
+      </changes>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/db/postgres.py">
+      <purpose>Add methods for PDF document with file_size and page_count</purpose>
+      <changes>
+        <![CDATA[
+# Extend create_document to support file_size and page_count:
+async def create_document(
+    self,
+    tenant_id: UUID,
+    source_type: str,
+    content_hash: str,
+    source_url: Optional[str] = None,
+    filename: Optional[str] = None,
+    file_size: Optional[int] = None,      # NEW
+    page_count: Optional[int] = None,     # NEW
+    metadata: Optional[dict[str, Any]] = None,
+) -> UUID: ...
+
+# Add update_job_processing_time method:
+async def update_job_processing_time(
+    self,
+    job_id: UUID,
+    tenant_id: UUID,
+    processing_time_ms: int,
+) -> bool: ...
+        ]]>
+      </changes>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/config.py">
+      <purpose>Add Docling and file upload configuration</purpose>
+      <changes>
+        <![CDATA[
+# Add new settings:
+DOCLING_TABLE_MODE: str = "accurate"  # accurate | fast
+MAX_UPLOAD_SIZE_MB: int = 100
+TEMP_UPLOAD_DIR: str = "/tmp/uploads"
+DOCLING_SERVICE_URL: Optional[str] = None  # For external Docling service
+        ]]>
+      </changes>
+    </file>
+
+    <file path="backend/pyproject.toml">
+      <purpose>Add Docling and python-multipart dependencies</purpose>
+      <changes>
+        <![CDATA[
+dependencies = [
+    # ... existing dependencies
+    "docling==2.66.0",           # PDF parsing
+    "python-multipart>=0.0.6",   # File uploads
+]
+        ]]>
+      </changes>
+    </file>
+  </files-to-modify>
+
+  <environment-variables>
+    <variable name="DOCLING_TABLE_MODE" default="accurate" description="Table extraction mode: accurate | fast"/>
+    <variable name="MAX_UPLOAD_SIZE_MB" default="100" description="Maximum PDF file size in MB"/>
+    <variable name="TEMP_UPLOAD_DIR" default="/tmp/uploads" description="Temporary file storage directory"/>
+    <variable name="DOCLING_SERVICE_URL" required="false" description="Optional external Docling service URL"/>
+    <variable name="REDIS_URL" required="true" description="Redis connection URL"/>
+    <variable name="DATABASE_URL" required="true" description="PostgreSQL connection URL"/>
+  </environment-variables>
+
+  <performance-requirements nfr="NFR2">
+    <requirement>
+      The ingestion pipeline must process a 50-page document in less than 5 minutes.
+    </requirement>
+    <optimization-strategies>
+      <strategy>Run Docling in a separate process/container to isolate memory usage</strategy>
+      <strategy>Use streaming for large files to reduce memory footprint</strategy>
+      <strategy>Consider GPU acceleration for TableFormer if available</strategy>
+      <strategy>Batch processing for multi-document ingestion</strategy>
+    </optimization-strategies>
+    <metrics-tracking>
+      <metric>processing_time_ms column in ingestion_jobs table</metric>
+      <metric>Add performance tests to CI to catch regressions</metric>
+    </metrics-tracking>
+  </performance-requirements>
+
+  <code-patterns>
+    <pattern name="docling-integration">
+      <![CDATA[
+from docling.document_converter import DocumentConverter
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import (
+    PdfPipelineOptions,
+    TableStructureOptions,
+    TableFormerMode,
+)
+import hashlib
+from pathlib import Path
+from typing import Generator
+
+def parse_pdf(
+    pdf_path: Path,
+    table_mode: str = "accurate",
+) -> Generator[dict, None, None]:
+    """
+    Parse PDF with Docling, preserving structure and extracting tables.
+
+    Args:
+        pdf_path: Path to PDF file
+        table_mode: Table extraction mode ('accurate' or 'fast')
+
+    Yields:
+        Dictionaries with extracted content:
+        - type: 'section' | 'table' | 'footnote'
+        - content: Extracted text/markdown
+        - metadata: Element-specific metadata
+    """
+    mode = TableFormerMode.ACCURATE if table_mode == "accurate" else TableFormerMode.FAST
+    pipeline_options = PdfPipelineOptions(
+        do_table_structure=True,
+        table_structure_options=TableStructureOptions(mode=mode)
+    )
+
+    converter = DocumentConverter()
+    result = converter.convert(str(pdf_path), input_format=InputFormat.PDF)
+
+    for element in result.document.iterate_items():
+        if element.type == "table":
+            yield {
+                "type": "table",
+                "content": element.export_to_markdown(),
+                "metadata": {
+                    "row_count": element.num_rows,
+                    "column_count": element.num_cols,
+                    "page_number": element.page_number,
+                    "caption": element.caption,
+                }
+            }
+        elif element.type == "heading":
+            yield {
+                "type": "section",
+                "content": element.text,
+                "metadata": {
+                    "level": element.level,
+                    "page_number": element.page_number,
+                }
+            }
+        elif element.type == "paragraph":
+            yield {
+                "type": "text",
+                "content": element.text,
+                "metadata": {"page_number": element.page_number}
+            }
+
+def compute_content_hash(file_path: Path) -> str:
+    """Compute SHA-256 hash of file content."""
+    sha256 = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            sha256.update(chunk)
+    return sha256.hexdigest()
+      ]]>
+    </pattern>
+
+    <pattern name="file-upload-endpoint">
+      <![CDATA[
+from fastapi import UploadFile, File, Form, HTTPException
+from pathlib import Path
+import shutil
+import aiofiles
+
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+
+@router.post("/document")
+async def upload_document(
+    file: UploadFile = File(..., description="PDF file to upload"),
+    tenant_id: UUID = Form(..., description="Tenant identifier"),
+    metadata: Optional[str] = Form(None, description="JSON metadata"),
+    redis: RedisClient = Depends(get_redis),
+    postgres: PostgresClient = Depends(get_postgres),
+) -> dict[str, Any]:
+    # Validate content type
+    if file.content_type != "application/pdf":
+        raise InvalidPdfError(file.filename, "File must be a PDF document")
+
+    # Validate file size (read file to check size)
+    contents = await file.read()
+    file_size = len(contents)
+    if file_size > MAX_FILE_SIZE:
+        raise FileTooLargeError(file.filename, MAX_FILE_SIZE)
+
+    # Compute content hash for deduplication
+    content_hash = hashlib.sha256(contents).hexdigest()
+
+    # Create job in database
+    job_id = await postgres.create_job(
+        tenant_id=tenant_id,
+        job_type=JobType.PARSE,
+    )
+
+    # Save to temp storage
+    temp_dir = Path(settings.temp_upload_dir) / str(tenant_id)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    temp_path = temp_dir / f"{job_id}.pdf"
+
+    async with aiofiles.open(temp_path, "wb") as f:
+        await f.write(contents)
+
+    # Create document record
+    doc_id = await postgres.create_document(
+        tenant_id=tenant_id,
+        source_type="pdf",
+        content_hash=content_hash,
+        filename=file.filename,
+        file_size=file_size,
+    )
+
+    # Queue for parsing
+    await redis.publish_job(
+        stream=PARSE_JOBS_STREAM,
+        job_data={
+            "job_id": str(job_id),
+            "tenant_id": str(tenant_id),
+            "document_id": str(doc_id),
+            "file_path": str(temp_path),
+            "filename": file.filename,
+        },
+    )
+
+    return success_response(
+        DocumentUploadResponse(
+            job_id=job_id,
+            status=JobStatusEnum.QUEUED,
+            filename=file.filename,
+            file_size=file_size,
+        ).model_dump()
+    )
+      ]]>
+    </pattern>
+
+    <pattern name="parse-worker">
+      <![CDATA[
+import asyncio
+import time
+from pathlib import Path
+
+from agentic_rag_backend.db.redis import (
+    RedisClient,
+    PARSE_JOBS_STREAM,
+    PARSE_CONSUMER_GROUP,
+    INDEX_JOBS_STREAM,
+)
+from agentic_rag_backend.db.postgres import PostgresClient
+from agentic_rag_backend.indexing.parser import parse_pdf, validate_pdf
+from agentic_rag_backend.models.ingest import JobStatusEnum
+
+async def process_parse_job(
+    job_data: dict,
+    postgres: PostgresClient,
+    redis: RedisClient,
+) -> None:
+    """Process a single parse job."""
+    job_id = UUID(job_data["job_id"])
+    tenant_id = UUID(job_data["tenant_id"])
+    file_path = Path(job_data["file_path"])
+
+    start_time = time.perf_counter()
+
+    try:
+        # Update job status to running
+        await postgres.update_job_status(
+            job_id=job_id,
+            tenant_id=tenant_id,
+            status=JobStatusEnum.RUNNING,
+        )
+
+        # Validate PDF
+        if not validate_pdf(file_path):
+            raise InvalidPdfError(job_data["filename"], "File is not a valid PDF")
+
+        # Parse document
+        sections = []
+        tables = []
+        footnotes = []
+
+        for element in parse_pdf(file_path):
+            if element["type"] == "section":
+                sections.append(element)
+            elif element["type"] == "table":
+                tables.append(element)
+            # ... handle other types
+
+        # Calculate processing time
+        processing_time_ms = int((time.perf_counter() - start_time) * 1000)
+
+        # Update job with processing time
+        await postgres.update_job_processing_time(
+            job_id=job_id,
+            tenant_id=tenant_id,
+            processing_time_ms=processing_time_ms,
+        )
+
+        # Queue for indexing
+        await redis.publish_job(
+            stream=INDEX_JOBS_STREAM,
+            job_data={
+                "job_id": str(job_id),
+                "tenant_id": str(tenant_id),
+                "document_id": job_data["document_id"],
+                "sections": sections,
+                "tables": tables,
+            },
+        )
+
+        # Update job status to completed
+        await postgres.update_job_status(
+            job_id=job_id,
+            tenant_id=tenant_id,
+            status=JobStatusEnum.COMPLETED,
+            progress={"processing_time_ms": processing_time_ms},
+        )
+
+        # Cleanup temp file
+        file_path.unlink(missing_ok=True)
+
+    except Exception as e:
+        await postgres.update_job_status(
+            job_id=job_id,
+            tenant_id=tenant_id,
+            status=JobStatusEnum.FAILED,
+            error_message=str(e),
+        )
+        raise
+      ]]>
+    </pattern>
+
+    <pattern name="pdf-validation">
+      <![CDATA[
+from pathlib import Path
+
+def validate_pdf(file_path: Path) -> bool:
+    """
+    Validate that a file is a valid PDF document.
+
+    Checks:
+    - File exists
+    - File starts with %PDF magic bytes
+    - File is not password protected (basic check)
+
+    Returns:
+        True if valid, False otherwise
+    """
+    if not file_path.exists():
+        return False
+
+    with open(file_path, "rb") as f:
+        header = f.read(8)
+        if not header.startswith(b"%PDF"):
+            return False
+
+        # Check for encryption (basic check)
+        f.seek(0)
+        content = f.read(2048)
+        if b"/Encrypt" in content:
+            return False
+
+    return True
+      ]]>
+    </pattern>
+  </code-patterns>
+
+  <testing-patterns>
+    <pattern name="parser-unit-tests">
+      <![CDATA[
+# backend/tests/indexing/test_parser.py
+import pytest
+from pathlib import Path
+from unittest.mock import patch, MagicMock
+
+@pytest.fixture
+def sample_pdf(tmp_path):
+    """Create a simple test PDF."""
+    # Use a minimal valid PDF for testing
+    pdf_content = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
+    pdf_path = tmp_path / "test.pdf"
+    pdf_path.write_bytes(pdf_content)
+    return pdf_path
+
+@pytest.fixture
+def mock_docling():
+    """Mock Docling DocumentConverter."""
+    with patch("agentic_rag_backend.indexing.parser.DocumentConverter") as mock:
+        converter = MagicMock()
+        mock.return_value = converter
+        yield converter
+
+def test_validate_pdf_valid_file(sample_pdf):
+    """Test PDF validation with valid file."""
+    from agentic_rag_backend.indexing.parser import validate_pdf
+    assert validate_pdf(sample_pdf) is True
+
+def test_validate_pdf_invalid_file(tmp_path):
+    """Test PDF validation with non-PDF file."""
+    from agentic_rag_backend.indexing.parser import validate_pdf
+    txt_file = tmp_path / "test.txt"
+    txt_file.write_text("Not a PDF")
+    assert validate_pdf(txt_file) is False
+
+def test_validate_pdf_nonexistent_file():
+    """Test PDF validation with missing file."""
+    from agentic_rag_backend.indexing.parser import validate_pdf
+    assert validate_pdf(Path("/nonexistent/file.pdf")) is False
+
+@pytest.mark.asyncio
+async def test_parse_pdf_extracts_sections(mock_docling, sample_pdf):
+    """Test that parse_pdf extracts document sections."""
+    # Setup mock
+    mock_element = MagicMock()
+    mock_element.type = "heading"
+    mock_element.text = "Test Heading"
+    mock_element.level = 1
+    mock_element.page_number = 1
+
+    mock_result = MagicMock()
+    mock_result.document.iterate_items.return_value = [mock_element]
+    mock_docling.convert.return_value = mock_result
+
+    from agentic_rag_backend.indexing.parser import parse_pdf
+
+    results = list(parse_pdf(sample_pdf))
+
+    assert len(results) == 1
+    assert results[0]["type"] == "section"
+    assert results[0]["content"] == "Test Heading"
+    assert results[0]["metadata"]["level"] == 1
+
+@pytest.mark.asyncio
+async def test_parse_pdf_extracts_tables(mock_docling, sample_pdf):
+    """Test that parse_pdf extracts tables to markdown."""
+    mock_element = MagicMock()
+    mock_element.type = "table"
+    mock_element.export_to_markdown.return_value = "| A | B |\n|---|---|\n| 1 | 2 |"
+    mock_element.num_rows = 2
+    mock_element.num_cols = 2
+    mock_element.page_number = 1
+    mock_element.caption = None
+
+    mock_result = MagicMock()
+    mock_result.document.iterate_items.return_value = [mock_element]
+    mock_docling.convert.return_value = mock_result
+
+    from agentic_rag_backend.indexing.parser import parse_pdf
+
+    results = list(parse_pdf(sample_pdf))
+
+    assert len(results) == 1
+    assert results[0]["type"] == "table"
+    assert "| A | B |" in results[0]["content"]
+    assert results[0]["metadata"]["row_count"] == 2
+      ]]>
+    </pattern>
+
+    <pattern name="api-endpoint-tests">
+      <![CDATA[
+# backend/tests/api/test_ingest_document.py
+import pytest
+from fastapi.testclient import TestClient
+from unittest.mock import patch, AsyncMock
+from io import BytesIO
+
+@pytest.fixture
+def sample_pdf_content():
+    """Valid PDF content for testing."""
+    return b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
+
+@pytest.fixture
+def sample_tenant_id():
+    from uuid import uuid4
+    return str(uuid4())
+
+def test_upload_document_success(client, sample_pdf_content, sample_tenant_id, mock_redis, mock_postgres):
+    """Test successful PDF upload."""
+    with patch("agentic_rag_backend.db.redis.get_redis_client", return_value=mock_redis):
+        with patch("agentic_rag_backend.db.postgres.get_postgres_client", return_value=mock_postgres):
+            response = client.post(
+                "/api/v1/ingest/document",
+                files={"file": ("test.pdf", sample_pdf_content, "application/pdf")},
+                data={"tenant_id": sample_tenant_id},
+            )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "data" in data
+    assert "job_id" in data["data"]
+    assert data["data"]["status"] == "queued"
+    assert data["data"]["filename"] == "test.pdf"
+
+def test_upload_document_invalid_content_type(client, sample_tenant_id):
+    """Test upload with non-PDF content type."""
+    response = client.post(
+        "/api/v1/ingest/document",
+        files={"file": ("test.txt", b"not a pdf", "text/plain")},
+        data={"tenant_id": sample_tenant_id},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["title"] == "Invalid Pdf"
+
+def test_upload_document_file_too_large(client, sample_tenant_id):
+    """Test upload with file exceeding size limit."""
+    large_content = b"x" * (101 * 1024 * 1024)  # 101MB
+
+    response = client.post(
+        "/api/v1/ingest/document",
+        files={"file": ("large.pdf", large_content, "application/pdf")},
+        data={"tenant_id": sample_tenant_id},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["title"] == "File Too Large"
+
+def test_upload_document_missing_tenant_id(client, sample_pdf_content):
+    """Test upload without tenant_id."""
+    response = client.post(
+        "/api/v1/ingest/document",
+        files={"file": ("test.pdf", sample_pdf_content, "application/pdf")},
+    )
+
+    assert response.status_code == 422  # Validation error
+      ]]>
+    </pattern>
+
+    <pattern name="performance-test">
+      <![CDATA[
+# backend/tests/integration/test_parse_performance.py
+import pytest
+import time
+from pathlib import Path
+
+@pytest.mark.integration
+@pytest.mark.slow
+async def test_50_page_document_under_5_minutes(sample_50_page_pdf):
+    """
+    NFR2 Performance Test: 50-page document processed in < 5 minutes.
+
+    This test requires a real 50-page PDF fixture.
+    """
+    from agentic_rag_backend.indexing.parser import parse_pdf
+
+    start_time = time.perf_counter()
+
+    results = list(parse_pdf(sample_50_page_pdf))
+
+    elapsed_seconds = time.perf_counter() - start_time
+    elapsed_minutes = elapsed_seconds / 60
+
+    # Assert processing completed
+    assert len(results) > 0, "Should extract content from document"
+
+    # NFR2: Must complete in under 5 minutes
+    assert elapsed_minutes < 5, f"Processing took {elapsed_minutes:.2f} minutes, exceeds 5 minute limit"
+
+    # Log performance metrics
+    print(f"Processed 50-page document in {elapsed_seconds:.2f} seconds")
+    print(f"Extracted {len(results)} elements")
+      ]]>
+    </pattern>
+  </testing-patterns>
+
+  <implementation-notes>
+    <note priority="critical">
+      All database queries MUST filter by tenant_id for multi-tenancy isolation.
+    </note>
+    <note priority="critical">
+      API responses MUST follow the standard wrapper format with data and meta fields.
+    </note>
+    <note priority="critical">
+      Errors MUST use RFC 7807 Problem Details format.
+    </note>
+    <note priority="critical">
+      NFR2: Track processing_time_ms and add performance regression tests.
+    </note>
+    <note priority="high">
+      Use async/await throughout - no blocking I/O in the main thread.
+    </note>
+    <note priority="high">
+      Content hash (SHA-256) enables idempotent ingestion and deduplication.
+    </note>
+    <note priority="high">
+      Clean up temp files after successful processing to prevent disk space issues.
+    </note>
+    <note priority="medium">
+      Use TableFormerMode.ACCURATE for best table extraction quality.
+    </note>
+    <note priority="medium">
+      Password-protected PDFs are not supported in MVP - return clear error.
+    </note>
+    <note priority="low">
+      Consider GPU acceleration for TableFormer in production environments.
+    </note>
+  </implementation-notes>
+
+  <references>
+    <reference type="story" path="docs/stories/4-2-pdf-document-parsing.md"/>
+    <reference type="tech-spec" path="docs/epics/epic-4-tech-spec.md#32-story-42-pdf-document-parsing"/>
+    <reference type="architecture" path="_bmad-output/architecture.md#data-architecture"/>
+    <reference type="database-schema" path="docs/epics/epic-4-tech-spec.md#4-database-schema"/>
+    <reference type="api-endpoints" path="docs/epics/epic-4-tech-spec.md#5-api-endpoints"/>
+    <reference type="docling-docs" url="https://github.com/DS4SD/docling"/>
+    <reference type="story-4-1" path="docs/stories/4-1-url-documentation-crawling.md"/>
+    <reference type="story-4-1-context" path="docs/stories/4-1-url-documentation-crawling.context.xml"/>
+  </references>
+</story-context>
