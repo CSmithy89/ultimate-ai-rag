@@ -1,0 +1,26 @@
+<storyContext>
+  <story id="2.2" title="Multi-Step Query Planning" epic="2" />
+
+  <summary>
+    Add multi-step planning to the orchestrator agent so that complex queries
+    are decomposed into a visible plan with sequenced steps and adaptive
+    refinements when new signals appear.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Generate a visible execution plan for complex queries.</acceptanceCriteria>
+    <acceptanceCriteria>Log each step as a thought.</acceptanceCriteria>
+    <acceptanceCriteria>Execute steps sequentially.</acceptanceCriteria>
+    <acceptanceCriteria>Adapt the plan when intermediate signals require it.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Keep planning lightweight to meet NFR1 latency target.</constraint>
+    <constraint>Persisted logging is handled in Story 2.4.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="_bmad-output/project-planning-artifacts/epics.md" section="Epic 2 / Story 2.2" />
+    <reference path="_bmad-output/architecture.md" section="Cross-Cutting Concerns" />
+  </references>
+</storyContext>

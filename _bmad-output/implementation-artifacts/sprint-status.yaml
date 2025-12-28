@@ -51,7 +51,7 @@ development_status:
   # Epic 2: Agentic Query & Reasoning
   epic-2: in-progress
   2-1-orchestrator-agent-foundation: done
-  2-2-multi-step-query-planning: backlog
+  2-2-multi-step-query-planning: done
   2-3-dynamic-retrieval-method-selection: backlog
   2-4-persistent-trajectory-logging: backlog
   epic-2-retrospective: optional
