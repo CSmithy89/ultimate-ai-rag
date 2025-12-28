@@ -1,0 +1,25 @@
+<storyContext>
+  <story id="1.2" title="Frontend Project Initialization" epic="1" />
+
+  <summary>
+    Initialize the frontend with Next.js 15+ (App Router) and CopilotKit
+    dependencies. Provide a minimal TypeScript app scaffold and document
+    pnpm-based setup.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>`pnpm install` succeeds in frontend.</acceptanceCriteria>
+    <acceptanceCriteria>CopilotKit React packages are installed.</acceptanceCriteria>
+    <acceptanceCriteria>Next.js 15+ App Router structure is used.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Frontend path: frontend/.</constraint>
+    <constraint>TypeScript for React components.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="_bmad-output/project-planning-artifacts/epics.md" section="Epic 1 / Story 1.2" />
+    <reference path="_bmad-output/architecture.md" section="Frontend Starters" />
+  </references>
+</storyContext>

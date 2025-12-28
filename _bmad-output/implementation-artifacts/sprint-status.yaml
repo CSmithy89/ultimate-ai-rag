@@ -43,7 +43,7 @@ development_status:
   # Epic 1: Foundation & Developer Quick Start
   epic-1: in-progress
   1-1-backend-project-initialization: done
-  1-2-frontend-project-initialization: backlog
+  1-2-frontend-project-initialization: done
   1-3-docker-compose-development-environment: backlog
   1-4-environment-configuration-system: backlog
   epic-1-retrospective: optional
