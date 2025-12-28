@@ -1,0 +1,98 @@
+# generated: 2025-12-28
+# project: Agentic Rag and Graphrag with copilot
+# project_key: agentic-rag-graphrag-copilot
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2025-12-28
+project: Agentic Rag and Graphrag with copilot
+project_key: agentic-rag-graphrag-copilot
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 1: Foundation & Developer Quick Start
+  epic-1: backlog
+  1-1-backend-project-initialization: backlog
+  1-2-frontend-project-initialization: backlog
+  1-3-docker-compose-development-environment: backlog
+  1-4-environment-configuration-system: backlog
+  epic-1-retrospective: optional
+
+  # Epic 2: Agentic Query & Reasoning
+  epic-2: backlog
+  2-1-orchestrator-agent-foundation: backlog
+  2-2-multi-step-query-planning: backlog
+  2-3-dynamic-retrieval-method-selection: backlog
+  2-4-persistent-trajectory-logging: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Hybrid Knowledge Retrieval
+  epic-3: backlog
+  3-1-vector-semantic-search: backlog
+  3-2-graph-relationship-traversal: backlog
+  3-3-hybrid-answer-synthesis: backlog
+  3-4-graph-based-explainability: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: Knowledge Ingestion Pipeline
+  epic-4: backlog
+  4-1-url-documentation-crawling: backlog
+  4-2-pdf-document-parsing: backlog
+  4-3-agentic-entity-extraction: backlog
+  4-4-knowledge-graph-visualization: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: Interactive Copilot Experience
+  epic-5: backlog
+  5-1-copilotkit-react-integration: backlog
+  5-2-chat-sidebar-interface: backlog
+  5-3-generative-ui-components: backlog
+  5-4-human-in-the-loop-source-validation: backlog
+  5-5-frontend-actions: backlog
+  epic-5-retrospective: optional
+
+  # Epic 6: Protocol Integration & Extensibility
+  epic-6: backlog
+  6-1-mcp-tool-server-implementation: backlog
+  6-2-a2a-agent-collaboration: backlog
+  6-3-python-extension-sdk: backlog
+  6-4-universal-ag-ui-protocol-access: backlog
+  epic-6-retrospective: optional
+
+  # Epic 7: Operations & Observability
+  epic-7: backlog
+  7-1-llm-cost-monitoring: backlog
+  7-2-intelligent-model-routing: backlog
+  7-3-trajectory-debugging-interface: backlog
+  7-4-encrypted-trace-storage: backlog
+  epic-7-retrospective: optional
