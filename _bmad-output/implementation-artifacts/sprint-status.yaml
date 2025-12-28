@@ -68,7 +68,7 @@ development_status:
   epic-4: in-progress
   4-1-url-documentation-crawling: done
   4-2-pdf-document-parsing: done
-  4-3-agentic-entity-extraction: backlog
+  4-3-agentic-entity-extraction: done
   4-4-knowledge-graph-visualization: backlog
   epic-4-retrospective: optional
 
