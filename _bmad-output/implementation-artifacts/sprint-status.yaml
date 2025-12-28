@@ -53,7 +53,7 @@ development_status:
   2-1-orchestrator-agent-foundation: done
   2-2-multi-step-query-planning: done
   2-3-dynamic-retrieval-method-selection: done
-  2-4-persistent-trajectory-logging: backlog
+  2-4-persistent-trajectory-logging: done
   epic-2-retrospective: optional
 
   # Epic 3: Hybrid Knowledge Retrieval
