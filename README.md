@@ -42,3 +42,12 @@ docker compose up -d
   - Frontend scaffold using Next.js App Router + CopilotKit deps
   - Docker Compose dev stack with Postgres/pgvector, Neo4j, Redis
   - Environment configuration via .env validation
+
+### Epic 2: Agentic Query & Reasoning
+- Status: Complete
+- Stories: 4/4 completed
+- Key Features:
+  - Orchestrator agent API with `POST /query`
+  - Multi-step planning with visible plan and thought list
+  - Dynamic retrieval strategy selection (vector/graph/hybrid)
+  - Persistent trajectory logging to Postgres with trajectory IDs
