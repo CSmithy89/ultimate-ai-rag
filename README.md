@@ -2,6 +2,12 @@
 
 ## Quick Start
 
+### Environment
+
+```bash
+cp .env.example .env
+```
+
 ### Backend
 
 ```bash
