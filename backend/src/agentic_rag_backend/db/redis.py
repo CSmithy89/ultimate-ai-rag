@@ -2,7 +2,7 @@
 
 import json
 from datetime import datetime
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Optional, cast
 from uuid import UUID
 
 import redis.asyncio as redis
@@ -11,6 +11,9 @@ import structlog
 from agentic_rag_backend.core.errors import RedisError
 
 logger = structlog.get_logger(__name__)
+
+RedisStreamValue = bytes | memoryview | str | int | float
+RedisStreamPayload = dict[RedisStreamValue, RedisStreamValue]
 
 # Stream names for job queue
 CRAWL_JOBS_STREAM = "crawl.jobs"
@@ -110,8 +113,11 @@ class RedisClient:
         """
         try:
             # Serialize all values for Redis
-            serialized = {k: _serialize_value(v) for k, v in job_data.items()}
-            message_id = await self.client.xadd(stream, serialized)
+            serialized: dict[str, str | int | float] = {
+                k: _serialize_value(v) for k, v in job_data.items()
+            }
+            payload = cast(RedisStreamPayload, serialized)
+            message_id = await self.client.xadd(stream, payload)
             logger.info(
                 "job_published",
                 stream=stream,

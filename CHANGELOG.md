@@ -1,5 +1,20 @@
 # Changelog
 
+## [Epic 3] - Hybrid Knowledge Retrieval - 2025-12-29
+
+### Added
+- Vector semantic search over pgvector embeddings
+- Neo4j relationship traversal with tenant-scoped queries
+- Hybrid answer synthesis combining vector + graph evidence
+- Query response evidence for graph explainability (nodes, edges, paths)
+
+### Changed
+- Orchestrator now builds prompts with retrieval evidence
+- Query responses include optional evidence payloads
+
+### Fixed
+- None
+
 ## [Epic 2] - Agentic Query & Reasoning - 2025-12-28
 
 ### Added

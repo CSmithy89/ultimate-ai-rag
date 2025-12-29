@@ -1,0 +1,24 @@
+<storyContext>
+  <story id="3.4" title="Graph-Based Explainability" epic="3" />
+
+  <summary>
+    Expose graph nodes, edges, and path explanations in query responses so
+    users can validate reasoning and explore the subgraph.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Return nodes and edges referenced in graph traversal.</acceptanceCriteria>
+    <acceptanceCriteria>Provide human-readable path explanation.</acceptanceCriteria>
+    <acceptanceCriteria>Expose IDs suitable for UI exploration.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Explainability must be derived from traversal paths.</constraint>
+    <constraint>Responses must stay bounded in size.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="backend/src/agentic_rag_backend/schemas.py" section="GraphEvidence" />
+    <reference path="backend/src/agentic_rag_backend/agents/orchestrator.py" section="Graph evidence mapping" />
+  </references>
+</storyContext>

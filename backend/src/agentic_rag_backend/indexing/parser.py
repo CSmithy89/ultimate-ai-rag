@@ -150,7 +150,7 @@ def parse_pdf_elements(
 
         converter = DocumentConverter(
             format_options={
-                InputFormat.PDF: pipeline_options,
+                InputFormat.PDF: pipeline_options,  # type: ignore[dict-item]
             }
         )
 
@@ -177,9 +177,13 @@ def parse_pdf_elements(
             if item_type == "TableItem":
                 # Export table to markdown
                 try:
-                    markdown = item.export_to_markdown()
-                    num_rows = len(item.data.table_cells) if hasattr(item.data, "table_cells") else 0
-                    num_cols = item.data.num_cols if hasattr(item.data, "num_cols") else 0
+                    export_to_markdown = getattr(item, "export_to_markdown", None)
+                    markdown = (
+                        export_to_markdown() if callable(export_to_markdown) else str(item)
+                    )
+                    data = getattr(item, "data", None)
+                    num_rows = len(data.table_cells) if data and hasattr(data, "table_cells") else 0
+                    num_cols = data.num_cols if data and hasattr(data, "num_cols") else 0
                     caption = None
                     if hasattr(item, "caption") and item.caption:
                         caption = str(item.caption)
@@ -390,15 +394,20 @@ def parse_pdf(
     processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 
     # Build metadata
-    doc_metadata = DocumentMetadata(
-        title=final_metadata.get("title"),
-        page_count=final_metadata.get("page_count", len(set(s.page_number for s in sections)) or 1),
-    )
-
-    page_count = final_metadata.get("page_count", 1)
+    title_value = final_metadata.get("title")
+    title = str(title_value) if title_value is not None else None
+    page_count_value = final_metadata.get("page_count")
+    page_count = page_count_value if isinstance(page_count_value, int) else None
+    if page_count is None:
+        page_count = len(set(s.page_number for s in sections)) or 1
     if page_count < 1:
         # Estimate from sections if Docling didn't provide page count
         page_count = max((s.page_number for s in sections), default=1)
+
+    doc_metadata = DocumentMetadata(
+        title=title,
+        page_count=page_count,
+    )
 
     logger.info(
         "pdf_parsed",

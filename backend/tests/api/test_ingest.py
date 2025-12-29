@@ -2,8 +2,6 @@
 
 from uuid import uuid4
 
-import pytest
-
 
 class TestCreateCrawlJob:
     """Tests for POST /api/v1/ingest/url endpoint."""

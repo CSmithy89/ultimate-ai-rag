@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import logging
 import os
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Awaitable, Callable, cast
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
@@ -13,7 +13,7 @@ from pydantic import ValidationError
 import redis.asyncio as redis
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 import structlog
 
 from .agents.orchestrator import OrchestratorAgent
@@ -86,6 +86,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             api_key=settings.openai_api_key,
             model_id=settings.openai_model_id,
             logger=None,
+            postgres=getattr(app.state, "postgres", None),
+            neo4j=getattr(app.state, "neo4j", None),
+            embedding_model=settings.embedding_model,
         )
     else:
         pool = create_pool(settings.database_url, settings.db_pool_min, settings.db_pool_max)
@@ -123,6 +126,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             api_key=settings.openai_api_key,
             model_id=settings.openai_model_id,
             logger=app.state.trajectory_logger,
+            postgres=getattr(app.state, "postgres", None),
+            neo4j=getattr(app.state, "neo4j", None),
+            embedding_model=settings.embedding_model,
         )
 
     yield
@@ -157,10 +163,16 @@ def create_app() -> FastAPI:
 
     # Register slowapi rate limiter for knowledge endpoints
     app.state.limiter = slowapi_limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_exception_handler(
+        RateLimitExceeded,
+        cast(Callable[[Request, Exception], Response], _rate_limit_exceeded_handler),
+    )
 
     # Register exception handlers
-    app.add_exception_handler(AppError, app_error_handler)
+    app.add_exception_handler(
+        AppError,
+        cast(Callable[[Request, Exception], Awaitable[Response]], app_error_handler),
+    )
 
     # Register routers
     app.include_router(router)  # Query router
@@ -234,9 +246,10 @@ async def run_query(
             thoughts=result.thoughts,
             retrieval_strategy=result.retrieval_strategy.value,
             trajectory_id=str(result.trajectory_id) if result.trajectory_id else None,
+            evidence=result.evidence,
         )
         meta = ResponseMeta(
-            request_id=str(uuid4()),
+            requestId=str(uuid4()),
             timestamp=datetime.now(timezone.utc),
         )
         return QueryEnvelope(data=data, meta=meta)

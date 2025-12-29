@@ -1,0 +1,25 @@
+<storyContext>
+  <story id="3.1" title="Vector Semantic Search" epic="3" />
+
+  <summary>
+    Implement pgvector semantic search for query embeddings and expose vector
+    evidence (similarity + source references) in the query response.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Generate query embeddings for semantic search.</acceptanceCriteria>
+    <acceptanceCriteria>Run cosine similarity search against pgvector.</acceptanceCriteria>
+    <acceptanceCriteria>Return top-k results with similarity and source reference.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Use PostgresClient.search_similar_chunks for pgvector queries.</constraint>
+    <constraint>Results must be tenant scoped.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="backend/src/agentic_rag_backend/db/postgres.py" section="search_similar_chunks" />
+    <reference path="backend/src/agentic_rag_backend/indexing/embeddings.py" section="EmbeddingGenerator" />
+    <reference path="docs/epics/epic-3-tech-spec.md" section="Story 3.1" />
+  </references>
+</storyContext>

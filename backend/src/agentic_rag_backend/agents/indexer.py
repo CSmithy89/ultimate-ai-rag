@@ -73,6 +73,7 @@ class IndexerAgent:
         entity_extractor: EntityExtractor,
         chunk_size: int = 512,
         chunk_overlap: int = 64,
+        similarity_threshold: float = 0.95,
     ) -> None:
         """
         Initialize the IndexerAgent.
@@ -84,6 +85,7 @@ class IndexerAgent:
             entity_extractor: LLM entity extractor
             chunk_size: Target tokens per chunk
             chunk_overlap: Token overlap between chunks
+            similarity_threshold: Threshold for entity similarity matching
         """
         self.postgres = postgres
         self.neo4j = neo4j
@@ -91,6 +93,7 @@ class IndexerAgent:
         self.entity_extractor = entity_extractor
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        self.similarity_threshold = similarity_threshold
 
         # Current trajectory for this agent instance
         self._trajectory: Optional[IndexerTrajectory] = None
@@ -106,11 +109,15 @@ class IndexerAgent:
         )
         self._entity_cache = {}  # Reset cache for new document
 
-    def _finish_trajectory(self) -> IndexerTrajectory:
-        """Complete the current trajectory."""
-        if self._trajectory:
-            self._trajectory.completed_at = datetime.now(timezone.utc)
-        return self._trajectory
+    def _finish_trajectory(self) -> IndexerTrajectory | None:
+        """Complete the current trajectory if one is active."""
+        if not self._trajectory:
+            logger.warning("indexer_finish_without_trajectory")
+            return None
+        self._trajectory.completed_at = datetime.now(timezone.utc)
+        trajectory = self._trajectory
+        self._trajectory = None
+        return trajectory
 
     def log_thought(self, content: str, **metadata: Any) -> None:
         """
@@ -120,15 +127,17 @@ class IndexerAgent:
             content: Description of the thought/reasoning
             **metadata: Additional context
         """
-        if self._trajectory:
-            entry = TrajectoryEntry(
-                timestamp=datetime.now(timezone.utc),
-                entry_type="thought",
-                content=content,
-                metadata=metadata,
-            )
-            self._trajectory.entries.append(entry)
-            logger.debug("agent_thought", content=content, **metadata)
+        if not self._trajectory:
+            logger.debug("indexer_thought_without_trajectory", content=content)
+            return
+        entry = TrajectoryEntry(
+            timestamp=datetime.now(timezone.utc),
+            entry_type="thought",
+            content=content,
+            metadata=metadata,
+        )
+        self._trajectory.entries.append(entry)
+        logger.debug("agent_thought", content=content, **metadata)
 
     def log_action(self, action: str, details: dict[str, Any]) -> None:
         """
@@ -138,15 +147,17 @@ class IndexerAgent:
             action: Name of the action
             details: Action parameters and context
         """
-        if self._trajectory:
-            entry = TrajectoryEntry(
-                timestamp=datetime.now(timezone.utc),
-                entry_type="action",
-                content=action,
-                metadata=details,
-            )
-            self._trajectory.entries.append(entry)
-            logger.debug("agent_action", action=action, **details)
+        if not self._trajectory:
+            logger.debug("indexer_action_without_trajectory", action=action)
+            return
+        entry = TrajectoryEntry(
+            timestamp=datetime.now(timezone.utc),
+            entry_type="action",
+            content=action,
+            metadata=details,
+        )
+        self._trajectory.entries.append(entry)
+        logger.debug("agent_action", action=action, **details)
 
     def log_observation(self, content: str, **metadata: Any) -> None:
         """
@@ -156,15 +167,17 @@ class IndexerAgent:
             content: Description of what was observed
             **metadata: Additional context
         """
-        if self._trajectory:
-            entry = TrajectoryEntry(
-                timestamp=datetime.now(timezone.utc),
-                entry_type="observation",
-                content=content,
-                metadata=metadata,
-            )
-            self._trajectory.entries.append(entry)
-            logger.debug("agent_observation", content=content, **metadata)
+        if not self._trajectory:
+            logger.debug("indexer_observation_without_trajectory", content=content)
+            return
+        entry = TrajectoryEntry(
+            timestamp=datetime.now(timezone.utc),
+            entry_type="observation",
+            content=content,
+            metadata=metadata,
+        )
+        self._trajectory.entries.append(entry)
+        logger.debug("agent_observation", content=content, **metadata)
 
     def _normalize_entity_name(self, name: str) -> str:
         """

@@ -15,7 +15,11 @@ import type { GraphData, EntityType, RelationshipType } from '../../types/graphs
 jest.mock('reactflow', () => {
   const originalModule = jest.requireActual('reactflow');
   return {
+    __esModule: true,
     ...originalModule,
+    default: ({ children }: { children?: React.ReactNode }) => (
+      <div data-testid="react-flow">{children}</div>
+    ),
     ReactFlow: ({ children }: { children?: React.ReactNode }) => (
       <div data-testid="react-flow">{children}</div>
     ),
@@ -29,7 +33,11 @@ jest.mock('reactflow', () => {
     ),
     Position: { Top: 'top', Bottom: 'bottom', Left: 'left', Right: 'right' },
     MarkerType: { ArrowClosed: 'arrowclosed' },
-    BaseEdge: ({ id }: { id: string }) => <path data-testid={`edge-${id}`} />,
+    BaseEdge: ({ id }: { id: string }) => (
+      <svg data-testid={`edge-${id}`}>
+        <path />
+      </svg>
+    ),
     EdgeLabelRenderer: ({ children }: { children?: React.ReactNode }) => (
       <div data-testid="edge-label-renderer">{children}</div>
     ),

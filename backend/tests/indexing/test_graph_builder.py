@@ -1,7 +1,7 @@
 """Tests for the graph builder module."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from agentic_rag_backend.indexing.graph_builder import (
     GraphBuilder,
