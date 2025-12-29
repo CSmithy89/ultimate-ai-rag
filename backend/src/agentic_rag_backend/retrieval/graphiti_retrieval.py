@@ -11,6 +11,7 @@ from typing import Optional, Any
 import structlog
 
 from ..config import DEFAULT_SEARCH_RESULTS
+from ..core.errors import Neo4jError
 from ..db.graphiti import GraphitiClient
 
 logger = structlog.get_logger(__name__)
@@ -101,7 +102,7 @@ async def graphiti_search(
 
     # Validate client connection
     if not graphiti_client.is_connected:
-        raise RuntimeError("Graphiti client is not connected")
+        raise Neo4jError("graphiti_search", "Graphiti client is not connected")
 
     logger.info(
         "graphiti_search_started",
@@ -157,7 +158,7 @@ async def graphiti_search(
             query=query[:100],
             error=str(e),
         )
-        raise RuntimeError(f"Connection failed: {e}") from e
+        raise Neo4jError("graphiti_search", f"Connection failed: {e}") from e
     except Exception as e:
         logger.error(
             "graphiti_search_failed",
@@ -195,7 +196,8 @@ async def search_with_backend_routing(
     """
     if retrieval_backend == "graphiti":
         if graphiti_client is None or not graphiti_client.is_connected:
-            raise RuntimeError(
+            raise Neo4jError(
+                "search_with_backend_routing",
                 "Graphiti client not available but graphiti backend selected"
             )
         return await graphiti_search(
@@ -207,7 +209,7 @@ async def search_with_backend_routing(
 
     elif retrieval_backend == "legacy":
         if legacy_retriever is None:
-            raise RuntimeError(
+            raise ValueError(
                 "Legacy retriever not available but legacy backend selected"
             )
 

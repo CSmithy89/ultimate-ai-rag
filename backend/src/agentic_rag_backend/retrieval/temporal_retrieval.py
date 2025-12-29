@@ -177,16 +177,47 @@ async def temporal_search(
             num_results=num_results,
         )
 
-        # Extract and filter nodes
-        nodes = [
-            TemporalNode.from_graphiti_node(node)
-            for node in getattr(search_result, "nodes", [])
-        ]
+        # Extract and filter nodes with tenant validation
+        nodes = []
+        skipped_node_tenant_mismatch = 0
+        for node in getattr(search_result, "nodes", []):
+            # Defense-in-depth: Validate tenant even though Graphiti filters
+            node_group = getattr(node, "group_id", None)
+            if node_group and node_group != tenant_id:
+                skipped_node_tenant_mismatch += 1
+                logger.warning(
+                    "node_tenant_mismatch",
+                    node_uuid=str(getattr(node, "uuid", "")),
+                    expected_tenant=tenant_id,
+                    actual_tenant=node_group,
+                )
+                continue
+            nodes.append(TemporalNode.from_graphiti_node(node))
+        
+        if skipped_node_tenant_mismatch > 0:
+            logger.error(
+                "temporal_search_tenant_isolation_violation",
+                tenant_id=tenant_id,
+                nodes_skipped=skipped_node_tenant_mismatch,
+            )
 
-        # Extract and filter edges by temporal validity
+        # Extract and filter edges by temporal validity and tenant
         raw_edges = getattr(search_result, "edges", [])
         edges = []
+        skipped_edge_tenant_mismatch = 0
         for edge in raw_edges:
+            # Defense-in-depth: Validate tenant even though Graphiti filters
+            edge_group = getattr(edge, "group_id", None)
+            if edge_group and edge_group != tenant_id:
+                skipped_edge_tenant_mismatch += 1
+                logger.warning(
+                    "edge_tenant_mismatch",
+                    edge_uuid=str(getattr(edge, "uuid", "")),
+                    expected_tenant=tenant_id,
+                    actual_tenant=edge_group,
+                )
+                continue
+                
             temporal_edge = TemporalEdge.from_graphiti_edge(edge)
             
             # Filter by temporal validity if as_of_date specified
@@ -196,19 +227,32 @@ async def temporal_search(
                 valid_at = _ensure_utc(temporal_edge.valid_at)
                 invalid_at = _ensure_utc(temporal_edge.invalid_at)
                 
-                # Edge must be valid at as_of_date:
-                # - valid_at <= as_of_date (edge started before/at query time)
-                # - invalid_at is None OR invalid_at > as_of_date (not yet invalidated)
-                is_valid = True
-                if valid_at and valid_at > as_of_utc:
-                    is_valid = False
-                if invalid_at and invalid_at <= as_of_utc:
-                    is_valid = False
+                # Edge validity rules (explicit for maintainability):
+                # 1. No valid_at means edge is eternal (valid from beginning)
+                # 2. No invalid_at means edge is still valid (not invalidated)
+                if valid_at is None:
+                    valid_from_start = True  # Eternal edge
+                else:
+                    valid_from_start = valid_at <= as_of_utc
+                
+                if invalid_at is None:
+                    valid_to_end = True  # Not yet invalidated
+                else:
+                    valid_to_end = invalid_at > as_of_utc
+                
+                is_valid = valid_from_start and valid_to_end
                     
                 if is_valid:
                     edges.append(temporal_edge)
             else:
                 edges.append(temporal_edge)
+        
+        if skipped_edge_tenant_mismatch > 0:
+            logger.error(
+                "temporal_search_edge_tenant_violation",
+                tenant_id=tenant_id,
+                edges_skipped=skipped_edge_tenant_mismatch,
+            )
 
         processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 

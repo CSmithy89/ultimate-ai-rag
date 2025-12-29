@@ -3,6 +3,8 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from agentic_rag_backend.core.errors import Neo4jError
+
 
 
 def _make_mock_node(uuid: str, name: str, summary: str, labels: list):
@@ -12,6 +14,8 @@ def _make_mock_node(uuid: str, name: str, summary: str, labels: list):
     node.configure_mock(name=name)  # Use configure_mock for name attribute
     node.summary = summary
     node.labels = labels
+    # Explicitly set group_id to None to skip tenant validation
+    node.group_id = None
     return node
 
 
@@ -24,6 +28,8 @@ def _make_mock_edge(uuid: str, source: str, target: str, name: str, fact: str):
     edge.configure_mock(name=name)  # Use configure_mock for name attribute
     edge.fact = fact
     edge.fact_embedding = [0.1] * 768
+    # Explicitly set group_id to None to skip tenant validation
+    edge.group_id = None
     return edge
 
 
@@ -112,7 +118,7 @@ class TestGraphitiRetrieval:
         disconnected_client = MagicMock()
         disconnected_client.is_connected = False
 
-        with pytest.raises(RuntimeError, match="not connected"):
+        with pytest.raises(Neo4jError, match="not connected"):
             await graphiti_search(
                 graphiti_client=disconnected_client,
                 query="test query",
@@ -270,7 +276,7 @@ class TestHybridRetrieval:
             search_with_backend_routing,
         )
 
-        with pytest.raises(RuntimeError, match="Graphiti client not available"):
+        with pytest.raises(Neo4jError, match="Graphiti client not available"):
             await search_with_backend_routing(
                 query="test query",
                 tenant_id="test-tenant",
@@ -351,7 +357,7 @@ class TestLegacyBackendRouting:
             search_with_backend_routing,
         )
 
-        with pytest.raises(RuntimeError, match="Legacy retriever not available"):
+        with pytest.raises(ValueError, match="Legacy retriever not available"):
             await search_with_backend_routing(
                 query="test query",
                 tenant_id="test-tenant",

@@ -7,6 +7,7 @@ and custom entity type configuration.
 
 import asyncio
 import logging
+from enum import Enum
 from typing import Optional
 
 import structlog
@@ -33,11 +34,25 @@ struct_logger = structlog.get_logger(__name__)
 DEFAULT_DISCONNECT_TIMEOUT = 5.0
 
 
+class ConnectionState(str, Enum):
+    """State machine for GraphitiClient connection lifecycle."""
+    NEW = "new"              # Never connected
+    CONNECTING = "connecting"  # Connection in progress
+    CONNECTED = "connected"    # Successfully connected
+    DISCONNECTED = "disconnected"  # Disconnected, cannot reconnect
+
+
 class GraphitiClient:
     """Managed Graphiti client for temporal knowledge graph operations.
 
     Handles connection lifecycle, index management, and provides
     access to Graphiti's core functionality with custom entity types.
+    
+    Connection State Machine:
+        NEW -> CONNECTING -> CONNECTED -> DISCONNECTED
+        
+    Once disconnected, the client cannot be reconnected (credentials cleared).
+    Create a new instance instead.
 
     Attributes:
         uri: Neo4j connection URI
@@ -77,7 +92,7 @@ class GraphitiClient:
         self.embedding_model = embedding_model
         self.llm_model = llm_model
         self._client: Optional[Graphiti] = None
-        self._connected = False
+        self._state = ConnectionState.NEW
         self._connect_lock = asyncio.Lock()
 
     @property
@@ -90,16 +105,17 @@ class GraphitiClient:
         Raises:
             RuntimeError: If client is not connected
         """
-        if self._client is None or not self._connected:
+        if self._client is None or self._state != ConnectionState.CONNECTED:
             raise RuntimeError(
-                "Graphiti client is not connected. Call connect() first."
+                f"Graphiti client is not connected (state: {self._state.value}). "
+                "Call connect() first."
             )
         return self._client
 
     @property
     def is_connected(self) -> bool:
         """Check if client is connected."""
-        return self._connected and self._client is not None
+        return self._state == ConnectionState.CONNECTED and self._client is not None
 
     async def connect(self) -> None:
         """Establish connection to Neo4j and initialize Graphiti.
@@ -109,17 +125,29 @@ class GraphitiClient:
         from memory after successful connection for security.
         
         Thread-safe via asyncio lock to prevent race conditions.
+        
+        Raises:
+            RuntimeError: If client is in invalid state for connection
         """
         async with self._connect_lock:
-            if self._connected:
+            # State machine validation
+            if self._state == ConnectionState.CONNECTED:
                 struct_logger.warning("graphiti_already_connected")
                 return
-
-            if self._openai_api_key is None:
+            
+            if self._state == ConnectionState.CONNECTING:
                 raise RuntimeError(
-                    "Cannot connect: API key already cleared. "
+                    "Connection already in progress. Wait for completion."
+                )
+            
+            if self._state == ConnectionState.DISCONNECTED:
+                raise RuntimeError(
+                    "Cannot reconnect after disconnect. "
                     "Create a new GraphitiClient instance."
                 )
+
+            # Transition to connecting state
+            self._state = ConnectionState.CONNECTING
 
             try:
                 # Create OpenAI clients for LLM and embeddings
@@ -147,7 +175,8 @@ class GraphitiClient:
                 # Clear password from memory after successful connection
                 self._password = None
 
-                self._connected = True
+                # Transition to connected state
+                self._state = ConnectionState.CONNECTED
                 struct_logger.info(
                     "graphiti_connected",
                     uri=self.uri,
@@ -156,7 +185,8 @@ class GraphitiClient:
                 )
 
             except Exception as e:
-                self._connected = False
+                # Transition back to NEW on failure (credentials still available)
+                self._state = ConnectionState.NEW
                 self._client = None
                 struct_logger.error("graphiti_connection_failed", error=str(e))
                 raise
@@ -167,10 +197,12 @@ class GraphitiClient:
         This is a fire-and-forget operation - timeout and errors are logged
         but not re-raised to allow graceful shutdown even with connection issues.
         
+        After disconnect, the client cannot be reconnected (credentials cleared).
+        
         Args:
             timeout: Maximum seconds to wait for graceful disconnect
         """
-        if not self._connected or self._client is None:
+        if self._state != ConnectionState.CONNECTED or self._client is None:
             return
 
         try:
@@ -191,7 +223,7 @@ class GraphitiClient:
             struct_logger.warning("graphiti_disconnect_error", error=str(e))
         finally:
             self._client = None
-            self._connected = False
+            self._state = ConnectionState.DISCONNECTED
 
     async def build_indices(self) -> None:
         """Build required Neo4j indices for Graphiti operations.
@@ -199,8 +231,11 @@ class GraphitiClient:
         Creates indices for efficient entity and relationship queries,
         including vector indices for semantic search.
         """
-        if not self._connected:
-            raise RuntimeError("Client not connected. Call connect() first.")
+        if self._state != ConnectionState.CONNECTED:
+            raise RuntimeError(
+                f"Client not connected (state: {self._state.value}). "
+                "Call connect() first."
+            )
 
         try:
             await self.client.build_indices_and_constraints()
@@ -229,7 +264,7 @@ class GraphitiClient:
         """Safe repr that hides sensitive credentials."""
         return (
             f"GraphitiClient(uri={self.uri!r}, user={self.user!r}, "
-            f"connected={self._connected})"
+            f"state={self._state.value!r})"
         )
 
 

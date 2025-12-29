@@ -13,6 +13,8 @@ def _make_mock_node(uuid: str, name: str, summary: str, labels: list):
     node.configure_mock(name=name)
     node.summary = summary
     node.labels = labels
+    # Explicitly set group_id to None to skip tenant validation in tests
+    node.group_id = None
     return node
 
 
@@ -28,6 +30,8 @@ def _make_mock_edge(uuid: str, source: str, target: str, name: str, fact: str,
     edge.valid_at = valid_at or datetime.now(timezone.utc)
     edge.invalid_at = invalid_at
     edge.created_at = datetime.now(timezone.utc)
+    # Explicitly set group_id to None to skip tenant validation in tests
+    edge.group_id = None
     return edge
 
 

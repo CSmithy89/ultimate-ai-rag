@@ -24,7 +24,10 @@ from ..models.entity_types import (
 
 logger = structlog.get_logger(__name__)
 
-# Minimum content length for meaningful ingestion
+# Minimum content length for meaningful entity extraction.
+# Documents shorter than this are too brief to contain extractable
+# entities/relationships and would waste LLM tokens without value.
+# 10 chars is approximately 2-3 words minimum.
 MIN_CONTENT_LENGTH = 10
 
 
