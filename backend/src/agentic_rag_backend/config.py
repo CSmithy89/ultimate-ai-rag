@@ -1,11 +1,17 @@
+"""Configuration management for the Agentic RAG Backend."""
+
 import os
 from dataclasses import dataclass
+from functools import lru_cache
+from typing import Optional
 
 from dotenv import load_dotenv
 
 
 @dataclass(frozen=True)
 class Settings:
+    """Application settings loaded from environment variables."""
+
     openai_api_key: str
     openai_model_id: str
     database_url: str
@@ -22,9 +28,31 @@ class Settings:
     backend_host: str
     backend_port: int
     frontend_url: str
+    # Epic 4 - Crawl settings
+    crawl4ai_rate_limit: float
+    # Story 4.2 - PDF Document Parsing settings
+    docling_table_mode: str
+    max_upload_size_mb: int
+    temp_upload_dir: str
+    docling_service_url: Optional[str]
+    # Story 4.3 - Agentic Entity Extraction settings
+    entity_extraction_model: str
+    embedding_model: str
+    chunk_size: int
+    chunk_overlap: int
+    entity_similarity_threshold: float
 
 
 def load_settings() -> Settings:
+    """
+    Load settings from environment variables.
+
+    Returns:
+        Settings instance with all configuration values
+
+    Raises:
+        RuntimeError: If required environment variables are missing
+    """
     load_dotenv()
 
     min_pool_size = 1
@@ -56,6 +84,32 @@ def load_settings() -> Settings:
         raise RuntimeError("RATE_LIMIT_PER_MINUTE must be >= 1.")
     if rate_limit_backend not in {"memory", "redis"}:
         raise RuntimeError("RATE_LIMIT_BACKEND must be 'memory' or 'redis'.")
+
+    try:
+        crawl4ai_rate_limit = float(os.getenv("CRAWL4AI_RATE_LIMIT", "1.0"))
+    except ValueError:
+        crawl4ai_rate_limit = 1.0
+
+    try:
+        max_upload_size_mb = int(os.getenv("MAX_UPLOAD_SIZE_MB", "100"))
+    except ValueError:
+        max_upload_size_mb = 100
+
+    # Story 4.3 settings parsing
+    try:
+        chunk_size = int(os.getenv("CHUNK_SIZE", "512"))
+    except ValueError:
+        chunk_size = 512
+
+    try:
+        chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "64"))
+    except ValueError:
+        chunk_overlap = 64
+
+    try:
+        entity_similarity_threshold = float(os.getenv("ENTITY_SIMILARITY_THRESHOLD", "0.95"))
+    except ValueError:
+        entity_similarity_threshold = 0.95
 
     required = [
         "OPENAI_API_KEY",
@@ -91,4 +145,30 @@ def load_settings() -> Settings:
         backend_host=os.getenv("BACKEND_HOST", "0.0.0.0"),
         backend_port=backend_port,
         frontend_url=os.getenv("FRONTEND_URL", "http://localhost:3000"),
+        crawl4ai_rate_limit=crawl4ai_rate_limit,
+        # Story 4.2 - PDF Document Parsing settings
+        docling_table_mode=os.getenv("DOCLING_TABLE_MODE", "accurate"),
+        max_upload_size_mb=max_upload_size_mb,
+        temp_upload_dir=os.getenv("TEMP_UPLOAD_DIR", "/tmp/uploads"),
+        docling_service_url=os.getenv("DOCLING_SERVICE_URL"),
+        # Story 4.3 - Agentic Entity Extraction settings
+        entity_extraction_model=os.getenv("ENTITY_EXTRACTION_MODEL", "gpt-4o"),
+        embedding_model=os.getenv("EMBEDDING_MODEL", "text-embedding-ada-002"),
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        entity_similarity_threshold=entity_similarity_threshold,
     )
+
+
+@lru_cache()
+def get_settings() -> Settings:
+    """
+    Get cached settings instance.
+
+    Uses lru_cache to ensure settings are only loaded once
+    from environment variables.
+
+    Returns:
+        Cached Settings instance
+    """
+    return load_settings()

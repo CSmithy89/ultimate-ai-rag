@@ -1,0 +1,701 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>4.1</story-id>
+    <story-name>URL Documentation Crawling</story-name>
+    <epic>Epic 4: Knowledge Ingestion Pipeline</epic>
+    <status>ready-for-dev</status>
+    <generated>2025-12-28</generated>
+  </metadata>
+
+  <summary>
+    <description>
+      Implement autonomous crawling of documentation websites using Crawl4AI,
+      enabling data engineers to trigger URL ingestion via API endpoints.
+      Crawled content is queued for downstream parsing pipeline via Redis Streams.
+    </description>
+    <user-story>
+      As a data engineer,
+      I want to trigger autonomous crawling of documentation websites,
+      So that I can ingest external knowledge sources without manual downloads.
+    </user-story>
+  </summary>
+
+  <acceptance-criteria>
+    <criterion id="AC1">
+      Given a valid documentation URL is provided, when the user triggers crawling
+      via the ingestion API (POST /api/v1/ingest/url), then Crawl4AI crawls the
+      documentation site and returns a job_id with status "queued".
+    </criterion>
+    <criterion id="AC2">
+      Given a crawl is in progress, when the crawler encounters a robots.txt file,
+      then it respects the directives and rate limits (default: 1 req/sec).
+    </criterion>
+    <criterion id="AC3">
+      Given a crawl job is running, when the crawler discovers linked pages,
+      then it extracts content from all linked pages up to the configured max_depth (default: 3).
+    </criterion>
+    <criterion id="AC4">
+      Given content is extracted from pages, when the crawl completes,
+      then the extracted content is queued for the parsing pipeline via Redis Streams.
+    </criterion>
+    <criterion id="AC5">
+      Given a crawl job exists, when the user queries the job status endpoint
+      (GET /api/v1/ingest/jobs/{job_id}), then progress statistics and crawl metrics are returned.
+    </criterion>
+  </acceptance-criteria>
+
+  <architecture-decisions>
+    <decision id="AD1" category="data-flow">
+      <title>Async Processing via Redis Streams</title>
+      <description>
+        Ingestion jobs run asynchronously to avoid blocking API responses.
+        Redis Streams provides reliable message delivery with consumer groups.
+      </description>
+      <job-queue-flow>
+        API Request -> Redis Stream (crawl.jobs) -> Crawler Worker -> Redis Stream (parse.jobs)
+      </job-queue-flow>
+    </decision>
+
+    <decision id="AD2" category="document-model">
+      <title>Unified Document Model</title>
+      <description>
+        Both Crawl4AI output and Docling output are normalized to a common
+        UnifiedDocument Pydantic model before processing.
+      </description>
+    </decision>
+
+    <decision id="AD3" category="idempotency">
+      <title>Idempotent Ingestion</title>
+      <description>
+        Documents are identified by content hash (SHA-256) to enable re-ingestion
+        without duplicates.
+      </description>
+    </decision>
+
+    <decision id="AD4" category="multi-tenancy">
+      <title>Multi-Tenancy Isolation</title>
+      <description>
+        Every database query MUST include tenant_id filtering.
+        Documents and jobs tables must have tenant_id column.
+        All queries must filter by tenant_id.
+      </description>
+    </decision>
+  </architecture-decisions>
+
+  <technology-stack>
+    <technology name="Crawl4AI" version=">=0.3.0" purpose="Autonomous documentation site crawling"/>
+    <technology name="Redis" version="7.x" purpose="Job queue via Redis Streams"/>
+    <technology name="PostgreSQL" version="16.x" purpose="Document and job metadata storage"/>
+    <technology name="FastAPI" version="0.111.0" purpose="API endpoints"/>
+    <technology name="Pydantic" version="2.x" purpose="Data validation and models"/>
+    <technology name="Python" version="3.11+" purpose="Backend runtime"/>
+  </technology-stack>
+
+  <api-endpoints>
+    <endpoint method="POST" path="/api/v1/ingest/url">
+      <description>Start URL crawl job</description>
+      <request-body>
+        <![CDATA[
+{
+  "url": "https://docs.example.com",
+  "tenant_id": "uuid",
+  "max_depth": 3,
+  "options": {}
+}
+        ]]>
+      </request-body>
+      <success-response>
+        <![CDATA[
+{
+  "data": {
+    "job_id": "uuid",
+    "status": "queued"
+  },
+  "meta": {
+    "requestId": "uuid",
+    "timestamp": "2025-12-28T10:00:00Z"
+  }
+}
+        ]]>
+      </success-response>
+    </endpoint>
+
+    <endpoint method="GET" path="/api/v1/ingest/jobs/{job_id}">
+      <description>Get job status with progress</description>
+      <success-response>
+        <![CDATA[
+{
+  "data": {
+    "job_id": "uuid",
+    "status": "running",
+    "progress": {
+      "pages_crawled": 10,
+      "total_pages": 50
+    }
+  },
+  "meta": {
+    "requestId": "uuid",
+    "timestamp": "2025-12-28T10:00:00Z"
+  }
+}
+        ]]>
+      </success-response>
+    </endpoint>
+
+    <error-format description="RFC 7807 Problem Details">
+      <![CDATA[
+{
+  "type": "https://api.example.com/errors/invalid-url",
+  "title": "Invalid URL",
+  "status": 400,
+  "detail": "The provided URL is not accessible",
+  "instance": "/api/v1/ingest/url"
+}
+      ]]>
+    </error-format>
+  </api-endpoints>
+
+  <database-schema>
+    <table name="documents">
+      <description>Source documents table with deduplication support</description>
+      <sql>
+        <![CDATA[
+CREATE TABLE documents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    source_type VARCHAR(20) NOT NULL, -- 'url' | 'pdf' | 'text'
+    source_url TEXT,
+    filename TEXT,
+    content_hash VARCHAR(64) NOT NULL, -- SHA-256 for deduplication
+    status VARCHAR(20) NOT NULL DEFAULT 'pending', -- pending | processing | completed | failed
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (tenant_id, content_hash)
+);
+
+CREATE INDEX idx_documents_tenant_id ON documents(tenant_id);
+CREATE INDEX idx_documents_status ON documents(status);
+CREATE INDEX idx_documents_content_hash ON documents(content_hash);
+        ]]>
+      </sql>
+    </table>
+
+    <table name="ingestion_jobs">
+      <description>Job tracking table for async crawl/parse/index operations</description>
+      <sql>
+        <![CDATA[
+CREATE TABLE ingestion_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    document_id UUID REFERENCES documents(id),
+    job_type VARCHAR(20) NOT NULL, -- 'crawl' | 'parse' | 'index'
+    status VARCHAR(20) NOT NULL DEFAULT 'queued', -- queued | running | completed | failed
+    progress JSONB, -- { "pages_crawled": 10, "total_pages": 50 }
+    error_message TEXT,
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_ingestion_jobs_tenant_id ON ingestion_jobs(tenant_id);
+CREATE INDEX idx_ingestion_jobs_status ON ingestion_jobs(status);
+        ]]>
+      </sql>
+    </table>
+  </database-schema>
+
+  <files-to-create>
+    <file path="backend/src/agentic_rag_backend/models/__init__.py">
+      <purpose>Models package init</purpose>
+    </file>
+    <file path="backend/src/agentic_rag_backend/models/ingest.py">
+      <purpose>Pydantic models for CrawlRequest, CrawlResponse, JobStatus</purpose>
+    </file>
+    <file path="backend/src/agentic_rag_backend/models/documents.py">
+      <purpose>UnifiedDocument model for normalized document representation</purpose>
+    </file>
+    <file path="backend/src/agentic_rag_backend/api/__init__.py">
+      <purpose>API package init</purpose>
+    </file>
+    <file path="backend/src/agentic_rag_backend/api/routes/__init__.py">
+      <purpose>Routes package init</purpose>
+    </file>
+    <file path="backend/src/agentic_rag_backend/api/routes/ingest.py">
+      <purpose>Ingestion API endpoints (POST /ingest/url, GET /ingest/jobs/{job_id})</purpose>
+    </file>
+    <file path="backend/src/agentic_rag_backend/indexing/__init__.py">
+      <purpose>Indexing package init</purpose>
+    </file>
+    <file path="backend/src/agentic_rag_backend/indexing/crawler.py">
+      <purpose>Crawl4AI wrapper with robots.txt compliance and rate limiting</purpose>
+    </file>
+    <file path="backend/src/agentic_rag_backend/indexing/workers/__init__.py">
+      <purpose>Workers package init</purpose>
+    </file>
+    <file path="backend/src/agentic_rag_backend/indexing/workers/crawl_worker.py">
+      <purpose>Async crawl worker consuming from Redis Streams</purpose>
+    </file>
+    <file path="backend/src/agentic_rag_backend/db/__init__.py">
+      <purpose>Database clients package init</purpose>
+    </file>
+    <file path="backend/src/agentic_rag_backend/db/redis.py">
+      <purpose>Redis client with Streams producer/consumer patterns</purpose>
+    </file>
+    <file path="backend/src/agentic_rag_backend/db/postgres.py">
+      <purpose>PostgreSQL async client for documents and jobs tables</purpose>
+    </file>
+    <file path="backend/src/agentic_rag_backend/core/__init__.py">
+      <purpose>Core utilities package init</purpose>
+    </file>
+    <file path="backend/src/agentic_rag_backend/core/errors.py">
+      <purpose>AppError class and error code definitions</purpose>
+    </file>
+    <file path="backend/tests/__init__.py">
+      <purpose>Tests package init</purpose>
+    </file>
+    <file path="backend/tests/conftest.py">
+      <purpose>pytest fixtures for mocking Crawl4AI, Redis, PostgreSQL</purpose>
+    </file>
+    <file path="backend/tests/indexing/__init__.py">
+      <purpose>Indexing tests package init</purpose>
+    </file>
+    <file path="backend/tests/indexing/test_crawler.py">
+      <purpose>Unit tests for crawler functions</purpose>
+    </file>
+    <file path="backend/tests/api/__init__.py">
+      <purpose>API tests package init</purpose>
+    </file>
+    <file path="backend/tests/api/test_ingest.py">
+      <purpose>API endpoint tests for ingestion routes</purpose>
+    </file>
+  </files-to-create>
+
+  <files-to-modify>
+    <file path="backend/src/agentic_rag_backend/main.py">
+      <purpose>Register ingest router with FastAPI app</purpose>
+    </file>
+    <file path="backend/src/agentic_rag_backend/config.py">
+      <purpose>Add CRAWL4AI_RATE_LIMIT configuration</purpose>
+    </file>
+    <file path="backend/pyproject.toml">
+      <purpose>Add crawl4ai and redis dependencies</purpose>
+    </file>
+  </files-to-modify>
+
+  <dependencies-to-install>
+    <dependency name="crawl4ai" version=">=0.3.0" purpose="Web crawling"/>
+    <dependency name="redis" version=">=5.0.0" purpose="Redis client for Streams"/>
+    <dependency name="asyncpg" version=">=0.29.0" purpose="Async PostgreSQL driver"/>
+    <dependency name="tenacity" version=">=8.0.0" purpose="Retry logic"/>
+    <dependency name="structlog" version=">=24.0.0" purpose="Structured logging"/>
+  </dependencies-to-install>
+
+  <environment-variables>
+    <variable name="CRAWL4AI_RATE_LIMIT" default="1.0" description="Requests per second"/>
+    <variable name="REDIS_URL" required="true" description="Redis connection URL"/>
+    <variable name="DATABASE_URL" required="true" description="PostgreSQL connection URL"/>
+  </environment-variables>
+
+  <code-patterns>
+    <pattern name="naming-conventions">
+      <python>
+        <![CDATA[
+# Functions: snake_case
+def get_document_by_id(document_id: str) -> Document: ...
+
+# Classes: PascalCase
+class CrawlRequest(BaseModel): ...
+
+# Constants: SCREAMING_SNAKE
+DEFAULT_RATE_LIMIT = 1.0
+
+# Files: snake_case.py
+# crawler.py, crawl_worker.py
+        ]]>
+      </python>
+    </pattern>
+
+    <pattern name="pydantic-model">
+      <![CDATA[
+from pydantic import BaseModel, Field
+from uuid import UUID
+from datetime import datetime
+from typing import Optional
+
+class CrawlRequest(BaseModel):
+    """Request model for URL crawl initiation."""
+    url: str = Field(..., description="URL to crawl")
+    tenant_id: UUID = Field(..., description="Tenant identifier")
+    max_depth: int = Field(default=3, ge=1, le=10, description="Maximum crawl depth")
+    options: dict = Field(default_factory=dict, description="Additional crawl options")
+
+class CrawlResponse(BaseModel):
+    """Response model for crawl job creation."""
+    job_id: UUID
+    status: str = "queued"
+
+class JobStatus(BaseModel):
+    """Job status with progress metrics."""
+    job_id: UUID
+    status: str
+    progress: Optional[dict] = None
+    error_message: Optional[str] = None
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+      ]]>
+    </pattern>
+
+    <pattern name="api-response-wrapper">
+      <![CDATA[
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from typing import Any
+from datetime import datetime
+from uuid import uuid4
+
+class Meta(BaseModel):
+    requestId: str
+    timestamp: str
+
+class SuccessResponse(BaseModel):
+    data: Any
+    meta: Meta
+
+def success_response(data: Any) -> dict:
+    """Wrap data in standard success response format."""
+    return {
+        "data": data,
+        "meta": {
+            "requestId": str(uuid4()),
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        }
+    }
+      ]]>
+    </pattern>
+
+    <pattern name="error-handling">
+      <![CDATA[
+from fastapi import HTTPException, Request
+from fastapi.responses import JSONResponse
+
+class AppError(Exception):
+    """Structured application error."""
+    def __init__(self, code: str, message: str, status: int = 500):
+        self.code = code
+        self.message = message
+        self.status = status
+
+async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+    """RFC 7807 Problem Details error handler."""
+    return JSONResponse(
+        status_code=exc.status,
+        content={
+            "type": f"https://api.example.com/errors/{exc.code.lower().replace('_', '-')}",
+            "title": exc.code.replace("_", " ").title(),
+            "status": exc.status,
+            "detail": exc.message,
+            "instance": str(request.url.path)
+        }
+    )
+      ]]>
+    </pattern>
+
+    <pattern name="redis-streams">
+      <![CDATA[
+import redis.asyncio as redis
+from typing import AsyncGenerator
+
+class RedisClient:
+    """Redis client with Streams support."""
+
+    def __init__(self, url: str):
+        self.client = redis.from_url(url)
+
+    async def publish_job(self, stream: str, job_data: dict) -> str:
+        """Publish job to Redis Stream."""
+        message_id = await self.client.xadd(stream, job_data)
+        return message_id
+
+    async def consume_jobs(
+        self,
+        stream: str,
+        group: str,
+        consumer: str
+    ) -> AsyncGenerator[dict, None]:
+        """Consume jobs from Redis Stream with consumer group."""
+        try:
+            await self.client.xgroup_create(stream, group, id="0", mkstream=True)
+        except redis.ResponseError:
+            pass  # Group already exists
+
+        while True:
+            messages = await self.client.xreadgroup(
+                groupname=group,
+                consumername=consumer,
+                streams={stream: ">"},
+                count=1,
+                block=5000
+            )
+            for _, entries in messages:
+                for message_id, data in entries:
+                    yield {"id": message_id, **data}
+                    await self.client.xack(stream, group, message_id)
+      ]]>
+    </pattern>
+
+    <pattern name="crawl4ai-integration">
+      <![CDATA[
+from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
+from typing import AsyncGenerator
+import hashlib
+
+async def crawl_url(
+    url: str,
+    max_depth: int = 3,
+    rate_limit: float = 1.0
+) -> AsyncGenerator[dict, None]:
+    """
+    Crawl URL with Crawl4AI, respecting robots.txt and rate limits.
+
+    Yields dictionaries with:
+    - url: Page URL
+    - content: Extracted content (markdown)
+    - title: Page title
+    - content_hash: SHA-256 hash for deduplication
+    """
+    config = CrawlerRunConfig(
+        follow_links=True,
+        max_depth=max_depth,
+        respect_robots_txt=True,
+        rate_limit=rate_limit
+    )
+
+    async with AsyncWebCrawler() as crawler:
+        result = await crawler.arun(url, config=config)
+
+        content_hash = hashlib.sha256(
+            result.markdown.encode()
+        ).hexdigest()
+
+        yield {
+            "url": result.url,
+            "content": result.markdown,
+            "title": result.title,
+            "content_hash": content_hash
+        }
+      ]]>
+    </pattern>
+
+    <pattern name="multi-tenancy">
+      <![CDATA[
+# Every database query MUST include tenant_id filtering
+
+# PostgreSQL example
+async def get_documents_by_tenant(tenant_id: UUID) -> list[Document]:
+    query = """
+        SELECT * FROM documents
+        WHERE tenant_id = $1
+        ORDER BY created_at DESC
+    """
+    return await connection.fetch(query, tenant_id)
+
+# Job creation always includes tenant_id
+async def create_job(tenant_id: UUID, job_type: str, document_id: UUID) -> UUID:
+    query = """
+        INSERT INTO ingestion_jobs (tenant_id, job_type, document_id, status)
+        VALUES ($1, $2, $3, 'queued')
+        RETURNING id
+    """
+    return await connection.fetchval(query, tenant_id, job_type, document_id)
+      ]]>
+    </pattern>
+
+    <pattern name="async-retry">
+      <![CDATA[
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential_jitter,
+    retry_if_exception_type
+)
+import httpx
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=1, max=60),
+    retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError))
+)
+async def fetch_with_retry(url: str) -> str:
+    """Fetch URL content with exponential backoff retry."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, timeout=30.0)
+        response.raise_for_status()
+        return response.text
+      ]]>
+    </pattern>
+  </code-patterns>
+
+  <testing-patterns>
+    <pattern name="pytest-fixtures">
+      <![CDATA[
+# backend/tests/conftest.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+@pytest.fixture
+def mock_redis():
+    """Mock Redis client for testing."""
+    redis_mock = AsyncMock()
+    redis_mock.xadd.return_value = "1234567890-0"
+    redis_mock.xreadgroup.return_value = []
+    return redis_mock
+
+@pytest.fixture
+def mock_crawler():
+    """Mock Crawl4AI crawler for testing."""
+    crawler_mock = AsyncMock()
+    result = MagicMock()
+    result.url = "https://example.com"
+    result.markdown = "# Test Content"
+    result.title = "Test Page"
+    crawler_mock.arun.return_value = result
+    return crawler_mock
+
+@pytest.fixture
+def sample_tenant_id():
+    """Provide a sample tenant ID."""
+    return uuid4()
+
+@pytest.fixture
+def sample_crawl_request(sample_tenant_id):
+    """Provide a sample crawl request."""
+    return {
+        "url": "https://docs.example.com",
+        "tenant_id": str(sample_tenant_id),
+        "max_depth": 3,
+        "options": {}
+    }
+      ]]>
+    </pattern>
+
+    <pattern name="api-endpoint-test">
+      <![CDATA[
+# backend/tests/api/test_ingest.py
+import pytest
+from fastapi.testclient import TestClient
+from unittest.mock import patch, AsyncMock
+
+def test_create_crawl_job_success(client, sample_crawl_request, mock_redis):
+    """Test successful crawl job creation."""
+    with patch("agentic_rag_backend.db.redis.RedisClient") as mock_client:
+        mock_client.return_value.publish_job = AsyncMock(return_value="job-123")
+
+        response = client.post("/api/v1/ingest/url", json=sample_crawl_request)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "data" in data
+        assert "job_id" in data["data"]
+        assert data["data"]["status"] == "queued"
+
+def test_create_crawl_job_invalid_url(client, sample_tenant_id):
+    """Test crawl job creation with invalid URL."""
+    response = client.post("/api/v1/ingest/url", json={
+        "url": "not-a-valid-url",
+        "tenant_id": str(sample_tenant_id)
+    })
+
+    assert response.status_code == 400
+    assert response.json()["title"] == "Invalid Url"
+
+def test_get_job_status_not_found(client):
+    """Test getting status of non-existent job."""
+    response = client.get("/api/v1/ingest/jobs/00000000-0000-0000-0000-000000000000")
+
+    assert response.status_code == 404
+      ]]>
+    </pattern>
+
+    <pattern name="crawler-unit-test">
+      <![CDATA[
+# backend/tests/indexing/test_crawler.py
+import pytest
+from unittest.mock import patch, AsyncMock, MagicMock
+
+@pytest.mark.asyncio
+async def test_crawl_url_returns_content(mock_crawler):
+    """Test that crawl_url yields content with expected structure."""
+    with patch("agentic_rag_backend.indexing.crawler.AsyncWebCrawler") as MockCrawler:
+        MockCrawler.return_value.__aenter__.return_value = mock_crawler
+
+        from agentic_rag_backend.indexing.crawler import crawl_url
+
+        results = []
+        async for result in crawl_url("https://example.com"):
+            results.append(result)
+
+        assert len(results) == 1
+        assert results[0]["url"] == "https://example.com"
+        assert results[0]["content"] == "# Test Content"
+        assert "content_hash" in results[0]
+
+@pytest.mark.asyncio
+async def test_crawl_url_respects_rate_limit():
+    """Test that rate limit configuration is passed to crawler."""
+    with patch("agentic_rag_backend.indexing.crawler.AsyncWebCrawler") as MockCrawler:
+        with patch("agentic_rag_backend.indexing.crawler.CrawlerRunConfig") as MockConfig:
+            mock_crawler = AsyncMock()
+            mock_result = MagicMock()
+            mock_result.markdown = "content"
+            mock_result.url = "https://example.com"
+            mock_result.title = "Title"
+            mock_crawler.arun.return_value = mock_result
+            MockCrawler.return_value.__aenter__.return_value = mock_crawler
+
+            from agentic_rag_backend.indexing.crawler import crawl_url
+
+            async for _ in crawl_url("https://example.com", rate_limit=0.5):
+                pass
+
+            MockConfig.assert_called_once()
+            call_kwargs = MockConfig.call_args.kwargs
+            assert call_kwargs["rate_limit"] == 0.5
+      ]]>
+    </pattern>
+  </testing-patterns>
+
+  <implementation-notes>
+    <note priority="critical">
+      All database queries MUST filter by tenant_id for multi-tenancy isolation.
+    </note>
+    <note priority="critical">
+      API responses MUST follow the standard wrapper format with data and meta fields.
+    </note>
+    <note priority="critical">
+      Errors MUST use RFC 7807 Problem Details format.
+    </note>
+    <note priority="high">
+      Use async/await throughout - no blocking I/O in the main thread.
+    </note>
+    <note priority="high">
+      Content hash (SHA-256) enables idempotent ingestion and deduplication.
+    </note>
+    <note priority="medium">
+      Redis Streams consumer groups enable horizontal scaling of workers.
+    </note>
+    <note priority="medium">
+      Default rate limit of 1 req/sec balances thoroughness with politeness.
+    </note>
+  </implementation-notes>
+
+  <references>
+    <reference type="tech-spec" path="docs/epics/epic-4-tech-spec.md#31-story-41-url-documentation-crawling"/>
+    <reference type="architecture" path="_bmad-output/architecture.md#data-architecture"/>
+    <reference type="project-context" path="_bmad-output/project-context.md"/>
+    <reference type="database-schema" path="docs/epics/epic-4-tech-spec.md#4-database-schema"/>
+    <reference type="api-endpoints" path="docs/epics/epic-4-tech-spec.md#5-api-endpoints"/>
+  </references>
+</story-context>

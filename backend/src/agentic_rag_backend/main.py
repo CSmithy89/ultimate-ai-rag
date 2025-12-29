@@ -1,24 +1,32 @@
+"""FastAPI application entry point."""
+
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import logging
 import os
+from typing import AsyncGenerator
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 import psycopg
-from starlette.responses import JSONResponse
-
 from pydantic import ValidationError
-
-from .config import Settings, load_settings
-from .agents.orchestrator import OrchestratorAgent
 import redis.asyncio as redis
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from starlette.responses import JSONResponse
+import structlog
 
+from .agents.orchestrator import OrchestratorAgent
+from .api.routes import ingest_router, knowledge_router
+from .api.routes.ingest import limiter as slowapi_limiter
+from .config import Settings, load_settings
+from .core.errors import AppError, app_error_handler
 from .rate_limit import InMemoryRateLimiter, RateLimiter, RedisRateLimiter, close_redis
 from .schemas import QueryEnvelope, QueryRequest, QueryResponse, ResponseMeta
 from .trajectory import TrajectoryLogger, close_pool, create_pool
 
 logger = logging.getLogger(__name__)
+struct_logger = structlog.get_logger(__name__)
 
 
 def _should_skip_pool() -> bool:
@@ -26,10 +34,46 @@ def _should_skip_pool() -> bool:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """
+    Application lifespan manager.
+
+    Initializes database connections on startup and closes them on shutdown.
+    Stores clients in app.state for dependency injection.
+    """
     settings = load_settings()
     app.state.settings = settings
 
+    # Epic 4: Initialize database clients for knowledge ingestion
+    from .db.neo4j import Neo4jClient
+    from .db.postgres import PostgresClient
+    from .db.redis import RedisClient
+
+    try:
+        # Initialize Redis (for knowledge ingestion)
+        app.state.redis_client = RedisClient(settings.redis_url)
+        await app.state.redis_client.connect()
+
+        # Initialize PostgreSQL (for knowledge ingestion)
+        app.state.postgres = PostgresClient(settings.database_url)
+        await app.state.postgres.connect()
+        await app.state.postgres.create_tables()
+
+        # Initialize Neo4j
+        app.state.neo4j = Neo4jClient(
+            settings.neo4j_uri,
+            settings.neo4j_user,
+            settings.neo4j_password,
+        )
+        await app.state.neo4j.connect()
+        await app.state.neo4j.create_indexes()
+
+        struct_logger.info("database_connections_initialized")
+    except Exception as e:
+        struct_logger.warning("database_connection_failed", error=str(e))
+
+    # Epic 2: Initialize query orchestrator components
+    pool = None
     if _should_skip_pool():
         app.state.pool = None
         app.state.trajectory_logger = None
@@ -43,49 +87,90 @@ async def lifespan(app: FastAPI):
             model_id=settings.openai_model_id,
             logger=None,
         )
-        yield
-        return
-
-    pool = create_pool(settings.database_url, settings.db_pool_min, settings.db_pool_max)
-    await pool.open()
-    app.state.pool = pool
-    trajectory_logger = TrajectoryLogger(pool=pool)
-    app.state.trajectory_logger = trajectory_logger
-    if settings.rate_limit_backend == "redis":
-        redis_client = redis.from_url(settings.redis_url, decode_responses=True)
-        app.state.redis = redis_client
-        app.state.rate_limiter = RedisRateLimiter(
-            client=redis_client,
-            max_requests=settings.rate_limit_per_minute,
-            window_seconds=60,
-            key_prefix=settings.rate_limit_redis_prefix,
-        )
     else:
-        app.state.redis = None
-        app.state.rate_limiter = InMemoryRateLimiter(
-            max_requests=settings.rate_limit_per_minute,
-            window_seconds=60,
+        pool = create_pool(settings.database_url, settings.db_pool_min, settings.db_pool_max)
+        try:
+            await pool.open()
+            app.state.pool = pool
+        except Exception as e:
+            struct_logger.warning("pool_open_failed", error=str(e))
+            await pool.close()
+            pool = None
+            app.state.pool = None
+
+        if pool:
+            trajectory_logger = TrajectoryLogger(pool=pool)
+            app.state.trajectory_logger = trajectory_logger
+        else:
+            app.state.trajectory_logger = None
+
+        if settings.rate_limit_backend == "redis":
+            redis_client = redis.from_url(settings.redis_url, decode_responses=True)
+            app.state.redis = redis_client
+            app.state.rate_limiter = RedisRateLimiter(
+                client=redis_client,
+                max_requests=settings.rate_limit_per_minute,
+                window_seconds=60,
+                key_prefix=settings.rate_limit_redis_prefix,
+            )
+        else:
+            app.state.redis = None
+            app.state.rate_limiter = InMemoryRateLimiter(
+                max_requests=settings.rate_limit_per_minute,
+                window_seconds=60,
+            )
+        app.state.orchestrator = OrchestratorAgent(
+            api_key=settings.openai_api_key,
+            model_id=settings.openai_model_id,
+            logger=app.state.trajectory_logger,
         )
-    app.state.orchestrator = OrchestratorAgent(
-        api_key=settings.openai_api_key,
-        model_id=settings.openai_model_id,
-        logger=trajectory_logger,
-    )
+
     yield
-    if app.state.redis:
+
+    # Shutdown: Close database connections
+    # Epic 4 connections
+    if hasattr(app.state, "neo4j") and app.state.neo4j:
+        await app.state.neo4j.disconnect()
+    if hasattr(app.state, "redis_client") and app.state.redis_client:
+        await app.state.redis_client.disconnect()
+    if hasattr(app.state, "postgres") and app.state.postgres:
+        await app.state.postgres.disconnect()
+
+    # Epic 2 connections
+    if hasattr(app.state, "redis") and app.state.redis:
         await close_redis(app.state.redis)
-    await close_pool(pool)
+    if hasattr(app.state, "pool") and app.state.pool:
+        await close_pool(app.state.pool)
+
+    struct_logger.info("database_connections_closed")
 
 
 def create_app() -> FastAPI:
     """Create the FastAPI application."""
-    app = FastAPI(title="Agentic RAG Backend", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(
+        title="Agentic RAG Backend",
+        version="0.1.0",
+        description="Backend API for the Agentic RAG + GraphRAG system",
+        lifespan=lifespan,
+    )
     install_middleware(app)
-    app.include_router(router)
+
+    # Register slowapi rate limiter for knowledge endpoints
+    app.state.limiter = slowapi_limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+    # Register exception handlers
+    app.add_exception_handler(AppError, app_error_handler)
+
+    # Register routers
+    app.include_router(router)  # Query router
+    app.include_router(ingest_router, prefix="/api/v1")  # Epic 4: Ingestion
+    app.include_router(knowledge_router, prefix="/api/v1")  # Epic 4: Knowledge graph
+
     return app
 
 
-def get_settings(request: Request) -> Settings:
+def get_app_settings(request: Request) -> Settings:
     """Provide settings from application state."""
     return request.app.state.settings
 
@@ -125,6 +210,7 @@ def install_middleware(app: FastAPI) -> None:
 
 @router.get("/health")
 def health_check() -> dict:
+    """Health check endpoint."""
     return {"status": "ok"}
 
 
@@ -170,6 +256,7 @@ async def run_query(
 
 
 def run() -> None:
+    """Run the application with uvicorn."""
     import uvicorn
 
     settings = load_settings()
