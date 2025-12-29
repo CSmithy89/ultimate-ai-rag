@@ -6,3 +6,82 @@ body {
   color: #111827;
   background: #f9fafb;
 }
+
+/* CopilotKit Design System Overrides */
+:root {
+  /* Map design system colors to CopilotKit variables */
+  --copilot-kit-primary-color: #4F46E5; /* Indigo-600 */
+  --copilot-kit-secondary-color: #10B981; /* Emerald-500 */
+  --copilot-kit-background-color: #F8FAFC; /* Slate-50 */
+  --copilot-kit-text-color: #0F172A; /* Slate-900 */
+  --copilot-kit-border-color: #E2E8F0; /* Slate-200 */
+  --copilot-kit-accent-color: #FBBF24; /* Amber-400 for HITL */
+}
+
+.copilot-sidebar {
+  --font-heading: var(--font-inter), 'Inter', sans-serif;
+  --font-body: var(--font-inter), 'Inter', sans-serif;
+  --font-mono: var(--font-mono), 'JetBrains Mono', monospace;
+}
+
+/* Sidebar container styling */
+.copilot-sidebar {
+  @apply bg-white border-l border-slate-200 shadow-lg;
+}
+
+/* Message styling */
+.copilot-sidebar [data-role="user"] {
+  @apply bg-indigo-50 text-slate-900 rounded-lg;
+}
+
+.copilot-sidebar [data-role="assistant"] {
+  @apply bg-white text-slate-700 rounded-lg border border-slate-100;
+}
+
+/* Input styling */
+.copilot-sidebar textarea,
+.copilot-sidebar input {
+  @apply border-slate-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-lg;
+}
+
+/* Send button styling */
+.copilot-sidebar button[type="submit"] {
+  @apply bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg;
+}
+
+/* Thought trace styling */
+.thought-trace {
+  @apply font-mono text-sm text-slate-600;
+}
+
+.thought-trace-step {
+  @apply flex items-center gap-2 py-1;
+}
+
+.thought-trace-step.completed {
+  @apply text-emerald-600;
+}
+
+.thought-trace-step.in-progress {
+  @apply text-indigo-600;
+}
+
+.thought-trace-step.pending {
+  @apply text-slate-400;
+}
+
+/* CopilotKit class overrides for fonts */
+.copilotKitMessages {
+  font-family: var(--font-inter), 'Inter', sans-serif;
+}
+
+.copilotKitInput {
+  font-family: var(--font-inter), 'Inter', sans-serif;
+}
+
+/* Accessibility: Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin {
+    animation: none;
+  }
+}

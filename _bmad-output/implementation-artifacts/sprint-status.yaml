@@ -87,7 +87,7 @@ development_status:
   # Epic 6: Interactive Copilot Experience (was Epic 5)
   epic-6: in-progress
   6-1-copilotkit-react-integration: done
-  6-2-chat-sidebar-interface: backlog
+  6-2-chat-sidebar-interface: review
   6-3-generative-ui-components: backlog
   6-4-human-in-the-loop-source-validation: backlog
   6-5-frontend-actions: backlog

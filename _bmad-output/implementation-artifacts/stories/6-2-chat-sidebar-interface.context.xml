@@ -1,0 +1,1097 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <story-summary>
+    <![CDATA[
+    Story 6-2 implements the Chat Sidebar Interface - a polished chat UI using CopilotKit's
+    CopilotSidebar component with the project's design system (Indigo-600, Slate, Emerald-500).
+
+    Key deliverables:
+    - ChatSidebar component wrapping CopilotSidebar with custom styling
+    - ThoughtTraceStepper component showing agent progress with expandable details
+    - use-thought-trace.ts hook for managing thought trace state
+    - CSS customization for design system colors and typography (Inter, JetBrains Mono)
+    - Backend enhancement to AG-UI bridge for emitting thought steps in state snapshots
+
+    This builds directly on Story 6-1's CopilotKit integration infrastructure.
+    ]]>
+  </story-summary>
+
+  <dependencies>
+    <story-6-1-artifacts>
+      <![CDATA[
+      Story 6-1 (DONE) established the foundational CopilotKit integration:
+
+      FILES CREATED:
+      - frontend/components/copilot/CopilotProvider.tsx - Root CopilotKit wrapper
+      - frontend/app/api/copilotkit/route.ts - Next.js API route for runtime
+      - frontend/types/copilot.ts - TypeScript types (Source, ThoughtStep, AgentState)
+      - backend/src/agentic_rag_backend/api/routes/copilot.py - FastAPI SSE endpoint
+      - backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py - AG-UI protocol handler
+      - backend/src/agentic_rag_backend/models/copilot.py - Pydantic event models
+
+      FILES MODIFIED:
+      - frontend/app/layout.tsx - Wrapped with CopilotProvider
+      - frontend/package.json - CopilotKit packages at ^1.50.1
+
+      KEY PATTERNS ESTABLISHED:
+      - SSE event streaming: RUN_STARTED -> STATE_SNAPSHOT -> TEXT_MESSAGE_START -> TEXT_MESSAGE_CONTENT -> TEXT_MESSAGE_END -> RUN_FINISHED
+      - tenant_id required in request config (multi-tenancy)
+      - Rate limiting on copilot endpoint
+      - Generic error messages returned to client
+      ]]>
+    </story-6-1-artifacts>
+
+    <existing-copilot-provider>
+      <![CDATA[
+      // frontend/components/copilot/CopilotProvider.tsx (EXISTING)
+      "use client";
+
+      import { CopilotKit } from "@copilotkit/react-core";
+      import "@copilotkit/react-ui/styles.css";
+      import { ReactNode } from "react";
+
+      interface CopilotProviderProps {
+        children: ReactNode;
+      }
+
+      export function CopilotProvider({ children }: CopilotProviderProps) {
+        return (
+          <CopilotKit runtimeUrl="/api/copilotkit">
+            {children}
+          </CopilotKit>
+        );
+      }
+      ]]>
+    </existing-copilot-provider>
+
+    <existing-types>
+      <![CDATA[
+      // frontend/types/copilot.ts (EXISTING - partial excerpt)
+      export interface ThoughtStep {
+        step: string;
+        status: "pending" | "in_progress" | "completed";
+        timestamp?: string;
+        details?: string;
+      }
+
+      export interface AgentState {
+        currentStep: string;
+        thoughts: ThoughtStep[];
+        retrievedSources: Source[];
+        validatedSources: Source[];
+        answer: string | null;
+        trajectoryId: string | null;
+      }
+
+      // Zod schemas available: ThoughtStepSchema, AgentStateSchema, etc.
+      ]]>
+    </existing-types>
+  </dependencies>
+
+  <acceptance-criteria>
+    <![CDATA[
+    - Given the CopilotKit integration is configured (Story 6-1)
+    - When the user opens the chat sidebar
+    - Then they see a polished chat interface (shadcn/ui styling)
+    - And can type messages and submit queries
+    - And see streaming responses as they generate
+    - And view the "Thought Trace" stepper showing agent progress
+    - And the sidebar uses the design system colors (Indigo-600, Slate)
+    - And typography follows the specification (Inter for headings/body, JetBrains Mono for traces)
+    ]]>
+  </acceptance-criteria>
+
+  <technical-approach>
+    <step-1>
+      <![CDATA[
+      CREATE: frontend/components/copilot/ChatSidebar.tsx
+
+      Main chat interface using CopilotKit's CopilotSidebar with custom styling:
+
+      "use client";
+
+      import { CopilotSidebar } from "@copilotkit/react-ui";
+      import "@copilotkit/react-ui/styles.css";
+      import { ThoughtTraceStepper } from "./ThoughtTraceStepper";
+
+      export function ChatSidebar() {
+        return (
+          <CopilotSidebar
+            defaultOpen={true}
+            labels={{
+              title: "AI Copilot",
+              initial: "How can I help you today?",
+            }}
+            className="copilot-sidebar"
+          >
+            <ThoughtTraceStepper />
+          </CopilotSidebar>
+        );
+      }
+
+      KEY POINTS:
+      - Use CopilotSidebar from @copilotkit/react-ui
+      - Apply className="copilot-sidebar" for CSS targeting
+      - Include ThoughtTraceStepper as child component
+      - Support both controlled and uncontrolled open/close states
+      ]]>
+    </step-1>
+
+    <step-2>
+      <![CDATA[
+      CREATE: frontend/components/copilot/ThoughtTraceStepper.tsx
+
+      Vertical progress indicator using useCoAgentStateRender hook:
+
+      "use client";
+
+      import { useCoAgentStateRender } from "@copilotkit/react-core";
+      import { ThoughtStep } from "@/types/copilot";
+      import { ChevronDown, ChevronRight, CheckCircle2, Loader2, Circle } from "lucide-react";
+      import { useState } from "react";
+
+      export function ThoughtTraceStepper() {
+        const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set());
+
+        useCoAgentStateRender<{ steps: ThoughtStep[] }>({
+          name: "orchestrator",
+          render: ({ state }) => {
+            if (!state?.steps?.length) return null;
+
+            return (
+              <div className="flex flex-col gap-2 p-4 font-mono text-sm border-t border-slate-200">
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  Agent Progress
+                </h3>
+                {state.steps.map((step, idx) => (
+                  <StepIndicator
+                    key={idx}
+                    step={step}
+                    index={idx}
+                    isExpanded={expandedSteps.has(idx)}
+                    onToggle={() => toggleStep(idx)}
+                  />
+                ))}
+              </div>
+            );
+          },
+        });
+
+        const toggleStep = (index: number) => {
+          setExpandedSteps((prev) => {
+            const next = new Set(prev);
+            if (next.has(index)) next.delete(index);
+            else next.add(index);
+            return next;
+          });
+        };
+
+        return null; // Render handled by useCoAgentStateRender
+      }
+
+      STATUS ICONS:
+      - pending: Circle (Slate-400)
+      - in_progress: Loader2 with animate-spin (Indigo-600)
+      - completed: CheckCircle2 (Emerald-500)
+      ]]>
+    </step-2>
+
+    <step-3>
+      <![CDATA[
+      CREATE: frontend/components/copilot/StepIndicator.tsx (or inline in ThoughtTraceStepper.tsx)
+
+      interface StepIndicatorProps {
+        step: ThoughtStep;
+        index: number;
+        isExpanded: boolean;
+        onToggle: () => void;
+      }
+
+      function StepIndicator({ step, index, isExpanded, onToggle }: StepIndicatorProps) {
+        const StatusIcon = {
+          pending: Circle,
+          in_progress: Loader2,
+          completed: CheckCircle2,
+        }[step.status];
+
+        const statusColors = {
+          pending: "text-slate-400",
+          in_progress: "text-indigo-600 animate-spin",
+          completed: "text-emerald-500",
+        };
+
+        return (
+          <div className="flex flex-col">
+            <button
+              onClick={onToggle}
+              className="flex items-center gap-2 text-left hover:bg-slate-50 rounded p-1 -m-1"
+            >
+              {step.details ? (
+                isExpanded ? (
+                  <ChevronDown className="h-3 w-3 text-slate-400" />
+                ) : (
+                  <ChevronRight className="h-3 w-3 text-slate-400" />
+                )
+              ) : (
+                <span className="w-3" />
+              )}
+              <StatusIcon className={cn("h-4 w-4", statusColors[step.status])} />
+              <span className={cn(
+                "text-sm",
+                step.status === "in_progress" && "text-indigo-600 font-medium",
+                step.status === "completed" && "text-slate-600",
+                step.status === "pending" && "text-slate-400"
+              )}>
+                {step.step}
+              </span>
+            </button>
+            {isExpanded && step.details && (
+              <pre className="mt-1 ml-7 p-2 bg-slate-100 rounded text-xs text-slate-600 font-mono overflow-x-auto">
+                {step.details}
+              </pre>
+            )}
+          </div>
+        );
+      }
+
+      NOTE: Need to create cn() utility function or use clsx/tailwind-merge
+      ]]>
+    </step-3>
+
+    <step-4>
+      <![CDATA[
+      CREATE: frontend/hooks/use-thought-trace.ts
+
+      Custom hook for managing thought trace state:
+
+      "use client";
+
+      import { useCopilotContext } from "@copilotkit/react-core";
+      import { useState, useEffect } from "react";
+      import { ThoughtStep } from "@/types/copilot";
+
+      interface UseThoughtTraceOptions {
+        autoExpand?: boolean;
+        maxVisibleSteps?: number;
+      }
+
+      interface UseThoughtTraceReturn {
+        steps: ThoughtStep[];
+        currentStep: ThoughtStep | null;
+        isProcessing: boolean;
+        clearSteps: () => void;
+      }
+
+      export function useThoughtTrace(options: UseThoughtTraceOptions = {}): UseThoughtTraceReturn {
+        const { autoExpand = true, maxVisibleSteps = 10 } = options;
+        const [steps, setSteps] = useState<ThoughtStep[]>([]);
+
+        const context = useCopilotContext();
+        const isProcessing = steps.some((s) => s.status === "in_progress");
+        const currentStep = steps.find((s) => s.status === "in_progress") || null;
+
+        const clearSteps = () => setSteps([]);
+
+        return {
+          steps: steps.slice(-maxVisibleSteps),
+          currentStep,
+          isProcessing,
+          clearSteps,
+        };
+      }
+      ]]>
+    </step-4>
+
+    <step-5>
+      <![CDATA[
+      MODIFY: frontend/app/globals.css
+
+      Add CopilotKit design system overrides:
+
+      /* CopilotKit Design System Overrides */
+      :root {
+        /* Map design system colors to CopilotKit variables */
+        --copilot-kit-primary-color: #4F46E5; /* Indigo-600 */
+        --copilot-kit-secondary-color: #10B981; /* Emerald-500 */
+        --copilot-kit-background-color: #F8FAFC; /* Slate-50 */
+        --copilot-kit-text-color: #0F172A; /* Slate-900 */
+        --copilot-kit-border-color: #E2E8F0; /* Slate-200 */
+        --copilot-kit-accent-color: #FBBF24; /* Amber-400 for HITL */
+      }
+
+      .copilot-sidebar {
+        --font-heading: 'Inter', sans-serif;
+        --font-body: 'Inter', sans-serif;
+        --font-mono: 'JetBrains Mono', monospace;
+      }
+
+      /* Sidebar container styling */
+      .copilot-sidebar {
+        @apply bg-white border-l border-slate-200 shadow-lg;
+      }
+
+      /* Message styling */
+      .copilot-sidebar [data-role="user"] {
+        @apply bg-indigo-50 text-slate-900 rounded-lg;
+      }
+
+      .copilot-sidebar [data-role="assistant"] {
+        @apply bg-white text-slate-700 rounded-lg border border-slate-100;
+      }
+
+      /* Input styling */
+      .copilot-sidebar textarea,
+      .copilot-sidebar input {
+        @apply border-slate-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-lg;
+      }
+
+      /* Send button styling */
+      .copilot-sidebar button[type="submit"] {
+        @apply bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg;
+      }
+
+      /* Thought trace styling */
+      .thought-trace {
+        @apply font-mono text-sm text-slate-600;
+      }
+
+      .thought-trace-step.completed {
+        @apply text-emerald-600;
+      }
+
+      .thought-trace-step.in-progress {
+        @apply text-indigo-600;
+      }
+
+      .thought-trace-step.pending {
+        @apply text-slate-400;
+      }
+
+      /* CopilotKit class overrides for fonts */
+      .copilotKitMessages {
+        font-family: 'Inter', sans-serif;
+      }
+
+      .copilotKitInput {
+        font-family: 'Inter', sans-serif;
+      }
+      ]]>
+    </step-5>
+
+    <step-6>
+      <![CDATA[
+      MODIFY: frontend/app/page.tsx
+
+      Integrate ChatSidebar component:
+
+      import { ChatSidebar } from "@/components/copilot/ChatSidebar";
+
+      export default function Home() {
+        return (
+          <main className="min-h-screen bg-slate-50">
+            {/* Main content area */}
+            <div className="container mx-auto py-8">
+              <h1 className="text-3xl font-semibold">Ultimate AI RAG</h1>
+              <p className="text-base text-gray-600">
+                Next.js App Router foundation with CopilotKit AI chat.
+              </p>
+            </div>
+
+            {/* Chat Sidebar - positioned by CopilotKit */}
+            <ChatSidebar />
+          </main>
+        );
+      }
+      ]]>
+    </step-6>
+
+    <step-7>
+      <![CDATA[
+      MODIFY: frontend/app/layout.tsx
+
+      Add Inter and JetBrains Mono font configuration:
+
+      import { Inter, JetBrains_Mono } from "next/font/google";
+      import "./globals.css";
+      import { CopilotProvider } from "../components/copilot/CopilotProvider";
+
+      const inter = Inter({
+        subsets: ["latin"],
+        variable: "--font-inter",
+      });
+
+      const jetbrainsMono = JetBrains_Mono({
+        subsets: ["latin"],
+        variable: "--font-mono",
+      });
+
+      export const metadata = {
+        title: "Ultimate AI RAG",
+        description: "Agentic RAG + GraphRAG with CopilotKit",
+      };
+
+      export default function RootLayout({
+        children,
+      }: {
+        children: React.ReactNode;
+      }): React.ReactElement {
+        return (
+          <html lang="en">
+            <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans`}>
+              <CopilotProvider>
+                {children}
+              </CopilotProvider>
+            </body>
+          </html>
+        );
+      }
+      ]]>
+    </step-7>
+
+    <step-8>
+      <![CDATA[
+      MODIFY: backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py
+
+      Enhance state snapshot to include thought steps for frontend:
+
+      Current state snapshot emits:
+      {
+        "currentStep": "completed",
+        "thoughts": [{"step": t, "status": "completed"} for t in result.thoughts],
+        "retrievalStrategy": result.retrieval_strategy.value,
+        "trajectoryId": str(result.trajectory_id) if result.trajectory_id else None
+      }
+
+      Need to enhance to also include:
+      - timestamp for each step
+      - details field for expandable content
+      - Map to the "steps" key expected by useCoAgentStateRender
+
+      Updated StateSnapshotEvent:
+      yield StateSnapshotEvent(
+          state={
+              "currentStep": "completed",
+              "steps": [  # Changed key from "thoughts" to "steps" for frontend
+                  {
+                      "step": t.content if hasattr(t, 'content') else t,
+                      "status": "completed" if t.completed else "in_progress" if t == current else "pending",
+                      "timestamp": t.timestamp.isoformat() if hasattr(t, 'timestamp') and t.timestamp else None,
+                      "details": t.details if hasattr(t, 'details') else None,
+                  }
+                  for t in agent_state.thoughts
+              ],
+              "retrievalStrategy": result.retrieval_strategy.value,
+              "trajectoryId": str(result.trajectory_id) if result.trajectory_id else None,
+          }
+      )
+
+      NOTE: May need to modify how thoughts are tracked during orchestrator execution
+      to capture timestamps and details. Check OrchestratorAgent implementation.
+      ]]>
+    </step-8>
+  </technical-approach>
+
+  <files-to-create>
+    <file>
+      <path>frontend/components/copilot/ChatSidebar.tsx</path>
+      <purpose>Main chat sidebar component wrapping CopilotSidebar with design system styling</purpose>
+      <skeleton>
+        <![CDATA[
+"use client";
+
+import { CopilotSidebar } from "@copilotkit/react-ui";
+import "@copilotkit/react-ui/styles.css";
+import { ThoughtTraceStepper } from "./ThoughtTraceStepper";
+
+export function ChatSidebar() {
+  return (
+    <CopilotSidebar
+      defaultOpen={true}
+      labels={{
+        title: "AI Copilot",
+        initial: "How can I help you today?",
+      }}
+      className="copilot-sidebar"
+    >
+      <ThoughtTraceStepper />
+    </CopilotSidebar>
+  );
+}
+        ]]>
+      </skeleton>
+    </file>
+
+    <file>
+      <path>frontend/components/copilot/ThoughtTraceStepper.tsx</path>
+      <purpose>Vertical progress indicator showing agent steps with expandable details</purpose>
+      <skeleton>
+        <![CDATA[
+"use client";
+
+import { useCoAgentStateRender } from "@copilotkit/react-core";
+import { ThoughtStep } from "@/types/copilot";
+import { ChevronDown, ChevronRight, CheckCircle2, Loader2, Circle } from "lucide-react";
+import { useState } from "react";
+import { cn } from "@/lib/utils";
+
+interface StepIndicatorProps {
+  step: ThoughtStep;
+  index: number;
+  isExpanded: boolean;
+  onToggle: () => void;
+}
+
+function StepIndicator({ step, index, isExpanded, onToggle }: StepIndicatorProps) {
+  // Implementation per technical approach step-3
+}
+
+export function ThoughtTraceStepper() {
+  const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set());
+
+  useCoAgentStateRender<{ steps: ThoughtStep[] }>({
+    name: "orchestrator",
+    render: ({ state }) => {
+      // Implementation per technical approach step-2
+    },
+  });
+
+  const toggleStep = (index: number) => {
+    // Toggle logic
+  };
+
+  return null;
+}
+        ]]>
+      </skeleton>
+    </file>
+
+    <file>
+      <path>frontend/hooks/use-thought-trace.ts</path>
+      <purpose>Custom hook for managing thought trace state externally if needed</purpose>
+      <skeleton>
+        <![CDATA[
+"use client";
+
+import { useCopilotContext } from "@copilotkit/react-core";
+import { useState } from "react";
+import { ThoughtStep } from "@/types/copilot";
+
+interface UseThoughtTraceOptions {
+  autoExpand?: boolean;
+  maxVisibleSteps?: number;
+}
+
+interface UseThoughtTraceReturn {
+  steps: ThoughtStep[];
+  currentStep: ThoughtStep | null;
+  isProcessing: boolean;
+  clearSteps: () => void;
+}
+
+export function useThoughtTrace(options: UseThoughtTraceOptions = {}): UseThoughtTraceReturn {
+  // Implementation per technical approach step-4
+}
+        ]]>
+      </skeleton>
+    </file>
+
+    <file>
+      <path>frontend/lib/utils.ts</path>
+      <purpose>Utility function for className merging (cn helper)</purpose>
+      <skeleton>
+        <![CDATA[
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+        ]]>
+      </skeleton>
+      <note>Requires installing clsx and tailwind-merge packages</note>
+    </file>
+  </files-to-create>
+
+  <files-to-modify>
+    <file>
+      <path>frontend/app/page.tsx</path>
+      <current-content>
+        <![CDATA[
+export default function Home() {
+  return (
+    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-4 px-6 py-16">
+      <h1 className="text-3xl font-semibold">Ultimate AI RAG</h1>
+      <p className="text-base text-gray-600">
+        Next.js App Router foundation with CopilotKit dependencies ready for
+        integration.
+      </p>
+    </main>
+  );
+}
+        ]]>
+      </current-content>
+      <change-description>Import and add ChatSidebar component</change-description>
+    </file>
+
+    <file>
+      <path>frontend/app/globals.css</path>
+      <current-content>
+        <![CDATA[
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  color: #111827;
+  background: #f9fafb;
+}
+        ]]>
+      </current-content>
+      <change-description>Add CopilotKit CSS variable overrides for design system colors and typography</change-description>
+    </file>
+
+    <file>
+      <path>frontend/app/layout.tsx</path>
+      <current-content>
+        <![CDATA[
+import "./globals.css";
+import { CopilotProvider } from "../components/copilot/CopilotProvider";
+
+export const metadata = {
+  title: "Ultimate AI RAG",
+  description: "Agentic RAG + GraphRAG with CopilotKit",
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <html lang="en">
+      <body>
+        <CopilotProvider>
+          {children}
+        </CopilotProvider>
+      </body>
+    </html>
+  );
+}
+        ]]>
+      </current-content>
+      <change-description>Add Inter and JetBrains Mono font configuration using next/font/google</change-description>
+    </file>
+
+    <file>
+      <path>frontend/tailwind.config.ts</path>
+      <current-content>
+        <![CDATA[
+import type { Config } from "tailwindcss";
+
+const config: Config = {
+  content: ["./app/**/*.{ts,tsx}"],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+};
+
+export default config;
+        ]]>
+      </current-content>
+      <change-description>Extend content paths to include components/, add design system colors and font families</change-description>
+    </file>
+
+    <file>
+      <path>backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py</path>
+      <current-content>
+        <![CDATA[
+# Currently emits StateSnapshotEvent with "thoughts" key
+yield StateSnapshotEvent(
+    state={
+        "currentStep": "completed",
+        "thoughts": [
+            {"step": t, "status": "completed"}
+            for t in result.thoughts
+        ],
+        "retrievalStrategy": result.retrieval_strategy.value,
+        "trajectoryId": str(result.trajectory_id) if result.trajectory_id else None,
+    }
+)
+        ]]>
+      </current-content>
+      <change-description>Change "thoughts" key to "steps" and enhance with timestamp and details fields for frontend useCoAgentStateRender</change-description>
+    </file>
+
+    <file>
+      <path>frontend/package.json</path>
+      <change-description>Add clsx, tailwind-merge, and lucide-react dependencies</change-description>
+    </file>
+  </files-to-modify>
+
+  <code-patterns>
+    <pattern name="react-component-naming">
+      <![CDATA[
+      Components: PascalCase (file and component)
+      File: ChatSidebar.tsx -> export function ChatSidebar()
+
+      Hooks: camelCase with use prefix
+      File: use-thought-trace.ts -> export function useThoughtTrace()
+      ]]>
+    </pattern>
+
+    <pattern name="client-directive">
+      <![CDATA[
+      All CopilotKit components must be client components:
+      "use client";  // Required at top of file
+      ]]>
+    </pattern>
+
+    <pattern name="cn-utility">
+      <![CDATA[
+      Use cn() for conditional className merging:
+
+      import { cn } from "@/lib/utils";
+
+      <div className={cn(
+        "base-classes",
+        condition && "conditional-class",
+        variant === "primary" && "variant-class"
+      )} />
+      ]]>
+    </pattern>
+
+    <pattern name="tanstack-query">
+      <![CDATA[
+      IMPORTANT: Do NOT use TanStack Query for CopilotKit state
+      CopilotKit manages its own state internally via:
+      - useCoAgentStateRender for agent state rendering
+      - useCopilotContext for context access
+
+      TanStack Query is for OTHER server state (documents, graphs, etc.)
+      ]]>
+    </pattern>
+  </code-patterns>
+
+  <design-system>
+    <colors>
+      <![CDATA[
+      PRIMARY (Intelligence/Brain):
+      - Indigo-600: #4F46E5
+      - Use for: active states, primary buttons, in_progress indicators
+
+      SECONDARY (Success/Validated):
+      - Emerald-500: #10B981
+      - Use for: completed states, success indicators
+
+      NEUTRAL (Readability):
+      - Slate-900: #0F172A (text)
+      - Slate-700: #334155 (secondary text)
+      - Slate-600: #475569 (muted text)
+      - Slate-400: #94A3B8 (disabled/pending)
+      - Slate-200: #E2E8F0 (borders)
+      - Slate-100: #F1F5F9 (backgrounds)
+      - Slate-50: #F8FAFC (page background)
+
+      ACCENT (HITL Attention - Story 6-4):
+      - Amber-400: #FBBF24
+      - Reserve for human-in-the-loop elements
+      ]]>
+    </colors>
+
+    <typography>
+      <![CDATA[
+      HEADINGS & BODY: Inter (Google Font)
+      - font-sans (Tailwind default after configuration)
+      - Use for: UI text, messages, labels
+
+      CODE & TRACES: JetBrains Mono (Google Font)
+      - font-mono
+      - Use for: thought trace details, code snippets, raw logs
+
+      CSS Variables:
+      --font-inter: 'Inter', sans-serif
+      --font-mono: 'JetBrains Mono', monospace
+      ]]>
+    </typography>
+
+    <css-variables>
+      <![CDATA[
+      CopilotKit CSS Variables (set in :root):
+      --copilot-kit-primary-color: #4F46E5
+      --copilot-kit-secondary-color: #10B981
+      --copilot-kit-background-color: #F8FAFC
+      --copilot-kit-text-color: #0F172A
+      --copilot-kit-border-color: #E2E8F0
+      --copilot-kit-accent-color: #FBBF24
+
+      Custom Font Variables:
+      --font-heading: 'Inter', sans-serif
+      --font-body: 'Inter', sans-serif
+      --font-mono: 'JetBrains Mono', monospace
+      ]]>
+    </css-variables>
+  </design-system>
+
+  <copilotkit-reference>
+    <copilot-sidebar>
+      <![CDATA[
+      COMPONENT: CopilotSidebar from @copilotkit/react-ui
+
+      IMPORT:
+      import { CopilotSidebar } from "@copilotkit/react-ui";
+      import "@copilotkit/react-ui/styles.css";
+
+      KEY PROPS:
+      - defaultOpen: boolean - Initial open state
+      - clickOutsideToClose: boolean - Close on outside click
+      - labels: { title, initial, placeholder, ... } - Text customization
+      - className: string - CSS class for styling
+      - instructions: string - System instructions for AI
+      - icons: { send, stop, ... } - Custom icon components
+
+      USAGE PATTERN:
+      <CopilotSidebar
+        defaultOpen={true}
+        labels={{
+          title: "AI Copilot",
+          initial: "How can I help you today?",
+        }}
+        className="copilot-sidebar"
+      >
+        <CustomContent />  // Rendered below chat
+      </CopilotSidebar>
+
+      STYLING:
+      - Use CSS variables for colors: --copilot-kit-primary-color
+      - Use CopilotKitCSSProperties type for inline styles
+      - Target .copilotKitMessages, .copilotKitInput for fonts
+      ]]>
+    </copilot-sidebar>
+
+    <use-co-agent-state-render>
+      <![CDATA[
+      HOOK: useCoAgentStateRender from @copilotkit/react-core
+
+      PURPOSE: Render agent state within the chat interface
+
+      IMPORT:
+      import { useCoAgentStateRender } from "@copilotkit/react-core";
+
+      TYPE SIGNATURE:
+      useCoAgentStateRender<StateType>({
+        name: string,           // Agent name (must match backend)
+        render: ({ state }) => ReactNode,  // Render function
+      }, dependencies?: any[]);
+
+      EXAMPLE:
+      useCoAgentStateRender<{ steps: ThoughtStep[] }>({
+        name: "orchestrator",  // MUST match backend agent name
+        render: ({ state }) => {
+          if (!state?.steps?.length) return null;
+          return (
+            <div>
+              {state.steps.map((step, i) => (
+                <div key={i}>{step.step}</div>
+              ))}
+            </div>
+          );
+        },
+      });
+
+      IMPORTANT:
+      - Component should return null (render handled by hook)
+      - State updates automatically when backend emits STATE_SNAPSHOT
+      - Agent name must exactly match backend configuration
+      ]]>
+    </use-co-agent-state-render>
+
+    <css-customization>
+      <![CDATA[
+      CSS VARIABLES (set in :root or wrapper):
+      --copilot-kit-primary-color
+      --copilot-kit-contrast-color
+      --copilot-kit-secondary-contrast-color
+      --copilot-kit-background-color
+      --copilot-kit-muted-color
+      --copilot-kit-separator-color
+      --copilot-kit-scrollbar-color
+
+      CSS CLASSES TO TARGET:
+      .copilotKitMessages - Chat messages container
+      .copilotKitInput - Input field
+      .copilotKitSidebar - Sidebar container
+      .copilotKitWindow - Chat window
+      .copilotKitButton - Action buttons
+
+      INLINE STYLES:
+      import { CopilotKitCSSProperties } from "@copilotkit/react-ui";
+
+      <div style={{ "--copilot-kit-primary-color": "#4F46E5" } as CopilotKitCSSProperties}>
+        <CopilotSidebar ... />
+      </div>
+      ]]>
+    </css-customization>
+  </copilotkit-reference>
+
+  <project-rules>
+    <rule name="naming-conventions">
+      <![CDATA[
+      TypeScript (Frontend):
+      - Functions: camelCase (getDocumentChunks)
+      - Components: PascalCase file AND export (DocumentViewer.tsx -> DocumentViewer)
+      - Hooks: camelCase with use prefix (use-hook-name.ts -> useHookName)
+      - Types/Interfaces: PascalCase
+      - Constants: SCREAMING_SNAKE
+
+      Python (Backend):
+      - Functions: snake_case
+      - Classes: PascalCase
+      - Constants: SCREAMING_SNAKE
+      - Files: snake_case.py
+      ]]>
+    </rule>
+
+    <rule name="file-organization">
+      <![CDATA[
+      frontend/
+      ├── app/              # Next.js App Router pages
+      ├── components/       # React components
+      │   ├── copilot/     # CopilotKit components
+      │   ├── ui/          # shadcn/ui components
+      │   └── graphs/      # React Flow visualizations
+      ├── hooks/           # Custom React hooks
+      ├── lib/             # Utilities (api, utils)
+      └── types/           # TypeScript types
+      ]]>
+    </rule>
+
+    <rule name="client-components">
+      <![CDATA[
+      CopilotKit requires client components.
+      Add "use client"; directive at top of:
+      - All components using CopilotKit hooks
+      - All components using CopilotKit UI components
+      - Any component with client-side state (useState, useEffect)
+      ]]>
+    </rule>
+
+    <rule name="no-raw-fetch">
+      <![CDATA[
+      NEVER use raw fetch() in React components.
+      Use TanStack Query for server state.
+
+      EXCEPTION: CopilotKit handles its own data fetching internally.
+      Do not wrap CopilotKit in TanStack Query.
+      ]]>
+    </rule>
+
+    <rule name="validation">
+      <![CDATA[
+      Frontend: Use Zod for all validation
+      Schemas already defined in types/copilot.ts:
+      - ThoughtStepSchema
+      - AgentStateSchema
+      ]]>
+    </rule>
+  </project-rules>
+
+  <testing-requirements>
+    <unit-tests>
+      <![CDATA[
+      | Test | Location |
+      |------|----------|
+      | ChatSidebar renders correctly | frontend/__tests__/components/copilot/ChatSidebar.test.tsx |
+      | ThoughtTraceStepper displays steps with correct statuses | frontend/__tests__/components/copilot/ThoughtTraceStepper.test.tsx |
+      | StepIndicator expands/collapses on click | frontend/__tests__/components/copilot/ThoughtTraceStepper.test.tsx |
+      | useThoughtTrace hook returns correct state | frontend/__tests__/hooks/use-thought-trace.test.ts |
+      ]]>
+    </unit-tests>
+
+    <integration-tests>
+      <![CDATA[
+      | Test | Location |
+      |------|----------|
+      | Sidebar opens and closes correctly | frontend/__tests__/integration/chat-sidebar.test.tsx |
+      | Messages stream in real-time | frontend/__tests__/integration/chat-sidebar.test.tsx |
+      | Thought trace updates during agent processing | frontend/__tests__/integration/chat-sidebar.test.tsx |
+      ]]>
+    </integration-tests>
+
+    <e2e-tests>
+      <![CDATA[
+      | Test | Location |
+      |------|----------|
+      | Full chat flow with thought trace | frontend/tests/e2e/chat-sidebar.spec.ts |
+      | Design system colors applied correctly | frontend/tests/e2e/chat-sidebar.spec.ts |
+      ]]>
+    </e2e-tests>
+
+    <manual-verification>
+      <![CDATA[
+      1. Start backend: cd backend && uv run uvicorn agentic_rag_backend.main:app --reload
+      2. Start frontend: cd frontend && pnpm dev
+      3. Open browser to http://localhost:3000
+      4. Verify chat sidebar is visible and uses Indigo-600 primary color
+      5. Verify Inter font is used for headings and body text
+      6. Type a message and verify it appears with proper styling
+      7. Submit a query and verify:
+         - Streaming response appears progressively
+         - Thought trace stepper shows agent progress
+         - In-progress step animates with Indigo-600 color
+         - Completed steps show Emerald-500 checkmark
+      8. Click on a thought step with details and verify it expands
+      9. Verify JetBrains Mono font in thought trace area
+      10. Test sidebar open/close functionality
+      ]]>
+    </manual-verification>
+  </testing-requirements>
+
+  <new-dependencies>
+    <frontend>
+      <![CDATA[
+      # Install these packages before implementation
+      pnpm add clsx tailwind-merge lucide-react
+
+      Dependencies:
+      - clsx: ^2.x - Class name utility
+      - tailwind-merge: ^2.x - Tailwind class merging
+      - lucide-react: ^0.x - Icon library (Circle, CheckCircle2, Loader2, ChevronDown, ChevronRight)
+
+      Already installed (from Story 6-1):
+      - @copilotkit/react-core: ^1.50.1
+      - @copilotkit/react-ui: ^1.50.1
+      - @copilotkit/runtime: ^1.50.1
+      ]]>
+    </frontend>
+
+    <backend>
+      <![CDATA[
+      No new backend dependencies required.
+      Uses existing:
+      - FastAPI for routing
+      - SSE (Server-Sent Events) via sse-starlette
+      - Existing OrchestratorAgent from Epic 2
+      ]]>
+    </backend>
+  </new-dependencies>
+
+  <definition-of-done>
+    <![CDATA[
+    - [ ] All acceptance criteria met
+    - [ ] ChatSidebar component created and renders correctly
+    - [ ] ThoughtTraceStepper component displays agent progress
+    - [ ] Step details expand/collapse on click
+    - [ ] Design system colors applied (Indigo-600, Slate, Emerald-500)
+    - [ ] Typography follows spec (Inter, JetBrains Mono)
+    - [ ] Streaming responses display progressively
+    - [ ] Unit tests passing
+    - [ ] Integration tests passing
+    - [ ] E2E tests passing
+    - [ ] Manual verification completed
+    - [ ] No TypeScript errors
+    - [ ] Code follows project naming conventions
+    - [ ] CSS follows project patterns (Tailwind utilities)
+    ]]>
+  </definition-of-done>
+</story-context>

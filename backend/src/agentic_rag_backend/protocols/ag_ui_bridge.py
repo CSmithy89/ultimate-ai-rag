@@ -1,5 +1,6 @@
 """AG-UI Protocol Bridge for CopilotKit integration."""
 
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 import structlog
 
@@ -27,6 +28,49 @@ class AGUIBridge:
     def __init__(self, orchestrator: OrchestratorAgent) -> None:
         self._orchestrator = orchestrator
 
+    def _format_thought_steps(self, thoughts: list[Any]) -> list[dict[str, Any]]:
+        """
+        Format thoughts into the steps format expected by the frontend.
+        
+        Each step includes:
+        - step: The step description
+        - status: pending | in_progress | completed
+        - timestamp: ISO 8601 formatted timestamp (optional)
+        - details: Additional details for expandable view (optional)
+        """
+        steps = []
+        for idx, thought in enumerate(thoughts):
+            # Handle both string thoughts and structured thought objects
+            if isinstance(thought, str):
+                step_data = {
+                    "step": thought,
+                    "status": "completed",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "details": None,
+                }
+            elif hasattr(thought, "content"):
+                # Structured thought object
+                step_data = {
+                    "step": thought.content if hasattr(thought, "content") else str(thought),
+                    "status": "completed" if getattr(thought, "completed", True) else "in_progress",
+                    "timestamp": (
+                        thought.timestamp.isoformat()
+                        if hasattr(thought, "timestamp") and thought.timestamp
+                        else datetime.now(timezone.utc).isoformat()
+                    ),
+                    "details": getattr(thought, "details", None),
+                }
+            else:
+                # Fallback for unknown thought format
+                step_data = {
+                    "step": str(thought),
+                    "status": "completed",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "details": None,
+                }
+            steps.append(step_data)
+        return steps
+
     async def process_request(
         self, request: CopilotRequest
     ) -> AsyncIterator[AGUIEvent]:
@@ -45,7 +89,7 @@ class AGUIBridge:
         config: dict[str, Any] = {}
         if request.config:
             config = request.config.configurable
-        
+
         tenant_id = config.get("tenant_id")
         session_id = config.get("session_id")
 
@@ -81,14 +125,14 @@ class AGUIBridge:
                 session_id=session_id,
             )
 
-            # Emit state snapshot with thoughts
+            # Format thoughts into steps for frontend useCoAgentStateRender
+            steps = self._format_thought_steps(result.thoughts)
+
+            # Emit state snapshot with steps (changed from "thoughts" key)
             yield StateSnapshotEvent(
                 state={
                     "currentStep": "completed",
-                    "thoughts": [
-                        {"step": t, "status": "completed"}
-                        for t in result.thoughts
-                    ],
+                    "steps": steps,
                     "retrievalStrategy": result.retrieval_strategy.value,
                     "trajectoryId": str(result.trajectory_id) if result.trajectory_id else None,
                 }
