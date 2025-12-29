@@ -1,0 +1,968 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <story-summary>
+    <title>Story 6-1: CopilotKit React Integration</title>
+    <description>
+      Set up the foundational CopilotKit integration with proper provider configuration.
+      This story establishes the core infrastructure for AI copilot functionality by:
+      1. Creating a CopilotKit Provider wrapper component for the React app
+      2. Setting up a Next.js API route that proxies to the FastAPI backend
+      3. Implementing the backend AG-UI protocol endpoint with SSE streaming
+      4. Creating TypeScript types for CopilotKit payloads
+      5. Updating the root layout to wrap the application with CopilotProvider
+    </description>
+    <business-value>
+      Foundation for all subsequent Epic 6 stories. Enables the frontend to communicate
+      with the AI backend using the AG-UI protocol, which is required for the chat
+      interface, generative UI, HITL validation, and frontend actions.
+    </business-value>
+  </story-summary>
+
+  <acceptance-criteria>
+    <criterion>Given a React/Next.js application exists</criterion>
+    <criterion>When the developer installs @copilotkit/react-core and @copilotkit/react-ui</criterion>
+    <criterion>Then they can wrap their app in a CopilotProvider</criterion>
+    <criterion>And the provider connects to the backend AG-UI endpoint</criterion>
+    <criterion>And the integration requires only environment configuration</criterion>
+    <criterion>And TypeScript types are available for all components</criterion>
+  </acceptance-criteria>
+
+  <technical-approach>
+    <step number="1">
+      <title>Create CopilotKit Provider Wrapper</title>
+      <file>frontend/components/copilot/CopilotProvider.tsx</file>
+      <description>
+        Create a client-side provider component that wraps the application in CopilotKit's context.
+        Must be a "use client" component since CopilotKit uses React context.
+      </description>
+    </step>
+    <step number="2">
+      <title>Create Next.js API Route</title>
+      <file>frontend/app/api/copilotkit/route.ts</file>
+      <description>
+        Create the API route that handles CopilotKit runtime requests and proxies to
+        the FastAPI backend. Use CopilotKit's runtime package for request handling.
+      </description>
+    </step>
+    <step number="3">
+      <title>Create Backend AG-UI Endpoint</title>
+      <file>backend/src/agentic_rag_backend/api/routes/copilot.py</file>
+      <description>
+        Implement the AG-UI protocol endpoint with SSE streaming.
+        Accept CopilotKit-formatted requests and integrate with existing OrchestratorAgent.
+      </description>
+    </step>
+    <step number="4">
+      <title>Create AG-UI Protocol Bridge</title>
+      <file>backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py</file>
+      <description>
+        Implement the protocol handler for AG-UI events.
+        Transform Agno agent responses to AG-UI format.
+      </description>
+    </step>
+    <step number="5">
+      <title>Create TypeScript Types</title>
+      <file>frontend/types/copilot.ts</file>
+      <description>
+        Define comprehensive types for CopilotKit integration including
+        Source, ThoughtStep, AgentState, and FrontendActionResult.
+      </description>
+    </step>
+    <step number="6">
+      <title>Create Backend Pydantic Models</title>
+      <file>backend/src/agentic_rag_backend/models/copilot.py</file>
+      <description>
+        Define Pydantic models for CopilotKit request/response payloads.
+      </description>
+    </step>
+    <step number="7">
+      <title>Update Root Layout</title>
+      <file>frontend/app/layout.tsx</file>
+      <description>
+        Modify the root layout to include the CopilotProvider.
+        Ensure proper client/server component boundaries.
+      </description>
+    </step>
+    <step number="8">
+      <title>Register Backend Router</title>
+      <file>backend/src/agentic_rag_backend/main.py</file>
+      <description>
+        Add the copilot router to the FastAPI application.
+      </description>
+    </step>
+  </technical-approach>
+
+  <files-to-create>
+    <file>
+      <path>frontend/components/copilot/CopilotProvider.tsx</path>
+      <purpose>Root CopilotKit wrapper component for React context</purpose>
+      <skeleton><![CDATA[
+"use client";
+
+import { CopilotKit } from "@copilotkit/react-core";
+import "@copilotkit/react-ui/styles.css";
+import { ReactNode } from "react";
+
+interface CopilotProviderProps {
+  children: ReactNode;
+}
+
+export function CopilotProvider({ children }: CopilotProviderProps) {
+  return (
+    <CopilotKit runtimeUrl="/api/copilotkit">
+      {children}
+    </CopilotKit>
+  );
+}
+]]></skeleton>
+    </file>
+
+    <file>
+      <path>frontend/app/api/copilotkit/route.ts</path>
+      <purpose>Next.js API route for CopilotKit runtime requests</purpose>
+      <skeleton><![CDATA[
+import { NextRequest } from "next/server";
+import {
+  CopilotRuntime,
+  ExperimentalEmptyAdapter,
+  copilotRuntimeNextJSAppRouterEndpoint,
+} from "@copilotkit/runtime";
+
+// Backend URL for AG-UI protocol endpoint
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
+
+const serviceAdapter = new ExperimentalEmptyAdapter();
+
+const runtime = new CopilotRuntime({
+  // Agent configuration will be added here
+  // For now, requests will proxy to the FastAPI backend
+});
+
+export const POST = async (req: NextRequest) => {
+  const { handleRequest } = copilotRuntimeNextJSAppRouterEndpoint({
+    runtime,
+    serviceAdapter,
+    endpoint: "/api/copilotkit",
+  });
+
+  return handleRequest(req);
+};
+]]></skeleton>
+    </file>
+
+    <file>
+      <path>backend/src/agentic_rag_backend/api/routes/copilot.py</path>
+      <purpose>FastAPI AG-UI protocol endpoint with SSE streaming</purpose>
+      <skeleton><![CDATA[
+"""CopilotKit AG-UI protocol endpoint."""
+
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import StreamingResponse
+import structlog
+
+from ...agents.orchestrator import OrchestratorAgent
+from ...models.copilot import CopilotRequest
+from ...protocols.ag_ui_bridge import AGUIBridge
+
+logger = structlog.get_logger(__name__)
+
+router = APIRouter(prefix="/copilot", tags=["copilot"])
+
+
+def get_orchestrator(request: Request) -> OrchestratorAgent:
+    """Get orchestrator from app state."""
+    return request.app.state.orchestrator
+
+
+@router.post("")
+async def copilot_handler(
+    request: CopilotRequest,
+    orchestrator: OrchestratorAgent = Depends(get_orchestrator),
+) -> StreamingResponse:
+    """
+    Handle AG-UI protocol requests from CopilotKit.
+
+    Returns SSE stream with AG-UI events:
+    - text_delta: Streaming text responses
+    - tool_call: Agent tool invocations
+    - state_snapshot: Agent state updates
+    - action_request: Frontend action requests
+    """
+    bridge = AGUIBridge(orchestrator)
+
+    async def event_generator():
+        async for event in bridge.process_request(request):
+            yield f"data: {event.model_dump_json()}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+]]></skeleton>
+    </file>
+
+    <file>
+      <path>backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py</path>
+      <purpose>AG-UI protocol handler for transforming agent responses</purpose>
+      <skeleton><![CDATA[
+"""AG-UI Protocol Bridge for CopilotKit integration."""
+
+from typing import AsyncIterator
+import structlog
+
+from ..agents.orchestrator import OrchestratorAgent
+from ..models.copilot import (
+    AGUIEvent,
+    AGUIEventType,
+    CopilotRequest,
+    TextDeltaEvent,
+    StateSnapshotEvent,
+    RunStartedEvent,
+    RunFinishedEvent,
+)
+
+logger = structlog.get_logger(__name__)
+
+
+class AGUIBridge:
+    """Bridge between Agno agent responses and AG-UI protocol events."""
+
+    def __init__(self, orchestrator: OrchestratorAgent) -> None:
+        self._orchestrator = orchestrator
+
+    async def process_request(
+        self, request: CopilotRequest
+    ) -> AsyncIterator[AGUIEvent]:
+        """
+        Process a CopilotKit request and yield AG-UI events.
+
+        Events emitted:
+        - RUN_STARTED at beginning
+        - TEXT_MESSAGE_START/CONTENT/END for streaming text
+        - STATE_SNAPSHOT for agent state updates
+        - RUN_FINISHED at end
+        """
+        # Extract tenant and session from config
+        config = request.config.configurable if request.config else {}
+        tenant_id = config.get("tenant_id", "default")
+        session_id = config.get("session_id")
+
+        # Get the latest user message
+        user_message = ""
+        for msg in reversed(request.messages):
+            if msg.role == "user":
+                user_message = msg.content
+                break
+
+        if not user_message:
+            yield RunFinishedEvent()
+            return
+
+        # Emit run started
+        yield RunStartedEvent()
+
+        try:
+            # Run the orchestrator
+            result = await self._orchestrator.run(
+                query=user_message,
+                tenant_id=tenant_id,
+                session_id=session_id,
+            )
+
+            # Emit state snapshot with thoughts
+            yield StateSnapshotEvent(
+                state={
+                    "currentStep": "completed",
+                    "thoughts": [
+                        {"step": t, "status": "completed"}
+                        for t in result.thoughts
+                    ],
+                    "retrievalStrategy": result.retrieval_strategy.value,
+                    "trajectoryId": str(result.trajectory_id) if result.trajectory_id else None,
+                }
+            )
+
+            # Stream the answer as text deltas
+            yield TextDeltaEvent(content=result.answer)
+
+        except Exception as e:
+            logger.exception("copilot_request_failed", error=str(e))
+            yield TextDeltaEvent(content=f"Error processing request: {str(e)}")
+
+        # Emit run finished
+        yield RunFinishedEvent()
+]]></skeleton>
+    </file>
+
+    <file>
+      <path>backend/src/agentic_rag_backend/models/copilot.py</path>
+      <purpose>Pydantic models for CopilotKit payloads</purpose>
+      <skeleton><![CDATA[
+"""Pydantic models for CopilotKit AG-UI protocol."""
+
+from enum import Enum
+from typing import Any, Optional
+from pydantic import BaseModel, Field
+
+
+class MessageRole(str, Enum):
+    """Message role in conversation."""
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+
+
+class CopilotMessage(BaseModel):
+    """A message in the CopilotKit conversation."""
+    role: MessageRole
+    content: str
+
+
+class CopilotConfig(BaseModel):
+    """Configuration for CopilotKit request."""
+    configurable: dict[str, Any] = Field(default_factory=dict)
+
+
+class CopilotRequest(BaseModel):
+    """Request payload from CopilotKit."""
+    messages: list[CopilotMessage] = Field(default_factory=list)
+    config: Optional[CopilotConfig] = None
+    actions: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AGUIEventType(str, Enum):
+    """AG-UI event types."""
+    RUN_STARTED = "RUN_STARTED"
+    RUN_FINISHED = "RUN_FINISHED"
+    TEXT_MESSAGE_START = "TEXT_MESSAGE_START"
+    TEXT_MESSAGE_CONTENT = "TEXT_MESSAGE_CONTENT"
+    TEXT_MESSAGE_END = "TEXT_MESSAGE_END"
+    TOOL_CALL_START = "TOOL_CALL_START"
+    TOOL_CALL_ARGS = "TOOL_CALL_ARGS"
+    TOOL_CALL_END = "TOOL_CALL_END"
+    TOOL_CALL_RESULT = "TOOL_CALL_RESULT"
+    STATE_SNAPSHOT = "STATE_SNAPSHOT"
+    ACTION_REQUEST = "ACTION_REQUEST"
+
+
+class AGUIEvent(BaseModel):
+    """Base AG-UI event."""
+    event: AGUIEventType
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class RunStartedEvent(AGUIEvent):
+    """Event emitted when agent run starts."""
+    event: AGUIEventType = AGUIEventType.RUN_STARTED
+
+
+class RunFinishedEvent(AGUIEvent):
+    """Event emitted when agent run finishes."""
+    event: AGUIEventType = AGUIEventType.RUN_FINISHED
+
+
+class TextDeltaEvent(AGUIEvent):
+    """Event for streaming text content."""
+    event: AGUIEventType = AGUIEventType.TEXT_MESSAGE_CONTENT
+
+    def __init__(self, content: str, **kwargs):
+        super().__init__(data={"content": content}, **kwargs)
+
+
+class StateSnapshotEvent(AGUIEvent):
+    """Event for agent state updates."""
+    event: AGUIEventType = AGUIEventType.STATE_SNAPSHOT
+
+    def __init__(self, state: dict[str, Any], **kwargs):
+        super().__init__(data={"state": state}, **kwargs)
+
+
+class ToolCallEvent(AGUIEvent):
+    """Event for tool invocations."""
+    event: AGUIEventType = AGUIEventType.TOOL_CALL_START
+
+    def __init__(self, tool_name: str, args: dict[str, Any], **kwargs):
+        super().__init__(
+            data={"tool_name": tool_name, "args": args},
+            **kwargs
+        )
+
+
+class ActionRequestEvent(AGUIEvent):
+    """Event requesting frontend action."""
+    event: AGUIEventType = AGUIEventType.ACTION_REQUEST
+
+    def __init__(self, action: str, args: dict[str, Any], **kwargs):
+        super().__init__(
+            data={"action": action, "args": args},
+            **kwargs
+        )
+]]></skeleton>
+    </file>
+
+    <file>
+      <path>frontend/types/copilot.ts</path>
+      <purpose>TypeScript types for CopilotKit integration</purpose>
+      <skeleton><![CDATA[
+/**
+ * TypeScript types for CopilotKit integration.
+ * Story 6-1: CopilotKit React Integration
+ */
+
+import { z } from 'zod';
+
+/**
+ * Source retrieved during RAG retrieval.
+ */
+export interface Source {
+  id: string;
+  title: string;
+  preview: string;
+  similarity: number;
+  metadata?: Record<string, unknown>;
+  isApproved?: boolean;
+}
+
+/**
+ * A step in the agent's thought process.
+ */
+export interface ThoughtStep {
+  step: string;
+  status: "pending" | "in_progress" | "completed";
+  timestamp?: string;
+  details?: string;
+}
+
+/**
+ * Current state of the AI agent.
+ */
+export interface AgentState {
+  currentStep: string;
+  thoughts: ThoughtStep[];
+  retrievedSources: Source[];
+  validatedSources: Source[];
+  answer: string | null;
+  trajectoryId: string | null;
+}
+
+/**
+ * Result from a frontend action execution.
+ */
+export interface FrontendActionResult {
+  success: boolean;
+  error?: string;
+  data?: unknown;
+}
+
+/**
+ * Message in the CopilotKit conversation.
+ */
+export interface CopilotMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  createdAt?: string;
+}
+
+/**
+ * AG-UI event types.
+ */
+export type AGUIEventType =
+  | "RUN_STARTED"
+  | "RUN_FINISHED"
+  | "TEXT_MESSAGE_START"
+  | "TEXT_MESSAGE_CONTENT"
+  | "TEXT_MESSAGE_END"
+  | "TOOL_CALL_START"
+  | "TOOL_CALL_ARGS"
+  | "TOOL_CALL_END"
+  | "TOOL_CALL_RESULT"
+  | "STATE_SNAPSHOT"
+  | "ACTION_REQUEST";
+
+/**
+ * AG-UI event payload.
+ */
+export interface AGUIEvent {
+  event: AGUIEventType;
+  data: Record<string, unknown>;
+}
+
+// Zod schemas for validation
+export const SourceSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  preview: z.string(),
+  similarity: z.number().min(0).max(1),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  isApproved: z.boolean().optional(),
+});
+
+export const ThoughtStepSchema = z.object({
+  step: z.string(),
+  status: z.enum(["pending", "in_progress", "completed"]),
+  timestamp: z.string().optional(),
+  details: z.string().optional(),
+});
+
+export const AgentStateSchema = z.object({
+  currentStep: z.string(),
+  thoughts: z.array(ThoughtStepSchema),
+  retrievedSources: z.array(SourceSchema),
+  validatedSources: z.array(SourceSchema),
+  answer: z.string().nullable(),
+  trajectoryId: z.string().nullable(),
+});
+
+export const FrontendActionResultSchema = z.object({
+  success: z.boolean(),
+  error: z.string().optional(),
+  data: z.unknown().optional(),
+});
+]]></skeleton>
+    </file>
+  </files-to-create>
+
+  <files-to-modify>
+    <file>
+      <path>frontend/app/layout.tsx</path>
+      <purpose>Wrap application with CopilotProvider</purpose>
+      <current-content><![CDATA[
+import "./globals.css";
+
+export const metadata = {
+  title: "Ultimate AI RAG",
+  description: "Agentic RAG + GraphRAG with CopilotKit",
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  );
+}
+]]></current-content>
+      <required-change>
+        Import CopilotProvider and wrap children with it.
+        Import CopilotKit styles for proper styling.
+        Mark as client boundary if needed or create a separate Providers component.
+      </required-change>
+      <example-change><![CDATA[
+import "./globals.css";
+import { CopilotProvider } from "../components/copilot/CopilotProvider";
+
+export const metadata = {
+  title: "Ultimate AI RAG",
+  description: "Agentic RAG + GraphRAG with CopilotKit",
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <html lang="en">
+      <body>
+        <CopilotProvider>
+          {children}
+        </CopilotProvider>
+      </body>
+    </html>
+  );
+}
+]]></example-change>
+    </file>
+
+    <file>
+      <path>backend/src/agentic_rag_backend/main.py</path>
+      <purpose>Add copilot router to FastAPI app</purpose>
+      <current-import-section><![CDATA[
+from .api.routes import ingest_router, knowledge_router
+]]></current-import-section>
+      <required-change>
+        Add import for copilot_router and include it in the app.
+      </required-change>
+      <example-import><![CDATA[
+from .api.routes import ingest_router, knowledge_router
+from .api.routes.copilot import router as copilot_router
+]]></example-import>
+      <example-router-registration><![CDATA[
+# In create_app() function, add:
+app.include_router(copilot_router, prefix="/api/v1")  # Epic 6: Copilot
+]]></example-router-registration>
+    </file>
+
+    <file>
+      <path>backend/src/agentic_rag_backend/api/routes/__init__.py</path>
+      <purpose>Export copilot routes</purpose>
+      <current-content><![CDATA[
+"""API route modules."""
+
+from .ingest import router as ingest_router
+from .knowledge import router as knowledge_router
+
+__all__ = ["ingest_router", "knowledge_router"]
+]]></current-content>
+      <required-change>
+        Add copilot_router to exports.
+      </required-change>
+      <example-change><![CDATA[
+"""API route modules."""
+
+from .ingest import router as ingest_router
+from .knowledge import router as knowledge_router
+from .copilot import router as copilot_router
+
+__all__ = ["ingest_router", "knowledge_router", "copilot_router"]
+]]></example-change>
+    </file>
+  </files-to-modify>
+
+  <code-patterns>
+    <pattern name="api-response-format">
+      <description>Standard API response wrapper from project-context.md</description>
+      <example><![CDATA[
+# Success Response
+{
+  "data": { ... },
+  "meta": {
+    "requestId": "uuid",
+    "timestamp": "2025-12-28T10:00:00Z"
+  }
+}
+
+# Error Response (RFC 7807)
+{
+  "type": "https://api.example.com/errors/validation-error",
+  "title": "Validation Error",
+  "status": 400,
+  "detail": "The 'document_id' field is required",
+  "instance": "/api/v1/documents"
+}
+]]></example>
+    </pattern>
+
+    <pattern name="existing-api-client">
+      <description>API client pattern from frontend/lib/api.ts</description>
+      <example><![CDATA[
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+
+async function fetchApi<T>(
+  endpoint: string,
+  options?: RequestInit
+): Promise<ApiResponse<T>> {
+  const url = API_BASE_URL + endpoint;
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options?.headers,
+    },
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(
+      errorData.detail || errorData.title || 'API error: ' + response.status
+    );
+  }
+
+  return response.json();
+}
+]]></example>
+    </pattern>
+
+    <pattern name="zod-validation">
+      <description>Zod schema validation pattern from types/graphs.ts</description>
+      <example><![CDATA[
+import { z } from 'zod';
+
+export const GraphNodeSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  type: z.string(),
+  properties: z.record(z.string(), z.unknown()).nullable().optional(),
+  is_orphan: z.boolean(),
+});
+
+export type GraphNode = z.infer<typeof GraphNodeSchema>;
+]]></example>
+    </pattern>
+
+    <pattern name="fastapi-router">
+      <description>FastAPI router pattern from existing routes</description>
+      <example><![CDATA[
+from fastapi import APIRouter, Depends, Request
+
+router = APIRouter(prefix="/knowledge", tags=["knowledge"])
+
+@router.get("/graph")
+async def get_knowledge_graph(
+    request: Request,
+    tenant_id: str,
+    # ... other params
+):
+    """Get knowledge graph data for visualization."""
+    # Implementation
+]]></example>
+    </pattern>
+
+    <pattern name="trajectory-logging">
+      <description>Agent trajectory logging pattern (MANDATORY)</description>
+      <example><![CDATA[
+# Every agent decision MUST be logged
+agent.log_thought("Analyzing query complexity...")
+agent.log_action("tool_call", {"tool": "graph_query", "params": {...}})
+agent.log_observation("Found 5 relevant entities")
+]]></example>
+    </pattern>
+  </code-patterns>
+
+  <dependencies>
+    <frontend-dependencies>
+      <note>Already installed in package.json</note>
+      <package name="@copilotkit/react-core" version="1.0.0" status="installed" />
+      <package name="@copilotkit/react-ui" version="1.0.0" status="installed" />
+      <package name="@copilotkit/runtime" version="^1.0.0" status="needs-install">
+        Required for Next.js API route runtime
+      </package>
+    </frontend-dependencies>
+
+    <backend-dependencies>
+      <note>No new dependencies required - uses existing FastAPI and SSE</note>
+      <package name="sse-starlette" status="verify-installed">
+        May need to verify this is available for SSE streaming
+      </package>
+    </backend-dependencies>
+
+    <environment-variables>
+      <variable name="NEXT_PUBLIC_COPILOT_ENABLED" value="true" location="frontend/.env.local" />
+      <variable name="NEXT_PUBLIC_API_URL" value="http://localhost:8000/api/v1" location="frontend/.env.local" />
+      <variable name="COPILOT_API_ENABLED" value="true" location="backend/.env" />
+    </environment-variables>
+  </dependencies>
+
+  <copilotkit-reference>
+    <provider-setup>
+      <description>CopilotKit provider wraps the application and provides context</description>
+      <code><![CDATA[
+"use client";
+
+import { CopilotKit } from "@copilotkit/react-core";
+import "@copilotkit/react-ui/styles.css";
+
+export default function RootLayout({ children }: { children: ReactNode }) {
+  return (
+    <CopilotKit runtimeUrl="/api/copilotkit">
+      {children}
+    </CopilotKit>
+  );
+}
+]]></code>
+    </provider-setup>
+
+    <api-route-setup>
+      <description>Next.js API route for CopilotKit runtime</description>
+      <code><![CDATA[
+import { NextRequest } from "next/server";
+import {
+  CopilotRuntime,
+  ExperimentalEmptyAdapter,
+  copilotRuntimeNextJSAppRouterEndpoint,
+} from "@copilotkit/runtime";
+
+const serviceAdapter = new ExperimentalEmptyAdapter();
+
+const runtime = new CopilotRuntime({
+  agents: {
+    // Agent configuration
+  },
+});
+
+export const POST = async (req: NextRequest) => {
+  const { handleRequest } = copilotRuntimeNextJSAppRouterEndpoint({
+    runtime,
+    serviceAdapter,
+    endpoint: "/api/copilotkit",
+  });
+
+  return handleRequest(req);
+};
+]]></code>
+    </api-route-setup>
+
+    <use-copilot-chat>
+      <description>Hook for programmatic chat control</description>
+      <code><![CDATA[
+import { useCopilotChat } from "@copilotkit/react-core";
+import { TextMessage, MessageRole } from "@copilotkit/runtime-client-gql";
+
+const {
+  visibleMessages,
+  appendMessage,
+  reloadMessages,
+  stopGeneration,
+  reset,
+  isLoading,
+} = useCopilotChat();
+
+const handleSendMessage = async (content: string) => {
+  await appendMessage(
+    new TextMessage({
+      role: MessageRole.User,
+      content,
+    })
+  );
+};
+]]></code>
+    </use-copilot-chat>
+
+    <ag-ui-events>
+      <description>AG-UI protocol event types for SSE streaming</description>
+      <events>
+        <event name="RUN_STARTED">Emitted when agent run begins</event>
+        <event name="RUN_FINISHED">Emitted when agent run completes</event>
+        <event name="TEXT_MESSAGE_START">Start of text message</event>
+        <event name="TEXT_MESSAGE_CONTENT">Streaming text content</event>
+        <event name="TEXT_MESSAGE_END">End of text message</event>
+        <event name="TOOL_CALL_START">Agent tool invocation start</event>
+        <event name="TOOL_CALL_ARGS">Tool call arguments</event>
+        <event name="TOOL_CALL_END">Tool call completed</event>
+        <event name="TOOL_CALL_RESULT">Tool execution result</event>
+        <event name="STATE_SNAPSHOT">Agent state updates</event>
+        <event name="ACTION_REQUEST">Request frontend action</event>
+      </events>
+      <sse-format><![CDATA[
+data: {"event": "RUN_STARTED", "data": {}}
+data: {"event": "TEXT_MESSAGE_CONTENT", "data": {"content": "Hello"}}
+data: {"event": "STATE_SNAPSHOT", "data": {"state": {...}}}
+data: {"event": "RUN_FINISHED", "data": {}}
+]]></sse-format>
+    </ag-ui-events>
+  </copilotkit-reference>
+
+  <project-rules>
+    <rule category="naming">
+      <description>TypeScript file naming for components</description>
+      <convention>Components: PascalCase (file and component) - e.g., CopilotProvider.tsx</convention>
+      <convention>Hooks: camelCase with use prefix - e.g., use-copilot-actions.ts</convention>
+      <convention>Types: PascalCase interfaces - e.g., AgentState, Source</convention>
+    </rule>
+
+    <rule category="naming">
+      <description>Python file naming</description>
+      <convention>Files: snake_case.py - e.g., copilot.py, ag_ui_bridge.py</convention>
+      <convention>Classes: PascalCase - e.g., AGUIBridge, CopilotRequest</convention>
+      <convention>Functions: snake_case - e.g., copilot_handler, process_request</convention>
+    </rule>
+
+    <rule category="multi-tenancy">
+      <description>Every database query MUST include tenant_id filtering</description>
+      <implementation>
+        Extract tenant_id from CopilotKit request config.configurable.tenant_id
+        Pass to OrchestratorAgent for all operations.
+      </implementation>
+    </rule>
+
+    <rule category="validation">
+      <description>Use Pydantic (backend) and Zod (frontend) for validation</description>
+    </rule>
+
+    <rule category="client-component">
+      <description>CopilotKit components require "use client" directive</description>
+      <reason>CopilotKit uses React context which only works in client components</reason>
+    </rule>
+
+    <rule category="api-endpoints">
+      <description>API endpoint naming convention</description>
+      <pattern>/api/v1/{resource} - REST, snake_case, plural</pattern>
+      <pattern>/api/copilot/* - CopilotKit AG-UI routes</pattern>
+    </rule>
+  </project-rules>
+
+  <testing-requirements>
+    <unit-tests>
+      <test location="frontend/__tests__/components/copilot/CopilotProvider.test.tsx">
+        CopilotProvider renders without error
+      </test>
+      <test location="frontend/__tests__/types/copilot.test.ts">
+        Types are correctly exported and Zod schemas validate
+      </test>
+      <test location="backend/tests/protocols/test_ag_ui_bridge.py">
+        AG-UI bridge transforms agent responses correctly
+      </test>
+      <test location="backend/tests/api/test_copilot.py">
+        Copilot route handles requests properly
+      </test>
+    </unit-tests>
+
+    <integration-tests>
+      <test location="frontend/__tests__/api/copilotkit.test.ts">
+        API route proxies to backend correctly
+      </test>
+      <test location="backend/tests/api/test_copilot_streaming.py">
+        SSE streaming works correctly
+      </test>
+      <test location="frontend/tests/e2e/copilot-provider.spec.ts">
+        End-to-end provider connection works
+      </test>
+    </integration-tests>
+
+    <manual-verification>
+      <step>Start backend: cd backend and uv run uvicorn agentic_rag_backend.main:app --reload</step>
+      <step>Start frontend: cd frontend and pnpm dev</step>
+      <step>Open browser to http://localhost:3000</step>
+      <step>Verify no console errors related to CopilotKit</step>
+      <step>Open React DevTools and verify CopilotKit context is available</step>
+      <step>Check Network tab for successful connection to /api/copilotkit</step>
+      <step>Send a test message and verify SSE stream responses</step>
+    </manual-verification>
+  </testing-requirements>
+
+  <definition-of-done>
+    <item>All acceptance criteria met</item>
+    <item>CopilotProvider component created and exported</item>
+    <item>Next.js API route created and handling requests</item>
+    <item>Backend copilot endpoint created with SSE streaming</item>
+    <item>AG-UI protocol bridge implemented</item>
+    <item>TypeScript types defined and exported</item>
+    <item>Pydantic models defined for backend</item>
+    <item>Root layout updated with CopilotProvider</item>
+    <item>Unit tests passing (frontend and backend)</item>
+    <item>Integration tests passing</item>
+    <item>Manual verification completed</item>
+    <item>No TypeScript errors in frontend</item>
+    <item>No Python type errors in backend</item>
+    <item>Code follows project naming conventions</item>
+  </definition-of-done>
+
+  <risks-and-mitigations>
+    <risk>
+      <description>CopilotKit API changes between versions</description>
+      <mitigation>Pin versions in package.json, monitor CopilotKit changelog</mitigation>
+    </risk>
+    <risk>
+      <description>SSE streaming issues with proxying</description>
+      <mitigation>Implement fallback error handling, add reconnection logic</mitigation>
+    </risk>
+    <risk>
+      <description>AG-UI protocol misalignment with CopilotKit expectations</description>
+      <mitigation>Follow official spec, test with CopilotKit team patterns</mitigation>
+    </risk>
+    <risk>
+      <description>Backend orchestrator not ready for all event types</description>
+      <mitigation>Create mock SSE responses for frontend development</mitigation>
+    </risk>
+  </risks-and-mitigations>
+</story-context>
