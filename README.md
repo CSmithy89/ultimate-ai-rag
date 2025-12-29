@@ -15,8 +15,12 @@ Edit `.env` and set at least `OPENAI_API_KEY` and database credentials.
 ```bash
 cd backend
 uv sync
+uv run alembic upgrade head
 uv run agentic-rag-backend
 ```
+
+Notes:
+- Rate limiting supports `RATE_LIMIT_BACKEND=redis` for multi-worker deployments; the in-memory limiter is per-process.
 
 ### Frontend
 
@@ -42,3 +46,12 @@ docker compose up -d
   - Frontend scaffold using Next.js App Router + CopilotKit deps
   - Docker Compose dev stack with Postgres/pgvector, Neo4j, Redis
   - Environment configuration via .env validation
+
+### Epic 2: Agentic Query & Reasoning
+- Status: Complete
+- Stories: 4/4 completed
+- Key Features:
+  - Orchestrator agent API with `POST /query`
+  - Multi-step planning with visible plan and thought list
+  - Dynamic retrieval strategy selection (vector/graph/hybrid)
+  - Persistent trajectory logging to Postgres with trajectory IDs
