@@ -157,6 +157,8 @@ async def run_query(
     except ValidationError as exc:
         logger.exception("Validation error")
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except HTTPException:
+        raise
     except psycopg.OperationalError as exc:
         logger.exception("Database unavailable")
         raise HTTPException(

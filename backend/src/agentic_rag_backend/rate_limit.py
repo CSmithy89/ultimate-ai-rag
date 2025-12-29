@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+from threading import Lock
 from time import time
-import asyncio
 
 import redis.asyncio as redis
 
@@ -27,7 +27,7 @@ class InMemoryRateLimiter(RateLimiter):
     window_seconds: int
 
     def __post_init__(self) -> None:
-        self._lock = asyncio.Lock()
+        self._lock = Lock()
         self._requests: dict[str, deque[float]] = {}
         self._last_seen: dict[str, float] = {}
         self._inactive_ttl = self.window_seconds * 2
@@ -35,7 +35,7 @@ class InMemoryRateLimiter(RateLimiter):
     async def allow(self, key: str) -> bool:
         now = time()
         cutoff = now - self.window_seconds
-        async with self._lock:
+        with self._lock:
             self._cleanup(now)
             bucket = self._requests.setdefault(key, deque())
             while bucket and bucket[0] < cutoff:
