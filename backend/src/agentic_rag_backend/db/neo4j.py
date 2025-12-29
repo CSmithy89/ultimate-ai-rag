@@ -623,11 +623,13 @@ class Neo4jClient:
         """
         if not terms:
             return []
-        safe_terms = [
-            term.lower()
-            for term in terms
-            if term and TERM_SAFE_PATTERN.fullmatch(term.lower())
-        ]
+        safe_terms: list[str] = []
+        for term in terms:
+            if not term:
+                continue
+            normalized = term.lower()
+            if TERM_SAFE_PATTERN.fullmatch(normalized):
+                safe_terms.append(normalized)
         if not safe_terms:
             return []
         try:

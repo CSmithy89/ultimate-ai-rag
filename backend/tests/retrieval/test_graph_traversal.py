@@ -57,3 +57,22 @@ async def test_graph_traversal_builds_result() -> None:
     assert len(result.edges) == 1
     assert result.edges[0].type == "USES"
     assert result.paths[0].node_ids == ["n1", "n2"]
+
+
+@pytest.mark.asyncio
+async def test_graph_traversal_skips_invalid_nodes() -> None:
+    neo4j = MagicMock()
+    neo4j.search_entities_by_terms = AsyncMock(return_value=[])
+    node1 = {"id": "n1", "name": "Alpha", "type": "Concept"}
+    node2 = {"id": "n2", "name": "Beta", "type": "Technology"}
+    path = FakePath(
+        nodes=[object(), node1, node2],
+        relationships=[FakeRel(type="USES", start_node=node1, end_node=node2)],
+    )
+    neo4j.traverse_paths = AsyncMock(return_value=[path])
+
+    service = GraphTraversalService(neo4j=neo4j)
+    result = await service.traverse("Show Alpha relationships", "tenant-1")
+
+    assert len(result.nodes) == 2
+    assert len(result.edges) == 1

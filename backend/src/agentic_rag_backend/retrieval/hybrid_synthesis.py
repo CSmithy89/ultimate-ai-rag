@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from .constants import MAX_GRAPH_PATHS, MAX_VECTOR_HITS
 from .types import GraphTraversalResult, VectorHit
-
-MAX_VECTOR_HITS = 6  # Keep evidence concise for prompt length.
-MAX_GRAPH_PATHS = 5  # Limit explainability to top paths.
 
 
 def rank_vector_hits(vector_hits: Iterable[VectorHit]) -> list[VectorHit]:

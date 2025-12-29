@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Iterable
 
@@ -7,6 +8,15 @@ import structlog
 
 from agentic_rag_backend.db.neo4j import Neo4jClient
 
+from .cache import TTLCache
+from .constants import (
+    DEFAULT_ENTITY_LIMIT,
+    DEFAULT_MAX_HOPS,
+    DEFAULT_PATH_LIMIT,
+    DEFAULT_RETRIEVAL_CACHE_SIZE,
+    DEFAULT_RETRIEVAL_CACHE_TTL_SECONDS,
+    DEFAULT_RETRIEVAL_TIMEOUT_SECONDS,
+)
 from .types import GraphEdge, GraphNode, GraphPath, GraphTraversalResult
 
 logger = structlog.get_logger(__name__)
@@ -47,11 +57,6 @@ STOPWORDS = {
 }
 
 
-DEFAULT_MAX_HOPS = 2  # Balanced for speed and explainability in MVP.
-DEFAULT_PATH_LIMIT = 10  # Bounded result size for API responses.
-DEFAULT_ENTITY_LIMIT = 12  # Seed entity cap for traversal.
-
-
 def extract_terms(query: str, max_terms: int = 6) -> list[str]:
     """Extract sanitized query terms for seeding traversal."""
     tokens = (token.lower() for token in TERM_PATTERN.findall(query))
@@ -70,28 +75,59 @@ class GraphTraversalService:
         path_limit: int = DEFAULT_PATH_LIMIT,
         entity_limit: int = DEFAULT_ENTITY_LIMIT,
         allowed_relationships: Iterable[str] | None = None,
+        timeout_seconds: float = DEFAULT_RETRIEVAL_TIMEOUT_SECONDS,
+        cache_ttl_seconds: float = DEFAULT_RETRIEVAL_CACHE_TTL_SECONDS,
+        cache_size: int = DEFAULT_RETRIEVAL_CACHE_SIZE,
     ) -> None:
         self.neo4j = neo4j
         self.max_hops = max_hops
         self.path_limit = path_limit
         self.entity_limit = entity_limit
         self.allowed_relationships = list(allowed_relationships) if allowed_relationships else None
+        self.timeout_seconds = timeout_seconds
+        self._cache = (
+            TTLCache[GraphTraversalResult](
+                max_size=cache_size, ttl_seconds=cache_ttl_seconds
+            )
+            if cache_ttl_seconds > 0
+            else None
+        )
 
     async def traverse(self, query: str, tenant_id: str) -> GraphTraversalResult:
         """Traverse graph relationships for a query."""
+        cache_key = (
+            tenant_id,
+            query,
+            self.max_hops,
+            self.path_limit,
+            self.entity_limit,
+            tuple(self.allowed_relationships or []),
+        )
+        if self._cache:
+            cached_result = self._cache.get(cache_key)
+            if cached_result is not None:
+                logger.debug("graph_traversal_cache_hit", tenant_id=tenant_id)
+                return cached_result
+
         terms = extract_terms(query)
-        entities = await self.neo4j.search_entities_by_terms(
-            tenant_id=tenant_id,
-            terms=terms,
-            limit=self.entity_limit,
+        entities = await self._await_with_timeout(
+            self.neo4j.search_entities_by_terms(
+                tenant_id=tenant_id,
+                terms=terms,
+                limit=self.entity_limit,
+            ),
+            "graph_traversal_search_timeout",
         )
         start_ids = [str(entity["id"]) for entity in entities if entity.get("id")]
-        paths = await self.neo4j.traverse_paths(
-            tenant_id=tenant_id,
-            start_entity_ids=start_ids,
-            max_hops=self.max_hops,
-            limit=self.path_limit,
-            allowed_relationships=self.allowed_relationships,
+        paths = await self._await_with_timeout(
+            self.neo4j.traverse_paths(
+                tenant_id=tenant_id,
+                start_entity_ids=start_ids,
+                max_hops=self.max_hops,
+                limit=self.path_limit,
+                allowed_relationships=self.allowed_relationships,
+            ),
+            "graph_traversal_paths_timeout",
         )
         result = self._build_result(entities, paths)
         logger.info(
@@ -102,6 +138,8 @@ class GraphTraversalService:
             edges=len(result.edges),
             paths=len(result.paths),
         )
+        if self._cache:
+            self._cache.set(cache_key, result)
         return result
 
     def _build_result(self, entities: list[dict], paths: list) -> GraphTraversalResult:
@@ -130,7 +168,10 @@ class GraphTraversalService:
                 try:
                     props = dict(node)
                 except (TypeError, ValueError):
-                    logger.warning("graph_path_node_unexpected_type", node_type=type(node))
+                    logger.warning(
+                        "graph_traversal_node_coercion_failed",
+                        node_type=type(node),
+                    )
                     continue
                 node_id = str(props.get("id", ""))
                 if not node_id:
@@ -188,3 +229,12 @@ class GraphTraversalService:
             edges=list(edges_by_key.values()),
             paths=path_results,
         )
+
+    async def _await_with_timeout(self, awaitable, event: str):
+        if self.timeout_seconds <= 0:
+            return await awaitable
+        try:
+            return await asyncio.wait_for(awaitable, timeout=self.timeout_seconds)
+        except asyncio.TimeoutError as exc:
+            logger.warning(event, error=str(exc))
+            raise

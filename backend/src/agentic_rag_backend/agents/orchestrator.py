@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import asyncio
+import math
 import logging
 import re
 from typing import Any, TYPE_CHECKING
@@ -259,6 +260,7 @@ class OrchestratorAgent:
         )
 
     def _build_vector_citations(self, vector_hits: list[VectorHit]) -> list[VectorCitation]:
+        """Build vector citations for API responses."""
         citations: list[VectorCitation] = []
         for hit in vector_hits:
             source = None
@@ -274,11 +276,19 @@ class OrchestratorAgent:
             preview = hit.content.replace("\n", " ").strip()
             if len(preview) > 240:
                 preview = preview[:240].rstrip() + "..."
+            similarity = hit.similarity
+            if not math.isfinite(similarity) or similarity < 0 or similarity > 1:
+                logger.warning(
+                    "vector_similarity_out_of_range",
+                    chunk_id=hit.chunk_id,
+                    similarity=similarity,
+                )
+                similarity = min(max(similarity, 0.0), 1.0) if math.isfinite(similarity) else 0.0
             citations.append(
                 VectorCitation(
                     chunk_id=hit.chunk_id,
                     document_id=hit.document_id,
-                    similarity=hit.similarity,
+                    similarity=similarity,
                     source=source,
                     content_preview=preview,
                     metadata=metadata or None,
@@ -345,6 +355,7 @@ class OrchestratorAgent:
         self,
         graph_result: GraphTraversalResult | None,
     ) -> GraphEvidence | None:
+        """Build graph evidence payload for API responses."""
         if not graph_result:
             return None
         nodes = [
@@ -367,10 +378,19 @@ class OrchestratorAgent:
             )
             for edge in graph_result.edges
         ]
-        paths = [
-            GraphPathEvidence(node_ids=path.node_ids, edge_types=path.edge_types)
-            for path in graph_result.paths
-        ]
+        paths: list[GraphPathEvidence] = []
+        for path in graph_result.paths:
+            expected_edges = max(len(path.node_ids) - 1, 0)
+            if len(path.edge_types) != expected_edges:
+                logger.warning(
+                    "graph_path_edge_mismatch node_count=%s edge_count=%s",
+                    len(path.node_ids),
+                    len(path.edge_types),
+                )
+                continue
+            paths.append(
+                GraphPathEvidence(node_ids=path.node_ids, edge_types=path.edge_types)
+            )
         explanation = self._build_graph_explanation(graph_result)
         if explanation is None:
             explanation = "No traversal paths found for the current query."
@@ -387,20 +407,17 @@ class OrchestratorAgent:
         name_map = {node.id: node.name or node.id for node in graph_result.nodes}
         explanations = []
         for path in graph_result.paths:
+            if len(path.edge_types) != max(len(path.node_ids) - 1, 0):
+                logger.warning(
+                    "graph_path_edge_mismatch node_count=%s edge_count=%s",
+                    len(path.node_ids),
+                    len(path.edge_types),
+                )
+                continue
             segments = []
             for idx, node_id in enumerate(path.node_ids[:-1]):
                 next_id = path.node_ids[idx + 1]
-                if idx >= len(path.edge_types):
-                    logger.warning(
-                        "graph_path_edge_mismatch node_count=%s edge_count=%s",
-                        len(path.node_ids),
-                        len(path.edge_types),
-                    )
-                edge_type = (
-                    path.edge_types[idx]
-                    if idx < len(path.edge_types)
-                    else "RELATED_TO"
-                )
+                edge_type = path.edge_types[idx]
                 segments.append(
                     f"{name_map.get(node_id, node_id)} -[{edge_type}]-> {name_map.get(next_id, next_id)}"
                 )
