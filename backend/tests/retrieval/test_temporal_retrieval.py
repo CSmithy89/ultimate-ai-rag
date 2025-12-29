@@ -1,4 +1,5 @@
 """Tests for temporal query capabilities using Graphiti."""
+from agentic_rag_backend.core.errors import Neo4jError
 
 import pytest
 from datetime import datetime, timezone
@@ -99,7 +100,7 @@ class TestTemporalSearch:
         disconnected_client = MagicMock()
         disconnected_client.is_connected = False
 
-        with pytest.raises(RuntimeError, match="not connected"):
+        with pytest.raises(Neo4jError, match="not connected"):
             await temporal_search(
                 graphiti_client=disconnected_client,
                 query="test query",
@@ -183,7 +184,7 @@ class TestGetChanges:
         disconnected_client = MagicMock()
         disconnected_client.is_connected = False
 
-        with pytest.raises(RuntimeError, match="not connected"):
+        with pytest.raises(Neo4jError, match="not connected"):
             await get_knowledge_changes(
                 graphiti_client=disconnected_client,
                 tenant_id="test-tenant",

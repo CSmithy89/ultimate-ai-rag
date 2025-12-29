@@ -57,6 +57,9 @@ class TestGraphitiEndToEndFlow:
             edge_references=["edge-1"],
             created_at=datetime.now(timezone.utc),
         )
+        # Explicitly set group_id to None to skip tenant validation in tests
+        # (MagicMock auto-creates attributes as MagicMock objects otherwise)
+        mock_episode.group_id = None
         client.client.add_episode = AsyncMock(return_value=mock_episode)
         
         # Mock search for retrieval

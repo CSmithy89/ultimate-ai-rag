@@ -5,8 +5,8 @@ from typing import Any, Optional
 from uuid import UUID, uuid4
 
 import structlog
-from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field, field_validator
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -21,6 +21,7 @@ from agentic_rag_backend.models.graphs import (
     GraphStats,
 )
 from agentic_rag_backend.retrieval.temporal_retrieval import (
+    EntityTypeFilterNotImplemented,
     get_knowledge_changes,
     temporal_search,
 )
@@ -329,7 +330,7 @@ class KnowledgeChangesResponse(BaseModel):
 class TemporalQueryRequest(BaseModel):
     """Request body for temporal knowledge query."""
 
-    query: str = Field(..., description="Search query")
+    query: str = Field(..., min_length=1, description="Search query (non-empty)")
     tenant_id: UUID = Field(..., description="Tenant identifier")
     as_of_date: Optional[datetime] = Field(
         None, description="Point-in-time for historical query (ISO 8601)"
@@ -340,6 +341,25 @@ class TemporalQueryRequest(BaseModel):
         le=MAX_SEARCH_RESULTS,
         description="Max results to return",
     )
+
+    @field_validator("query")
+    @classmethod
+    def query_not_empty(cls, v: str) -> str:
+        """Validate query is not just whitespace."""
+        if not v.strip():
+            raise ValueError("Query cannot be empty or whitespace only")
+        return v.strip()
+
+    @field_validator("as_of_date")
+    @classmethod
+    def as_of_date_not_future(cls, v: Optional[datetime]) -> Optional[datetime]:
+        """Validate as_of_date is not in the future."""
+        if v is not None:
+            now = datetime.now(timezone.utc)
+            # Allow some tolerance for clock skew (5 minutes)
+            if v > now.replace(minute=now.minute + 5 if now.minute < 55 else 59):
+                raise ValueError("as_of_date cannot be in the future")
+        return v
 
 
 @router.post(
@@ -369,7 +389,6 @@ async def post_temporal_query(
     """
     logger.info(
         "temporal_query_requested",
-        query=body.query[:100],
         tenant_id=str(body.tenant_id),
         as_of_date=body.as_of_date.isoformat() if body.as_of_date else None,
     )
@@ -415,7 +434,6 @@ async def post_temporal_query(
     except Exception as e:
         logger.error(
             "temporal_query_failed",
-            query=body.query[:100],
             tenant_id=str(body.tenant_id),
             error=str(e),
         )
@@ -434,7 +452,10 @@ async def get_changes(
     tenant_id: UUID = Query(..., description="Tenant identifier (required)"),
     start_date: datetime = Query(..., description="Start of date range (ISO 8601)"),
     end_date: datetime = Query(..., description="End of date range (ISO 8601)"),
-    entity_type: Optional[str] = Query(None, description="Filter by entity type"),
+    entity_type: Optional[str] = Query(
+        None, 
+        description="Filter by entity type (NOT IMPLEMENTED - returns 501)"
+    ),
     graphiti: GraphitiClient = Depends(get_connected_graphiti),
 ) -> dict[str, Any]:
     """
@@ -445,13 +466,24 @@ async def get_changes(
     Args:
         tenant_id: Tenant identifier
         start_date: Start of time period
-        end_date: End of time period
-        entity_type: Optional filter by entity type
+        end_date: End of time period (must be after start_date)
+        entity_type: Optional filter by entity type (NOT IMPLEMENTED)
         graphiti: Graphiti client dependency
 
     Returns:
         Success response with change timeline
+
+    Raises:
+        HTTPException 400: If end_date <= start_date
+        HTTPException 501: If entity_type filter is requested
     """
+    # Validate date range
+    if end_date <= start_date:
+        raise HTTPException(
+            status_code=400,
+            detail="end_date must be after start_date",
+        )
+
     logger.info(
         "get_changes_requested",
         tenant_id=str(tenant_id),
@@ -488,6 +520,12 @@ async def get_changes(
 
         return success_response(response.model_dump())
 
+    except EntityTypeFilterNotImplemented as e:
+        # Return 501 Not Implemented for entity_type filter
+        raise HTTPException(
+            status_code=501,
+            detail=str(e),
+        )
     except Exception as e:
         logger.error(
             "get_changes_failed",

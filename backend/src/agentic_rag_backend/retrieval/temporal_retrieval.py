@@ -3,17 +3,27 @@
 Provides point-in-time queries and change tracking for knowledge graph data.
 """
 
+import hashlib
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional, Any
-from ..config import DEFAULT_SEARCH_RESULTS
 
 import structlog
 
+from ..config import DEFAULT_SEARCH_RESULTS
+from ..core.errors import Neo4jError
 from ..db.graphiti import GraphitiClient
 
 logger = structlog.get_logger(__name__)
+
+
+def _redact_query(query: str, max_length: int = 50) -> str:
+    """Redact query for logging - show prefix and hash for traceability."""
+    if len(query) <= max_length:
+        return f"{query[:20]}..." if len(query) > 20 else query
+    query_hash = hashlib.sha256(query.encode()).hexdigest()[:8]
+    return f"{query[:20]}...[hash:{query_hash}]"
 
 
 @dataclass
@@ -98,6 +108,11 @@ class KnowledgeChangesResult:
     processing_time_ms: int
 
 
+class EntityTypeFilterNotImplemented(Exception):
+    """Raised when entity_type filter is requested but not implemented."""
+    pass
+
+
 async def temporal_search(
     graphiti_client: GraphitiClient,
     query: str,
@@ -124,20 +139,20 @@ async def temporal_search(
         TemporalSearchResult with nodes, edges, and temporal context
 
     Raises:
-        RuntimeError: If Graphiti client is not connected
+        Neo4jError: If Graphiti client is not connected
     """
     start_time = time.perf_counter()
 
     # Validate client connection
     if not graphiti_client.is_connected:
-        raise RuntimeError("Graphiti client is not connected")
+        raise Neo4jError("temporal_search", "Graphiti client is not connected")
 
     # Default to current time if no as_of_date specified
     effective_date = as_of_date or datetime.now(timezone.utc)
 
     logger.info(
         "temporal_search_started",
-        query=query[:100],
+        query_ref=_redact_query(query),
         tenant_id=tenant_id,
         as_of_date=effective_date.isoformat(),
     )
@@ -192,7 +207,7 @@ async def temporal_search(
 
         logger.info(
             "temporal_search_completed",
-            query=query[:100],
+            query_ref=_redact_query(query),
             as_of_date=effective_date.isoformat(),
             nodes_found=len(nodes),
             edges_found=len(edges),
@@ -204,7 +219,7 @@ async def temporal_search(
     except Exception as e:
         logger.error(
             "temporal_search_failed",
-            query=query[:100],
+            query_ref=_redact_query(query),
             error=str(e),
         )
         raise
@@ -222,27 +237,36 @@ async def get_knowledge_changes(
 
     This function:
     1. Retrieves episodes (document ingestions) in the date range
-    2. Aggregates changes by entities and edges added
-    3. Returns timeline of knowledge evolution
+    2. Validates tenant isolation for each episode
+    3. Aggregates changes by entities and edges added
+    4. Returns timeline of knowledge evolution
 
     Args:
         graphiti_client: Connected GraphitiClient instance
         tenant_id: Tenant ID for multi-tenancy
         start_date: Start of time period
         end_date: End of time period
-        entity_type: Optional filter by entity type
+        entity_type: Optional filter by entity type (NOT IMPLEMENTED)
 
     Returns:
         KnowledgeChangesResult with change timeline and aggregates
 
     Raises:
-        RuntimeError: If Graphiti client is not connected
+        Neo4jError: If Graphiti client is not connected
+        EntityTypeFilterNotImplemented: If entity_type filter is requested
     """
     start_time = time.perf_counter()
 
     # Validate client connection
     if not graphiti_client.is_connected:
-        raise RuntimeError("Graphiti client is not connected")
+        raise Neo4jError("get_knowledge_changes", "Graphiti client is not connected")
+
+    # Reject entity_type filter - not implemented
+    if entity_type:
+        raise EntityTypeFilterNotImplemented(
+            f"entity_type filter '{entity_type}' is not yet implemented. "
+            "Remove this parameter or wait for feature implementation."
+        )
 
     logger.info(
         "get_knowledge_changes_started",
@@ -250,15 +274,6 @@ async def get_knowledge_changes(
         start_date=start_date.isoformat(),
         end_date=end_date.isoformat(),
     )
-    
-    # Note: entity_type filtering is not yet implemented
-    # Would require fetching entity details for each reference
-    if entity_type:
-        logger.warning(
-            "entity_type_filter_not_implemented",
-            entity_type=entity_type,
-            message="entity_type filtering is not yet supported - returning all episodes",
-        )
 
     try:
         # Get episodes for the tenant in the date range
@@ -266,12 +281,25 @@ async def get_knowledge_changes(
             group_ids=[tenant_id],
         )
 
-        # Filter and transform episodes
+        # Filter and transform episodes with tenant validation
         episodes = []
         total_entities = 0
         total_edges = 0
+        skipped_tenant_mismatch = 0
 
         for ep in episodes_raw:
+            # Validate tenant isolation - verify episode belongs to tenant
+            ep_group_id = getattr(ep, "group_id", None)
+            if ep_group_id and ep_group_id != tenant_id:
+                skipped_tenant_mismatch += 1
+                logger.warning(
+                    "episode_tenant_mismatch",
+                    episode_uuid=str(getattr(ep, "uuid", "")),
+                    expected_tenant=tenant_id,
+                    actual_tenant=ep_group_id,
+                )
+                continue
+
             created_at = getattr(ep, "created_at", None)
             
             # Filter by date range
@@ -295,6 +323,14 @@ async def get_knowledge_changes(
             episodes.append(episode_change)
             total_entities += entities_added
             total_edges += edges_added
+
+        # Log if any tenant mismatches were found (potential security issue)
+        if skipped_tenant_mismatch > 0:
+            logger.error(
+                "tenant_isolation_violation_detected",
+                tenant_id=tenant_id,
+                episodes_skipped=skipped_tenant_mismatch,
+            )
 
         # Sort by created_at
         episodes.sort(key=lambda e: e.created_at)
@@ -322,6 +358,8 @@ async def get_knowledge_changes(
 
         return result
 
+    except EntityTypeFilterNotImplemented:
+        raise
     except Exception as e:
         logger.error(
             "get_knowledge_changes_failed",

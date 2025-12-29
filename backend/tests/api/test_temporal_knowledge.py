@@ -47,15 +47,17 @@ class TestTemporalSearchUnit:
         ]
         
         client.client.search = AsyncMock(return_value=search_result)
-        client.client.get_episodes_by_group_ids = AsyncMock(return_value=[
-            MagicMock(
-                uuid="ep-1",
-                name="Document 1",
-                created_at=datetime(2024, 6, 15, tzinfo=timezone.utc),
-                entity_references=["node-1"],
-                edge_references=["edge-1"],
-            ),
-        ])
+        mock_episode = MagicMock(
+            uuid="ep-1",
+            name="Document 1",
+            created_at=datetime(2024, 6, 15, tzinfo=timezone.utc),
+            entity_references=["node-1"],
+            edge_references=["edge-1"],
+        )
+        # Explicitly set group_id to None to skip tenant validation in tests
+        # (MagicMock auto-creates attributes as MagicMock objects otherwise)
+        mock_episode.group_id = None
+        client.client.get_episodes_by_group_ids = AsyncMock(return_value=[mock_episode])
         client.is_connected = True
         return client
 
