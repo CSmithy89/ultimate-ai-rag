@@ -41,6 +41,9 @@ class Settings:
     chunk_size: int
     chunk_overlap: int
     entity_similarity_threshold: float
+    # Epic 5 - Graphiti settings
+    graphiti_embedding_model: str
+    graphiti_llm_model: str
 
 
 def load_settings() -> Settings:
@@ -157,6 +160,9 @@ def load_settings() -> Settings:
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         entity_similarity_threshold=entity_similarity_threshold,
+        # Epic 5 - Graphiti settings
+        graphiti_embedding_model=os.getenv("GRAPHITI_EMBEDDING_MODEL", "text-embedding-3-small"),
+        graphiti_llm_model=os.getenv("GRAPHITI_LLM_MODEL", "gpt-4o-mini"),
     )
 
 
