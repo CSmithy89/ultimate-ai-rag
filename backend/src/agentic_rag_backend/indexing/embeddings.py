@@ -1,4 +1,12 @@
 """OpenAI embedding generation with batch processing and retry logic."""
+import warnings
+warnings.warn(
+    "The embeddings module is deprecated and will be removed in a future version. "
+    "Use graphiti_ingestion.ingest_document_as_episode() which handles embeddings automatically.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
 
 from typing import Optional
 
