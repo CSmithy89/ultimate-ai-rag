@@ -289,11 +289,14 @@ class OrchestratorAgent:
             GraphPathEvidence(node_ids=path.node_ids, edge_types=path.edge_types)
             for path in graph_result.paths
         ]
+        explanation = self._build_graph_explanation(graph_result)
+        if explanation is None:
+            explanation = "No traversal paths found for the current query."
         return GraphEvidence(
             nodes=nodes,
             edges=edges,
             paths=paths,
-            explanation=self._build_graph_explanation(graph_result),
+            explanation=explanation,
         )
 
     def _build_graph_explanation(self, graph_result: GraphTraversalResult) -> str | None:
