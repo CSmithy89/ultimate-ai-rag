@@ -55,3 +55,12 @@ docker compose up -d
   - Multi-step planning with visible plan and thought list
   - Dynamic retrieval strategy selection (vector/graph/hybrid)
   - Persistent trajectory logging to Postgres with trajectory IDs
+
+### Epic 3: Hybrid Knowledge Retrieval
+- Status: Complete
+- Stories: 4/4 completed
+- Key Features:
+  - Vector semantic search over pgvector embeddings
+  - Neo4j relationship traversal with tenant-scoped queries
+  - Hybrid answer synthesis combining vector + graph evidence
+  - Graph explainability artifacts (nodes, edges, paths, explanations)
