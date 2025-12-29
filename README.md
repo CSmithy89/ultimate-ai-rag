@@ -64,3 +64,12 @@ docker compose up -d
   - Neo4j relationship traversal with tenant-scoped queries
   - Hybrid answer synthesis combining vector + graph evidence
   - Graph explainability artifacts (nodes, edges, paths, explanations)
+
+### Epic 4: Knowledge Ingestion Pipeline
+- Status: Complete
+- Stories: 4/4 completed
+- Key Features:
+  - URL documentation crawling via Crawl4AI
+  - PDF parsing with Docling for structured ingestion
+  - Agentic entity extraction and graph construction
+  - Knowledge graph visualization in the UI

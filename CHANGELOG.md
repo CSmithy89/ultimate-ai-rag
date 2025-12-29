@@ -1,5 +1,19 @@
 # Changelog
 
+## [Epic 4] - Knowledge Ingestion Pipeline - 2025-12-29
+
+### Added
+- URL documentation crawling with Crawl4AI
+- PDF parsing via Docling with structured extraction
+- Agentic entity extraction and graph construction pipeline
+- Knowledge graph visualization UI
+
+### Changed
+- None
+
+### Fixed
+- None
+
 ## [Epic 3] - Hybrid Knowledge Retrieval - 2025-12-29
 
 ### Added
