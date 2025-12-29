@@ -53,6 +53,7 @@ dev-dependencies = [
   "ruff>=0.5.6",
   "mypy>=1.10.0",
   "sqlalchemy==2.0.36",
+  "pytest-cov>=7.0.0",
 ]
 
 [tool.pytest.ini_options]

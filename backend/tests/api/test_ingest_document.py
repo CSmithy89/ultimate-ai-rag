@@ -9,7 +9,6 @@ Tests cover:
 - Response format validation
 """
 
-from io import BytesIO
 from unittest.mock import AsyncMock, patch, MagicMock
 from uuid import uuid4
 

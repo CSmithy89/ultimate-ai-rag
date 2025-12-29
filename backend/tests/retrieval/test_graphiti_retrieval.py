@@ -1,11 +1,8 @@
 """Tests for Graphiti-based hybrid retrieval integration."""
 
 import pytest
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
 
-from agentic_rag_backend.retrieval_router import RetrievalStrategy
 
 
 def _make_mock_node(uuid: str, name: str, summary: str, labels: list):
@@ -281,3 +278,119 @@ class TestHybridRetrieval:
                 legacy_retriever=None,
                 retrieval_backend="graphiti",
             )
+
+
+class TestGraphitiSearchExceptionHandling:
+    """Tests for exception handling in graphiti_search."""
+
+    @pytest.mark.asyncio
+    async def test_search_exception_is_logged_and_reraised(self):
+        """Should log error and re-raise when search fails."""
+        from agentic_rag_backend.retrieval.graphiti_retrieval import graphiti_search
+
+        failing_client = MagicMock()
+        failing_client.client = MagicMock()
+        failing_client.client.search = AsyncMock(side_effect=ValueError("Search failed"))
+        failing_client.is_connected = True
+
+        with pytest.raises(ValueError, match="Search failed"):
+            await graphiti_search(
+                graphiti_client=failing_client,
+                query="test query",
+                tenant_id="test-tenant",
+            )
+
+
+class TestLegacyBackendRouting:
+    """Tests for legacy backend routing path."""
+
+    @pytest.fixture
+    def mock_legacy_retriever(self):
+        """Create a mock legacy retriever."""
+        retriever = MagicMock()
+        retriever.search = AsyncMock(return_value={
+            "nodes": [
+                {"id": "legacy-node-1", "name": "Legacy Node", "summary": "A legacy node", "labels": ["Entity"]},
+            ],
+            "edges": [
+                {"id": "legacy-edge-1", "source": "legacy-node-1", "target": "legacy-node-2", "type": "RELATED", "fact": "Related fact"},
+            ],
+        })
+        return retriever
+
+    @pytest.mark.asyncio
+    async def test_search_with_backend_routing_legacy_path(self, mock_legacy_retriever):
+        """Should route to legacy retriever when backend is legacy."""
+        from agentic_rag_backend.retrieval.graphiti_retrieval import (
+            search_with_backend_routing,
+        )
+
+        result = await search_with_backend_routing(
+            query="test query",
+            tenant_id="test-tenant",
+            graphiti_client=None,
+            legacy_retriever=mock_legacy_retriever,
+            retrieval_backend="legacy",
+        )
+
+        assert result is not None
+        assert len(result.nodes) == 1
+        assert result.nodes[0].name == "Legacy Node"
+        assert len(result.edges) == 1
+        assert result.edges[0].name == "RELATED"
+        mock_legacy_retriever.search.assert_called_once_with(
+            query="test query",
+            tenant_id="test-tenant",
+            limit=5,
+        )
+
+    @pytest.mark.asyncio
+    async def test_search_with_backend_routing_legacy_not_available(self):
+        """Should raise error when legacy selected but not available."""
+        from agentic_rag_backend.retrieval.graphiti_retrieval import (
+            search_with_backend_routing,
+        )
+
+        with pytest.raises(RuntimeError, match="Legacy retriever not available"):
+            await search_with_backend_routing(
+                query="test query",
+                tenant_id="test-tenant",
+                graphiti_client=None,
+                legacy_retriever=None,
+                retrieval_backend="legacy",
+            )
+
+    @pytest.mark.asyncio
+    async def test_legacy_result_conversion(self, mock_legacy_retriever):
+        """Should correctly convert legacy result to GraphitiSearchResult."""
+        from agentic_rag_backend.retrieval.graphiti_retrieval import (
+            search_with_backend_routing,
+        )
+
+        result = await search_with_backend_routing(
+            query="test query",
+            tenant_id="test-tenant",
+            graphiti_client=None,
+            legacy_retriever=mock_legacy_retriever,
+            retrieval_backend="legacy",
+        )
+
+        # Verify structure
+        assert result.query == "test query"
+        assert result.tenant_id == "test-tenant"
+        assert result.processing_time_ms >= 0
+        
+        # Verify node conversion
+        node = result.nodes[0]
+        assert node.uuid == "legacy-node-1"
+        assert node.name == "Legacy Node"
+        assert node.summary == "A legacy node"
+        assert node.labels == ["Entity"]
+        
+        # Verify edge conversion
+        edge = result.edges[0]
+        assert edge.uuid == "legacy-edge-1"
+        assert edge.source_node_uuid == "legacy-node-1"
+        assert edge.target_node_uuid == "legacy-node-2"
+        assert edge.name == "RELATED"
+        assert edge.fact == "Related fact"

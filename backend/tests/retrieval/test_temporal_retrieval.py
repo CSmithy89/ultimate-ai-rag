@@ -1,9 +1,8 @@
 """Tests for temporal query capabilities using Graphiti."""
 
 import pytest
-from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock
 
 
 def _make_mock_node(uuid: str, name: str, summary: str, labels: list):
@@ -267,3 +266,137 @@ class TestKnowledgeChangesResult:
         assert len(result.episodes) == 1
         assert result.total_entities_added == 5
         assert result.total_edges_added == 3
+
+
+class TestTemporalEdgeFiltering:
+    """Tests for temporal edge filtering based on valid_at/invalid_at."""
+
+    @pytest.fixture
+    def mock_graphiti_client_with_temporal_edges(self):
+        """Create a mock GraphitiClient with temporal edge data."""
+        client = MagicMock()
+        client.client = MagicMock()
+        
+        # Create edges with different temporal validity
+        # Temporal edges for testing
+        
+        search_result = MagicMock()
+        search_result.nodes = [
+            _make_mock_node("node-1", "FastAPI", "Web framework", ["TechnicalConcept"]),
+        ]
+        search_result.edges = [
+            # Edge valid from Jan 2024, never invalidated
+            _make_mock_edge(
+                "edge-1", "node-1", "node-2", "USES", "Active edge",
+                valid_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+                invalid_at=None,
+            ),
+            # Edge that was invalidated before query date
+            _make_mock_edge(
+                "edge-2", "node-1", "node-3", "DEPRECATED", "Old edge",
+                valid_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+                invalid_at=datetime(2024, 3, 1, tzinfo=timezone.utc),
+            ),
+            # Edge valid_at is AFTER the query date (not yet valid)
+            _make_mock_edge(
+                "edge-3", "node-1", "node-4", "FUTURE", "Future edge",
+                valid_at=datetime(2024, 12, 1, tzinfo=timezone.utc),
+                invalid_at=None,
+            ),
+        ]
+        
+        client.client.search = AsyncMock(return_value=search_result)
+        client.is_connected = True
+        return client
+
+    @pytest.mark.asyncio
+    async def test_temporal_search_filters_out_invalidated_edges(
+        self, mock_graphiti_client_with_temporal_edges
+    ):
+        """Should filter edges where invalid_at <= as_of_date."""
+        from agentic_rag_backend.retrieval.temporal_retrieval import temporal_search
+
+        # Query at June 2024 - edge-2 should be filtered (invalidated in March)
+        as_of = datetime(2024, 6, 15, tzinfo=timezone.utc)
+        result = await temporal_search(
+            graphiti_client=mock_graphiti_client_with_temporal_edges,
+            query="test query",
+            tenant_id="test-tenant",
+            as_of_date=as_of,
+        )
+
+        # edge-1: valid (valid_at=Jan, no invalid_at)
+        # edge-2: invalid (invalidated in March, before June)
+        # edge-3: invalid (valid_at=Dec, after June query)
+        assert len(result.edges) == 1
+        assert result.edges[0].uuid == "edge-1"
+
+    @pytest.mark.asyncio
+    async def test_temporal_search_filters_future_edges(
+        self, mock_graphiti_client_with_temporal_edges
+    ):
+        """Should filter edges where valid_at > as_of_date."""
+        from agentic_rag_backend.retrieval.temporal_retrieval import temporal_search
+
+        # Query at Feb 2024 - both edge-2 and edge-3 have issues
+        as_of = datetime(2024, 2, 15, tzinfo=timezone.utc)
+        result = await temporal_search(
+            graphiti_client=mock_graphiti_client_with_temporal_edges,
+            query="test query",
+            tenant_id="test-tenant",
+            as_of_date=as_of,
+        )
+
+        # edge-1: valid (valid_at=Jan, before Feb, no invalid)
+        # edge-2: valid at this point (valid_at=Jan, invalid_at=March is after Feb)
+        # edge-3: invalid (valid_at=Dec, after Feb)
+        assert len(result.edges) == 2
+        edge_uuids = {e.uuid for e in result.edges}
+        assert "edge-1" in edge_uuids
+        assert "edge-2" in edge_uuids
+        assert "edge-3" not in edge_uuids
+
+
+class TestTemporalSearchExceptionHandling:
+    """Tests for exception handling in temporal_search."""
+
+    @pytest.mark.asyncio
+    async def test_temporal_search_exception_is_logged_and_reraised(self):
+        """Should log error and re-raise when search fails."""
+        from agentic_rag_backend.retrieval.temporal_retrieval import temporal_search
+
+        failing_client = MagicMock()
+        failing_client.client = MagicMock()
+        failing_client.client.search = AsyncMock(side_effect=ValueError("Temporal search failed"))
+        failing_client.is_connected = True
+
+        with pytest.raises(ValueError, match="Temporal search failed"):
+            await temporal_search(
+                graphiti_client=failing_client,
+                query="test query",
+                tenant_id="test-tenant",
+            )
+
+
+class TestGetChangesExceptionHandling:
+    """Tests for exception handling in get_knowledge_changes."""
+
+    @pytest.mark.asyncio
+    async def test_get_changes_exception_is_logged_and_reraised(self):
+        """Should log error and re-raise when get_episodes fails."""
+        from agentic_rag_backend.retrieval.temporal_retrieval import get_knowledge_changes
+
+        failing_client = MagicMock()
+        failing_client.client = MagicMock()
+        failing_client.client.get_episodes_by_group_ids = AsyncMock(
+            side_effect=ValueError("Episodes fetch failed")
+        )
+        failing_client.is_connected = True
+
+        with pytest.raises(ValueError, match="Episodes fetch failed"):
+            await get_knowledge_changes(
+                graphiti_client=failing_client,
+                tenant_id="test-tenant",
+                start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
+                end_date=datetime(2024, 12, 31, tzinfo=timezone.utc),
+            )

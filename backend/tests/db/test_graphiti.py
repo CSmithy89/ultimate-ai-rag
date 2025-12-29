@@ -213,8 +213,8 @@ class TestGraphitiClient:
         from agentic_rag_backend.db.graphiti import GraphitiClient
 
         with patch("agentic_rag_backend.db.graphiti.Graphiti") as mock_graphiti, \
-             patch("agentic_rag_backend.db.graphiti.OpenAIClient") as mock_llm, \
-             patch("agentic_rag_backend.db.graphiti.OpenAIEmbedder") as mock_embedder:
+             patch("agentic_rag_backend.db.graphiti.OpenAIClient"), \
+             patch("agentic_rag_backend.db.graphiti.OpenAIEmbedder"):
 
             mock_graphiti.return_value = MagicMock()
 

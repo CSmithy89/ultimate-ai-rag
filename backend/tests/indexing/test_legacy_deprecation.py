@@ -1,8 +1,6 @@
 """Tests for legacy module deprecation and migration to Graphiti."""
 
-import pytest
-import warnings
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 class TestLegacyModuleDocumentation:
@@ -53,7 +51,6 @@ class TestMigrationToGraphiti:
         from agentic_rag_backend.indexing.graphiti_ingestion import (
             ingest_document_as_episode,
             ingest_with_backend_routing,
-            EpisodeIngestionResult,
         )
 
         assert callable(ingest_document_as_episode)
@@ -64,7 +61,6 @@ class TestMigrationToGraphiti:
         from agentic_rag_backend.indexing import (
             ingest_document_as_episode,
             ingest_with_backend_routing,
-            EpisodeIngestionResult,
         )
 
         assert callable(ingest_document_as_episode)
@@ -107,8 +103,6 @@ class TestLegacyAndNewCoexistence:
         
         # Legacy modules still importable
         from agentic_rag_backend.indexing.embeddings import EmbeddingGenerator
-        from agentic_rag_backend.indexing.entity_extractor import EntityExtractor
-        from agentic_rag_backend.indexing.graph_builder import GraphBuilder
         
         # Verify both work
         assert callable(ingest_document_as_episode)

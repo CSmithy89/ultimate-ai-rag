@@ -7,8 +7,6 @@ from agentic_rag_backend.indexing.entity_extractor import (
     EntityExtractor,
     DEFAULT_EXTRACTION_MODEL,
 )
-from agentic_rag_backend.models.graphs import ExtractedEntity, ExtractedRelationship
-from agentic_rag_backend.core.errors import ExtractionError
 
 
 class TestEntityExtractor:
