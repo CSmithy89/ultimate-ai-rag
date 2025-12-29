@@ -318,3 +318,18 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
         status_code=exc.status,
         content=exc.to_problem_detail(str(request.url.path)),
     )
+
+
+# Epic 5 - Graphiti Ingestion Errors
+
+
+class IngestionError(AppError):
+    """Error during Graphiti episode ingestion."""
+
+    def __init__(self, document_id: str, reason: str) -> None:
+        super().__init__(
+            code=ErrorCode.EXTRACTION_FAILED,  # Reuse existing code
+            message=f"Episode ingestion failed: {reason}",
+            status=500,
+            details={"document_id": document_id},
+        )

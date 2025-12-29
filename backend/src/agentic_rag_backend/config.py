@@ -44,6 +44,7 @@ class Settings:
     # Epic 5 - Graphiti settings
     graphiti_embedding_model: str
     graphiti_llm_model: str
+    ingestion_backend: str  # "graphiti" or "legacy"
 
 
 def load_settings() -> Settings:
@@ -163,6 +164,7 @@ def load_settings() -> Settings:
         # Epic 5 - Graphiti settings
         graphiti_embedding_model=os.getenv("GRAPHITI_EMBEDDING_MODEL", "text-embedding-3-small"),
         graphiti_llm_model=os.getenv("GRAPHITI_LLM_MODEL", "gpt-4o-mini"),
+        ingestion_backend=os.getenv("INGESTION_BACKEND", "graphiti"),
     )
 
 
