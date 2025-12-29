@@ -478,8 +478,12 @@ class OrchestratorAgent:
     def _build_graph_explanation(
         self, nodes: list[GraphNode], paths: list[GraphPath]
     ) -> str | None:
-        if not paths or not nodes:
-            return None
+        if not nodes and not paths:
+            return "No graph nodes or paths found for the current query."
+        if not nodes:
+            return "No graph nodes found for the current query."
+        if not paths:
+            return "No graph paths found for the current query."
         name_map = {node.id: node.name or node.id for node in nodes}
         explanations = []
         for path in paths:
@@ -505,6 +509,7 @@ class OrchestratorAgent:
                     "graph_path_edge_mismatch node_count=%s edge_count=%s",
                     len(path.node_ids),
                     len(path.edge_types),
+                    path=path.node_ids[:3],
                 )
                 continue
             valid_paths.append(path)
