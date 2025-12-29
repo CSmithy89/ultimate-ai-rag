@@ -64,7 +64,7 @@ development_status:
   3-2-graph-relationship-traversal: done
   3-3-hybrid-answer-synthesis: done
   3-4-graph-based-explainability: done
-  epic-3-retrospective: optional
+  epic-3-retrospective: done
 
   # Epic 4: Knowledge Ingestion Pipeline
   epic-4: done
