@@ -47,16 +47,17 @@ STOPWORDS = {
 }
 
 
+DEFAULT_MAX_HOPS = 2  # Balanced for speed and explainability in MVP.
+DEFAULT_PATH_LIMIT = 10  # Bounded result size for API responses.
+DEFAULT_ENTITY_LIMIT = 12  # Seed entity cap for traversal.
+
+
 def extract_terms(query: str, max_terms: int = 6) -> list[str]:
-    tokens = [token.lower() for token in TERM_PATTERN.findall(query)]
-    unique: list[str] = []
-    for token in tokens:
-        if token in STOPWORDS:
-            continue
-        if token not in unique:
-            unique.append(token)
-    unique.sort(key=len, reverse=True)
-    return unique[:max_terms]
+    """Extract sanitized query terms for seeding traversal."""
+    tokens = (token.lower() for token in TERM_PATTERN.findall(query))
+    unique_tokens = [token for token in dict.fromkeys(tokens) if token not in STOPWORDS]
+    unique_tokens.sort(key=len, reverse=True)
+    return unique_tokens[:max_terms]
 
 
 class GraphTraversalService:
@@ -65,9 +66,9 @@ class GraphTraversalService:
     def __init__(
         self,
         neo4j: Neo4jClient,
-        max_hops: int = 2,
-        path_limit: int = 10,
-        entity_limit: int = 12,
+        max_hops: int = DEFAULT_MAX_HOPS,
+        path_limit: int = DEFAULT_PATH_LIMIT,
+        entity_limit: int = DEFAULT_ENTITY_LIMIT,
         allowed_relationships: Iterable[str] | None = None,
     ) -> None:
         self.neo4j = neo4j
@@ -77,13 +78,14 @@ class GraphTraversalService:
         self.allowed_relationships = list(allowed_relationships) if allowed_relationships else None
 
     async def traverse(self, query: str, tenant_id: str) -> GraphTraversalResult:
+        """Traverse graph relationships for a query."""
         terms = extract_terms(query)
         entities = await self.neo4j.search_entities_by_terms(
             tenant_id=tenant_id,
             terms=terms,
             limit=self.entity_limit,
         )
-        start_ids = [entity.get("id") for entity in entities if entity.get("id")]
+        start_ids = [str(entity["id"]) for entity in entities if entity.get("id")]
         paths = await self.neo4j.traverse_paths(
             tenant_id=tenant_id,
             start_entity_ids=start_ids,
@@ -103,6 +105,7 @@ class GraphTraversalService:
         return result
 
     def _build_result(self, entities: list[dict], paths: list) -> GraphTraversalResult:
+        """Build a traversal result from Neo4j path objects."""
         nodes_by_id: dict[str, GraphNode] = {}
         edges_by_key: dict[tuple[str, str, str], GraphEdge] = {}
         path_results: list[GraphPath] = []
@@ -124,7 +127,11 @@ class GraphTraversalService:
             edge_types: list[str] = []
 
             for node in getattr(path, "nodes", []):
-                props = dict(node)
+                try:
+                    props = dict(node)
+                except (TypeError, ValueError):
+                    logger.warning("graph_path_node_unexpected_type", node_type=type(node))
+                    continue
                 node_id = str(props.get("id", ""))
                 if not node_id:
                     continue
@@ -139,16 +146,27 @@ class GraphTraversalService:
                 node_ids.append(node_id)
 
             for rel in getattr(path, "relationships", []):
-                rel_props = dict(rel)
-                rel_type = getattr(rel, "type", None) or rel_props.get("type") or "RELATED_TO"
+                try:
+                    rel_props = dict(rel)
+                except (TypeError, ValueError):
+                    rel_props = {}
+                rel_type = getattr(rel, "type", "RELATED_TO")
+                if callable(rel_type):
+                    rel_type = rel_type()
                 start_node = getattr(rel, "start_node", None)
                 end_node = getattr(rel, "end_node", None)
                 source_id = None
                 target_id = None
                 if start_node is not None:
-                    source_id = str(dict(start_node).get("id", ""))
+                    try:
+                        source_id = str(dict(start_node).get("id", ""))
+                    except (TypeError, ValueError):
+                        source_id = None
                 if end_node is not None:
-                    target_id = str(dict(end_node).get("id", ""))
+                    try:
+                        target_id = str(dict(end_node).get("id", ""))
+                    except (TypeError, ValueError):
+                        target_id = None
                 if not source_id or not target_id:
                     continue
                 edge_key = (source_id, target_id, rel_type)

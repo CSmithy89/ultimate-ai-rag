@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import logging
 import os
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Awaitable, Callable, cast
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
@@ -13,7 +13,7 @@ from pydantic import ValidationError
 import redis.asyncio as redis
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 import structlog
 
 from .agents.orchestrator import OrchestratorAgent
@@ -163,10 +163,16 @@ def create_app() -> FastAPI:
 
     # Register slowapi rate limiter for knowledge endpoints
     app.state.limiter = slowapi_limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_exception_handler(
+        RateLimitExceeded,
+        cast(Callable[[Request, Exception], Response], _rate_limit_exceeded_handler),
+    )
 
     # Register exception handlers
-    app.add_exception_handler(AppError, app_error_handler)
+    app.add_exception_handler(
+        AppError,
+        cast(Callable[[Request, Exception], Awaitable[Response]], app_error_handler),
+    )
 
     # Register routers
     app.include_router(router)  # Query router
@@ -243,7 +249,7 @@ async def run_query(
             evidence=result.evidence,
         )
         meta = ResponseMeta(
-            request_id=str(uuid4()),
+            requestId=str(uuid4()),
             timestamp=datetime.now(timezone.utc),
         )
         return QueryEnvelope(data=data, meta=meta)

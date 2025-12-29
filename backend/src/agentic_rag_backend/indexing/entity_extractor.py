@@ -138,7 +138,7 @@ class EntityExtractor:
                 max_tokens=4000,
                 response_format={"type": "json_object"},
             )
-            return response.choices[0].message.content
+            return response.choices[0].message.content or ""
         except Exception as e:
             raise ExtractionError("unknown", f"LLM API call failed: {str(e)}") from e
 

@@ -44,7 +44,7 @@ so that I can discover connections that semantic search alone would miss.
 
 ### Agent Model Used
 
-gpt-5
+N/A
 
 ### Debug Log References
 
@@ -61,6 +61,7 @@ gpt-5
 - backend/src/agentic_rag_backend/retrieval/__init__.py
 - backend/src/agentic_rag_backend/agents/orchestrator.py
 - backend/src/agentic_rag_backend/main.py
+
 ## Senior Developer Review
 
 Outcome: APPROVE

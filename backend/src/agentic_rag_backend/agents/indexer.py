@@ -73,6 +73,7 @@ class IndexerAgent:
         entity_extractor: EntityExtractor,
         chunk_size: int = 512,
         chunk_overlap: int = 64,
+        similarity_threshold: float = 0.95,
     ) -> None:
         """
         Initialize the IndexerAgent.
@@ -84,6 +85,7 @@ class IndexerAgent:
             entity_extractor: LLM entity extractor
             chunk_size: Target tokens per chunk
             chunk_overlap: Token overlap between chunks
+            similarity_threshold: Threshold for entity similarity matching
         """
         self.postgres = postgres
         self.neo4j = neo4j
@@ -91,6 +93,7 @@ class IndexerAgent:
         self.entity_extractor = entity_extractor
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        self.similarity_threshold = similarity_threshold
 
         # Current trajectory for this agent instance
         self._trajectory: Optional[IndexerTrajectory] = None
@@ -108,8 +111,9 @@ class IndexerAgent:
 
     def _finish_trajectory(self) -> IndexerTrajectory:
         """Complete the current trajectory."""
-        if self._trajectory:
-            self._trajectory.completed_at = datetime.now(timezone.utc)
+        if not self._trajectory:
+            raise RuntimeError("No active trajectory to finish.")
+        self._trajectory.completed_at = datetime.now(timezone.utc)
         return self._trajectory
 
     def log_thought(self, content: str, **metadata: Any) -> None:

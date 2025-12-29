@@ -9,8 +9,7 @@ Tests cover:
 - Response format validation
 """
 
-from io import BytesIO
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest

@@ -1,11 +1,11 @@
 """Tests for the IndexerAgent."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 from agentic_rag_backend.agents.indexer import IndexerAgent, TrajectoryEntry
-from agentic_rag_backend.models.graphs import ExtractionResult, ExtractedEntity, ExtractedRelationship
+from agentic_rag_backend.models.graphs import ExtractionResult, ExtractedEntity
 from agentic_rag_backend.indexing.embeddings import EMBEDDING_DIMENSION
 
 

@@ -43,7 +43,7 @@ so that I can find relevant content even when exact keywords don't match.
 
 ### Agent Model Used
 
-gpt-5
+N/A
 
 ### Debug Log References
 
@@ -61,6 +61,7 @@ gpt-5
 - backend/src/agentic_rag_backend/agents/orchestrator.py
 - backend/src/agentic_rag_backend/schemas.py
 - backend/src/agentic_rag_backend/main.py
+
 ## Senior Developer Review
 
 Outcome: APPROVE

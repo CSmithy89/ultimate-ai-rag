@@ -1,15 +1,11 @@
 """Tests for the semantic chunker module."""
 
-import pytest
-
 from agentic_rag_backend.indexing.chunker import (
     ChunkData,
     chunk_document,
     chunk_sections,
     count_tokens,
     estimate_chunks,
-    DEFAULT_CHUNK_SIZE,
-    DEFAULT_CHUNK_OVERLAP,
 )
 
 

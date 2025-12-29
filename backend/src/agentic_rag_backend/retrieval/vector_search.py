@@ -5,12 +5,16 @@ from uuid import UUID
 
 import structlog
 
+from agentic_rag_backend.core.errors import AppError
 from agentic_rag_backend.db.postgres import PostgresClient
 from agentic_rag_backend.indexing.embeddings import EmbeddingGenerator
 
 from .types import VectorHit
 
 logger = structlog.get_logger(__name__)
+
+DEFAULT_VECTOR_LIMIT = 8  # Tuned for concise evidence payloads.
+DEFAULT_SIMILARITY_THRESHOLD = 0.7  # Balanced precision/recall for MVP.
 
 
 class VectorSearchService:
@@ -20,8 +24,8 @@ class VectorSearchService:
         self,
         postgres: Optional[PostgresClient],
         embedding_generator: Optional[EmbeddingGenerator],
-        limit: int = 8,
-        similarity_threshold: float = 0.7,
+        limit: int = DEFAULT_VECTOR_LIMIT,
+        similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
     ) -> None:
         self.postgres = postgres
         self.embedding_generator = embedding_generator
@@ -48,9 +52,12 @@ class VectorSearchService:
                 limit=self.limit,
                 similarity_threshold=self.similarity_threshold,
             )
-        except Exception as exc:
+        except AppError as exc:
             logger.error("vector_search_failed", error=str(exc))
-            return []
+            raise
+        except Exception as exc:
+            logger.error("vector_search_unexpected_error", error=str(exc))
+            raise
 
         hits: list[VectorHit] = []
         for row in rows:

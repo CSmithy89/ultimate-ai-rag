@@ -83,7 +83,7 @@ Hybrid synthesis uses a structured prompt that:
 
 ## 3. Retrieval Flow
 
-```
+```text
 User Query
    │
    ▼
@@ -224,4 +224,3 @@ Extend `QueryResponse` with optional evidence:
 - [ ] Response includes referenced nodes and relationship edges.
 - [ ] Human-readable path explanation is included.
 - [ ] Graph evidence is available for UI exploration.
-

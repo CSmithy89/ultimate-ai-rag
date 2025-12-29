@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import asyncio
 import logging
 import re
+from typing import Any, TYPE_CHECKING
 from uuid import UUID
 
 from ..retrieval_router import RetrievalStrategy, select_retrieval_strategy
@@ -24,12 +25,22 @@ from ..schemas import (
 )
 from ..trajectory import EventType, TrajectoryLogger
 
-try:
-    from agno.agent import Agent
-    from agno.models.openai import OpenAIChat
+if TYPE_CHECKING:
+    from agno.agent import Agent as AgnoAgentType
+    from agno.models.openai import OpenAIChat as AgnoOpenAIChatType
+else:  # pragma: no cover - typing only
+    AgnoAgentType = Any
+    AgnoOpenAIChatType = Any
+
+AgnoAgentImpl: type[Any] | None
+AgnoOpenAIChatImpl: type[Any] | None
+
+try:  # pragma: no cover - optional dependency at runtime
+    from agno.agent import Agent as AgnoAgentImpl
+    from agno.models.openai import OpenAIChat as AgnoOpenAIChatImpl
 except ImportError:  # pragma: no cover - optional dependency at runtime
-    Agent = None
-    OpenAIChat = None
+    AgnoAgentImpl = None
+    AgnoOpenAIChatImpl = None
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +72,10 @@ class OrchestratorAgent:
         self._logger = logger
         self._vector_search: VectorSearchService | None = None
         self._graph_traversal: GraphTraversalService | None = None
-        if Agent and OpenAIChat:
-            self._agent = Agent(model=OpenAIChat(api_key=api_key, id=model_id))
+        if AgnoAgentImpl is not None and AgnoOpenAIChatImpl is not None:
+            self._agent = AgnoAgentImpl(
+                model=AgnoOpenAIChatImpl(api_key=api_key, id=model_id)
+            )
         if postgres:
             embedding_generator = EmbeddingGenerator(
                 api_key=api_key,
@@ -96,9 +109,21 @@ class OrchestratorAgent:
         vector_hits: list[VectorHit] = []
         graph_result: GraphTraversalResult | None = None
         if strategy in {RetrievalStrategy.VECTOR, RetrievalStrategy.HYBRID}:
-            vector_hits = await self._run_vector_search(query, tenant_id, events, thoughts)
+            vector_hits = await self._run_vector_search(
+                query,
+                tenant_id,
+                events,
+                thoughts,
+                trajectory_id,
+            )
         if strategy in {RetrievalStrategy.GRAPH, RetrievalStrategy.HYBRID}:
-            graph_result = await self._run_graph_traversal(query, tenant_id, events, thoughts)
+            graph_result = await self._run_graph_traversal(
+                query,
+                tenant_id,
+                events,
+                thoughts,
+                trajectory_id,
+            )
 
         evidence = self._build_evidence(vector_hits, graph_result)
         prompt = self._build_prompt(query, vector_hits, graph_result)
@@ -181,15 +206,43 @@ class OrchestratorAgent:
         tenant_id: str,
         events: list[tuple[EventType, str]],
         thoughts: list[str],
+        trajectory_id: UUID | None,
     ) -> list[VectorHit]:
+        """Run vector search and log retrieval events."""
         if not self._vector_search:
             note = "Vector search unavailable; missing postgres or embedding generator."
             thoughts.append(note)
-            events.append((EventType.OBSERVATION, note))
+            if self._logger and trajectory_id:
+                await self._logger.log_observation(tenant_id, trajectory_id, note)
+            else:
+                events.append((EventType.OBSERVATION, note))
             return []
-        events.append((EventType.ACTION, "Run vector semantic search"))
-        hits = await self._vector_search.search(query, tenant_id)
-        events.append((EventType.OBSERVATION, f"Vector hits: {len(hits)}"))
+        thought_note = "Select vector semantic search"
+        thoughts.append(thought_note)
+        if self._logger and trajectory_id:
+            await self._logger.log_thought(tenant_id, trajectory_id, thought_note)
+        else:
+            events.append((EventType.THOUGHT, thought_note))
+        action_note = "Run vector semantic search"
+        if self._logger and trajectory_id:
+            await self._logger.log_action(tenant_id, trajectory_id, action_note)
+        else:
+            events.append((EventType.ACTION, action_note))
+        try:
+            hits = await self._vector_search.search(query, tenant_id)
+        except Exception as exc:
+            error_note = f"Vector search failed: {exc}"
+            if self._logger and trajectory_id:
+                await self._logger.log_observation(tenant_id, trajectory_id, error_note)
+            else:
+                events.append((EventType.OBSERVATION, error_note))
+            logger.warning("vector_search_failed: %s", exc)
+            return []
+        observation = f"Vector hits: {len(hits)}"
+        if self._logger and trajectory_id:
+            await self._logger.log_observation(tenant_id, trajectory_id, observation)
+        else:
+            events.append((EventType.OBSERVATION, observation))
         return hits
 
     def _build_evidence(
@@ -197,6 +250,7 @@ class OrchestratorAgent:
         vector_hits: list[VectorHit],
         graph_result: GraphTraversalResult | None,
     ) -> RetrievalEvidence | None:
+        """Build retrieval evidence payload for the API response."""
         if not vector_hits and not graph_result:
             return None
         return RetrievalEvidence(
@@ -248,15 +302,43 @@ class OrchestratorAgent:
         tenant_id: str,
         events: list[tuple[EventType, str]],
         thoughts: list[str],
+        trajectory_id: UUID | None,
     ) -> GraphTraversalResult | None:
+        """Run graph traversal and log retrieval events."""
         if not self._graph_traversal:
             note = "Graph traversal unavailable; missing Neo4j client."
             thoughts.append(note)
-            events.append((EventType.OBSERVATION, note))
+            if self._logger and trajectory_id:
+                await self._logger.log_observation(tenant_id, trajectory_id, note)
+            else:
+                events.append((EventType.OBSERVATION, note))
             return None
-        events.append((EventType.ACTION, "Run graph relationship traversal"))
-        result = await self._graph_traversal.traverse(query, tenant_id)
-        events.append((EventType.OBSERVATION, f"Graph paths: {len(result.paths)}"))
+        thought_note = "Select graph relationship traversal"
+        thoughts.append(thought_note)
+        if self._logger and trajectory_id:
+            await self._logger.log_thought(tenant_id, trajectory_id, thought_note)
+        else:
+            events.append((EventType.THOUGHT, thought_note))
+        action_note = "Run graph relationship traversal"
+        if self._logger and trajectory_id:
+            await self._logger.log_action(tenant_id, trajectory_id, action_note)
+        else:
+            events.append((EventType.ACTION, action_note))
+        try:
+            result = await self._graph_traversal.traverse(query, tenant_id)
+        except Exception as exc:
+            error_note = f"Graph traversal failed: {exc}"
+            if self._logger and trajectory_id:
+                await self._logger.log_observation(tenant_id, trajectory_id, error_note)
+            else:
+                events.append((EventType.OBSERVATION, error_note))
+            logger.warning("graph_traversal_failed: %s", exc)
+            return None
+        observation = f"Graph paths: {len(result.paths)}"
+        if self._logger and trajectory_id:
+            await self._logger.log_observation(tenant_id, trajectory_id, observation)
+        else:
+            events.append((EventType.OBSERVATION, observation))
         return result
 
     def _build_graph_evidence(
@@ -308,6 +390,12 @@ class OrchestratorAgent:
             segments = []
             for idx, node_id in enumerate(path.node_ids[:-1]):
                 next_id = path.node_ids[idx + 1]
+                if idx >= len(path.edge_types):
+                    logger.warning(
+                        "graph_path_edge_mismatch node_count=%s edge_count=%s",
+                        len(path.node_ids),
+                        len(path.edge_types),
+                    )
                 edge_type = (
                     path.edge_types[idx]
                     if idx < len(path.edge_types)

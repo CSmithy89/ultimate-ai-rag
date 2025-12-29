@@ -8,7 +8,6 @@ from agentic_rag_backend.indexing.embeddings import (
     cosine_similarity,
     EMBEDDING_DIMENSION,
 )
-from agentic_rag_backend.core.errors import EmbeddingError
 
 
 class TestCosineSimilarity:

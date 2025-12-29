@@ -40,7 +40,7 @@ so that I get comprehensive responses leveraging both retrieval methods.
 
 ### Agent Model Used
 
-gpt-5
+N/A
 
 ### Debug Log References
 
@@ -53,6 +53,7 @@ gpt-5
 
 - backend/src/agentic_rag_backend/retrieval/hybrid_synthesis.py
 - backend/src/agentic_rag_backend/agents/orchestrator.py
+
 ## Senior Developer Review
 
 Outcome: APPROVE

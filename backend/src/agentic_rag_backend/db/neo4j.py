@@ -1,14 +1,24 @@
 """Neo4j async client for knowledge graph operations."""
 
+import re
 from typing import Any, Optional
 
 import structlog
-from neo4j import AsyncGraphDatabase
+from neo4j import AsyncGraphDatabase, AsyncDriver
 from neo4j.exceptions import Neo4jError as Neo4jDriverError
 
 from agentic_rag_backend.core.errors import Neo4jError
 
 logger = structlog.get_logger(__name__)
+
+DEFAULT_ALLOWED_RELATIONSHIPS = (
+    "MENTIONS",
+    "AUTHORED_BY",
+    "PART_OF",
+    "USES",
+    "RELATED_TO",
+)
+TERM_SAFE_PATTERN = re.compile(r"^[a-z0-9_-]{2,}$")
 
 
 class Neo4jClient:
@@ -31,7 +41,7 @@ class Neo4jClient:
         self.uri = uri
         self.user = user
         self.password = password
-        self._driver = None
+        self._driver: Optional[AsyncDriver] = None
 
     async def connect(self) -> None:
         """Establish connection to Neo4j."""
@@ -605,13 +615,20 @@ class Neo4jClient:
 
         Args:
             tenant_id: Tenant identifier
-            terms: Lowercased search terms
+            terms: Lowercased search terms (sanitized to prevent Cypher keyword injection)
             limit: Maximum number of entities to return
 
         Returns:
             List of entity property dictionaries
         """
         if not terms:
+            return []
+        safe_terms = [
+            term.lower()
+            for term in terms
+            if term and TERM_SAFE_PATTERN.fullmatch(term.lower())
+        ]
+        if not safe_terms:
             return []
         try:
             async with self.driver.session() as session:
@@ -624,7 +641,7 @@ class Neo4jClient:
                     LIMIT $limit
                     """,
                     tenant_id=tenant_id,
-                    terms=terms,
+                    terms=safe_terms,
                     limit=limit,
                 )
                 records = await result.data()
@@ -655,22 +672,19 @@ class Neo4jClient:
         """
         if not start_entity_ids:
             return []
-        rel_types = allowed_relationships or [
-            "MENTIONS",
-            "AUTHORED_BY",
-            "PART_OF",
-            "USES",
-            "RELATED_TO",
-        ]
+        if not (1 <= max_hops <= 5):
+            raise ValueError("max_hops must be between 1 and 5")
+        rel_types = allowed_relationships or list(DEFAULT_ALLOWED_RELATIONSHIPS)
         try:
             async with self.driver.session() as session:
                 result = await session.run(
                     """
-                    MATCH p=(start:Entity)-[r*1..$max_hops]-(target:Entity)
+                    MATCH p=(start:Entity)-[r*1..]-(target:Entity)
                     WHERE start.id IN $start_ids
                       AND start.tenant_id = $tenant_id
                       AND all(n IN nodes(p) WHERE n.tenant_id = $tenant_id)
                       AND all(rel IN relationships(p) WHERE type(rel) IN $rel_types)
+                      AND length(p) <= $max_hops
                     RETURN p
                     LIMIT $limit
                     """,

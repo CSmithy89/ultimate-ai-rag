@@ -4,17 +4,20 @@ from typing import Iterable
 
 from .types import GraphTraversalResult, VectorHit
 
-MAX_VECTOR_HITS = 6
-MAX_GRAPH_PATHS = 5
+MAX_VECTOR_HITS = 6  # Keep evidence concise for prompt length.
+MAX_GRAPH_PATHS = 5  # Limit explainability to top paths.
 
 
 def rank_vector_hits(vector_hits: Iterable[VectorHit]) -> list[VectorHit]:
+    """Rank vector hits by similarity (highest first)."""
     return sorted(vector_hits, key=lambda hit: hit.similarity, reverse=True)
 
 
 def rank_graph_paths(graph_result: GraphTraversalResult) -> list[tuple[list[str], list[str]]]:
+    """Rank graph paths by length (shorter is preferred for explainability)."""
     scored_paths: list[tuple[int, list[str], list[str]]] = []
     for path in graph_result.paths:
+        # Path length is the only stable score available in the current graph result.
         score = len(path.edge_types)
         scored_paths.append((score, path.node_ids, path.edge_types))
     scored_paths.sort(key=lambda item: item[0])
@@ -26,6 +29,7 @@ def build_hybrid_prompt(
     vector_hits: list[VectorHit],
     graph_result: GraphTraversalResult | None,
 ) -> str:
+    """Build a hybrid prompt combining vector and graph evidence."""
     prompt_parts = [
         "Answer the user question using the evidence below.",
         "Cite sources inline using [vector:chunk_id] or [graph:entity_id].",

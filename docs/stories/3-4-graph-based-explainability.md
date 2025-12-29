@@ -39,7 +39,7 @@ so that I can verify the reasoning and trust the response.
 
 ### Agent Model Used
 
-gpt-5
+N/A
 
 ### Debug Log References
 
@@ -52,6 +52,7 @@ gpt-5
 
 - backend/src/agentic_rag_backend/schemas.py
 - backend/src/agentic_rag_backend/agents/orchestrator.py
+
 ## Senior Developer Review
 
 Outcome: APPROVE
