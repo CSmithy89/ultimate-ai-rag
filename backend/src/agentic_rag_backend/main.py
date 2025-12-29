@@ -86,6 +86,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             api_key=settings.openai_api_key,
             model_id=settings.openai_model_id,
             logger=None,
+            postgres=getattr(app.state, "postgres", None),
+            embedding_model=settings.embedding_model,
         )
     else:
         pool = create_pool(settings.database_url, settings.db_pool_min, settings.db_pool_max)
@@ -123,6 +125,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             api_key=settings.openai_api_key,
             model_id=settings.openai_model_id,
             logger=app.state.trajectory_logger,
+            postgres=getattr(app.state, "postgres", None),
+            embedding_model=settings.embedding_model,
         )
 
     yield
@@ -234,6 +238,7 @@ async def run_query(
             thoughts=result.thoughts,
             retrieval_strategy=result.retrieval_strategy.value,
             trajectory_id=str(result.trajectory_id) if result.trajectory_id else None,
+            evidence=result.evidence,
         )
         meta = ResponseMeta(
             request_id=str(uuid4()),

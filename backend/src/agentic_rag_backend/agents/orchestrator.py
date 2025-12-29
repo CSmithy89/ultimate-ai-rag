@@ -7,7 +7,11 @@ import re
 from uuid import UUID
 
 from ..retrieval_router import RetrievalStrategy, select_retrieval_strategy
-from ..schemas import PlanStep
+from ..db.postgres import PostgresClient
+from ..indexing.embeddings import DEFAULT_EMBEDDING_MODEL, EmbeddingGenerator
+from ..retrieval import VectorSearchService
+from ..retrieval.types import VectorHit
+from ..schemas import PlanStep, RetrievalEvidence, VectorCitation
 from ..trajectory import EventType, TrajectoryLogger
 
 try:
@@ -28,6 +32,7 @@ class OrchestratorResult:
     thoughts: list[str]
     retrieval_strategy: RetrievalStrategy
     trajectory_id: UUID | None
+    evidence: RetrievalEvidence | None = None
 
 
 class OrchestratorAgent:
@@ -38,11 +43,23 @@ class OrchestratorAgent:
         api_key: str,
         model_id: str = "gpt-4o-mini",
         logger: TrajectoryLogger | None = None,
+        postgres: PostgresClient | None = None,
+        embedding_model: str = DEFAULT_EMBEDDING_MODEL,
     ) -> None:
         self._agent = None
         self._logger = logger
+        self._vector_search: VectorSearchService | None = None
         if Agent and OpenAIChat:
             self._agent = Agent(model=OpenAIChat(api_key=api_key, id=model_id))
+        if postgres:
+            embedding_generator = EmbeddingGenerator(
+                api_key=api_key,
+                model=embedding_model,
+            )
+            self._vector_search = VectorSearchService(
+                postgres=postgres,
+                embedding_generator=embedding_generator,
+            )
 
     async def run(
         self, query: str, tenant_id: str, session_id: str | None = None
@@ -62,8 +79,15 @@ class OrchestratorAgent:
         events.append((EventType.ACTION, strategy_note))
         logger.debug("Retrieval strategy selected: %s", strategy.value)
 
+        vector_hits: list[VectorHit] = []
+        if strategy in {RetrievalStrategy.VECTOR, RetrievalStrategy.HYBRID}:
+            vector_hits = await self._run_vector_search(query, tenant_id, events, thoughts)
+
+        evidence = self._build_evidence(vector_hits)
+        prompt = self._build_prompt(query, vector_hits)
+
         if self._agent:
-            response = await asyncio.to_thread(self._agent.run, query)
+            response = await asyncio.to_thread(self._agent.run, prompt)
             content = getattr(response, "content", response)
             answer = str(content)
         else:
@@ -83,6 +107,7 @@ class OrchestratorAgent:
             thoughts=thoughts,
             retrieval_strategy=strategy,
             trajectory_id=trajectory_id,
+            evidence=evidence,
         )
 
     def _build_plan(self, query: str) -> list[PlanStep]:
@@ -132,3 +157,71 @@ class OrchestratorAgent:
             events.append((EventType.THOUGHT, thought))
             completed_plan.append(PlanStep(step=step.step, status="completed"))
         return completed_plan, thoughts, events
+
+    async def _run_vector_search(
+        self,
+        query: str,
+        tenant_id: str,
+        events: list[tuple[EventType, str]],
+        thoughts: list[str],
+    ) -> list[VectorHit]:
+        if not self._vector_search:
+            note = "Vector search unavailable; missing postgres or embedding generator."
+            thoughts.append(note)
+            events.append((EventType.OBSERVATION, note))
+            return []
+        events.append((EventType.ACTION, "Run vector semantic search"))
+        hits = await self._vector_search.search(query, tenant_id)
+        events.append((EventType.OBSERVATION, f"Vector hits: {len(hits)}"))
+        return hits
+
+    def _build_evidence(self, vector_hits: list[VectorHit]) -> RetrievalEvidence | None:
+        if not vector_hits:
+            return None
+        return RetrievalEvidence(vector=self._build_vector_citations(vector_hits))
+
+    def _build_vector_citations(self, vector_hits: list[VectorHit]) -> list[VectorCitation]:
+        citations: list[VectorCitation] = []
+        for hit in vector_hits:
+            source = None
+            metadata = hit.metadata or {}
+            if metadata:
+                source = (
+                    metadata.get("source_url")
+                    or metadata.get("filename")
+                    or metadata.get("source_type")
+                )
+            if not source:
+                source = hit.document_id
+            preview = hit.content.replace("\n", " ").strip()
+            if len(preview) > 240:
+                preview = preview[:240].rstrip() + "..."
+            citations.append(
+                VectorCitation(
+                    chunk_id=hit.chunk_id,
+                    document_id=hit.document_id,
+                    similarity=hit.similarity,
+                    source=source,
+                    content_preview=preview,
+                    metadata=metadata or None,
+                )
+            )
+        return citations
+
+    def _build_prompt(self, query: str, vector_hits: list[VectorHit]) -> str:
+        if not vector_hits:
+            return query
+        evidence_lines = []
+        for hit in vector_hits:
+            content = hit.content.strip().replace("\n", " ")
+            if len(content) > 500:
+                content = content[:500].rstrip() + "..."
+            evidence_lines.append(f"[vector:{hit.chunk_id}] {content}")
+        evidence_block = "\n".join(evidence_lines)
+        return (
+            "Answer the user question using the evidence below. "
+            "Cite sources inline using the bracketed vector IDs.\n\n"
+            f"Question: {query}\n\n"
+            "Vector Evidence:\n"
+            f"{evidence_block}"
+        )

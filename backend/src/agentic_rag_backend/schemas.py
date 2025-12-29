@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -45,12 +45,55 @@ class PlanStep(BaseModel):
     status: Literal["pending", "in_progress", "completed"]
 
 
+class VectorCitation(BaseModel):
+    chunk_id: str
+    document_id: str
+    similarity: float
+    source: str | None = None
+    content_preview: str
+    metadata: dict[str, Any] | None = None
+
+
+class GraphNodeEvidence(BaseModel):
+    id: str
+    name: str
+    type: str
+    description: str | None = None
+    source_chunks: list[str] = Field(default_factory=list)
+
+
+class GraphEdgeEvidence(BaseModel):
+    source_id: str
+    target_id: str
+    type: str
+    confidence: float | None = None
+    source_chunk: str | None = None
+
+
+class GraphPathEvidence(BaseModel):
+    node_ids: list[str]
+    edge_types: list[str]
+
+
+class GraphEvidence(BaseModel):
+    nodes: list[GraphNodeEvidence] = Field(default_factory=list)
+    edges: list[GraphEdgeEvidence] = Field(default_factory=list)
+    paths: list[GraphPathEvidence] = Field(default_factory=list)
+    explanation: str | None = None
+
+
+class RetrievalEvidence(BaseModel):
+    vector: list[VectorCitation] = Field(default_factory=list)
+    graph: GraphEvidence | None = None
+
+
 class QueryResponse(BaseModel):
     answer: str
     plan: list[PlanStep]
     thoughts: list[str]
     retrieval_strategy: str
     trajectory_id: str | None = None
+    evidence: RetrievalEvidence | None = None
 
 
 class ResponseMeta(BaseModel):
