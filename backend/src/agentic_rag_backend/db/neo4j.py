@@ -449,6 +449,55 @@ class Neo4jClient:
         except Neo4jDriverError as e:
             raise Neo4jError("create_chunk_node", str(e)) from e
 
+    async def add_chunk_reference_to_entity(
+        self,
+        entity_id: str,
+        tenant_id: str,
+        chunk_id: str,
+    ) -> bool:
+        """
+        Add a chunk reference to an existing entity without modifying other properties.
+
+        This method is used during deduplication to add new source chunk references
+        to an existing entity without overwriting its description or other properties.
+
+        Args:
+            entity_id: Entity UUID
+            tenant_id: Tenant identifier
+            chunk_id: Chunk ID to add to source_chunks array
+
+        Returns:
+            True if entity was updated, False otherwise
+        """
+        try:
+            async with self.driver.session() as session:
+                result = await session.run(
+                    """
+                    MATCH (e:Entity {id: $id, tenant_id: $tenant_id})
+                    SET e.source_chunks = CASE
+                        WHEN NOT $chunk_id IN COALESCE(e.source_chunks, [])
+                        THEN COALESCE(e.source_chunks, []) + $chunk_id
+                        ELSE e.source_chunks
+                    END,
+                    e.updated_at = datetime()
+                    RETURN e
+                    """,
+                    id=entity_id,
+                    tenant_id=tenant_id,
+                    chunk_id=chunk_id,
+                )
+                record = await result.single()
+                if record:
+                    logger.debug(
+                        "chunk_reference_added",
+                        entity_id=entity_id,
+                        chunk_id=chunk_id,
+                    )
+                    return True
+                return False
+        except Neo4jDriverError as e:
+            raise Neo4jError("add_chunk_reference_to_entity", str(e)) from e
+
     async def link_chunk_to_entity(
         self,
         chunk_id: str,

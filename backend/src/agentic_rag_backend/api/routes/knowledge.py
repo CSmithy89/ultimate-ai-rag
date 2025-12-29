@@ -6,6 +6,8 @@ from uuid import UUID, uuid4
 
 import structlog
 from fastapi import APIRouter, Depends, Query, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from agentic_rag_backend.core.errors import Neo4jError
 from agentic_rag_backend.db.neo4j import Neo4jClient
@@ -17,6 +19,9 @@ from agentic_rag_backend.models.graphs import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Rate limiter instance - key function extracts client IP
+limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
@@ -50,7 +55,9 @@ async def get_neo4j(request: Request) -> Neo4jClient:
     summary="Get knowledge graph data",
     description="Retrieve nodes and edges for graph visualization with optional filtering.",
 )
+@limiter.limit("30/minute")
 async def get_graph(
+    request: Request,
     tenant_id: UUID = Query(..., description="Tenant identifier (required)"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum nodes to return"),
     offset: int = Query(0, ge=0, description="Number of nodes to skip"),
@@ -124,7 +131,9 @@ async def get_graph(
     summary="Get knowledge graph statistics",
     description="Retrieve statistics about the knowledge graph including node/edge counts.",
 )
+@limiter.limit("60/minute")
 async def get_stats(
+    request: Request,
     tenant_id: UUID = Query(..., description="Tenant identifier (required)"),
     neo4j: Neo4jClient = Depends(get_neo4j),
 ) -> dict[str, Any]:
@@ -178,7 +187,9 @@ async def get_stats(
     summary="Get orphan nodes",
     description="Retrieve nodes that have no relationships (orphans).",
 )
+@limiter.limit("30/minute")
 async def get_orphans(
+    request: Request,
     tenant_id: UUID = Query(..., description="Tenant identifier (required)"),
     limit: int = Query(50, ge=1, le=500, description="Maximum orphan nodes to return"),
     neo4j: Neo4jClient = Depends(get_neo4j),

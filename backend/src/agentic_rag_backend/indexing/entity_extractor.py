@@ -91,8 +91,13 @@ class EntityExtractor:
         Args:
             api_key: OpenAI API key
             model: Model ID for extraction (default: gpt-4o)
+
+        Raises:
+            ValueError: If api_key is not provided
         """
-        self.client = AsyncOpenAI(api_key=api_key)
+        if not api_key:
+            raise ValueError("OpenAI API key is required for entity extraction")
+        self.client = AsyncOpenAI(api_key=api_key, timeout=30.0)
         self.model = model
         logger.info("entity_extractor_initialized", model=model)
 

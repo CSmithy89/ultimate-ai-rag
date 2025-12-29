@@ -433,14 +433,12 @@ class IndexerAgent:
                     )
                     entities_created += 1
                 else:
-                    # Update existing entity with new chunk reference
+                    # Add new chunk references to existing entity without overwriting properties
                     for chunk_id_str in entity_to_chunks.get(norm_name, []):
-                        await self.neo4j.create_entity(
+                        await self.neo4j.add_chunk_reference_to_entity(
                             entity_id=entity_id,
                             tenant_id=str(tenant_id),
-                            name=entity.name,
-                            entity_type=entity.type,
-                            source_chunk_id=chunk_id_str,
+                            chunk_id=chunk_id_str,
                         )
                     entities_deduplicated += 1
 
