@@ -121,7 +121,7 @@ class TestAGUIBridgeEventTransformation:
         assert isinstance(state_events[0], StateSnapshotEvent)
         assert "state" in state_events[0].data
         assert "currentStep" in state_events[0].data["state"]
-        assert "thoughts" in state_events[0].data["state"]
+        assert "steps" in state_events[0].data["state"]
 
     @pytest.mark.asyncio
     async def test_process_request_emits_text_message_sequence(
