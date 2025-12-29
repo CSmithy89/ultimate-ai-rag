@@ -87,6 +87,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             model_id=settings.openai_model_id,
             logger=None,
             postgres=getattr(app.state, "postgres", None),
+            neo4j=getattr(app.state, "neo4j", None),
             embedding_model=settings.embedding_model,
         )
     else:
@@ -126,6 +127,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             model_id=settings.openai_model_id,
             logger=app.state.trajectory_logger,
             postgres=getattr(app.state, "postgres", None),
+            neo4j=getattr(app.state, "neo4j", None),
             embedding_model=settings.embedding_model,
         )
 

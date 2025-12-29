@@ -594,6 +594,96 @@ class Neo4jClient:
         except Neo4jDriverError as e:
             raise Neo4jError("get_graph_stats", str(e)) from e
 
+    async def search_entities_by_terms(
+        self,
+        tenant_id: str,
+        terms: list[str],
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """
+        Find entities whose names contain any of the provided terms.
+
+        Args:
+            tenant_id: Tenant identifier
+            terms: Lowercased search terms
+            limit: Maximum number of entities to return
+
+        Returns:
+            List of entity property dictionaries
+        """
+        if not terms:
+            return []
+        try:
+            async with self.driver.session() as session:
+                result = await session.run(
+                    """
+                    MATCH (e:Entity {tenant_id: $tenant_id})
+                    WHERE any(term IN $terms WHERE toLower(e.name) CONTAINS term)
+                    RETURN e
+                    ORDER BY e.name
+                    LIMIT $limit
+                    """,
+                    tenant_id=tenant_id,
+                    terms=terms,
+                    limit=limit,
+                )
+                records = await result.data()
+                return [dict(record["e"]) for record in records if record.get("e")]
+        except Neo4jDriverError as e:
+            raise Neo4jError("search_entities_by_terms", str(e)) from e
+
+    async def traverse_paths(
+        self,
+        tenant_id: str,
+        start_entity_ids: list[str],
+        max_hops: int = 2,
+        limit: int = 10,
+        allowed_relationships: Optional[list[str]] = None,
+    ) -> list[Any]:
+        """
+        Traverse bounded paths from starting entities.
+
+        Args:
+            tenant_id: Tenant identifier
+            start_entity_ids: List of starting entity IDs
+            max_hops: Maximum relationship hops to traverse
+            limit: Maximum number of paths to return
+            allowed_relationships: Allowed relationship types
+
+        Returns:
+            List of Neo4j Path objects
+        """
+        if not start_entity_ids:
+            return []
+        rel_types = allowed_relationships or [
+            "MENTIONS",
+            "AUTHORED_BY",
+            "PART_OF",
+            "USES",
+            "RELATED_TO",
+        ]
+        try:
+            async with self.driver.session() as session:
+                result = await session.run(
+                    """
+                    MATCH p=(start:Entity)-[r*1..$max_hops]-(target:Entity)
+                    WHERE start.id IN $start_ids
+                      AND start.tenant_id = $tenant_id
+                      AND all(n IN nodes(p) WHERE n.tenant_id = $tenant_id)
+                      AND all(rel IN relationships(p) WHERE type(rel) IN $rel_types)
+                    RETURN p
+                    LIMIT $limit
+                    """,
+                    tenant_id=tenant_id,
+                    start_ids=start_entity_ids,
+                    max_hops=max_hops,
+                    rel_types=rel_types,
+                    limit=limit,
+                )
+                records = await result.data()
+                return [record["p"] for record in records if record.get("p")]
+        except Neo4jDriverError as e:
+            raise Neo4jError("traverse_paths", str(e)) from e
 
     # Story 4.4 - Knowledge Graph Visualization Methods
 

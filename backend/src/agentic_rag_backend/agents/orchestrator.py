@@ -7,11 +7,20 @@ import re
 from uuid import UUID
 
 from ..retrieval_router import RetrievalStrategy, select_retrieval_strategy
+from ..db.neo4j import Neo4jClient
 from ..db.postgres import PostgresClient
 from ..indexing.embeddings import DEFAULT_EMBEDDING_MODEL, EmbeddingGenerator
-from ..retrieval import VectorSearchService
-from ..retrieval.types import VectorHit
-from ..schemas import PlanStep, RetrievalEvidence, VectorCitation
+from ..retrieval import GraphTraversalService, VectorSearchService
+from ..retrieval.types import GraphTraversalResult, VectorHit
+from ..schemas import (
+    GraphEdgeEvidence,
+    GraphEvidence,
+    GraphNodeEvidence,
+    GraphPathEvidence,
+    PlanStep,
+    RetrievalEvidence,
+    VectorCitation,
+)
 from ..trajectory import EventType, TrajectoryLogger
 
 try:
@@ -44,11 +53,13 @@ class OrchestratorAgent:
         model_id: str = "gpt-4o-mini",
         logger: TrajectoryLogger | None = None,
         postgres: PostgresClient | None = None,
+        neo4j: Neo4jClient | None = None,
         embedding_model: str = DEFAULT_EMBEDDING_MODEL,
     ) -> None:
         self._agent = None
         self._logger = logger
         self._vector_search: VectorSearchService | None = None
+        self._graph_traversal: GraphTraversalService | None = None
         if Agent and OpenAIChat:
             self._agent = Agent(model=OpenAIChat(api_key=api_key, id=model_id))
         if postgres:
@@ -60,6 +71,8 @@ class OrchestratorAgent:
                 postgres=postgres,
                 embedding_generator=embedding_generator,
             )
+        if neo4j:
+            self._graph_traversal = GraphTraversalService(neo4j=neo4j)
 
     async def run(
         self, query: str, tenant_id: str, session_id: str | None = None
@@ -80,11 +93,14 @@ class OrchestratorAgent:
         logger.debug("Retrieval strategy selected: %s", strategy.value)
 
         vector_hits: list[VectorHit] = []
+        graph_result: GraphTraversalResult | None = None
         if strategy in {RetrievalStrategy.VECTOR, RetrievalStrategy.HYBRID}:
             vector_hits = await self._run_vector_search(query, tenant_id, events, thoughts)
+        if strategy in {RetrievalStrategy.GRAPH, RetrievalStrategy.HYBRID}:
+            graph_result = await self._run_graph_traversal(query, tenant_id, events, thoughts)
 
-        evidence = self._build_evidence(vector_hits)
-        prompt = self._build_prompt(query, vector_hits)
+        evidence = self._build_evidence(vector_hits, graph_result)
+        prompt = self._build_prompt(query, vector_hits, graph_result)
 
         if self._agent:
             response = await asyncio.to_thread(self._agent.run, prompt)
@@ -175,10 +191,17 @@ class OrchestratorAgent:
         events.append((EventType.OBSERVATION, f"Vector hits: {len(hits)}"))
         return hits
 
-    def _build_evidence(self, vector_hits: list[VectorHit]) -> RetrievalEvidence | None:
-        if not vector_hits:
+    def _build_evidence(
+        self,
+        vector_hits: list[VectorHit],
+        graph_result: GraphTraversalResult | None,
+    ) -> RetrievalEvidence | None:
+        if not vector_hits and not graph_result:
             return None
-        return RetrievalEvidence(vector=self._build_vector_citations(vector_hits))
+        return RetrievalEvidence(
+            vector=self._build_vector_citations(vector_hits) if vector_hits else [],
+            graph=self._build_graph_evidence(graph_result),
+        )
 
     def _build_vector_citations(self, vector_hits: list[VectorHit]) -> list[VectorCitation]:
         citations: list[VectorCitation] = []
@@ -208,20 +231,107 @@ class OrchestratorAgent:
             )
         return citations
 
-    def _build_prompt(self, query: str, vector_hits: list[VectorHit]) -> str:
-        if not vector_hits:
+    def _build_prompt(
+        self,
+        query: str,
+        vector_hits: list[VectorHit],
+        graph_result: GraphTraversalResult | None,
+    ) -> str:
+        if not vector_hits and not graph_result:
             return query
-        evidence_lines = []
-        for hit in vector_hits:
-            content = hit.content.strip().replace("\n", " ")
-            if len(content) > 500:
-                content = content[:500].rstrip() + "..."
-            evidence_lines.append(f"[vector:{hit.chunk_id}] {content}")
-        evidence_block = "\n".join(evidence_lines)
-        return (
+        prompt_parts = [
             "Answer the user question using the evidence below. "
-            "Cite sources inline using the bracketed vector IDs.\n\n"
-            f"Question: {query}\n\n"
-            "Vector Evidence:\n"
-            f"{evidence_block}"
+            "Cite sources inline using the bracketed vector IDs or graph entity IDs.",
+            f"Question: {query}",
+        ]
+        if vector_hits:
+            evidence_lines = []
+            for hit in vector_hits:
+                content = hit.content.strip().replace("\n", " ")
+                if len(content) > 500:
+                    content = content[:500].rstrip() + "..."
+                evidence_lines.append(f"[vector:{hit.chunk_id}] {content}")
+            prompt_parts.append("Vector Evidence:")
+            prompt_parts.append("\n".join(evidence_lines))
+        if graph_result and graph_result.paths:
+            explanation = self._build_graph_explanation(graph_result)
+            prompt_parts.append("Graph Evidence:")
+            prompt_parts.append(explanation or "Graph paths available.")
+        return "\n\n".join(prompt_parts)
+
+    async def _run_graph_traversal(
+        self,
+        query: str,
+        tenant_id: str,
+        events: list[tuple[EventType, str]],
+        thoughts: list[str],
+    ) -> GraphTraversalResult | None:
+        if not self._graph_traversal:
+            note = "Graph traversal unavailable; missing Neo4j client."
+            thoughts.append(note)
+            events.append((EventType.OBSERVATION, note))
+            return None
+        events.append((EventType.ACTION, "Run graph relationship traversal"))
+        result = await self._graph_traversal.traverse(query, tenant_id)
+        events.append((EventType.OBSERVATION, f"Graph paths: {len(result.paths)}"))
+        return result
+
+    def _build_graph_evidence(
+        self,
+        graph_result: GraphTraversalResult | None,
+    ) -> GraphEvidence | None:
+        if not graph_result:
+            return None
+        nodes = [
+            GraphNodeEvidence(
+                id=node.id,
+                name=node.name,
+                type=node.type,
+                description=node.description,
+                source_chunks=node.source_chunks or [],
+            )
+            for node in graph_result.nodes
+        ]
+        edges = [
+            GraphEdgeEvidence(
+                source_id=edge.source_id,
+                target_id=edge.target_id,
+                type=edge.type,
+                confidence=edge.confidence,
+                source_chunk=edge.source_chunk,
+            )
+            for edge in graph_result.edges
+        ]
+        paths = [
+            GraphPathEvidence(node_ids=path.node_ids, edge_types=path.edge_types)
+            for path in graph_result.paths
+        ]
+        return GraphEvidence(
+            nodes=nodes,
+            edges=edges,
+            paths=paths,
+            explanation=self._build_graph_explanation(graph_result),
         )
+
+    def _build_graph_explanation(self, graph_result: GraphTraversalResult) -> str | None:
+        if not graph_result.paths or not graph_result.nodes:
+            return None
+        name_map = {node.id: node.name or node.id for node in graph_result.nodes}
+        explanations = []
+        for path in graph_result.paths:
+            segments = []
+            for idx, node_id in enumerate(path.node_ids[:-1]):
+                next_id = path.node_ids[idx + 1]
+                edge_type = (
+                    path.edge_types[idx]
+                    if idx < len(path.edge_types)
+                    else "RELATED_TO"
+                )
+                segments.append(
+                    f"{name_map.get(node_id, node_id)} -[{edge_type}]-> {name_map.get(next_id, next_id)}"
+                )
+            if segments:
+                explanations.append(" ".join(segments))
+        if not explanations:
+            return None
+        return "; ".join(explanations)
