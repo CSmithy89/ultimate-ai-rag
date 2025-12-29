@@ -73,7 +73,7 @@ class GraphitiClient:
         self.uri = uri
         self.user = user
         self.password = password
-        self._openai_api_key = openai_api_key
+        self._openai_api_key: Optional[str] = openai_api_key
         self.embedding_model = embedding_model
         self.llm_model = llm_model
         self._client: Optional[Graphiti] = None
@@ -104,11 +104,18 @@ class GraphitiClient:
         """Establish connection to Neo4j and initialize Graphiti.
 
         Creates the Graphiti instance with configured LLM client,
-        embedder, and custom entity types.
+        embedder, and custom entity types. Clears the API key from
+        memory after successful connection for security.
         """
         if self._connected:
             struct_logger.warning("graphiti_already_connected")
             return
+
+        if self._openai_api_key is None:
+            raise RuntimeError(
+                "Cannot connect: API key already cleared. "
+                "Create a new GraphitiClient instance."
+            )
 
         try:
             # Create OpenAI clients for LLM and embeddings
@@ -120,6 +127,9 @@ class GraphitiClient:
                 api_key=self._openai_api_key,
                 model=self.embedding_model,
             )
+
+            # Clear the API key from memory after passing to clients
+            self._openai_api_key = None
 
             # Initialize Graphiti with custom configuration
             self._client = Graphiti(

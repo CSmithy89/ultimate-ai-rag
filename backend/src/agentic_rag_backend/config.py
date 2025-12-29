@@ -120,6 +120,19 @@ def load_settings() -> Settings:
     except ValueError:
         entity_similarity_threshold = 0.95
 
+    # Epic 5 - Validate backend selections
+    ingestion_backend = os.getenv("INGESTION_BACKEND", "graphiti")
+    if ingestion_backend not in {"graphiti", "legacy"}:
+        raise RuntimeError(
+            f"Invalid INGESTION_BACKEND: {ingestion_backend}. "
+            "Must be 'graphiti' or 'legacy'.")
+
+    retrieval_backend = os.getenv("RETRIEVAL_BACKEND", "graphiti")
+    if retrieval_backend not in {"graphiti", "legacy"}:
+        raise RuntimeError(
+            f"Invalid RETRIEVAL_BACKEND: {retrieval_backend}. "
+            "Must be 'graphiti' or 'legacy'.")
+
     required = [
         "OPENAI_API_KEY",
         "DATABASE_URL",
@@ -169,8 +182,8 @@ def load_settings() -> Settings:
         # Epic 5 - Graphiti settings
         graphiti_embedding_model=os.getenv("GRAPHITI_EMBEDDING_MODEL", "text-embedding-3-small"),
         graphiti_llm_model=os.getenv("GRAPHITI_LLM_MODEL", "gpt-4o-mini"),
-        ingestion_backend=os.getenv("INGESTION_BACKEND", "graphiti"),
-        retrieval_backend=os.getenv("RETRIEVAL_BACKEND", "graphiti"),
+        ingestion_backend=ingestion_backend,
+        retrieval_backend=retrieval_backend,
     )
 
 
