@@ -54,7 +54,7 @@ development_status:
   2-2-multi-step-query-planning: done
   2-3-dynamic-retrieval-method-selection: done
   2-4-persistent-trajectory-logging: done
-  epic-2-retrospective: optional
+  epic-2-retrospective: done
 
   # Epic 3: Hybrid Knowledge Retrieval
   epic-3: backlog
