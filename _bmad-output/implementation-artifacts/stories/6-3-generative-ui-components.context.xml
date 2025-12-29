@@ -1,0 +1,2097 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <story-summary>
+    <![CDATA[
+    Story 6-3 implements Generative UI Components - dynamic, interactive UI elements rendered
+    within the chat interface based on agent decisions. The AI agent can trigger specialized
+    visualizations for sources, formatted answers, and knowledge graph previews.
+
+    Key deliverables:
+    - SourceCard component: Citation display with source type icons, confidence badges, and metadata
+    - AnswerPanel component: Markdown-rendered responses with collapsible source references
+    - GraphPreview component: Compact React Flow visualization of entity relationships
+    - useGenerativeUI hook: Registers CopilotKit actions for rendering dynamic components
+    - GenerativeUIRenderer component: Initializes generative UI handlers within ChatSidebar
+    - Backend helper functions: AG-UI events for triggering frontend renders
+
+    This builds directly on Story 6-2's ChatSidebar and integrates with the existing
+    KnowledgeGraph visualization patterns from Story 4.4.
+    ]]>
+  </story-summary>
+
+  <dependencies>
+    <story-6-1-artifacts>
+      <![CDATA[
+      Story 6-1 (DONE) established the foundational CopilotKit integration:
+
+      FILES CREATED:
+      - frontend/components/copilot/CopilotProvider.tsx - Root CopilotKit wrapper
+      - frontend/app/api/copilotkit/route.ts - Next.js API route for runtime
+      - frontend/types/copilot.ts - TypeScript types (Source, ThoughtStep, AgentState)
+      - backend/src/agentic_rag_backend/api/routes/copilot.py - FastAPI SSE endpoint
+      - backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py - AG-UI protocol handler
+      - backend/src/agentic_rag_backend/models/copilot.py - Pydantic event models
+
+      FILES MODIFIED:
+      - frontend/app/layout.tsx - Wrapped with CopilotProvider
+      - frontend/package.json - CopilotKit packages at ^1.50.1, reactflow ^11.11.4
+
+      KEY PATTERNS ESTABLISHED:
+      - SSE event streaming: RUN_STARTED -> STATE_SNAPSHOT -> TEXT_MESSAGE_* -> RUN_FINISHED
+      - tenant_id required in request config (multi-tenancy)
+      - Rate limiting on copilot endpoint
+      - Generic error messages returned to client
+      ]]>
+    </story-6-1-artifacts>
+
+    <story-6-2-artifacts>
+      <![CDATA[
+      Story 6-2 (DONE) established the Chat Sidebar Interface:
+
+      FILES CREATED:
+      - frontend/components/copilot/ChatSidebar.tsx - Main chat interface
+      - frontend/components/copilot/ThoughtTraceStepper.tsx - Agent progress indicator
+      - frontend/components/copilot/CopilotErrorBoundary.tsx - Error handling
+      - frontend/hooks/use-thought-trace.ts - Thought trace state management
+
+      KEY PATTERNS ESTABLISHED:
+      - useCoAgentStateRender for agent state rendering
+      - Design system colors (Indigo-600, Emerald-500, Slate)
+      - Typography (Inter for body, JetBrains Mono for traces)
+      - Component memoization for performance
+      ]]>
+    </story-6-2-artifacts>
+
+    <existing-copilot-provider>
+      <![CDATA[
+      // frontend/components/copilot/CopilotProvider.tsx (EXISTING)
+      "use client";
+
+      import { CopilotKit } from "@copilotkit/react-core";
+      import "@copilotkit/react-ui/styles.css";
+      import { ReactNode } from "react";
+
+      interface CopilotProviderProps {
+        children: ReactNode;
+      }
+
+      export function CopilotProvider({ children }: CopilotProviderProps) {
+        return (
+          <CopilotKit runtimeUrl="/api/copilotkit">
+            {children}
+          </CopilotKit>
+        );
+      }
+      ]]>
+    </existing-copilot-provider>
+
+    <existing-chat-sidebar>
+      <![CDATA[
+      // frontend/components/copilot/ChatSidebar.tsx (EXISTING - TO BE MODIFIED)
+      "use client";
+
+      import { CopilotSidebar } from "@copilotkit/react-ui";
+      import "@copilotkit/react-ui/styles.css";
+      import { ThoughtTraceStepper } from "./ThoughtTraceStepper";
+      import { CopilotErrorBoundary } from "./CopilotErrorBoundary";
+
+      /**
+       * ChatSidebar component wrapping CopilotKit's CopilotSidebar
+       * with custom styling following the project's design system.
+       *
+       * Story 6-2: Chat Sidebar Interface
+       *
+       * Design System:
+       * - Primary (Indigo-600): #4F46E5
+       * - Secondary (Emerald-500): #10B981
+       * - Neutral: Slate colors
+       */
+      export function ChatSidebar() {
+        return (
+          <CopilotErrorBoundary>
+            <CopilotSidebar
+              defaultOpen={true}
+              labels={{
+                title: "AI Copilot",
+                initial: "How can I help you today?",
+              }}
+              className="copilot-sidebar"
+            >
+              <ThoughtTraceStepper />
+            </CopilotSidebar>
+          </CopilotErrorBoundary>
+        );
+      }
+      ]]>
+    </existing-chat-sidebar>
+
+    <existing-types>
+      <![CDATA[
+      // frontend/types/copilot.ts (EXISTING - TO BE EXTENDED)
+      import { z } from 'zod';
+
+      /**
+       * Source retrieved during RAG retrieval.
+       */
+      export interface Source {
+        id: string;
+        title: string;
+        preview: string;
+        similarity: number;
+        metadata?: Record<string, unknown>;
+        isApproved?: boolean;
+      }
+
+      /**
+       * A step in the agent's thought process.
+       */
+      export interface ThoughtStep {
+        step: string;
+        status: "pending" | "in_progress" | "completed";
+        timestamp?: string;
+        details?: string;
+      }
+
+      /**
+       * Current state of the AI agent.
+       */
+      export interface AgentState {
+        currentStep: string;
+        thoughts: ThoughtStep[];
+        retrievedSources: Source[];
+        validatedSources: Source[];
+        answer: string | null;
+        trajectoryId: string | null;
+      }
+
+      // Zod schemas
+      export const SourceSchema = z.object({
+        id: z.string(),
+        title: z.string(),
+        preview: z.string(),
+        similarity: z.number().min(0).max(1),
+        metadata: z.record(z.string(), z.unknown()).optional(),
+        isApproved: z.boolean().optional(),
+      });
+
+      export const ThoughtStepSchema = z.object({
+        step: z.string(),
+        status: z.enum(["pending", "in_progress", "completed"]),
+        timestamp: z.string().optional(),
+        details: z.string().optional(),
+      });
+      ]]>
+    </existing-types>
+
+    <existing-backend-models>
+      <![CDATA[
+      // backend/src/agentic_rag_backend/models/copilot.py (EXISTING - TO BE EXTENDED)
+      """Pydantic models for CopilotKit AG-UI protocol."""
+
+      from enum import Enum
+      from typing import Any, Optional
+      from pydantic import BaseModel, Field
+
+
+      class AGUIEventType(str, Enum):
+          """AG-UI event types."""
+          RUN_STARTED = "RUN_STARTED"
+          RUN_FINISHED = "RUN_FINISHED"
+          TEXT_MESSAGE_START = "TEXT_MESSAGE_START"
+          TEXT_MESSAGE_CONTENT = "TEXT_MESSAGE_CONTENT"
+          TEXT_MESSAGE_END = "TEXT_MESSAGE_END"
+          TOOL_CALL_START = "TOOL_CALL_START"
+          TOOL_CALL_ARGS = "TOOL_CALL_ARGS"
+          TOOL_CALL_END = "TOOL_CALL_END"
+          TOOL_CALL_RESULT = "TOOL_CALL_RESULT"
+          STATE_SNAPSHOT = "STATE_SNAPSHOT"
+          ACTION_REQUEST = "ACTION_REQUEST"
+
+
+      class AGUIEvent(BaseModel):
+          """Base AG-UI event."""
+          event: AGUIEventType
+          data: dict[str, Any] = Field(default_factory=dict)
+
+
+      class ToolCallEvent(AGUIEvent):
+          """Event for tool invocations."""
+          event: AGUIEventType = AGUIEventType.TOOL_CALL_START
+
+          def __init__(self, tool_name: str, args: dict[str, Any], **kwargs: Any) -> None:
+              super().__init__(
+                  data={"tool_name": tool_name, "args": args},
+                  **kwargs
+              )
+      ]]>
+    </existing-backend-models>
+
+    <existing-graph-types>
+      <![CDATA[
+      // frontend/types/graphs.ts (EXISTING - reference for entity colors)
+      export type EntityType = 'Person' | 'Organization' | 'Technology' | 'Concept' | 'Location';
+
+      // Color scheme for entity types
+      export const entityColors: Record<EntityType | 'orphan', string> = {
+        Person: '#3B82F6',        // Blue-500
+        Organization: '#10B981',   // Emerald-500
+        Technology: '#6366F1',     // Indigo-500
+        Concept: '#8B5CF6',        // Violet-500
+        Location: '#F59E0B',       // Amber-500
+        orphan: '#F97316',         // Orange-500 (warning)
+      };
+      ]]>
+    </existing-graph-types>
+
+    <existing-utils>
+      <![CDATA[
+      // frontend/lib/utils.ts (EXISTING)
+      import { clsx, type ClassValue } from "clsx";
+      import { twMerge } from "tailwind-merge";
+
+      /**
+       * Utility function for merging Tailwind CSS classes.
+       */
+      export function cn(...inputs: ClassValue[]): string {
+        return twMerge(clsx(inputs));
+      }
+      ]]>
+    </existing-utils>
+  </dependencies>
+
+  <acceptance-criteria>
+    <![CDATA[
+    - Given the agent determines a visualization would help
+    - When it sends a Generative UI payload via AG-UI protocol
+    - Then the frontend dynamically renders the appropriate component
+    - And SourceCard displays citation information with source type, title, snippet, and confidence
+    - And AnswerPanel renders formatted responses with markdown support and source references
+    - And GraphPreview shows entity relationships using React Flow in a compact visualization
+    - And components are interactive (clickable, hoverable, expandable)
+    - And the UX follows the "Professional Forge" design direction (Indigo-600, Slate, Emerald-500)
+    - And all components use shadcn/ui patterns and Tailwind styling
+    ]]>
+  </acceptance-criteria>
+
+  <technical-approach>
+    <step-1>
+      <title>Create SourceCard Component</title>
+      <file>frontend/components/copilot/components/SourceCard.tsx</file>
+      <implementation>
+        <![CDATA[
+"use client";
+
+import { memo } from "react";
+import { cn } from "@/lib/utils";
+import {
+  FileText,
+  Globe,
+  Database,
+  BookOpen,
+  ExternalLink,
+  CheckCircle2,
+} from "lucide-react";
+import type { Source } from "@/types/copilot";
+
+/**
+ * Source type to icon mapping.
+ */
+const sourceTypeIcons: Record<string, React.ElementType> = {
+  document: FileText,
+  web: Globe,
+  database: Database,
+  knowledge_graph: BookOpen,
+  default: FileText,
+};
+
+/**
+ * Get confidence level color based on similarity score.
+ */
+function getConfidenceColor(similarity: number): string {
+  if (similarity >= 0.9) return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (similarity >= 0.7) return "bg-indigo-100 text-indigo-800 border-indigo-200";
+  if (similarity >= 0.5) return "bg-amber-100 text-amber-800 border-amber-200";
+  return "bg-slate-100 text-slate-800 border-slate-200";
+}
+
+interface SourceCardProps {
+  source: Source;
+  index?: number;
+  onClick?: (source: Source) => void;
+  isHighlighted?: boolean;
+  showApprovalStatus?: boolean;
+}
+
+/**
+ * SourceCard displays citation information for a retrieved source.
+ * Used in Generative UI to show sources referenced in AI responses.
+ *
+ * Story 6-3: Generative UI Components
+ */
+export const SourceCard = memo(function SourceCard({
+  source,
+  index,
+  onClick,
+  isHighlighted = false,
+  showApprovalStatus = false,
+}: SourceCardProps) {
+  const sourceType = (source.metadata?.type as string) || "default";
+  const IconComponent = sourceTypeIcons[sourceType] || sourceTypeIcons.default;
+  const confidencePercent = Math.round(source.similarity * 100);
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className={cn(
+        "cursor-pointer transition-all duration-200 hover:shadow-md",
+        "border border-slate-200 hover:border-indigo-300 rounded-lg",
+        "bg-white p-3",
+        isHighlighted && "ring-2 ring-indigo-500 ring-offset-2",
+        onClick && "hover:bg-slate-50"
+      )}
+      onClick={() => onClick?.(source)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick?.(source);
+        }
+      }}
+      aria-label={`Source: ${source.title}, confidence ${confidencePercent}%`}
+    >
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2 min-w-0">
+          {index !== undefined && (
+            <span className="flex-shrink-0 w-5 h-5 rounded-full bg-indigo-600 text-white text-xs font-medium flex items-center justify-center">
+              {index + 1}
+            </span>
+          )}
+          <IconComponent className="h-4 w-4 text-slate-500 flex-shrink-0" aria-hidden="true" />
+          <h4 className="text-sm font-medium text-slate-900 truncate">
+            {source.title}
+          </h4>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {showApprovalStatus && source.isApproved && (
+            <CheckCircle2 className="h-4 w-4 text-emerald-500" aria-label="Approved" />
+          )}
+          <span
+            className={cn(
+              "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-mono border",
+              getConfidenceColor(source.similarity)
+            )}
+          >
+            {confidencePercent}%
+          </span>
+        </div>
+      </div>
+
+      {/* Preview text */}
+      <p className="text-sm text-slate-600 line-clamp-2">{source.preview}</p>
+
+      {/* External link */}
+      {source.metadata?.url && (
+        <a
+          href={source.metadata.url as string}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 mt-2 text-xs text-indigo-600 hover:text-indigo-800"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <ExternalLink className="h-3 w-3" aria-hidden="true" />
+          View source
+        </a>
+      )}
+    </div>
+  );
+});
+
+export default SourceCard;
+        ]]>
+      </implementation>
+      <key-points>
+        <![CDATA[
+        - Memoized component for performance in lists
+        - Source type icons for visual differentiation (document, web, database, knowledge_graph)
+        - Confidence badge with color-coded severity (Emerald >= 90%, Indigo >= 70%, Amber >= 50%, Slate < 50%)
+        - Truncated title and 2-line snippet preview using line-clamp-2
+        - Optional approval status indicator for HITL integration (Story 6-4)
+        - External link support for source URLs
+        - Keyboard accessible (Enter/Space to click)
+        - ARIA labels for screen readers
+        ]]>
+      </key-points>
+    </step-1>
+
+    <step-2>
+      <title>Create AnswerPanel Component</title>
+      <file>frontend/components/copilot/components/AnswerPanel.tsx</file>
+      <implementation>
+        <![CDATA[
+"use client";
+
+import { memo, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { cn } from "@/lib/utils";
+import { Sparkles, Copy, Check, ChevronDown, ChevronUp } from "lucide-react";
+import { SourceCard } from "./SourceCard";
+import type { Source } from "@/types/copilot";
+
+interface AnswerPanelProps {
+  answer: string;
+  sources?: Source[];
+  title?: string;
+  isStreaming?: boolean;
+  showSources?: boolean;
+  onSourceClick?: (source: Source) => void;
+  className?: string;
+}
+
+/**
+ * AnswerPanel renders a formatted AI response with markdown support
+ * and collapsible source references.
+ *
+ * Story 6-3: Generative UI Components
+ */
+export const AnswerPanel = memo(function AnswerPanel({
+  answer,
+  sources = [],
+  title = "Answer",
+  isStreaming = false,
+  showSources = true,
+  onSourceClick,
+  className,
+}: AnswerPanelProps) {
+  const [copied, setCopied] = useState(false);
+  const [sourcesExpanded, setSourcesExpanded] = useState(false);
+
+  // Extract inline source references like [1], [2] from the answer
+  const sourceReferences = useMemo(() => {
+    const matches = answer.match(/\[(\d+)\]/g);
+    if (!matches) return [];
+    return [...new Set(matches.map((m) => parseInt(m.slice(1, -1), 10) - 1))];
+  }, [answer]);
+
+  const referencedSources = useMemo(() => {
+    return sourceReferences
+      .filter((idx) => idx >= 0 && idx < sources.length)
+      .map((idx) => sources[idx]);
+  }, [sourceReferences, sources]);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(answer);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className={cn("border border-slate-200 rounded-lg bg-white", className)}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 pt-4 pb-2">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-indigo-600" aria-hidden="true" />
+          <h3 className="text-sm font-semibold text-slate-900">
+            {title}
+          </h3>
+          {isStreaming && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800 animate-pulse">
+              Generating...
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="p-1.5 rounded-md hover:bg-slate-100 transition-colors"
+          aria-label={copied ? "Copied to clipboard" : "Copy answer to clipboard"}
+        >
+          {copied ? (
+            <Check className="h-4 w-4 text-emerald-500" aria-hidden="true" />
+          ) : (
+            <Copy className="h-4 w-4 text-slate-500" aria-hidden="true" />
+          )}
+        </button>
+      </div>
+
+      {/* Markdown content */}
+      <div className="px-4 pb-4">
+        <div className="prose prose-sm prose-slate max-w-none">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              a: ({ href, children, ...props }) => (
+                <a
+                  href={href}
+                  className="text-indigo-600 hover:text-indigo-800 no-underline hover:underline"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  {...props}
+                >
+                  {children}
+                </a>
+              ),
+              code: ({ className, children, ...props }) => {
+                const isInline = !className;
+                return isInline ? (
+                  <code
+                    className="px-1 py-0.5 rounded bg-slate-100 text-slate-800 font-mono text-xs"
+                    {...props}
+                  >
+                    {children}
+                  </code>
+                ) : (
+                  <code
+                    className={cn("font-mono text-sm", className)}
+                    {...props}
+                  >
+                    {children}
+                  </code>
+                );
+              },
+              pre: ({ children, ...props }) => (
+                <pre
+                  className="bg-slate-900 text-slate-100 rounded-lg p-4 overflow-x-auto"
+                  {...props}
+                >
+                  {children}
+                </pre>
+              ),
+            }}
+          >
+            {answer}
+          </ReactMarkdown>
+        </div>
+
+        {/* Source references section */}
+        {showSources && referencedSources.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setSourcesExpanded(!sourcesExpanded)}
+              className="flex items-center gap-2 text-sm font-medium text-slate-700 hover:text-slate-900"
+              aria-expanded={sourcesExpanded}
+            >
+              {sourcesExpanded ? (
+                <ChevronUp className="h-4 w-4" aria-hidden="true" />
+              ) : (
+                <ChevronDown className="h-4 w-4" aria-hidden="true" />
+              )}
+              Sources ({referencedSources.length})
+            </button>
+            {sourcesExpanded && (
+              <div className="mt-3 space-y-2">
+                {referencedSources.map((source, idx) => (
+                  <SourceCard
+                    key={source.id}
+                    source={source}
+                    index={sourceReferences[idx]}
+                    onClick={onSourceClick}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+
+export default AnswerPanel;
+        ]]>
+      </implementation>
+      <key-points>
+        <![CDATA[
+        - Markdown rendering with remark-gfm for GitHub-flavored markdown (tables, strikethrough, etc.)
+        - Custom styled code blocks with syntax highlighting support
+        - Copy to clipboard functionality with visual feedback
+        - Streaming indicator for in-progress responses
+        - Collapsible source references section
+        - Automatic extraction of inline source citations like [1], [2]
+        - Uses SourceCard for displaying referenced sources
+        - Accessible with proper ARIA attributes
+        ]]>
+      </key-points>
+    </step-2>
+
+    <step-3>
+      <title>Create GraphPreview Component</title>
+      <file>frontend/components/copilot/components/GraphPreview.tsx</file>
+      <implementation>
+        <![CDATA[
+"use client";
+
+import { memo, useMemo, useCallback } from "react";
+import ReactFlow, {
+  Background,
+  Controls,
+  useNodesState,
+  useEdgesState,
+  type Node,
+  type Edge,
+  type NodeTypes,
+  MarkerType,
+  Position,
+} from "reactflow";
+import "reactflow/dist/style.css";
+import { cn } from "@/lib/utils";
+import { Maximize2 } from "lucide-react";
+
+/**
+ * Graph node from AG-UI payload.
+ */
+export interface GraphPreviewNode {
+  id: string;
+  label: string;
+  type?: string;
+  properties?: Record<string, unknown>;
+}
+
+/**
+ * Graph edge from AG-UI payload.
+ */
+export interface GraphPreviewEdge {
+  id: string;
+  source: string;
+  target: string;
+  label?: string;
+  type?: string;
+}
+
+interface GraphPreviewProps {
+  nodes: GraphPreviewNode[];
+  edges: GraphPreviewEdge[];
+  title?: string;
+  onExpand?: () => void;
+  onNodeClick?: (node: GraphPreviewNode) => void;
+  className?: string;
+  height?: number;
+}
+
+/**
+ * Entity type to color mapping for nodes.
+ * Matches existing entityColors from types/graphs.ts
+ */
+const entityColors: Record<string, string> = {
+  Person: "#3B82F6",       // Blue-500
+  Organization: "#10B981",  // Emerald-500
+  Technology: "#6366F1",    // Indigo-500
+  Concept: "#8B5CF6",       // Violet-500
+  Location: "#F59E0B",      // Amber-500
+  Document: "#059669",      // Emerald-600
+  Event: "#D97706",         // Amber-600
+  default: "#6B7280",       // Slate-500
+};
+
+/**
+ * Custom node component for the graph preview.
+ */
+function PreviewNode({ data }: { data: { label: string; entityType?: string } }) {
+  const color = entityColors[data.entityType || "default"] || entityColors.default;
+
+  return (
+    <div
+      className="px-3 py-2 rounded-lg shadow-sm border-2 text-white text-xs font-medium max-w-[120px] truncate"
+      style={{ backgroundColor: color, borderColor: color }}
+      title={data.label}
+    >
+      {data.label}
+    </div>
+  );
+}
+
+const nodeTypes: NodeTypes = {
+  preview: PreviewNode,
+};
+
+/**
+ * Transform API nodes to React Flow format with circular layout.
+ */
+function transformNodes(nodes: GraphPreviewNode[]): Node[] {
+  const centerX = 150;
+  const centerY = 100;
+  const radius = 80;
+
+  // If only one node, place it in center
+  if (nodes.length === 1) {
+    return [
+      {
+        id: nodes[0].id,
+        type: "preview",
+        position: { x: centerX, y: centerY },
+        data: { label: nodes[0].label, entityType: nodes[0].type },
+      },
+    ];
+  }
+
+  // Place first node in center, others in a circle around it
+  return nodes.map((node, index) => {
+    if (index === 0) {
+      return {
+        id: node.id,
+        type: "preview",
+        position: { x: centerX, y: centerY },
+        data: { label: node.label, entityType: node.type },
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
+      };
+    }
+
+    const angle = ((index - 1) * 2 * Math.PI) / (nodes.length - 1);
+    return {
+      id: node.id,
+      type: "preview",
+      position: {
+        x: centerX + radius * Math.cos(angle),
+        y: centerY + radius * Math.sin(angle),
+      },
+      data: { label: node.label, entityType: node.type },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+    };
+  });
+}
+
+/**
+ * Transform API edges to React Flow format.
+ */
+function transformEdges(edges: GraphPreviewEdge[]): Edge[] {
+  return edges.map((edge) => ({
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    label: edge.label,
+    type: "smoothstep",
+    animated: true,
+    style: { stroke: "#94A3B8" }, // Slate-400
+    labelStyle: { fontSize: 10, fill: "#64748B" }, // Slate-500
+    markerEnd: {
+      type: MarkerType.ArrowClosed,
+      width: 15,
+      height: 15,
+      color: "#94A3B8",
+    },
+  }));
+}
+
+/**
+ * GraphPreview displays a mini knowledge graph visualization
+ * within the chat flow using React Flow.
+ *
+ * Story 6-3: Generative UI Components
+ */
+export const GraphPreview = memo(function GraphPreview({
+  nodes: apiNodes,
+  edges: apiEdges,
+  title = "Knowledge Graph",
+  onExpand,
+  onNodeClick,
+  className,
+  height = 200,
+}: GraphPreviewProps) {
+  // Transform data to React Flow format
+  const flowNodes = useMemo(() => transformNodes(apiNodes), [apiNodes]);
+  const flowEdges = useMemo(() => transformEdges(apiEdges), [apiEdges]);
+
+  const [nodes, , onNodesChange] = useNodesState(flowNodes);
+  const [edges, , onEdgesChange] = useEdgesState(flowEdges);
+
+  // Handle node click
+  const handleNodeClick = useCallback(
+    (_event: React.MouseEvent, node: Node) => {
+      if (onNodeClick) {
+        const apiNode = apiNodes.find((n) => n.id === node.id);
+        if (apiNode) {
+          onNodeClick(apiNode);
+        }
+      }
+    },
+    [apiNodes, onNodeClick]
+  );
+
+  return (
+    <div className={cn("border border-slate-200 rounded-lg bg-white overflow-hidden", className)}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100">
+        <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+          <span className="inline-block w-2 h-2 rounded-full bg-indigo-600" aria-hidden="true" />
+          {title}
+        </h3>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">
+            {apiNodes.length} nodes, {apiEdges.length} edges
+          </span>
+          {onExpand && (
+            <button
+              type="button"
+              onClick={onExpand}
+              className="p-1 rounded-md hover:bg-slate-100 transition-colors"
+              aria-label="Expand graph to full view"
+            >
+              <Maximize2 className="h-4 w-4 text-slate-500" aria-hidden="true" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Graph visualization */}
+      <div style={{ height }}>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onNodeClick={handleNodeClick}
+          nodeTypes={nodeTypes}
+          fitView
+          fitViewOptions={{ padding: 0.3, maxZoom: 1.5 }}
+          zoomOnScroll={false}
+          panOnDrag={false}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          proOptions={{ hideAttribution: true }}
+          className="bg-slate-50"
+        >
+          <Controls
+            showInteractive={false}
+            className="bg-white border border-slate-200 rounded shadow-sm"
+          />
+          <Background color="#E2E8F0" gap={12} size={1} />
+        </ReactFlow>
+      </div>
+    </div>
+  );
+});
+
+export default GraphPreview;
+        ]]>
+      </implementation>
+      <key-points>
+        <![CDATA[
+        - Compact React Flow visualization within a Card
+        - Circular layout with center node for focused entity
+        - Entity type color coding matching existing KnowledgeGraph component
+        - Animated edges for visual interest
+        - Minimal controls (no pan/drag in preview mode for focused experience)
+        - Expand button for triggering full-screen view modal
+        - Node/edge count indicator
+        - Memoized for performance
+        - Uses existing reactflow package (^11.11.4)
+        ]]>
+      </key-points>
+    </step-3>
+
+    <step-4>
+      <title>Create useGenerativeUI Hook</title>
+      <file>frontend/hooks/use-generative-ui.ts</file>
+      <implementation>
+        <![CDATA[
+"use client";
+
+import { useCopilotAction, useCoAgentStateRender } from "@copilotkit/react-core";
+import { useCallback, useState } from "react";
+import { SourceCard } from "@/components/copilot/components/SourceCard";
+import { AnswerPanel } from "@/components/copilot/components/AnswerPanel";
+import { GraphPreview, type GraphPreviewNode, type GraphPreviewEdge } from "@/components/copilot/components/GraphPreview";
+import type { Source } from "@/types/copilot";
+
+/**
+ * Parameters for the show_sources action.
+ */
+interface ShowSourcesParams {
+  sources: Source[];
+  title?: string;
+}
+
+/**
+ * Parameters for the show_answer action.
+ */
+interface ShowAnswerParams {
+  answer: string;
+  sources?: Source[];
+  title?: string;
+}
+
+/**
+ * Parameters for the show_knowledge_graph action.
+ */
+interface ShowKnowledgeGraphParams {
+  nodes: GraphPreviewNode[];
+  edges: GraphPreviewEdge[];
+  title?: string;
+}
+
+/**
+ * State for generative UI components.
+ */
+interface GenerativeUIState {
+  sources: Source[];
+  answer: string | null;
+  graphData: { nodes: GraphPreviewNode[]; edges: GraphPreviewEdge[] } | null;
+}
+
+/**
+ * Options for the useGenerativeUI hook.
+ */
+interface UseGenerativeUIOptions {
+  onSourceClick?: (source: Source) => void;
+  onGraphNodeClick?: (node: GraphPreviewNode) => void;
+  onGraphExpand?: () => void;
+}
+
+/**
+ * useGenerativeUI hook registers CopilotKit actions for rendering
+ * generative UI components within the chat flow.
+ *
+ * Story 6-3: Generative UI Components
+ *
+ * @example
+ * ```tsx
+ * function ChatWithGenerativeUI() {
+ *   useGenerativeUI({
+ *     onSourceClick: (source) => console.log("Clicked source:", source),
+ *     onGraphExpand: () => openFullGraphModal(),
+ *   });
+ *
+ *   return <ChatSidebar />;
+ * }
+ * ```
+ */
+export function useGenerativeUI(options: UseGenerativeUIOptions = {}) {
+  const { onSourceClick, onGraphNodeClick, onGraphExpand } = options;
+  const [state, setState] = useState<GenerativeUIState>({
+    sources: [],
+    answer: null,
+    graphData: null,
+  });
+
+  // Register action to show source citations
+  useCopilotAction({
+    name: "show_sources",
+    description: "Display retrieved sources as citation cards",
+    parameters: [
+      {
+        name: "sources",
+        type: "object[]",
+        description: "Array of source objects with id, title, preview, similarity",
+        required: true,
+      },
+      {
+        name: "title",
+        type: "string",
+        description: "Optional title for the sources section",
+        required: false,
+      },
+    ],
+    render: ({ status, args }) => {
+      const { sources, title } = args as ShowSourcesParams;
+
+      if (status === "executing" || status === "complete") {
+        return (
+          <div className="space-y-2 my-2">
+            {title && (
+              <h4 className="text-sm font-medium text-slate-700">{title}</h4>
+            )}
+            {sources?.map((source: Source, idx: number) => (
+              <SourceCard
+                key={source.id}
+                source={source}
+                index={idx}
+                onClick={onSourceClick}
+              />
+            ))}
+          </div>
+        );
+      }
+
+      return null;
+    },
+  });
+
+  // Register action to show formatted answer
+  useCopilotAction({
+    name: "show_answer",
+    description: "Display a formatted answer with markdown and source references",
+    parameters: [
+      {
+        name: "answer",
+        type: "string",
+        description: "The answer text with optional markdown formatting",
+        required: true,
+      },
+      {
+        name: "sources",
+        type: "object[]",
+        description: "Optional sources referenced in the answer",
+        required: false,
+      },
+      {
+        name: "title",
+        type: "string",
+        description: "Optional title for the answer panel",
+        required: false,
+      },
+    ],
+    render: ({ status, args }) => {
+      const { answer, sources, title } = args as ShowAnswerParams;
+
+      return (
+        <AnswerPanel
+          answer={answer || ""}
+          sources={sources}
+          title={title}
+          isStreaming={status === "executing"}
+          onSourceClick={onSourceClick}
+          className="my-2"
+        />
+      );
+    },
+  });
+
+  // Register action to show knowledge graph preview
+  useCopilotAction({
+    name: "show_knowledge_graph",
+    description: "Display a mini knowledge graph visualization",
+    parameters: [
+      {
+        name: "nodes",
+        type: "object[]",
+        description: "Graph nodes with id, label, and optional type",
+        required: true,
+      },
+      {
+        name: "edges",
+        type: "object[]",
+        description: "Graph edges with id, source, target, and optional label",
+        required: true,
+      },
+      {
+        name: "title",
+        type: "string",
+        description: "Optional title for the graph",
+        required: false,
+      },
+    ],
+    render: ({ status, args }) => {
+      const { nodes, edges, title } = args as ShowKnowledgeGraphParams;
+
+      if (status === "executing" || status === "complete") {
+        return (
+          <GraphPreview
+            nodes={nodes || []}
+            edges={edges || []}
+            title={title}
+            onNodeClick={onGraphNodeClick}
+            onExpand={onGraphExpand}
+            className="my-2"
+          />
+        );
+      }
+
+      return null;
+    },
+  });
+
+  // Register state renderer for agent state updates
+  useCoAgentStateRender<{ generativeUI?: GenerativeUIState }>({
+    name: "orchestrator",
+    render: ({ state: agentState }) => {
+      if (agentState?.generativeUI) {
+        // Update local state with agent state
+        setState(agentState.generativeUI);
+      }
+      return null;
+    },
+  });
+
+  return {
+    state,
+    setState,
+  };
+}
+
+export type { GenerativeUIState, UseGenerativeUIOptions, GraphPreviewNode, GraphPreviewEdge };
+        ]]>
+      </implementation>
+      <key-points>
+        <![CDATA[
+        - Registers three CopilotKit actions: show_sources, show_answer, show_knowledge_graph
+        - Each action has a render function that displays the appropriate component
+        - Uses useCoAgentStateRender to sync with backend agent state
+        - Provides callbacks for source clicks, graph node clicks, and expand actions
+        - Status-aware rendering (executing vs complete)
+        - Exports types for use in other components
+        ]]>
+      </key-points>
+    </step-4>
+
+    <step-5>
+      <title>Create GenerativeUIRenderer Component</title>
+      <file>frontend/components/copilot/GenerativeUIRenderer.tsx</file>
+      <implementation>
+        <![CDATA[
+"use client";
+
+import { useGenerativeUI, type GraphPreviewNode } from "@/hooks/use-generative-ui";
+import type { Source } from "@/types/copilot";
+
+interface GenerativeUIRendererProps {
+  onSourceClick?: (source: Source) => void;
+  onGraphNodeClick?: (node: GraphPreviewNode) => void;
+  onGraphExpand?: () => void;
+}
+
+/**
+ * GenerativeUIRenderer initializes the generative UI action handlers
+ * for rendering dynamic components within the chat flow.
+ *
+ * Include this component within your CopilotKit context to enable
+ * generative UI capabilities.
+ *
+ * Story 6-3: Generative UI Components
+ *
+ * @example
+ * ```tsx
+ * <CopilotSidebar>
+ *   <GenerativeUIRenderer
+ *     onSourceClick={(source) => openSourceModal(source)}
+ *     onGraphExpand={() => openGraphModal()}
+ *   />
+ * </CopilotSidebar>
+ * ```
+ */
+export function GenerativeUIRenderer({
+  onSourceClick,
+  onGraphNodeClick,
+  onGraphExpand,
+}: GenerativeUIRendererProps) {
+  // Initialize generative UI hooks
+  useGenerativeUI({
+    onSourceClick,
+    onGraphNodeClick,
+    onGraphExpand,
+  });
+
+  // This component doesn't render anything itself;
+  // it just registers the action handlers
+  return null;
+}
+
+export default GenerativeUIRenderer;
+        ]]>
+      </implementation>
+      <key-points>
+        <![CDATA[
+        - Wrapper component that initializes useGenerativeUI hook
+        - Renders null - only registers action handlers
+        - Accepts callback props for handling user interactions
+        - Must be placed within CopilotKit context (CopilotSidebar children)
+        ]]>
+      </key-points>
+    </step-5>
+
+    <step-6>
+      <title>Update Types with Generative UI Schemas</title>
+      <file>frontend/types/copilot.ts</file>
+      <changes>
+        <![CDATA[
+        Add the following to the existing frontend/types/copilot.ts file:
+
+        // ============================================
+        // GENERATIVE UI TYPES - Story 6-3
+        // ============================================
+
+        /**
+         * Graph node for generative UI graph preview.
+         */
+        export interface GraphPreviewNode {
+          id: string;
+          label: string;
+          type?: string;
+          properties?: Record<string, unknown>;
+        }
+
+        /**
+         * Graph edge for generative UI graph preview.
+         */
+        export interface GraphPreviewEdge {
+          id: string;
+          source: string;
+          target: string;
+          label?: string;
+          type?: string;
+        }
+
+        /**
+         * Generative UI state managed by the agent.
+         */
+        export interface GenerativeUIState {
+          sources: Source[];
+          answer: string | null;
+          graphData: {
+            nodes: GraphPreviewNode[];
+            edges: GraphPreviewEdge[];
+          } | null;
+        }
+
+        // Zod schemas for validation
+        export const GraphPreviewNodeSchema = z.object({
+          id: z.string(),
+          label: z.string(),
+          type: z.string().optional(),
+          properties: z.record(z.string(), z.unknown()).optional(),
+        });
+
+        export const GraphPreviewEdgeSchema = z.object({
+          id: z.string(),
+          source: z.string(),
+          target: z.string(),
+          label: z.string().optional(),
+          type: z.string().optional(),
+        });
+
+        export const GenerativeUIStateSchema = z.object({
+          sources: z.array(SourceSchema),
+          answer: z.string().nullable(),
+          graphData: z
+            .object({
+              nodes: z.array(GraphPreviewNodeSchema),
+              edges: z.array(GraphPreviewEdgeSchema),
+            })
+            .nullable(),
+        });
+        ]]>
+      </changes>
+    </step-6>
+
+    <step-7>
+      <title>Update ChatSidebar to Include GenerativeUIRenderer</title>
+      <file>frontend/components/copilot/ChatSidebar.tsx</file>
+      <updated-implementation>
+        <![CDATA[
+"use client";
+
+import { CopilotSidebar } from "@copilotkit/react-ui";
+import "@copilotkit/react-ui/styles.css";
+import { ThoughtTraceStepper } from "./ThoughtTraceStepper";
+import { CopilotErrorBoundary } from "./CopilotErrorBoundary";
+import { GenerativeUIRenderer } from "./GenerativeUIRenderer";
+
+/**
+ * ChatSidebar component wrapping CopilotKit's CopilotSidebar
+ * with custom styling following the project's design system.
+ *
+ * Story 6-2: Chat Sidebar Interface
+ * Story 6-3: Generative UI Components
+ *
+ * Design System:
+ * - Primary (Indigo-600): #4F46E5
+ * - Secondary (Emerald-500): #10B981
+ * - Neutral: Slate colors
+ */
+export function ChatSidebar() {
+  return (
+    <CopilotErrorBoundary>
+      <CopilotSidebar
+        defaultOpen={true}
+        labels={{
+          title: "AI Copilot",
+          initial: "How can I help you today?",
+        }}
+        className="copilot-sidebar"
+      >
+        <ThoughtTraceStepper />
+        <GenerativeUIRenderer />
+      </CopilotSidebar>
+    </CopilotErrorBoundary>
+  );
+}
+        ]]>
+      </updated-implementation>
+    </step-7>
+
+    <step-8>
+      <title>Add Backend Helper Functions for Generative UI Events</title>
+      <file>backend/src/agentic_rag_backend/models/copilot.py</file>
+      <additions>
+        <![CDATA[
+        Add the following to the existing backend/src/agentic_rag_backend/models/copilot.py file:
+
+        import uuid
+        from typing import Literal
+
+
+        class ToolCallStartEvent(AGUIEvent):
+            """Event for triggering a tool/action call that may render UI."""
+
+            event: Literal[AGUIEventType.TOOL_CALL_START] = AGUIEventType.TOOL_CALL_START
+            tool_call_id: str = Field(..., description="Unique ID for this tool call")
+            tool_name: str = Field(..., description="Name of the tool being called")
+
+            def __init__(self, tool_call_id: str, tool_name: str, **kwargs: Any) -> None:
+                super().__init__(
+                    data={"tool_call_id": tool_call_id, "tool_name": tool_name},
+                    **kwargs
+                )
+
+
+        class ToolCallArgsEvent(AGUIEvent):
+            """Event containing arguments for a tool call."""
+
+            event: Literal[AGUIEventType.TOOL_CALL_ARGS] = AGUIEventType.TOOL_CALL_ARGS
+            tool_call_id: str = Field(..., description="Tool call ID this relates to")
+            args: dict[str, Any] = Field(..., description="Arguments for the tool")
+
+            def __init__(self, tool_call_id: str, args: dict[str, Any], **kwargs: Any) -> None:
+                super().__init__(
+                    data={"tool_call_id": tool_call_id, "args": args},
+                    **kwargs
+                )
+
+
+        class ToolCallEndEvent(AGUIEvent):
+            """Event indicating tool call completion."""
+
+            event: Literal[AGUIEventType.TOOL_CALL_END] = AGUIEventType.TOOL_CALL_END
+            tool_call_id: str = Field(..., description="Tool call ID that completed")
+
+            def __init__(self, tool_call_id: str, **kwargs: Any) -> None:
+                super().__init__(
+                    data={"tool_call_id": tool_call_id},
+                    **kwargs
+                )
+
+
+        # ============================================
+        # GENERATIVE UI HELPER FUNCTIONS - Story 6-3
+        # ============================================
+
+        def create_show_sources_events(
+            sources: list[dict[str, Any]],
+            title: str | None = None,
+        ) -> list[AGUIEvent]:
+            """Create AG-UI events to trigger show_sources action.
+
+            Args:
+                sources: List of source dictionaries with id, title, preview, similarity
+                title: Optional title for the sources section
+
+            Returns:
+                List of AG-UI events to emit
+            """
+            tool_call_id = str(uuid.uuid4())
+            return [
+                ToolCallStartEvent(tool_call_id=tool_call_id, tool_name="show_sources"),
+                ToolCallArgsEvent(
+                    tool_call_id=tool_call_id,
+                    args={"sources": sources, "title": title},
+                ),
+                ToolCallEndEvent(tool_call_id=tool_call_id),
+            ]
+
+
+        def create_show_answer_events(
+            answer: str,
+            sources: list[dict[str, Any]] | None = None,
+            title: str | None = None,
+        ) -> list[AGUIEvent]:
+            """Create AG-UI events to trigger show_answer action.
+
+            Args:
+                answer: The answer text with optional markdown formatting
+                sources: Optional sources referenced in the answer
+                title: Optional title for the answer panel
+
+            Returns:
+                List of AG-UI events to emit
+            """
+            tool_call_id = str(uuid.uuid4())
+            return [
+                ToolCallStartEvent(tool_call_id=tool_call_id, tool_name="show_answer"),
+                ToolCallArgsEvent(
+                    tool_call_id=tool_call_id,
+                    args={"answer": answer, "sources": sources, "title": title},
+                ),
+                ToolCallEndEvent(tool_call_id=tool_call_id),
+            ]
+
+
+        def create_show_knowledge_graph_events(
+            nodes: list[dict[str, Any]],
+            edges: list[dict[str, Any]],
+            title: str | None = None,
+        ) -> list[AGUIEvent]:
+            """Create AG-UI events to trigger show_knowledge_graph action.
+
+            Args:
+                nodes: List of node dictionaries with id, label, and optional type
+                edges: List of edge dictionaries with id, source, target, and optional label
+                title: Optional title for the graph
+
+            Returns:
+                List of AG-UI events to emit
+            """
+            tool_call_id = str(uuid.uuid4())
+            return [
+                ToolCallStartEvent(tool_call_id=tool_call_id, tool_name="show_knowledge_graph"),
+                ToolCallArgsEvent(
+                    tool_call_id=tool_call_id,
+                    args={"nodes": nodes, "edges": edges, "title": title},
+                ),
+                ToolCallEndEvent(tool_call_id=tool_call_id),
+            ]
+        ]]>
+      </additions>
+    </step-8>
+
+    <step-9>
+      <title>Create Component Index File</title>
+      <file>frontend/components/copilot/components/index.ts</file>
+      <implementation>
+        <![CDATA[
+/**
+ * Generative UI Components
+ * Story 6-3: Generative UI Components
+ */
+
+export { SourceCard } from "./SourceCard";
+export { AnswerPanel } from "./AnswerPanel";
+export { GraphPreview, type GraphPreviewNode, type GraphPreviewEdge } from "./GraphPreview";
+        ]]>
+      </implementation>
+    </step-9>
+  </technical-approach>
+
+  <files-to-create>
+    <file>
+      <path>frontend/components/copilot/components/SourceCard.tsx</path>
+      <purpose>Citation display component with source type, title, snippet, confidence badges</purpose>
+    </file>
+    <file>
+      <path>frontend/components/copilot/components/AnswerPanel.tsx</path>
+      <purpose>Formatted response with markdown rendering and collapsible source references</purpose>
+    </file>
+    <file>
+      <path>frontend/components/copilot/components/GraphPreview.tsx</path>
+      <purpose>Mini knowledge graph visualization using React Flow</purpose>
+    </file>
+    <file>
+      <path>frontend/components/copilot/components/index.ts</path>
+      <purpose>Export barrel for generative UI components</purpose>
+    </file>
+    <file>
+      <path>frontend/components/copilot/GenerativeUIRenderer.tsx</path>
+      <purpose>Wrapper component that initializes generative UI handlers</purpose>
+    </file>
+    <file>
+      <path>frontend/hooks/use-generative-ui.ts</path>
+      <purpose>Custom hook for registering CopilotKit render actions</purpose>
+    </file>
+  </files-to-create>
+
+  <files-to-modify>
+    <file>
+      <path>frontend/types/copilot.ts</path>
+      <change>Add GraphPreviewNode, GraphPreviewEdge, GenerativeUIState types and Zod schemas</change>
+    </file>
+    <file>
+      <path>frontend/components/copilot/ChatSidebar.tsx</path>
+      <change>Import and include GenerativeUIRenderer component</change>
+    </file>
+    <file>
+      <path>backend/src/agentic_rag_backend/models/copilot.py</path>
+      <change>Add ToolCallStartEvent, ToolCallArgsEvent, ToolCallEndEvent and helper functions</change>
+    </file>
+  </files-to-modify>
+
+  <code-patterns>
+    <pattern name="react-component-naming">
+      <![CDATA[
+      Components: PascalCase (file and component)
+      File: SourceCard.tsx -> export const SourceCard = memo(function SourceCard() {...})
+      File: AnswerPanel.tsx -> export const AnswerPanel = memo(function AnswerPanel() {...})
+      File: GraphPreview.tsx -> export const GraphPreview = memo(function GraphPreview() {...})
+
+      Hooks: camelCase with use prefix
+      File: use-generative-ui.ts -> export function useGenerativeUI()
+      ]]>
+    </pattern>
+
+    <pattern name="client-directive">
+      <![CDATA[
+      All CopilotKit components and hooks must be client components:
+      "use client";  // Required at top of file
+
+      This is because:
+      - CopilotKit hooks use React context (client-only)
+      - Components use useState, useCallback, etc.
+      - React Flow requires client-side rendering
+      ]]>
+    </pattern>
+
+    <pattern name="component-memoization">
+      <![CDATA[
+      All generative UI components should be memoized for performance:
+
+      export const SourceCard = memo(function SourceCard({...}: SourceCardProps) {
+        // Implementation
+      });
+
+      Use named function inside memo() for better debugging in React DevTools.
+      ]]>
+    </pattern>
+
+    <pattern name="action-registration">
+      <![CDATA[
+      CopilotKit actions with render functions:
+
+      useCopilotAction({
+        name: "action_name",           // Snake_case action name
+        description: "...",            // Description for the AI
+        parameters: [
+          {
+            name: "param_name",        // Snake_case parameter name
+            type: "string" | "object[]" | "number",
+            description: "...",
+            required: true | false,
+          },
+        ],
+        render: ({ status, args }) => {
+          // status: "inProgress" | "executing" | "complete"
+          // args: typed parameters
+          return <Component {...args} />;
+        },
+      });
+      ]]>
+    </pattern>
+
+    <pattern name="cn-utility">
+      <![CDATA[
+      Use cn() for conditional className merging:
+
+      import { cn } from "@/lib/utils";
+
+      <div className={cn(
+        "base-classes",
+        condition && "conditional-class",
+        variant === "primary" && "variant-class"
+      )} />
+      ]]>
+    </pattern>
+  </code-patterns>
+
+  <design-system>
+    <colors>
+      <![CDATA[
+      PRIMARY (Intelligence/Brain):
+      - Indigo-600: #4F46E5
+      - Use for: active states, primary buttons, in_progress indicators, sparkles icon
+
+      SECONDARY (Success/Validated):
+      - Emerald-500: #10B981
+      - Use for: completed states, success indicators, high confidence (>= 90%)
+
+      NEUTRAL (Readability):
+      - Slate-900: #0F172A (text)
+      - Slate-700: #334155 (secondary text)
+      - Slate-600: #475569 (muted text)
+      - Slate-500: #64748B (disabled text)
+      - Slate-400: #94A3B8 (disabled/pending, edge stroke)
+      - Slate-200: #E2E8F0 (borders)
+      - Slate-100: #F1F5F9 (backgrounds, dividers)
+      - Slate-50: #F8FAFC (page background, graph background)
+
+      ACCENT (Attention):
+      - Amber-400: #FBBF24 - Medium confidence (50-70%)
+      - Amber-500: #F59E0B - Location entity color
+
+      CONFIDENCE BADGE COLORS:
+      - >= 90%: bg-emerald-100 text-emerald-800 border-emerald-200
+      - >= 70%: bg-indigo-100 text-indigo-800 border-indigo-200
+      - >= 50%: bg-amber-100 text-amber-800 border-amber-200
+      - < 50%:  bg-slate-100 text-slate-800 border-slate-200
+
+      ENTITY TYPE COLORS (matches types/graphs.ts):
+      - Person: #3B82F6 (Blue-500)
+      - Organization: #10B981 (Emerald-500)
+      - Technology: #6366F1 (Indigo-500)
+      - Concept: #8B5CF6 (Violet-500)
+      - Location: #F59E0B (Amber-500)
+      - Document: #059669 (Emerald-600)
+      - Event: #D97706 (Amber-600)
+      - default: #6B7280 (Slate-500)
+      ]]>
+    </colors>
+
+    <typography>
+      <![CDATA[
+      HEADINGS & BODY: Inter (Google Font)
+      - font-sans (Tailwind default after configuration)
+      - Use for: UI text, messages, labels, titles
+
+      CODE & TRACES: JetBrains Mono (Google Font)
+      - font-mono
+      - Use for: code snippets, confidence percentages, details
+
+      TEXT SIZES:
+      - text-xs: 12px - badges, metadata, node labels
+      - text-sm: 14px - body text, previews, source content
+      - text-base: 16px - main content
+      ]]>
+    </typography>
+
+    <component-styling>
+      <![CDATA[
+      CARDS/PANELS:
+      - border border-slate-200 rounded-lg bg-white
+      - hover:border-indigo-300 for interactive cards
+      - shadow-md for elevated states
+
+      BUTTONS:
+      - Primary: bg-indigo-600 hover:bg-indigo-700 text-white
+      - Ghost: hover:bg-slate-100 transition-colors
+      - Icon buttons: p-1.5 rounded-md
+
+      BADGES:
+      - inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
+      - Or with border: px-2 py-0.5 rounded-full text-xs font-mono border
+
+      LINKS:
+      - text-indigo-600 hover:text-indigo-800 hover:underline
+      ]]>
+    </component-styling>
+  </design-system>
+
+  <copilotkit-reference>
+    <useCopilotAction>
+      <![CDATA[
+      HOOK: useCopilotAction from @copilotkit/react-core
+
+      PURPOSE: Register actions that the AI can trigger, optionally with custom render functions
+      for displaying generative UI components.
+
+      IMPORT:
+      import { useCopilotAction } from "@copilotkit/react-core";
+
+      TYPE SIGNATURE:
+      useCopilotAction({
+        name: string,                    // Action name (snake_case)
+        description?: string,            // Description for the AI
+        parameters?: ParameterDefinition[], // Action parameters
+        handler?: (args) => any,         // Optional handler function
+        render?: (props: ActionRenderProps) => ReactNode, // Render function
+      });
+
+      PARAMETER DEFINITION:
+      {
+        name: string,                    // Parameter name
+        type: "string" | "number" | "boolean" | "object" | "object[]",
+        description?: string,
+        required?: boolean,
+        attributes?: ParameterDefinition[], // For nested objects
+        enum?: string[],                 // For constrained values
+      }
+
+      ACTION RENDER PROPS:
+      {
+        status: "inProgress" | "executing" | "complete",
+        args: T,                         // Typed arguments
+        result?: any,                    // Only available when status is "complete"
+      }
+
+      STATUS VALUES:
+      - "inProgress": Arguments are being streamed, may be incomplete
+      - "executing": Action handler is actively running
+      - "complete": Action finished, result available
+
+      EXAMPLE:
+      useCopilotAction({
+        name: "show_sources",
+        description: "Display retrieved sources",
+        parameters: [
+          {
+            name: "sources",
+            type: "object[]",
+            description: "Array of sources",
+            required: true,
+          },
+        ],
+        render: ({ status, args }) => {
+          if (status === "complete" || status === "executing") {
+            return <SourceCards sources={args.sources} />;
+          }
+          return null;
+        },
+      });
+      ]]>
+    </useCopilotAction>
+
+    <useCoAgentStateRender>
+      <![CDATA[
+      HOOK: useCoAgentStateRender from @copilotkit/react-core
+
+      PURPOSE: Render agent state directly within the chat interface.
+      Subscribes to state updates and re-renders when agent state changes.
+
+      IMPORT:
+      import { useCoAgentStateRender } from "@copilotkit/react-core";
+
+      TYPE SIGNATURE:
+      useCoAgentStateRender<StateType>({
+        name: string,                    // Agent name (MUST match backend)
+        nodeName?: string,               // Optional specific node
+        render: (props: RenderProps) => ReactNode,
+      }, dependencies?: any[]);
+
+      RENDER PROPS:
+      {
+        status: string,
+        state: StateType,                // Typed agent state
+        nodeName?: string,
+      }
+
+      EXAMPLE:
+      type AgentState = {
+        generativeUI?: {
+          sources: Source[];
+          answer: string | null;
+        };
+      };
+
+      useCoAgentStateRender<AgentState>({
+        name: "orchestrator",            // Must match backend agent name
+        render: ({ state }) => {
+          if (!state?.generativeUI) return null;
+          return <GenerativeUI data={state.generativeUI} />;
+        },
+      });
+
+      IMPORTANT:
+      - Agent name must exactly match backend configuration
+      - Component should return null when not rendering
+      - State updates automatically when backend emits STATE_SNAPSHOT
+      ]]>
+    </useCoAgentStateRender>
+  </copilotkit-reference>
+
+  <project-rules>
+    <rule name="naming-conventions">
+      <![CDATA[
+      TypeScript (Frontend):
+      - Functions: camelCase (getDocumentChunks)
+      - Components: PascalCase file AND export (SourceCard.tsx -> SourceCard)
+      - Hooks: camelCase with use prefix (use-generative-ui.ts -> useGenerativeUI)
+      - Types/Interfaces: PascalCase (GraphPreviewNode, GenerativeUIState)
+      - Constants: SCREAMING_SNAKE
+
+      Python (Backend):
+      - Functions: snake_case (create_show_sources_events)
+      - Classes: PascalCase (ToolCallStartEvent)
+      - Constants: SCREAMING_SNAKE
+      - Files: snake_case.py
+      ]]>
+    </rule>
+
+    <rule name="file-organization">
+      <![CDATA[
+      frontend/
+      ├── app/                    # Next.js App Router pages
+      ├── components/
+      │   ├── copilot/           # CopilotKit components
+      │   │   ├── components/    # NEW: Generative UI components
+      │   │   │   ├── SourceCard.tsx
+      │   │   │   ├── AnswerPanel.tsx
+      │   │   │   ├── GraphPreview.tsx
+      │   │   │   └── index.ts
+      │   │   ├── ChatSidebar.tsx
+      │   │   ├── ThoughtTraceStepper.tsx
+      │   │   ├── CopilotErrorBoundary.tsx
+      │   │   └── GenerativeUIRenderer.tsx  # NEW
+      │   ├── graphs/            # React Flow visualizations
+      │   └── ui/                # shadcn/ui components
+      ├── hooks/
+      │   ├── use-generative-ui.ts  # NEW
+      │   ├── use-thought-trace.ts
+      │   └── use-knowledge-graph.ts
+      ├── lib/
+      │   └── utils.ts
+      └── types/
+          ├── copilot.ts         # MODIFIED
+          └── graphs.ts
+      ]]>
+    </rule>
+
+    <rule name="client-components">
+      <![CDATA[
+      CopilotKit requires client components.
+      Add "use client"; directive at top of:
+      - All components using CopilotKit hooks
+      - All components using React Flow
+      - Any component with client-side state (useState, useEffect)
+      ]]>
+    </rule>
+
+    <rule name="validation">
+      <![CDATA[
+      Frontend: Use Zod for all validation
+      New schemas to add:
+      - GraphPreviewNodeSchema
+      - GraphPreviewEdgeSchema
+      - GenerativeUIStateSchema
+
+      Backend: Use Pydantic for all validation
+      New event classes:
+      - ToolCallStartEvent
+      - ToolCallArgsEvent
+      - ToolCallEndEvent
+      ]]>
+    </rule>
+
+    <rule name="accessibility">
+      <![CDATA[
+      All interactive components MUST:
+      - Have proper ARIA labels (aria-label, aria-expanded, etc.)
+      - Be keyboard accessible (role="button", tabIndex, onKeyDown)
+      - Use semantic HTML elements where possible
+      - Have visible focus states
+      - Not rely solely on color for information (icons + color)
+      ]]>
+    </rule>
+  </project-rules>
+
+  <testing-requirements>
+    <unit-tests>
+      <![CDATA[
+      | Test | Location |
+      |------|----------|
+      | SourceCard renders with correct confidence colors | frontend/__tests__/components/copilot/SourceCard.test.tsx |
+      | SourceCard handles click and keyboard events | frontend/__tests__/components/copilot/SourceCard.test.tsx |
+      | SourceCard displays approval status when enabled | frontend/__tests__/components/copilot/SourceCard.test.tsx |
+      | AnswerPanel renders markdown correctly | frontend/__tests__/components/copilot/AnswerPanel.test.tsx |
+      | AnswerPanel extracts source references from [1], [2] | frontend/__tests__/components/copilot/AnswerPanel.test.tsx |
+      | AnswerPanel copy button copies text | frontend/__tests__/components/copilot/AnswerPanel.test.tsx |
+      | AnswerPanel shows streaming indicator | frontend/__tests__/components/copilot/AnswerPanel.test.tsx |
+      | GraphPreview transforms nodes correctly | frontend/__tests__/components/copilot/GraphPreview.test.tsx |
+      | GraphPreview handles empty data gracefully | frontend/__tests__/components/copilot/GraphPreview.test.tsx |
+      | GraphPreview handles single node layout | frontend/__tests__/components/copilot/GraphPreview.test.tsx |
+      | useGenerativeUI registers all three actions | frontend/__tests__/hooks/use-generative-ui.test.ts |
+      ]]>
+    </unit-tests>
+
+    <integration-tests>
+      <![CDATA[
+      | Test | Location |
+      |------|----------|
+      | GenerativeUIRenderer initializes within CopilotSidebar | frontend/__tests__/integration/generative-ui.test.tsx |
+      | Actions render correct components based on status | frontend/__tests__/integration/generative-ui.test.tsx |
+      | Source click callbacks are invoked | frontend/__tests__/integration/generative-ui.test.tsx |
+      | Graph expand callback is invoked | frontend/__tests__/integration/generative-ui.test.tsx |
+      ]]>
+    </integration-tests>
+
+    <e2e-tests>
+      <![CDATA[
+      | Test | Location |
+      |------|----------|
+      | Source cards appear when agent retrieves sources | frontend/tests/e2e/generative-ui.spec.ts |
+      | Answer panel renders with formatted markdown | frontend/tests/e2e/generative-ui.spec.ts |
+      | Graph preview displays and is interactive | frontend/tests/e2e/generative-ui.spec.ts |
+      | Copy button copies answer text | frontend/tests/e2e/generative-ui.spec.ts |
+      ]]>
+    </e2e-tests>
+
+    <manual-verification>
+      <![CDATA[
+      1. Start backend: cd backend && uv run uvicorn agentic_rag_backend.main:app --reload
+      2. Start frontend: cd frontend && pnpm dev
+      3. Open browser to http://localhost:3000
+      4. Open the chat sidebar and submit a query
+
+      VERIFY SOURCECARD:
+      5. Verify SourceCard components appear when agent retrieves sources
+      6. Check source type icon displays correctly (document, web, database, knowledge_graph)
+      7. Verify title is truncated if too long (truncate class)
+      8. Check confidence badge shows percentage with appropriate color
+         - >= 90%: Emerald
+         - >= 70%: Indigo
+         - >= 50%: Amber
+         - < 50%: Slate
+      9. Click on card and verify callback is triggered
+      10. Press Enter/Space on card and verify keyboard accessibility
+
+      VERIFY ANSWERPANEL:
+      11. Submit query and verify AnswerPanel appears
+      12. Check markdown renders correctly (headers, code blocks, lists)
+      13. Verify source references like [1], [2] are extracted
+      14. Click copy button and verify text copied to clipboard
+      15. Check streaming indicator appears during generation
+      16. Expand/collapse sources section
+
+      VERIFY GRAPHPREVIEW:
+      17. Verify GraphPreview appears when agent returns graph data
+      18. Check nodes display in circular layout
+      19. Verify entity type colors match design system
+      20. Check edges are animated
+      21. Click expand button and verify callback
+      22. Click node and verify callback
+
+      ERROR CASES:
+      23. Empty sources array renders gracefully
+      24. Invalid markdown doesn't crash
+      25. Graph with single node renders correctly
+      26. Graph with no edges renders correctly
+      ]]>
+    </manual-verification>
+  </testing-requirements>
+
+  <new-dependencies>
+    <frontend>
+      <![CDATA[
+      NEW PACKAGES TO INSTALL:
+      pnpm add react-markdown remark-gfm
+
+      Dependencies:
+      - react-markdown: ^9.0.0 - Safe markdown rendering (no raw HTML by default)
+      - remark-gfm: ^4.0.0 - GitHub-flavored markdown (tables, strikethrough, etc.)
+
+      ALREADY INSTALLED (verify in package.json):
+      - @copilotkit/react-core: ^1.50.1
+      - @copilotkit/react-ui: ^1.50.1
+      - reactflow: ^11.11.4
+      - lucide-react: ^0.562.0
+      - clsx: ^2.1.1
+      - tailwind-merge: ^3.4.0
+      - zod: ^4.2.1
+      ]]>
+    </frontend>
+
+    <backend>
+      <![CDATA[
+      No new backend dependencies required.
+      Uses existing:
+      - pydantic for event models
+      - uuid (stdlib) for generating tool call IDs
+      ]]>
+    </backend>
+  </new-dependencies>
+
+  <definition-of-done>
+    <![CDATA[
+    - [ ] All acceptance criteria met
+    - [ ] SourceCard component created with:
+      - [ ] Source type icons (document, web, database, knowledge_graph)
+      - [ ] Confidence badges with color-coded severity
+      - [ ] Truncated title and 2-line preview
+      - [ ] Approval status indicator
+      - [ ] External link support
+      - [ ] Keyboard accessibility
+    - [ ] AnswerPanel component created with:
+      - [ ] Markdown rendering (react-markdown + remark-gfm)
+      - [ ] Code block styling
+      - [ ] Copy to clipboard
+      - [ ] Streaming indicator
+      - [ ] Collapsible source references
+      - [ ] Source reference extraction [1], [2]
+    - [ ] GraphPreview component created with:
+      - [ ] React Flow mini visualization
+      - [ ] Circular layout
+      - [ ] Entity type color coding
+      - [ ] Animated edges
+      - [ ] Expand button
+      - [ ] Node click handling
+    - [ ] useGenerativeUI hook created with:
+      - [ ] show_sources action registered
+      - [ ] show_answer action registered
+      - [ ] show_knowledge_graph action registered
+      - [ ] useCoAgentStateRender integration
+    - [ ] GenerativeUIRenderer component created and integrated into ChatSidebar
+    - [ ] Backend helper functions created:
+      - [ ] create_show_sources_events
+      - [ ] create_show_answer_events
+      - [ ] create_show_knowledge_graph_events
+    - [ ] TypeScript types added:
+      - [ ] GraphPreviewNode interface
+      - [ ] GraphPreviewEdge interface
+      - [ ] GenerativeUIState interface
+      - [ ] Zod schemas for validation
+    - [ ] Unit tests passing
+    - [ ] Integration tests passing
+    - [ ] E2E tests passing
+    - [ ] Manual verification completed
+    - [ ] No TypeScript errors
+    - [ ] No ESLint errors
+    - [ ] Code follows project naming conventions
+    - [ ] Components use shadcn/ui patterns and Tailwind styling
+    - [ ] Design system colors applied correctly
+    - [ ] Accessibility requirements met
+    ]]>
+  </definition-of-done>
+
+  <technical-notes>
+    <markdown-security>
+      <![CDATA[
+      MARKDOWN XSS PREVENTION:
+      The react-markdown library is safe by default:
+      - Does NOT render raw HTML
+      - All content is escaped
+      - No need for sanitization libraries
+
+      DO NOT add rehype-raw plugin - this would enable HTML rendering.
+      ]]>
+    </markdown-security>
+
+    <react-flow-performance>
+      <![CDATA[
+      REACT FLOW IN COMPACT MODE:
+      For GraphPreview, interactive features are disabled for focused experience:
+      - zoomOnScroll={false} - Prevents accidental zooming
+      - panOnDrag={false} - Prevents accidental panning
+      - nodesDraggable={false} - Nodes stay in place
+      - nodesConnectable={false} - No edge editing
+
+      PERFORMANCE:
+      - All components are memoized with React.memo
+      - Node/edge transformations use useMemo
+      - Large graphs should be limited to 20 nodes in preview mode
+      ]]>
+    </react-flow-performance>
+
+    <ssr-considerations>
+      <![CDATA[
+      SERVER-SIDE RENDERING:
+      - All generative UI components use "use client" directive
+      - React Flow requires client-side rendering
+      - If SSR issues occur, use dynamic import:
+
+      const GraphPreview = dynamic(
+        () => import("./components/GraphPreview"),
+        { ssr: false }
+      );
+      ]]>
+    </ssr-considerations>
+
+    <action-naming>
+      <![CDATA[
+      ACTION NAME CONFLICTS:
+      CopilotKit actions are registered globally. To avoid conflicts:
+      - Use descriptive, unique names: show_sources, show_answer, show_knowledge_graph
+      - Consider namespace prefix if conflicts occur: rag_show_sources
+      ]]>
+    </action-naming>
+  </technical-notes>
+
+  <risk-mitigation>
+    <![CDATA[
+    | Risk | Mitigation |
+    |------|------------|
+    | React Flow bundle size | Use dynamic imports if bundle too large |
+    | Markdown XSS | Use react-markdown without rehype-raw |
+    | Large graph rendering | Limit nodes to 20 in preview, offer full view |
+    | CopilotKit action conflicts | Use unique action names |
+    | SSR issues with React Flow | Use "use client" directive, dynamic import if needed |
+    | Type mismatches | Use Zod validation on incoming data |
+    ]]>
+  </risk-mitigation>
+</story-context>

@@ -113,3 +113,67 @@ export const FrontendActionResultSchema = z.object({
   error: z.string().optional(),
   data: z.unknown().optional(),
 });
+
+// ============================================
+// GENERATIVE UI TYPES - Story 6-3
+// ============================================
+
+/**
+ * Graph node for generative UI graph preview.
+ */
+export interface GraphPreviewNode {
+  id: string;
+  label: string;
+  type?: string;
+  properties?: Record<string, unknown>;
+}
+
+/**
+ * Graph edge for generative UI graph preview.
+ */
+export interface GraphPreviewEdge {
+  id: string;
+  source: string;
+  target: string;
+  label?: string;
+  type?: string;
+}
+
+/**
+ * Generative UI state managed by the agent.
+ */
+export interface GenerativeUIState {
+  sources: Source[];
+  answer: string | null;
+  graphData: {
+    nodes: GraphPreviewNode[];
+    edges: GraphPreviewEdge[];
+  } | null;
+}
+
+// Zod schemas for generative UI validation
+export const GraphPreviewNodeSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  type: z.string().optional(),
+  properties: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const GraphPreviewEdgeSchema = z.object({
+  id: z.string(),
+  source: z.string(),
+  target: z.string(),
+  label: z.string().optional(),
+  type: z.string().optional(),
+});
+
+export const GenerativeUIStateSchema = z.object({
+  sources: z.array(SourceSchema),
+  answer: z.string().nullable(),
+  graphData: z
+    .object({
+      nodes: z.array(GraphPreviewNodeSchema),
+      edges: z.array(GraphPreviewEdgeSchema),
+    })
+    .nullable(),
+});
