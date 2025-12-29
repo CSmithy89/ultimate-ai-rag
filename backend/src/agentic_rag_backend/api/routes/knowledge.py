@@ -6,16 +6,22 @@ from uuid import UUID, uuid4
 
 import structlog
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from agentic_rag_backend.core.errors import Neo4jError
+from agentic_rag_backend.db.graphiti import GraphitiClient
 from agentic_rag_backend.db.neo4j import Neo4jClient
 from agentic_rag_backend.models.graphs import (
     GraphData,
     GraphEdge,
     GraphNode,
     GraphStats,
+)
+from agentic_rag_backend.retrieval.temporal_retrieval import (
+    get_knowledge_changes,
+    temporal_search,
 )
 
 logger = structlog.get_logger(__name__)
@@ -48,6 +54,25 @@ def success_response(data: Any) -> dict[str, Any]:
 async def get_neo4j(request: Request) -> Neo4jClient:
     """Get Neo4j client from app.state."""
     return request.app.state.neo4j
+
+
+async def get_graphiti(request: Request) -> Optional[GraphitiClient]:
+    """Get Graphiti client from app.state if available."""
+    return getattr(request.app.state, "graphiti", None)
+
+
+async def get_connected_graphiti(
+    graphiti: Optional[GraphitiClient] = Depends(get_graphiti),
+) -> GraphitiClient:
+    """
+    Dependency to get a connected Graphiti client, or raise an error.
+    
+    Raises:
+        Neo4jError: If Graphiti client is not available or not connected
+    """
+    if not graphiti or not graphiti.is_connected:
+        raise Neo4jError("graphiti_dependency", "Graphiti client not available")
+    return graphiti
 
 
 @router.get(
@@ -247,13 +272,6 @@ async def get_orphans(
 
 # Epic 5 - Temporal Query Endpoints
 
-from pydantic import BaseModel, Field
-from agentic_rag_backend.db.graphiti import GraphitiClient
-from agentic_rag_backend.retrieval.temporal_retrieval import (
-    temporal_search,
-    get_knowledge_changes,
-)
-
 
 class TemporalQueryRequest(BaseModel):
     """Request body for temporal knowledge query."""
@@ -266,13 +284,8 @@ class TemporalQueryRequest(BaseModel):
     num_results: int = Field(5, ge=1, le=100, description="Max results to return")
 
 
-async def get_graphiti(request: Request) -> Optional[GraphitiClient]:
-    """Get Graphiti client from app.state if available."""
-    return getattr(request.app.state, "graphiti", None)
-
-
 @router.post(
-    "/temporal-query",
+    "/temporal/search",
     summary="Query knowledge at a point in time",
     description="Execute temporal search - query knowledge graph at specific point in time.",
 )
@@ -280,7 +293,7 @@ async def get_graphiti(request: Request) -> Optional[GraphitiClient]:
 async def post_temporal_query(
     request: Request,
     body: TemporalQueryRequest,
-    graphiti: Optional[GraphitiClient] = Depends(get_graphiti),
+    graphiti: GraphitiClient = Depends(get_connected_graphiti),
 ) -> dict[str, Any]:
     """
     Query knowledge graph at a specific point in time.
@@ -301,9 +314,6 @@ async def post_temporal_query(
         tenant_id=str(body.tenant_id),
         as_of_date=body.as_of_date.isoformat() if body.as_of_date else None,
     )
-
-    if not graphiti or not graphiti.is_connected:
-        raise Neo4jError("temporal_query", "Graphiti client not available")
 
     try:
         result = await temporal_search(
@@ -352,7 +362,7 @@ async def post_temporal_query(
 
 
 @router.get(
-    "/changes",
+    "/temporal/changes",
     summary="Get knowledge changes over time",
     description="Retrieve knowledge graph changes (episodes) within a date range.",
 )
@@ -363,7 +373,7 @@ async def get_changes(
     start_date: datetime = Query(..., description="Start of date range (ISO 8601)"),
     end_date: datetime = Query(..., description="End of date range (ISO 8601)"),
     entity_type: Optional[str] = Query(None, description="Filter by entity type"),
-    graphiti: Optional[GraphitiClient] = Depends(get_graphiti),
+    graphiti: GraphitiClient = Depends(get_connected_graphiti),
 ) -> dict[str, Any]:
     """
     Get knowledge changes over a time period.
@@ -386,9 +396,6 @@ async def get_changes(
         start_date=start_date.isoformat(),
         end_date=end_date.isoformat(),
     )
-
-    if not graphiti or not graphiti.is_connected:
-        raise Neo4jError("get_changes", "Graphiti client not available")
 
     try:
         result = await get_knowledge_changes(

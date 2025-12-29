@@ -249,6 +249,15 @@ async def get_knowledge_changes(
         start_date=start_date.isoformat(),
         end_date=end_date.isoformat(),
     )
+    
+    # Note: entity_type filtering is not yet implemented
+    # Would require fetching entity details for each reference
+    if entity_type:
+        logger.warning(
+            "entity_type_filter_not_implemented",
+            entity_type=entity_type,
+            message="entity_type filtering is not yet supported - returning all episodes",
+        )
 
     try:
         # Get episodes for the tenant in the date range

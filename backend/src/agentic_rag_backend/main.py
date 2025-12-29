@@ -218,11 +218,6 @@ def get_rate_limiter(request: Request) -> RateLimiter:
     return request.app.state.rate_limiter
 
 
-def get_graphiti(request: Request):
-    """Provide the Graphiti client from application state."""
-    return request.app.state.graphiti
-
-
 router = APIRouter()
 
 

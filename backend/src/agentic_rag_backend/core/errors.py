@@ -32,6 +32,8 @@ class ErrorCode(str, Enum):
     NEO4J_ERROR = "neo4j_error"
     DEDUPLICATION_FAILED = "deduplication_failed"
     CHUNKING_FAILED = "chunking_failed"
+    # Epic 5 - Graphiti Ingestion error codes
+    INGESTION_FAILED = "ingestion_failed"
 
 
 class AppError(Exception):
@@ -328,7 +330,7 @@ class IngestionError(AppError):
 
     def __init__(self, document_id: str, reason: str) -> None:
         super().__init__(
-            code=ErrorCode.EXTRACTION_FAILED,  # Reuse existing code
+            code=ErrorCode.INGESTION_FAILED,
             message=f"Episode ingestion failed: {reason}",
             status=500,
             details={"document_id": document_id},
