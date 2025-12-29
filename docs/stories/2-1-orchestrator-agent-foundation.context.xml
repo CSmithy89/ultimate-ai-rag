@@ -1,0 +1,25 @@
+<storyContext>
+  <story id="2.1" title="Orchestrator Agent Foundation" epic="2" />
+
+  <summary>
+    Create an orchestrator agent that accepts queries via the backend API and
+    returns a response using Agno execution patterns. Establish the core
+    orchestration entrypoint for subsequent planning and retrieval work.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Expose an API endpoint that forwards queries to the orchestrator.</acceptanceCriteria>
+    <acceptanceCriteria>Return responses within the NFR1 target (&lt;10s).</acceptanceCriteria>
+    <acceptanceCriteria>Use Agno agent patterns for execution.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Backend lives in backend/src/agentic_rag_backend.</constraint>
+    <constraint>Keep orchestration lightweight; no retrieval execution yet.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="_bmad-output/project-planning-artifacts/epics.md" section="Epic 2 / Story 2.1" />
+    <reference path="_bmad-output/architecture.md" section="Core Architectural Decisions" />
+  </references>
+</storyContext>

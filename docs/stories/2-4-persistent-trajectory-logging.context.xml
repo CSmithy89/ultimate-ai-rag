@@ -1,0 +1,24 @@
+<storyContext>
+  <story id="2.4" title="Persistent Trajectory Logging" epic="2" />
+
+  <summary>
+    Persist agent thoughts, actions, and observations to the database so that
+    trajectories survive restarts and can be used for debugging and analysis.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Log thoughts, actions, and observations for each query.</acceptanceCriteria>
+    <acceptanceCriteria>Persist trajectories in the database.</acceptanceCriteria>
+    <acceptanceCriteria>Trajectories survive container restarts.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Use DATABASE_URL for storage.</constraint>
+    <constraint>Keep event schema append-only.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="_bmad-output/project-planning-artifacts/epics.md" section="Epic 2 / Story 2.4" />
+    <reference path="_bmad-output/architecture.md" section="Observability & Trajectory Logging" />
+  </references>
+</storyContext>

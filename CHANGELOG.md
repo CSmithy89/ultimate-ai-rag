@@ -1,5 +1,23 @@
 # Changelog
 
+## [Epic 2] - Agentic Query & Reasoning - 2025-12-28
+
+### Added
+- Orchestrator agent API with `POST /query`
+- Multi-step execution planning with visible plan and thought list
+- Retrieval strategy selection (vector/graph/hybrid)
+- Persistent trajectory logging with Postgres storage
+- Tenant-aware trajectory logging with indexes
+- Query response envelope with request metadata
+- Alembic scaffolding for database migrations
+- Basic backend tests for routing and query responses
+
+### Changed
+- None
+
+### Fixed
+- None
+
 ## [Epic 1] - Foundation & Developer Quick Start - 2025-12-28
 
 ### Added

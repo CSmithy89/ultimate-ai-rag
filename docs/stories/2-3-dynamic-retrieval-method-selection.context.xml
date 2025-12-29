@@ -1,0 +1,24 @@
+<storyContext>
+  <story id="2.3" title="Dynamic Retrieval Method Selection" epic="2" />
+
+  <summary>
+    Add a retrieval router that classifies queries into semantic, relational,
+    or hybrid modes and logs the selection decision for traceability.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Analyze query type (semantic vs relational).</acceptanceCriteria>
+    <acceptanceCriteria>Select vector, graph, or hybrid strategy.</acceptanceCriteria>
+    <acceptanceCriteria>Log the selection decision.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Selection must be deterministic and lightweight.</constraint>
+    <constraint>Retrieval execution remains stubbed until Epic 3.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="_bmad-output/project-planning-artifacts/epics.md" section="Epic 2 / Story 2.3" />
+    <reference path="_bmad-output/architecture.md" section="Cross-Cutting Concerns" />
+  </references>
+</storyContext>

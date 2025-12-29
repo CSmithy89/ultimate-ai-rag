@@ -1,4 +1,4 @@
-"""Agno agent definitions for the Agentic RAG Backend."""
+"""Agent implementations for the Agentic RAG Backend."""
 
 from .indexer import IndexerAgent
 
