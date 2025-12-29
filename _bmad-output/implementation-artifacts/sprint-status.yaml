@@ -62,7 +62,7 @@ development_status:
   epic-3: in-progress
   3-1-vector-semantic-search: done
   3-2-graph-relationship-traversal: done
-  3-3-hybrid-answer-synthesis: backlog
+  3-3-hybrid-answer-synthesis: done
   3-4-graph-based-explainability: backlog
   epic-3-retrospective: optional
 

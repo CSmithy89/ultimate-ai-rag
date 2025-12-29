@@ -11,6 +11,7 @@ from ..db.neo4j import Neo4jClient
 from ..db.postgres import PostgresClient
 from ..indexing.embeddings import DEFAULT_EMBEDDING_MODEL, EmbeddingGenerator
 from ..retrieval import GraphTraversalService, VectorSearchService
+from ..retrieval.hybrid_synthesis import build_hybrid_prompt
 from ..retrieval.types import GraphTraversalResult, VectorHit
 from ..schemas import (
     GraphEdgeEvidence,
@@ -239,25 +240,7 @@ class OrchestratorAgent:
     ) -> str:
         if not vector_hits and not graph_result:
             return query
-        prompt_parts = [
-            "Answer the user question using the evidence below. "
-            "Cite sources inline using the bracketed vector IDs or graph entity IDs.",
-            f"Question: {query}",
-        ]
-        if vector_hits:
-            evidence_lines = []
-            for hit in vector_hits:
-                content = hit.content.strip().replace("\n", " ")
-                if len(content) > 500:
-                    content = content[:500].rstrip() + "..."
-                evidence_lines.append(f"[vector:{hit.chunk_id}] {content}")
-            prompt_parts.append("Vector Evidence:")
-            prompt_parts.append("\n".join(evidence_lines))
-        if graph_result and graph_result.paths:
-            explanation = self._build_graph_explanation(graph_result)
-            prompt_parts.append("Graph Evidence:")
-            prompt_parts.append(explanation or "Graph paths available.")
-        return "\n\n".join(prompt_parts)
+        return build_hybrid_prompt(query, vector_hits, graph_result)
 
     async def _run_graph_traversal(
         self,
