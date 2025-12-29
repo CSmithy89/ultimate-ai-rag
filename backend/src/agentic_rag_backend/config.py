@@ -3,7 +3,7 @@
 import os
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Optional
+from typing import Optional, cast
 
 from dotenv import load_dotenv
 
@@ -150,20 +150,27 @@ def load_settings() -> Settings:
             f"{missing_list}. Copy .env.example to .env and fill values."
         )
 
+    openai_api_key = cast(str, values["OPENAI_API_KEY"])
+    database_url = cast(str, values["DATABASE_URL"])
+    neo4j_uri = cast(str, values["NEO4J_URI"])
+    neo4j_user = cast(str, values["NEO4J_USER"])
+    neo4j_password = cast(str, values["NEO4J_PASSWORD"])
+    redis_url = cast(str, values["REDIS_URL"])
+
     return Settings(
-        openai_api_key=values["OPENAI_API_KEY"],
+        openai_api_key=openai_api_key,
         openai_model_id=os.getenv("OPENAI_MODEL_ID", "gpt-4o-mini"),
-        database_url=values["DATABASE_URL"],
+        database_url=database_url,
         db_pool_min=db_pool_min,
         db_pool_max=db_pool_max,
         request_max_bytes=request_max_bytes,
         rate_limit_per_minute=rate_limit_per_minute,
         rate_limit_backend=rate_limit_backend,
         rate_limit_redis_prefix=rate_limit_redis_prefix,
-        neo4j_uri=values["NEO4J_URI"],
-        neo4j_user=values["NEO4J_USER"],
-        neo4j_password=values["NEO4J_PASSWORD"],
-        redis_url=values["REDIS_URL"],
+        neo4j_uri=neo4j_uri,
+        neo4j_user=neo4j_user,
+        neo4j_password=neo4j_password,
+        redis_url=redis_url,
         backend_host=os.getenv("BACKEND_HOST", "0.0.0.0"),
         backend_port=backend_port,
         frontend_url=os.getenv("FRONTEND_URL", "http://localhost:3000"),

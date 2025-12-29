@@ -60,19 +60,19 @@ docker compose up -d
 - Status: Complete
 - Stories: 4/4 completed
 - Key Features:
-  - Vector semantic search with pgvector embeddings
-  - Graph relationship traversal via Neo4j
-  - Hybrid answer synthesis combining vector and graph results
-  - Graph-based explainability with source attribution
+  - Vector semantic search over pgvector embeddings
+  - Neo4j relationship traversal with tenant-scoped queries
+  - Hybrid answer synthesis combining vector + graph evidence
+  - Graph explainability artifacts (nodes, edges, paths, explanations)
 
 ### Epic 4: Knowledge Ingestion Pipeline
 - Status: Complete
 - Stories: 4/4 completed
 - Key Features:
-  - URL documentation crawling with Crawl4AI
-  - PDF document parsing with Docling
-  - Agentic entity extraction with LLM-powered NER
-  - Knowledge graph visualization endpoints
+  - URL documentation crawling via Crawl4AI
+  - PDF parsing with Docling for structured ingestion
+  - Agentic entity extraction and graph construction
+  - Knowledge graph visualization in the UI
 
 ### Epic 5: Graphiti Temporal Knowledge Graph Integration
 - Status: Complete

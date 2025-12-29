@@ -3,7 +3,6 @@
 from uuid import uuid4
 
 
-
 class TestCreateCrawlJob:
     """Tests for POST /api/v1/ingest/url endpoint."""
 

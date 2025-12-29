@@ -12,6 +12,8 @@ importers:
         specifier: ^1.13.3
         version: 1.13.4
 
+  backend: {}
+
   frontend:
     dependencies:
       '@copilotkit/react-core':

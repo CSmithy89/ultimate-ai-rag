@@ -1,6 +1,5 @@
 """Tests for the semantic chunker module."""
 
-
 from agentic_rag_backend.indexing.chunker import (
     ChunkData,
     chunk_document,
