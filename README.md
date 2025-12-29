@@ -55,3 +55,34 @@ docker compose up -d
   - Multi-step planning with visible plan and thought list
   - Dynamic retrieval strategy selection (vector/graph/hybrid)
   - Persistent trajectory logging to Postgres with trajectory IDs
+
+### Epic 3: Hybrid Knowledge Retrieval
+- Status: Complete
+- Stories: 4/4 completed
+- Key Features:
+  - Vector semantic search with pgvector embeddings
+  - Graph relationship traversal via Neo4j
+  - Hybrid answer synthesis combining vector and graph results
+  - Graph-based explainability with source attribution
+
+### Epic 4: Knowledge Ingestion Pipeline
+- Status: Complete
+- Stories: 4/4 completed
+- Key Features:
+  - URL documentation crawling with Crawl4AI
+  - PDF document parsing with Docling
+  - Agentic entity extraction with LLM-powered NER
+  - Knowledge graph visualization endpoints
+
+### Epic 5: Graphiti Temporal Knowledge Graph Integration
+- Status: Complete
+- Stories: 6/6 completed
+- Key Features:
+  - Graphiti integration for temporal knowledge graphs
+  - Episode-based document ingestion with automatic entity/edge extraction
+  - Hybrid retrieval with Graphiti search + vector fallback
+  - Temporal query capabilities (point-in-time search, knowledge changes)
+  - Custom entity types (TechnicalConcept, CodePattern, APIEndpoint, ConfigurationOption)
+  - Feature flags for backend selection (`INGESTION_BACKEND`, `RETRIEVAL_BACKEND`)
+  - Legacy module deprecation with migration path
+  - Comprehensive test suite with 263 tests (86%+ Graphiti module coverage)
