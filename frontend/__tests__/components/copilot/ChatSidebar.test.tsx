@@ -1,6 +1,7 @@
 /**
  * Tests for ChatSidebar component.
  * Story 6-2: Chat Sidebar Interface
+ * Story 6-3: Generative UI Components
  */
 
 import React from "react";
@@ -38,6 +39,13 @@ jest.mock("@copilotkit/react-ui", () => ({
 jest.mock("../../../components/copilot/ThoughtTraceStepper", () => ({
   ThoughtTraceStepper: () => (
     <div data-testid="thought-trace-stepper">Thought Trace Stepper</div>
+  ),
+}));
+
+// Mock GenerativeUIRenderer
+jest.mock("../../../components/copilot/GenerativeUIRenderer", () => ({
+  GenerativeUIRenderer: () => (
+    <div data-testid="generative-ui-renderer">Generative UI Renderer</div>
   ),
 }));
 
@@ -81,5 +89,11 @@ describe("ChatSidebar", () => {
     render(<ChatSidebar />);
 
     expect(screen.getByTestId("thought-trace-stepper")).toBeInTheDocument();
+  });
+
+  it("includes GenerativeUIRenderer component", () => {
+    render(<ChatSidebar />);
+
+    expect(screen.getByTestId("generative-ui-renderer")).toBeInTheDocument();
   });
 });

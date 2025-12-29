@@ -21,7 +21,9 @@
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "react-error-boundary": "^4.0.13",
+    "react-markdown": "^9.0.0",
     "reactflow": "^11.11.4",
+    "remark-gfm": "^4.0.0",
     "tailwind-merge": "^3.4.0",
     "zod": "^4.2.1"
   },
