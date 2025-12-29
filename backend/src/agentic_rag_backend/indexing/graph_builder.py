@@ -7,7 +7,7 @@ from extracted entities and relationships.
 import warnings
 
 warnings.warn(
-    "The graph_builder module is deprecated and will be removed in a future version. "
+    "The graph_builder module is deprecated since v1.0.0 and will be removed in v2.0.0. "
     "Use graphiti_ingestion.ingest_document_as_episode() which handles graph building automatically via Graphiti.",
     DeprecationWarning,
     stacklevel=2,

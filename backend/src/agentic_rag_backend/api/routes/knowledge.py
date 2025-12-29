@@ -1,6 +1,6 @@
 """Knowledge Graph API endpoints for visualization."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
@@ -21,7 +21,6 @@ from agentic_rag_backend.models.graphs import (
     GraphStats,
 )
 from agentic_rag_backend.retrieval.temporal_retrieval import (
-    EntityTypeFilterNotImplemented,
     get_knowledge_changes,
     temporal_search,
 )
@@ -123,7 +122,6 @@ async def get_graph(
             tenant_id=str(tenant_id),
             limit=limit,
             offset=offset,
-            entity_type=entity_type,
             relationship_type=relationship_type,
         )
 
@@ -357,7 +355,7 @@ class TemporalQueryRequest(BaseModel):
         if v is not None:
             now = datetime.now(timezone.utc)
             # Allow some tolerance for clock skew (5 minutes)
-            if v > now.replace(minute=now.minute + 5 if now.minute < 55 else 59):
+            if v > now + timedelta(minutes=5):
                 raise ValueError("as_of_date cannot be in the future")
         return v
 
@@ -452,10 +450,6 @@ async def get_changes(
     tenant_id: UUID = Query(..., description="Tenant identifier (required)"),
     start_date: datetime = Query(..., description="Start of date range (ISO 8601)"),
     end_date: datetime = Query(..., description="End of date range (ISO 8601)"),
-    entity_type: Optional[str] = Query(
-        None, 
-        description="Filter by entity type (NOT IMPLEMENTED - returns 501)"
-    ),
     graphiti: GraphitiClient = Depends(get_connected_graphiti),
 ) -> dict[str, Any]:
     """
@@ -467,7 +461,6 @@ async def get_changes(
         tenant_id: Tenant identifier
         start_date: Start of time period
         end_date: End of time period (must be after start_date)
-        entity_type: Optional filter by entity type (NOT IMPLEMENTED)
         graphiti: Graphiti client dependency
 
     Returns:
@@ -475,7 +468,6 @@ async def get_changes(
 
     Raises:
         HTTPException 400: If end_date <= start_date
-        HTTPException 501: If entity_type filter is requested
     """
     # Validate date range
     if end_date <= start_date:
@@ -497,7 +489,6 @@ async def get_changes(
             tenant_id=str(tenant_id),
             start_date=start_date,
             end_date=end_date,
-            entity_type=entity_type,
         )
 
         response = KnowledgeChangesResponse(
@@ -520,12 +511,6 @@ async def get_changes(
 
         return success_response(response.model_dump())
 
-    except EntityTypeFilterNotImplemented as e:
-        # Return 501 Not Implemented for entity_type filter
-        raise HTTPException(
-            status_code=501,
-            detail=str(e),
-        )
     except Exception as e:
         logger.error(
             "get_changes_failed",

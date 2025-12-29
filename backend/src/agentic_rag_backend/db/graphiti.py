@@ -170,8 +170,8 @@ class GraphitiClient:
                     self._client.driver.close(),
                     timeout=timeout,
                 )
-
             struct_logger.info("graphiti_disconnected")
+
         except asyncio.TimeoutError:
             struct_logger.error(
                 "graphiti_disconnect_timeout",
