@@ -177,3 +177,84 @@ export const GenerativeUIStateSchema = z.object({
     })
     .nullable(),
 });
+
+// ============================================
+// HITL VALIDATION TYPES - Story 6-4
+// ============================================
+
+/**
+ * Validation decision for a source in HITL.
+ */
+export type ValidationDecision = "approved" | "rejected" | "pending";
+
+/**
+ * Source with validation state for HITL.
+ */
+export interface ValidatableSource extends Source {
+  validationStatus: ValidationDecision;
+}
+
+/**
+ * State of a HITL validation checkpoint.
+ */
+export interface HITLCheckpoint {
+  checkpointId: string;
+  sources: Source[];
+  query: string;
+  status: "pending" | "approved" | "rejected" | "skipped";
+  approvedSourceIds: string[];
+  rejectedSourceIds: string[];
+}
+
+/**
+ * Response format for validation submission.
+ */
+export interface ValidationResponse {
+  checkpointId: string;
+  status: string;
+  approvedCount: number;
+  rejectedCount: number;
+}
+
+/**
+ * State for source validation hook.
+ */
+export interface SourceValidationState {
+  /** Whether validation is currently in progress */
+  isValidating: boolean;
+  /** Sources awaiting validation */
+  pendingSources: Source[];
+  /** Map of source ID to validation decision */
+  decisions: Map<string, ValidationDecision>;
+  /** IDs of approved sources */
+  approvedIds: string[];
+  /** IDs of rejected sources */
+  rejectedIds: string[];
+  /** Whether submission is in progress */
+  isSubmitting: boolean;
+  /** Error message if validation failed */
+  error: string | null;
+}
+
+// Zod schemas for HITL validation
+export const ValidationDecisionSchema = z.enum(["approved", "rejected", "pending"]);
+
+export const ValidatableSourceSchema = SourceSchema.extend({
+  validationStatus: ValidationDecisionSchema,
+});
+
+export const HITLCheckpointSchema = z.object({
+  checkpointId: z.string(),
+  sources: z.array(SourceSchema),
+  query: z.string(),
+  status: z.enum(["pending", "approved", "rejected", "skipped"]),
+  approvedSourceIds: z.array(z.string()),
+  rejectedSourceIds: z.array(z.string()),
+});
+
+export const ValidationResponseSchema = z.object({
+  checkpointId: z.string(),
+  status: z.string(),
+  approvedCount: z.number(),
+  rejectedCount: z.number(),
+});

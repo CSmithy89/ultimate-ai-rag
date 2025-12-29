@@ -17,15 +17,22 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from agentic_rag_backend.agents.orchestrator import OrchestratorResult, RetrievalStrategy
-from agentic_rag_backend.api.routes.copilot import copilot_handler
+from agentic_rag_backend.api.routes.copilot import (
+    copilot_handler,
+    receive_validation_response,
+    ValidationResponseRequest,
+    ValidationResponseResult,
+)
 from agentic_rag_backend.models.copilot import (
     CopilotConfig,
     CopilotMessage,
     CopilotRequest,
     MessageRole,
 )
+from agentic_rag_backend.protocols.ag_ui_bridge import HITLManager, HITLCheckpoint, HITLStatus
 from agentic_rag_backend.schemas import PlanStep
 
 
@@ -362,3 +369,155 @@ class TestCopilotErrorHandling:
         event_types = [e["event"] for e in events]
         assert "RUN_FINISHED" in event_types
         assert orchestrator.call_count == 0
+
+
+# Issue 7 Fix: Backend tests for validation-response endpoint
+class TestValidationResponseEndpoint:
+    """Tests for the HITL validation-response endpoint."""
+
+    def test_validation_request_requires_valid_uuid(self):
+        """Test that checkpoint_id must be a valid UUID4."""
+        # Valid UUID should work
+        valid_request = ValidationResponseRequest(
+            checkpoint_id=str(uuid4()),
+            approved_source_ids=["source-1"],
+        )
+        assert valid_request.checkpoint_id is not None
+
+        # Invalid UUID should raise ValidationError
+        with pytest.raises(ValidationError) as exc_info:
+            ValidationResponseRequest(
+                checkpoint_id="not-a-uuid",
+                approved_source_ids=["source-1"],
+            )
+        
+        assert "checkpoint_id" in str(exc_info.value)
+
+    def test_validation_request_accepts_empty_approved_ids(self):
+        """Test that empty approved_source_ids is valid."""
+        request = ValidationResponseRequest(
+            checkpoint_id=str(uuid4()),
+            approved_source_ids=[],
+        )
+        assert request.approved_source_ids == []
+
+    def test_validation_request_rejects_invalid_uuid_formats(self):
+        """Test various invalid UUID formats are rejected."""
+        invalid_uuids = [
+            "12345",
+            "not-a-uuid-at-all",
+            "12345678-1234-1234-1234-123456789012",  # Not a UUID4 (wrong version)
+            "",
+            "   ",
+        ]
+        
+        for invalid_uuid in invalid_uuids:
+            with pytest.raises(ValidationError):
+                ValidationResponseRequest(
+                    checkpoint_id=invalid_uuid,
+                    approved_source_ids=[],
+                )
+
+
+class MockRequest:
+    """Mock FastAPI Request for testing."""
+    
+    def __init__(self, hitl_manager=None):
+        self.app = type("App", (), {"state": type("State", (), {"hitl_manager": hitl_manager})()})()
+
+
+class TestValidationResponseHandler:
+    """Tests for the receive_validation_response handler."""
+
+    @pytest.mark.asyncio
+    async def test_validation_response_checkpoint_not_found(self):
+        """Test 404 when checkpoint not found."""
+        hitl_manager = HITLManager()
+        
+        request_body = ValidationResponseRequest(
+            checkpoint_id=str(uuid4()),
+            approved_source_ids=["source-1"],
+        )
+        mock_request = MockRequest(hitl_manager=hitl_manager)
+        
+        with pytest.raises(HTTPException) as exc_info:
+            await receive_validation_response(
+                request_body=request_body,
+                request=mock_request,
+                tenant_id=None,
+            )
+        
+        assert exc_info.value.status_code == 404
+        assert "not found" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_validation_response_without_hitl_manager(self):
+        """Test endpoint works without HITL manager (mock response)."""
+        request_body = ValidationResponseRequest(
+            checkpoint_id=str(uuid4()),
+            approved_source_ids=["source-1", "source-2"],
+        )
+        mock_request = MockRequest(hitl_manager=None)
+        
+        result = await receive_validation_response(
+            request_body=request_body,
+            request=mock_request,
+            tenant_id=None,
+        )
+        
+        assert result.checkpoint_id == request_body.checkpoint_id
+        assert result.status == "approved"
+        assert result.approved_count == 2
+        assert result.rejected_count == 0
+
+    @pytest.mark.asyncio
+    async def test_validation_response_rejected_when_no_sources_approved(self):
+        """Test that empty approved list results in 'rejected' status."""
+        request_body = ValidationResponseRequest(
+            checkpoint_id=str(uuid4()),
+            approved_source_ids=[],
+        )
+        mock_request = MockRequest(hitl_manager=None)
+        
+        result = await receive_validation_response(
+            request_body=request_body,
+            request=mock_request,
+            tenant_id=None,
+        )
+        
+        assert result.status == "rejected"
+        assert result.approved_count == 0
+
+    @pytest.mark.asyncio
+    async def test_validation_response_with_valid_checkpoint(self):
+        """Test successful validation response with existing checkpoint."""
+        hitl_manager = HITLManager()
+        checkpoint_id = str(uuid4())
+        
+        # Create a checkpoint first
+        import asyncio
+        checkpoint = await hitl_manager.create_checkpoint(
+            sources=[
+                {"id": "source-1", "title": "Doc 1"},
+                {"id": "source-2", "title": "Doc 2"},
+            ],
+            query="test query",
+            checkpoint_id=checkpoint_id,
+        )
+        
+        request_body = ValidationResponseRequest(
+            checkpoint_id=checkpoint_id,
+            approved_source_ids=["source-1"],
+        )
+        mock_request = MockRequest(hitl_manager=hitl_manager)
+        
+        result = await receive_validation_response(
+            request_body=request_body,
+            request=mock_request,
+            tenant_id=None,
+        )
+        
+        assert result.checkpoint_id == checkpoint_id
+        assert result.status == "approved"
+        assert result.approved_count == 1
+        assert result.rejected_count == 1

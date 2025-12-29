@@ -1,0 +1,2879 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <story-summary>
+    <![CDATA[
+    Story 6-4 implements Human-in-the-Loop (HITL) Source Validation - enabling researchers
+    to review and approve/reject retrieved sources BEFORE the AI generates an answer. This
+    provides critical control over the knowledge used in responses, ensuring only trusted
+    and relevant information is synthesized.
+
+    Key deliverables:
+    - SourceValidationDialog: Modal dialog for reviewing and approving/rejecting sources
+    - SourceValidationPanel: Inline collapsible panel alternative for non-modal HITL
+    - SourceValidationCard: Enhanced SourceCard with approve/reject buttons and Amber-400 pending indicator
+    - use-source-validation hook: State management and CopilotKit renderAndWait integration
+    - Backend HITL checkpoint: AG-UI bridge extension with async waiting for human decisions
+    - POST /validation-response endpoint: Receives approval decisions from frontend
+
+    The renderAndWait pattern from CopilotKit is critical - it PAUSES agent execution until
+    the human provides approval, then resumes with only the approved sources.
+    ]]>
+  </story-summary>
+
+  <dependencies>
+    <story-6-1-artifacts>
+      <![CDATA[
+      Story 6-1 (DONE) established the foundational CopilotKit integration:
+
+      FILES CREATED:
+      - frontend/components/copilot/CopilotProvider.tsx - Root CopilotKit wrapper
+      - frontend/app/api/copilotkit/route.ts - Next.js API route for runtime
+      - frontend/types/copilot.ts - TypeScript types (Source, ThoughtStep, AgentState)
+      - backend/src/agentic_rag_backend/api/routes/copilot.py - FastAPI SSE endpoint
+      - backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py - AG-UI protocol handler
+      - backend/src/agentic_rag_backend/models/copilot.py - Pydantic event models
+
+      KEY PATTERNS ESTABLISHED:
+      - SSE event streaming: RUN_STARTED -> STATE_SNAPSHOT -> TEXT_MESSAGE_* -> RUN_FINISHED
+      - tenant_id required in request config (multi-tenancy)
+      - Rate limiting on copilot endpoint
+      - Generic error messages returned to client
+      ]]>
+    </story-6-1-artifacts>
+
+    <story-6-2-artifacts>
+      <![CDATA[
+      Story 6-2 (DONE) established the Chat Sidebar Interface:
+
+      FILES CREATED:
+      - frontend/components/copilot/ChatSidebar.tsx - Main chat interface
+      - frontend/components/copilot/ThoughtTraceStepper.tsx - Agent progress indicator
+      - frontend/components/copilot/CopilotErrorBoundary.tsx - Error handling
+      - frontend/hooks/use-thought-trace.ts - Thought trace state management
+
+      KEY PATTERNS ESTABLISHED:
+      - useCoAgentStateRender for agent state rendering
+      - Design system colors (Indigo-600, Emerald-500, Slate)
+      - Typography (Inter for body, JetBrains Mono for traces)
+      - Component memoization for performance
+      ]]>
+    </story-6-2-artifacts>
+
+    <story-6-3-artifacts>
+      <![CDATA[
+      Story 6-3 (DONE) established the Generative UI Components:
+
+      FILES CREATED:
+      - frontend/components/copilot/components/SourceCard.tsx - Citation display with confidence badges
+      - frontend/components/copilot/components/AnswerPanel.tsx - Markdown-rendered responses
+      - frontend/components/copilot/components/GraphPreview.tsx - Mini React Flow visualization
+      - frontend/components/copilot/GenerativeUIRenderer.tsx - Initializes generative UI handlers
+      - frontend/hooks/use-generative-ui.tsx - Registers CopilotKit render actions
+
+      KEY PATTERNS ESTABLISHED:
+      - useCopilotAction with render function for dynamic UI
+      - Zod validation of action arguments
+      - Confidence badge color coding (Emerald >= 90%, Indigo >= 70%, Amber >= 50%)
+      - Entity type color mapping from types/graphs.ts
+
+      BACKEND ADDITIONS:
+      - ToolCallStartEvent, ToolCallArgsEvent, ToolCallEndEvent classes
+      - create_show_sources_events(), create_show_answer_events(), create_show_knowledge_graph_events()
+      ]]>
+    </story-6-3-artifacts>
+
+    <existing-source-card>
+      <![CDATA[
+      // frontend/components/copilot/components/SourceCard.tsx (EXISTING - reference for extension)
+      "use client";
+
+      import { memo } from "react";
+      import { cn } from "@/lib/utils";
+      import {
+        FileText,
+        Globe,
+        Database,
+        Share2,
+        ExternalLink,
+        CheckCircle2,
+      } from "lucide-react";
+      import type { Source } from "@/types/copilot";
+
+      const sourceTypeIcons: Record<string, React.ElementType> = {
+        document: FileText,
+        web: Globe,
+        database: Database,
+        knowledge_graph: Share2,
+        default: FileText,
+      };
+
+      function getConfidenceColor(similarity: number): string {
+        if (similarity >= 0.9) return "bg-emerald-100 text-emerald-800 border-emerald-200";
+        if (similarity >= 0.7) return "bg-indigo-100 text-indigo-800 border-indigo-200";
+        if (similarity >= 0.5) return "bg-amber-100 text-amber-800 border-amber-200";
+        return "bg-slate-100 text-slate-800 border-slate-200";
+      }
+
+      interface SourceCardProps {
+        source: Source;
+        index?: number;
+        onClick?: (source: Source) => void;
+        isHighlighted?: boolean;
+        showApprovalStatus?: boolean;
+      }
+
+      export const SourceCard = memo(function SourceCard({
+        source,
+        index,
+        onClick,
+        isHighlighted = false,
+        showApprovalStatus = false,
+      }: SourceCardProps) {
+        // ... full implementation in existing file
+      });
+      ]]>
+    </existing-source-card>
+
+    <existing-generative-ui-hook>
+      <![CDATA[
+      // frontend/hooks/use-generative-ui.tsx (EXISTING - pattern reference)
+      "use client";
+
+      import { useCopilotAction, useCoAgentStateRender } from "@copilotkit/react-core";
+      import { useState, useCallback } from "react";
+
+      // Key pattern: useCopilotAction with render function
+      useCopilotAction({
+        name: "show_sources",
+        description: "Display retrieved sources as citation cards",
+        parameters: [
+          {
+            name: "sources",
+            type: "object[]",
+            description: "Array of source objects",
+            required: true,
+          },
+        ],
+        render: ({ status, args }) => {
+          // Validate with Zod
+          const parseResult = ShowSourcesArgsSchema.safeParse(args);
+          if (!parseResult.success) {
+            return <ValidationErrorFallback message={parseResult.error.message} />;
+          }
+
+          if (status === "executing" || status === "complete") {
+            return <SourceCards sources={parseResult.data.sources} />;
+          }
+          return <></>;
+        },
+      });
+      ]]>
+    </existing-generative-ui-hook>
+
+    <existing-generative-ui-renderer>
+      <![CDATA[
+      // frontend/components/copilot/GenerativeUIRenderer.tsx (EXISTING - to be modified)
+      "use client";
+
+      import { useGenerativeUI, type GraphPreviewNode } from "@/hooks/use-generative-ui";
+      import type { Source } from "@/types/copilot";
+
+      interface GenerativeUIRendererProps {
+        onSourceClick?: (source: Source) => void;
+        onGraphNodeClick?: (node: GraphPreviewNode) => void;
+        onGraphExpand?: () => void;
+      }
+
+      export function GenerativeUIRenderer({
+        onSourceClick,
+        onGraphNodeClick,
+        onGraphExpand,
+      }: GenerativeUIRendererProps) {
+        useGenerativeUI({
+          onSourceClick,
+          onGraphNodeClick,
+          onGraphExpand,
+        });
+        return null;
+      }
+      ]]>
+    </existing-generative-ui-renderer>
+
+    <existing-chat-sidebar>
+      <![CDATA[
+      // frontend/components/copilot/ChatSidebar.tsx (EXISTING)
+      "use client";
+
+      import { CopilotSidebar } from "@copilotkit/react-ui";
+      import "@copilotkit/react-ui/styles.css";
+      import { ThoughtTraceStepper } from "./ThoughtTraceStepper";
+      import { CopilotErrorBoundary } from "./CopilotErrorBoundary";
+      import { GenerativeUIRenderer } from "./GenerativeUIRenderer";
+
+      export function ChatSidebar() {
+        return (
+          <CopilotErrorBoundary>
+            <CopilotSidebar
+              defaultOpen={true}
+              labels={{
+                title: "AI Copilot",
+                initial: "How can I help you today?",
+              }}
+              className="copilot-sidebar"
+            >
+              <ThoughtTraceStepper />
+              <GenerativeUIRenderer />
+            </CopilotSidebar>
+          </CopilotErrorBoundary>
+        );
+      }
+      ]]>
+    </existing-chat-sidebar>
+
+    <existing-types>
+      <![CDATA[
+      // frontend/types/copilot.ts (EXISTING - to be extended)
+      import { z } from 'zod';
+
+      export interface Source {
+        id: string;
+        title: string;
+        preview: string;
+        similarity: number;
+        metadata?: Record<string, unknown>;
+        isApproved?: boolean;
+      }
+
+      export interface ThoughtStep {
+        step: string;
+        status: "pending" | "in_progress" | "completed";
+        timestamp?: string;
+        details?: string;
+      }
+
+      export interface GenerativeUIState {
+        sources: Source[];
+        answer: string | null;
+        graphData: {
+          nodes: GraphPreviewNode[];
+          edges: GraphPreviewEdge[];
+        } | null;
+      }
+
+      // Zod schemas
+      export const SourceSchema = z.object({
+        id: z.string(),
+        title: z.string(),
+        preview: z.string(),
+        similarity: z.number().min(0).max(1),
+        metadata: z.record(z.string(), z.unknown()).optional(),
+        isApproved: z.boolean().optional(),
+      });
+      ]]>
+    </existing-types>
+
+    <existing-backend-models>
+      <![CDATA[
+      // backend/src/agentic_rag_backend/models/copilot.py (EXISTING)
+      import uuid
+      from enum import Enum
+      from typing import Any, Literal, Optional
+      from pydantic import BaseModel, Field
+
+      class AGUIEventType(str, Enum):
+          RUN_STARTED = "RUN_STARTED"
+          RUN_FINISHED = "RUN_FINISHED"
+          TEXT_MESSAGE_START = "TEXT_MESSAGE_START"
+          TEXT_MESSAGE_CONTENT = "TEXT_MESSAGE_CONTENT"
+          TEXT_MESSAGE_END = "TEXT_MESSAGE_END"
+          TOOL_CALL_START = "TOOL_CALL_START"
+          TOOL_CALL_ARGS = "TOOL_CALL_ARGS"
+          TOOL_CALL_END = "TOOL_CALL_END"
+          TOOL_CALL_RESULT = "TOOL_CALL_RESULT"
+          STATE_SNAPSHOT = "STATE_SNAPSHOT"
+          ACTION_REQUEST = "ACTION_REQUEST"
+
+      class ToolCallStartEvent(AGUIEvent):
+          event: Literal[AGUIEventType.TOOL_CALL_START] = AGUIEventType.TOOL_CALL_START
+          def __init__(self, tool_call_id: str, tool_name: str, **kwargs: Any) -> None:
+              super().__init__(data={"tool_call_id": tool_call_id, "tool_name": tool_name}, **kwargs)
+
+      class ToolCallArgsEvent(AGUIEvent):
+          event: Literal[AGUIEventType.TOOL_CALL_ARGS] = AGUIEventType.TOOL_CALL_ARGS
+          def __init__(self, tool_call_id: str, args: dict[str, Any], **kwargs: Any) -> None:
+              super().__init__(data={"tool_call_id": tool_call_id, "args": args}, **kwargs)
+
+      class ToolCallEndEvent(AGUIEvent):
+          event: Literal[AGUIEventType.TOOL_CALL_END] = AGUIEventType.TOOL_CALL_END
+          def __init__(self, tool_call_id: str, **kwargs: Any) -> None:
+              super().__init__(data={"tool_call_id": tool_call_id}, **kwargs)
+      ]]>
+    </existing-backend-models>
+
+    <existing-ag-ui-bridge>
+      <![CDATA[
+      // backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py (EXISTING - to be extended)
+      """AG-UI Protocol Bridge for CopilotKit integration."""
+
+      from datetime import datetime, timezone
+      from typing import Any, AsyncIterator
+      import structlog
+
+      from ..agents.orchestrator import OrchestratorAgent
+      from ..models.copilot import (
+          AGUIEvent,
+          CopilotRequest,
+          TextDeltaEvent,
+          TextMessageStartEvent,
+          TextMessageEndEvent,
+          StateSnapshotEvent,
+          RunStartedEvent,
+          RunFinishedEvent,
+      )
+
+      class AGUIBridge:
+          """Bridge between Agno agent responses and AG-UI protocol events."""
+
+          def __init__(self, orchestrator: OrchestratorAgent) -> None:
+              self._orchestrator = orchestrator
+
+          async def process_request(
+              self, request: CopilotRequest
+          ) -> AsyncIterator[AGUIEvent]:
+              """
+              Process a CopilotKit request and yield AG-UI events.
+              """
+              # ... implementation
+      ]]>
+    </existing-ag-ui-bridge>
+
+    <existing-copilot-route>
+      <![CDATA[
+      // backend/src/agentic_rag_backend/api/routes/copilot.py (EXISTING - to be extended)
+      """CopilotKit AG-UI protocol endpoint."""
+
+      from fastapi import APIRouter, Depends, HTTPException, Request
+      from fastapi.responses import StreamingResponse
+      import structlog
+
+      from ...agents.orchestrator import OrchestratorAgent
+      from ...models.copilot import CopilotRequest
+      from ...protocols.ag_ui_bridge import AGUIBridge
+      from ...rate_limit import RateLimiter
+
+      router = APIRouter(prefix="/copilot", tags=["copilot"])
+
+      @router.post("")
+      async def copilot_handler(
+          request: CopilotRequest,
+          orchestrator: OrchestratorAgent = Depends(get_orchestrator),
+          limiter: RateLimiter = Depends(get_rate_limiter),
+      ) -> StreamingResponse:
+          """Handle AG-UI protocol requests from CopilotKit."""
+          # ... implementation
+      ]]>
+    </existing-copilot-route>
+  </dependencies>
+
+  <acceptance-criteria>
+    <![CDATA[
+    - Given the AI retrieves sources for a query
+    - When HITL validation is triggered before answer synthesis
+    - Then a modal/panel displays retrieved source cards awaiting validation
+    - And each card uses Amber-400 (#FBBF24) visual indicator for pending validation status
+    - And users can Approve or Reject each source individually
+    - And users can use "Approve All" / "Reject All" shortcuts
+    - And rejected sources are excluded from answer synthesis
+    - And the backend pauses generation until human approves/rejects sources
+    - And approval status is tracked in agent state
+    - And validation is non-blocking if user continues typing new queries
+    - And the UI follows the "Professional Forge" design direction
+    ]]>
+  </acceptance-criteria>
+
+  <technical-approach>
+    <step-1>
+      <title>Create SourceValidationCard Component</title>
+      <file>frontend/components/copilot/components/SourceValidationCard.tsx</file>
+      <implementation>
+        <![CDATA[
+"use client";
+
+import { memo } from "react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import {
+  FileText,
+  Globe,
+  Database,
+  Share2,
+  ExternalLink,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  Check,
+  X,
+} from "lucide-react";
+import type { Source } from "@/types/copilot";
+import type { ValidationDecision } from "@/types/copilot";
+
+/**
+ * Source type to icon mapping.
+ */
+const sourceTypeIcons: Record<string, React.ElementType> = {
+  document: FileText,
+  web: Globe,
+  database: Database,
+  knowledge_graph: Share2,
+  default: FileText,
+};
+
+/**
+ * Get border and background colors based on validation status.
+ * Design System:
+ * - Pending: Amber-400 (#FBBF24) for HITL attention
+ * - Approved: Emerald-500 (#10B981) for validated
+ * - Rejected: Red-500 for excluded
+ */
+function getValidationStyles(status: ValidationDecision): string {
+  switch (status) {
+    case "approved":
+      return "border-emerald-400 bg-emerald-50/50 ring-1 ring-emerald-200";
+    case "rejected":
+      return "border-red-300 bg-red-50/30 ring-1 ring-red-200 opacity-60";
+    case "pending":
+    default:
+      return "border-amber-400 bg-amber-50/50 ring-1 ring-amber-200";
+  }
+}
+
+/**
+ * Get status icon based on validation status.
+ */
+function getStatusIcon(status: ValidationDecision): React.ReactNode {
+  switch (status) {
+    case "approved":
+      return <CheckCircle2 className="h-5 w-5 text-emerald-500" />;
+    case "rejected":
+      return <XCircle className="h-5 w-5 text-red-500" />;
+    case "pending":
+    default:
+      return <AlertCircle className="h-5 w-5 text-amber-500" />;
+  }
+}
+
+/**
+ * Get confidence level color based on similarity score.
+ */
+function getConfidenceColor(similarity: number): string {
+  if (similarity >= 0.9) return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (similarity >= 0.7) return "bg-indigo-100 text-indigo-800 border-indigo-200";
+  if (similarity >= 0.5) return "bg-amber-100 text-amber-800 border-amber-200";
+  return "bg-slate-100 text-slate-800 border-slate-200";
+}
+
+interface SourceValidationCardProps {
+  /** The source data to display */
+  source: Source;
+  /** 0-based index for numbering sources */
+  index: number;
+  /** Current validation status */
+  validationStatus: ValidationDecision;
+  /** Toggle between validation states */
+  onToggle: () => void;
+  /** Explicitly approve this source */
+  onApprove: () => void;
+  /** Explicitly reject this source */
+  onReject: () => void;
+}
+
+/**
+ * SourceValidationCard displays a source with approve/reject controls
+ * for Human-in-the-Loop validation before answer generation.
+ *
+ * Story 6-4: Human-in-the-Loop Source Validation
+ *
+ * Features:
+ * - Amber-400 visual indicator for pending validation
+ * - Emerald-500 for approved sources
+ * - Red-500 for rejected sources
+ * - Approve/Reject buttons
+ * - Click to toggle status
+ * - Source preview with confidence indicator
+ */
+export const SourceValidationCard = memo(function SourceValidationCard({
+  source,
+  index,
+  validationStatus,
+  onToggle,
+  onApprove,
+  onReject,
+}: SourceValidationCardProps) {
+  const sourceType = (source.metadata?.type as string) || "default";
+  const IconComponent = sourceTypeIcons[sourceType] || sourceTypeIcons.default;
+  const confidencePercent = Math.round(source.similarity * 100);
+  const sourceUrl = source.metadata?.url as string | undefined;
+
+  return (
+    <div
+      className={cn(
+        "rounded-lg border-2 p-4 transition-all duration-200",
+        "cursor-pointer hover:shadow-md",
+        getValidationStyles(validationStatus)
+      )}
+      onClick={onToggle}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+      aria-label={`Source ${index + 1}: ${source.title}. Status: ${validationStatus}. Click to change.`}
+    >
+      {/* Header row */}
+      <div className="flex items-start justify-between gap-3">
+        {/* Left side: status icon, index, source icon, title */}
+        <div className="flex items-start gap-3 min-w-0 flex-1">
+          {/* Status indicator */}
+          <div className="flex-shrink-0 mt-0.5">
+            {getStatusIcon(validationStatus)}
+          </div>
+
+          {/* Index badge */}
+          <span
+            className={cn(
+              "flex-shrink-0 w-6 h-6 rounded-full text-white text-sm font-medium flex items-center justify-center",
+              validationStatus === "rejected" ? "bg-slate-400" : "bg-indigo-600"
+            )}
+          >
+            {index + 1}
+          </span>
+
+          {/* Source info */}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 mb-1">
+              <IconComponent
+                className="h-4 w-4 text-slate-500 flex-shrink-0"
+                aria-hidden="true"
+              />
+              <h4
+                className={cn(
+                  "text-sm font-medium truncate",
+                  validationStatus === "rejected"
+                    ? "text-slate-500 line-through"
+                    : "text-slate-900"
+                )}
+              >
+                {source.title}
+              </h4>
+            </div>
+
+            {/* Preview text */}
+            <p
+              className={cn(
+                "text-sm line-clamp-2",
+                validationStatus === "rejected"
+                  ? "text-slate-400"
+                  : "text-slate-600"
+              )}
+            >
+              {source.preview}
+            </p>
+
+            {/* Metadata row */}
+            <div className="flex items-center gap-3 mt-2">
+              {/* Confidence badge */}
+              <span
+                className={cn(
+                  "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-mono border",
+                  getConfidenceColor(source.similarity)
+                )}
+              >
+                {confidencePercent}% match
+              </span>
+
+              {/* External link */}
+              {sourceUrl && (
+                <a
+                  href={sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800"
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={`View source: ${source.title}`}
+                >
+                  <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                  View
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right side: action buttons */}
+        <div
+          className="flex flex-col gap-1 flex-shrink-0"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Button
+            variant={validationStatus === "approved" ? "default" : "outline"}
+            size="sm"
+            onClick={onApprove}
+            className={cn(
+              "h-8 w-8 p-0",
+              validationStatus === "approved"
+                ? "bg-emerald-500 hover:bg-emerald-600 text-white"
+                : "text-emerald-600 border-emerald-300 hover:bg-emerald-50"
+            )}
+            aria-label="Approve source"
+          >
+            <Check className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={validationStatus === "rejected" ? "default" : "outline"}
+            size="sm"
+            onClick={onReject}
+            className={cn(
+              "h-8 w-8 p-0",
+              validationStatus === "rejected"
+                ? "bg-red-500 hover:bg-red-600 text-white"
+                : "text-red-600 border-red-300 hover:bg-red-50"
+            )}
+            aria-label="Reject source"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+export default SourceValidationCard;
+        ]]>
+      </implementation>
+      <key-points>
+        <![CDATA[
+        - Extends SourceCard pattern with validation controls
+        - Three visual states: pending (Amber-400), approved (Emerald-500), rejected (Red-500)
+        - Status icon on left side for immediate visual feedback
+        - Approve/Reject buttons on right side prevent accidental toggles
+        - Click anywhere on card toggles through: pending -> approved -> rejected -> pending
+        - Rejected sources show strikethrough title and reduced opacity
+        - Keyboard accessible with Enter/Space to toggle
+        - Confidence badge color coding preserved from SourceCard
+        ]]>
+      </key-points>
+    </step-1>
+
+    <step-2>
+      <title>Create SourceValidationDialog Component</title>
+      <file>frontend/components/copilot/SourceValidationDialog.tsx</file>
+      <implementation>
+        <![CDATA[
+"use client";
+
+import { memo, useState, useCallback, useMemo, useEffect } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import {
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  CheckCheck,
+  XSquare,
+  Loader2,
+  RotateCcw,
+} from "lucide-react";
+import { SourceValidationCard } from "./components/SourceValidationCard";
+import type { Source, ValidationDecision } from "@/types/copilot";
+
+interface SourceValidationDialogProps {
+  /** Whether the dialog is open */
+  open: boolean;
+  /** Sources requiring validation */
+  sources: Source[];
+  /** Callback when user submits validation decisions */
+  onSubmit: (approvedSourceIds: string[]) => void;
+  /** Callback to cancel validation (skip HITL) */
+  onCancel?: () => void;
+  /** Optional title override */
+  title?: string;
+  /** Optional description override */
+  description?: string;
+  /** Whether submission is in progress */
+  isSubmitting?: boolean;
+}
+
+/**
+ * SourceValidationDialog provides a modal interface for reviewing
+ * and approving/rejecting retrieved sources before AI answer generation.
+ *
+ * Story 6-4: Human-in-the-Loop Source Validation
+ *
+ * Design System:
+ * - Amber-400 (#FBBF24) for pending/attention items
+ * - Emerald-500 (#10B981) for approved sources
+ * - Red-500 for rejected sources
+ * - Indigo-600 (#4F46E5) for primary actions
+ */
+export const SourceValidationDialog = memo(function SourceValidationDialog({
+  open,
+  sources,
+  onSubmit,
+  onCancel,
+  title = "Review Retrieved Sources",
+  description = "Review and approve the sources that should be used to generate your answer. Rejected sources will be excluded.",
+  isSubmitting = false,
+}: SourceValidationDialogProps) {
+  // Track validation decisions for each source
+  const [decisions, setDecisions] = useState<Map<string, ValidationDecision>>(
+    () => new Map(sources.map((s) => [s.id, "pending"]))
+  );
+
+  // Reset decisions when sources change
+  useEffect(() => {
+    setDecisions(new Map(sources.map((s) => [s.id, "pending"])));
+  }, [sources]);
+
+  // Compute statistics
+  const stats = useMemo(() => {
+    const values = Array.from(decisions.values());
+    return {
+      approved: values.filter((v) => v === "approved").length,
+      rejected: values.filter((v) => v === "rejected").length,
+      pending: values.filter((v) => v === "pending").length,
+      total: sources.length,
+    };
+  }, [decisions, sources.length]);
+
+  // Toggle individual source decision
+  const toggleDecision = useCallback((sourceId: string) => {
+    setDecisions((prev) => {
+      const newMap = new Map(prev);
+      const current = newMap.get(sourceId) || "pending";
+      // Cycle: pending -> approved -> rejected -> pending
+      const next: ValidationDecision =
+        current === "pending"
+          ? "approved"
+          : current === "approved"
+            ? "rejected"
+            : "pending";
+      newMap.set(sourceId, next);
+      return newMap;
+    });
+  }, []);
+
+  // Set specific decision for a source
+  const setDecision = useCallback(
+    (sourceId: string, decision: ValidationDecision) => {
+      setDecisions((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(sourceId, decision);
+        return newMap;
+      });
+    },
+    []
+  );
+
+  // Approve all pending sources
+  const approveAll = useCallback(() => {
+    setDecisions((prev) => {
+      const newMap = new Map(prev);
+      for (const [id, decision] of newMap) {
+        if (decision === "pending") {
+          newMap.set(id, "approved");
+        }
+      }
+      return newMap;
+    });
+  }, []);
+
+  // Reject all pending sources
+  const rejectAll = useCallback(() => {
+    setDecisions((prev) => {
+      const newMap = new Map(prev);
+      for (const [id, decision] of newMap) {
+        if (decision === "pending") {
+          newMap.set(id, "rejected");
+        }
+      }
+      return newMap;
+    });
+  }, []);
+
+  // Reset all to pending
+  const resetAll = useCallback(() => {
+    setDecisions(new Map(sources.map((s) => [s.id, "pending"])));
+  }, [sources]);
+
+  // Handle submit
+  const handleSubmit = useCallback(() => {
+    const approvedIds = sources
+      .filter((s) => decisions.get(s.id) === "approved")
+      .map((s) => s.id);
+    onSubmit(approvedIds);
+  }, [sources, decisions, onSubmit]);
+
+  // Handle skip (approve all automatically)
+  const handleSkip = useCallback(() => {
+    const allIds = sources.map((s) => s.id);
+    onSubmit(allIds);
+  }, [sources, onSubmit]);
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onCancel?.()}>
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-amber-500" />
+            {title}
+          </DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+
+        {/* Statistics bar */}
+        <div className="flex items-center gap-4 py-2 px-1 border-b border-slate-100">
+          <Badge
+            variant="outline"
+            className="bg-amber-50 text-amber-700 border-amber-200"
+          >
+            <AlertTriangle className="h-3 w-3 mr-1" />
+            {stats.pending} pending
+          </Badge>
+          <Badge
+            variant="outline"
+            className="bg-emerald-50 text-emerald-700 border-emerald-200"
+          >
+            <CheckCircle2 className="h-3 w-3 mr-1" />
+            {stats.approved} approved
+          </Badge>
+          <Badge
+            variant="outline"
+            className="bg-red-50 text-red-700 border-red-200"
+          >
+            <XCircle className="h-3 w-3 mr-1" />
+            {stats.rejected} rejected
+          </Badge>
+        </div>
+
+        {/* Quick actions */}
+        <div className="flex items-center gap-2 py-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={approveAll}
+            disabled={stats.pending === 0}
+            className="text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+          >
+            <CheckCheck className="h-4 w-4 mr-1" />
+            Approve All Pending
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={rejectAll}
+            disabled={stats.pending === 0}
+            className="text-red-700 border-red-300 hover:bg-red-50"
+          >
+            <XSquare className="h-4 w-4 mr-1" />
+            Reject All Pending
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={resetAll}
+            disabled={stats.approved === 0 && stats.rejected === 0}
+          >
+            <RotateCcw className="h-4 w-4 mr-1" />
+            Reset
+          </Button>
+        </div>
+
+        {/* Source cards */}
+        <ScrollArea className="flex-1 -mx-6 px-6">
+          <div className="space-y-3 py-2">
+            {sources.map((source, index) => (
+              <SourceValidationCard
+                key={source.id}
+                source={source}
+                index={index}
+                validationStatus={decisions.get(source.id) || "pending"}
+                onToggle={() => toggleDecision(source.id)}
+                onApprove={() => setDecision(source.id, "approved")}
+                onReject={() => setDecision(source.id, "rejected")}
+              />
+            ))}
+          </div>
+        </ScrollArea>
+
+        <DialogFooter className="flex-row justify-between sm:justify-between border-t border-slate-100 pt-4">
+          <Button variant="ghost" onClick={handleSkip} disabled={isSubmitting}>
+            Skip & Use All
+          </Button>
+          <div className="flex gap-2">
+            {onCancel && (
+              <Button variant="outline" onClick={onCancel} disabled={isSubmitting}>
+                Cancel
+              </Button>
+            )}
+            <Button
+              onClick={handleSubmit}
+              disabled={isSubmitting || stats.approved === 0}
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                  Continue with {stats.approved} Source
+                  {stats.approved !== 1 ? "s" : ""}
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+});
+
+export default SourceValidationDialog;
+        ]]>
+      </implementation>
+      <key-points>
+        <![CDATA[
+        - Modal dialog using shadcn/ui Dialog component
+        - Statistics bar showing pending/approved/rejected counts
+        - Quick actions: Approve All Pending, Reject All Pending, Reset
+        - Scrollable source list for many sources
+        - Skip option to approve all without review (non-blocking path)
+        - Submit disabled until at least one source is approved
+        - Loading state for submission
+        - Keyboard accessible throughout
+        ]]>
+      </key-points>
+    </step-2>
+
+    <step-3>
+      <title>Create SourceValidationPanel Component</title>
+      <file>frontend/components/copilot/SourceValidationPanel.tsx</file>
+      <implementation>
+        <![CDATA[
+"use client";
+
+import { memo, useState, useCallback, useMemo, useEffect } from "react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
+import {
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  CheckCheck,
+  XSquare,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
+import { SourceValidationCard } from "./components/SourceValidationCard";
+import type { Source, ValidationDecision } from "@/types/copilot";
+
+interface SourceValidationPanelProps {
+  /** Sources requiring validation */
+  sources: Source[];
+  /** Callback when user submits validation decisions */
+  onSubmit: (approvedSourceIds: string[]) => void;
+  /** Callback to skip validation (approve all) */
+  onSkip?: () => void;
+  /** Whether the panel is collapsed */
+  defaultCollapsed?: boolean;
+  /** Optional class name */
+  className?: string;
+}
+
+/**
+ * SourceValidationPanel provides an inline interface for reviewing
+ * and approving/rejecting retrieved sources within the chat flow.
+ *
+ * Story 6-4: Human-in-the-Loop Source Validation
+ *
+ * This is an alternative to SourceValidationDialog for non-modal HITL.
+ * It renders inline within the chat message flow with collapse/expand.
+ */
+export const SourceValidationPanel = memo(function SourceValidationPanel({
+  sources,
+  onSubmit,
+  onSkip,
+  defaultCollapsed = false,
+  className,
+}: SourceValidationPanelProps) {
+  const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
+  const [decisions, setDecisions] = useState<Map<string, ValidationDecision>>(
+    () => new Map(sources.map((s) => [s.id, "pending"]))
+  );
+
+  // Reset decisions when sources change
+  useEffect(() => {
+    setDecisions(new Map(sources.map((s) => [s.id, "pending"])));
+  }, [sources]);
+
+  // Compute statistics
+  const stats = useMemo(() => {
+    const values = Array.from(decisions.values());
+    return {
+      approved: values.filter((v) => v === "approved").length,
+      rejected: values.filter((v) => v === "rejected").length,
+      pending: values.filter((v) => v === "pending").length,
+      total: sources.length,
+    };
+  }, [decisions, sources.length]);
+
+  // Toggle individual source decision
+  const toggleDecision = useCallback((sourceId: string) => {
+    setDecisions((prev) => {
+      const newMap = new Map(prev);
+      const current = newMap.get(sourceId) || "pending";
+      const next: ValidationDecision =
+        current === "pending"
+          ? "approved"
+          : current === "approved"
+            ? "rejected"
+            : "pending";
+      newMap.set(sourceId, next);
+      return newMap;
+    });
+  }, []);
+
+  // Set specific decision
+  const setDecision = useCallback(
+    (sourceId: string, decision: ValidationDecision) => {
+      setDecisions((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(sourceId, decision);
+        return newMap;
+      });
+    },
+    []
+  );
+
+  // Approve all pending
+  const approveAll = useCallback(() => {
+    setDecisions((prev) => {
+      const newMap = new Map(prev);
+      for (const [id, decision] of newMap) {
+        if (decision === "pending") {
+          newMap.set(id, "approved");
+        }
+      }
+      return newMap;
+    });
+  }, []);
+
+  // Reject all pending
+  const rejectAll = useCallback(() => {
+    setDecisions((prev) => {
+      const newMap = new Map(prev);
+      for (const [id, decision] of newMap) {
+        if (decision === "pending") {
+          newMap.set(id, "rejected");
+        }
+      }
+      return newMap;
+    });
+  }, []);
+
+  // Handle submit
+  const handleSubmit = useCallback(() => {
+    const approvedIds = sources
+      .filter((s) => decisions.get(s.id) === "approved")
+      .map((s) => s.id);
+    onSubmit(approvedIds);
+  }, [sources, decisions, onSubmit]);
+
+  // Handle skip
+  const handleSkip = useCallback(() => {
+    if (onSkip) {
+      onSkip();
+    } else {
+      onSubmit(sources.map((s) => s.id));
+    }
+  }, [sources, onSubmit, onSkip]);
+
+  return (
+    <div
+      className={cn(
+        "border-2 border-amber-400 rounded-lg bg-amber-50/30 overflow-hidden",
+        className
+      )}
+    >
+      {/* Header - always visible */}
+      <button
+        onClick={() => setIsCollapsed(!isCollapsed)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-amber-50/50 transition-colors"
+        type="button"
+      >
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-5 w-5 text-amber-500" />
+          <span className="font-medium text-slate-900">
+            Review Sources ({sources.length})
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Mini stats when collapsed */}
+          {isCollapsed && (
+            <div className="flex items-center gap-2 mr-2">
+              {stats.approved > 0 && (
+                <Badge variant="outline" className="bg-emerald-50 text-emerald-700 text-xs">
+                  {stats.approved} <CheckCircle2 className="h-3 w-3 ml-1" />
+                </Badge>
+              )}
+              {stats.pending > 0 && (
+                <Badge variant="outline" className="bg-amber-50 text-amber-700 text-xs">
+                  {stats.pending} pending
+                </Badge>
+              )}
+            </div>
+          )}
+          {isCollapsed ? (
+            <ChevronDown className="h-5 w-5 text-slate-500" />
+          ) : (
+            <ChevronUp className="h-5 w-5 text-slate-500" />
+          )}
+        </div>
+      </button>
+
+      {/* Expandable content */}
+      {!isCollapsed && (
+        <div className="px-4 pb-4">
+          {/* Statistics */}
+          <div className="flex items-center gap-3 py-2 mb-3 border-b border-amber-200">
+            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+              <AlertTriangle className="h-3 w-3 mr-1" />
+              {stats.pending} pending
+            </Badge>
+            <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+              <CheckCircle2 className="h-3 w-3 mr-1" />
+              {stats.approved} approved
+            </Badge>
+            <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+              <XCircle className="h-3 w-3 mr-1" />
+              {stats.rejected} rejected
+            </Badge>
+          </div>
+
+          {/* Quick actions */}
+          <div className="flex items-center gap-2 mb-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={approveAll}
+              disabled={stats.pending === 0}
+              className="text-emerald-700 border-emerald-300 hover:bg-emerald-50 text-xs"
+            >
+              <CheckCheck className="h-3 w-3 mr-1" />
+              Approve All
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={rejectAll}
+              disabled={stats.pending === 0}
+              className="text-red-700 border-red-300 hover:bg-red-50 text-xs"
+            >
+              <XSquare className="h-3 w-3 mr-1" />
+              Reject All
+            </Button>
+          </div>
+
+          {/* Source cards */}
+          <ScrollArea className="max-h-[400px]">
+            <div className="space-y-2">
+              {sources.map((source, index) => (
+                <SourceValidationCard
+                  key={source.id}
+                  source={source}
+                  index={index}
+                  validationStatus={decisions.get(source.id) || "pending"}
+                  onToggle={() => toggleDecision(source.id)}
+                  onApprove={() => setDecision(source.id, "approved")}
+                  onReject={() => setDecision(source.id, "rejected")}
+                />
+              ))}
+            </div>
+          </ScrollArea>
+
+          {/* Action buttons */}
+          <div className="flex items-center justify-between mt-4 pt-3 border-t border-amber-200">
+            <Button variant="ghost" size="sm" onClick={handleSkip}>
+              Skip & Use All
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSubmit}
+              disabled={stats.approved === 0}
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
+              <CheckCircle2 className="h-4 w-4 mr-1" />
+              Continue with {stats.approved} Source{stats.approved !== 1 ? "s" : ""}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+export default SourceValidationPanel;
+        ]]>
+      </implementation>
+      <key-points>
+        <![CDATA[
+        - Inline panel with Amber-400 border for HITL attention
+        - Collapsible header with mini stats when collapsed
+        - Same approval workflow as dialog but inline
+        - Renders within chat message flow
+        - Non-modal alternative for less disruptive UX
+        - Max height with scroll for many sources
+        ]]>
+      </key-points>
+    </step-3>
+
+    <step-4>
+      <title>Create use-source-validation Hook</title>
+      <file>frontend/hooks/use-source-validation.ts</file>
+      <implementation>
+        <![CDATA[
+"use client";
+
+import { useState, useCallback, useRef } from "react";
+import { useCopilotAction } from "@copilotkit/react-core";
+import type { Source, ValidationDecision } from "@/types/copilot";
+import { SourceSchema } from "@/types/copilot";
+import { z } from "zod";
+
+// Zod schema for validate_sources action arguments
+const ValidateSourcesArgsSchema = z.object({
+  sources: z.array(SourceSchema),
+  query: z.string().optional(),
+  checkpointId: z.string().optional(),
+});
+
+/**
+ * State for source validation.
+ */
+export interface SourceValidationState {
+  /** Whether validation is currently in progress */
+  isValidating: boolean;
+  /** Sources awaiting validation */
+  pendingSources: Source[];
+  /** Map of source ID to validation decision */
+  decisions: Map<string, ValidationDecision>;
+  /** IDs of approved sources */
+  approvedIds: string[];
+  /** IDs of rejected sources */
+  rejectedIds: string[];
+  /** Whether submission is in progress */
+  isSubmitting: boolean;
+  /** Error message if validation failed */
+  error: string | null;
+  /** The original query for context */
+  query: string | null;
+  /** Checkpoint ID for backend correlation */
+  checkpointId: string | null;
+}
+
+/**
+ * Options for the useSourceValidation hook.
+ */
+export interface UseSourceValidationOptions {
+  /** Callback when validation completes */
+  onValidationComplete?: (approvedIds: string[]) => void;
+  /** Callback when validation is cancelled */
+  onValidationCancelled?: () => void;
+  /** Whether to auto-approve sources above a confidence threshold */
+  autoApproveThreshold?: number;
+  /** Whether to auto-reject sources below a confidence threshold */
+  autoRejectThreshold?: number;
+}
+
+/**
+ * Return type for the useSourceValidation hook.
+ */
+export interface UseSourceValidationReturn {
+  /** Current validation state */
+  state: SourceValidationState;
+  /** Open the validation dialog with sources */
+  startValidation: (sources: Source[], query?: string, checkpointId?: string) => void;
+  /** Submit validation decisions */
+  submitValidation: (approvedIds: string[]) => void;
+  /** Cancel validation */
+  cancelValidation: () => void;
+  /** Reset validation state */
+  resetValidation: () => void;
+  /** Whether the validation dialog should be open */
+  isDialogOpen: boolean;
+}
+
+const initialState: SourceValidationState = {
+  isValidating: false,
+  pendingSources: [],
+  decisions: new Map(),
+  approvedIds: [],
+  rejectedIds: [],
+  isSubmitting: false,
+  error: null,
+  query: null,
+  checkpointId: null,
+};
+
+/**
+ * useSourceValidation hook manages Human-in-the-Loop source validation
+ * state and integrates with CopilotKit's renderAndWait pattern.
+ *
+ * Story 6-4: Human-in-the-Loop Source Validation
+ *
+ * @example
+ * ```tsx
+ * function ChatWithHITL() {
+ *   const {
+ *     state,
+ *     isDialogOpen,
+ *     submitValidation,
+ *     cancelValidation,
+ *   } = useSourceValidation({
+ *     onValidationComplete: (ids) => console.log("Approved:", ids),
+ *   });
+ *
+ *   return (
+ *     <>
+ *       <ChatSidebar />
+ *       <SourceValidationDialog
+ *         open={isDialogOpen}
+ *         sources={state.pendingSources}
+ *         onSubmit={submitValidation}
+ *         onCancel={cancelValidation}
+ *       />
+ *     </>
+ *   );
+ * }
+ * ```
+ */
+export function useSourceValidation(
+  options: UseSourceValidationOptions = {}
+): UseSourceValidationReturn {
+  const {
+    onValidationComplete,
+    onValidationCancelled,
+    autoApproveThreshold,
+    autoRejectThreshold,
+  } = options;
+
+  // Validation state
+  const [state, setState] = useState<SourceValidationState>(initialState);
+
+  // Reference to the respond function from renderAndWait
+  const respondRef = useRef<((response: { approved: string[] }) => void) | null>(
+    null
+  );
+
+  // Start validation with a set of sources
+  const startValidation = useCallback(
+    (sources: Source[], query?: string, checkpointId?: string) => {
+      // Apply auto-approve/reject thresholds if configured
+      const decisions = new Map<string, ValidationDecision>();
+      let hasAutoDecisions = false;
+
+      for (const source of sources) {
+        if (autoApproveThreshold && source.similarity >= autoApproveThreshold) {
+          decisions.set(source.id, "approved");
+          hasAutoDecisions = true;
+        } else if (
+          autoRejectThreshold &&
+          source.similarity < autoRejectThreshold
+        ) {
+          decisions.set(source.id, "rejected");
+          hasAutoDecisions = true;
+        } else {
+          decisions.set(source.id, "pending");
+        }
+      }
+
+      setState({
+        isValidating: true,
+        pendingSources: sources,
+        decisions,
+        approvedIds: [],
+        rejectedIds: [],
+        isSubmitting: false,
+        error: null,
+        query: query || null,
+        checkpointId: checkpointId || null,
+      });
+
+      // Log auto-decisions if any
+      if (hasAutoDecisions) {
+        console.log("[HITL] Auto-applied validation decisions based on thresholds");
+      }
+    },
+    [autoApproveThreshold, autoRejectThreshold]
+  );
+
+  // Submit validation decisions
+  const submitValidation = useCallback(
+    (approvedIds: string[]) => {
+      setState((prev) => ({
+        ...prev,
+        isSubmitting: true,
+      }));
+
+      // Compute rejected IDs
+      const rejectedIds = state.pendingSources
+        .map((s) => s.id)
+        .filter((id) => !approvedIds.includes(id));
+
+      // Call the respond function if available (renderAndWait pattern)
+      if (respondRef.current) {
+        respondRef.current({ approved: approvedIds });
+        respondRef.current = null;
+      }
+
+      // Update state
+      setState((prev) => ({
+        ...prev,
+        isValidating: false,
+        isSubmitting: false,
+        approvedIds,
+        rejectedIds,
+      }));
+
+      // Call completion callback
+      onValidationComplete?.(approvedIds);
+    },
+    [state.pendingSources, onValidationComplete]
+  );
+
+  // Cancel validation
+  const cancelValidation = useCallback(() => {
+    // If renderAndWait is active, respond with empty approved list
+    if (respondRef.current) {
+      respondRef.current({ approved: [] });
+      respondRef.current = null;
+    }
+
+    setState(initialState);
+    onValidationCancelled?.();
+  }, [onValidationCancelled]);
+
+  // Reset validation state
+  const resetValidation = useCallback(() => {
+    setState(initialState);
+  }, []);
+
+  // Register CopilotKit action with renderAndWait for HITL
+  useCopilotAction({
+    name: "validate_sources",
+    description:
+      "Request human approval for retrieved sources before answer generation. The agent will pause until the user approves or rejects sources.",
+    parameters: [
+      {
+        name: "sources",
+        type: "object[]",
+        description: "Array of sources requiring validation",
+        required: true,
+      },
+      {
+        name: "query",
+        type: "string",
+        description: "The original user query for context",
+        required: false,
+      },
+      {
+        name: "checkpointId",
+        type: "string",
+        description: "Unique checkpoint ID for backend correlation",
+        required: false,
+      },
+    ],
+    // Use renderAndWait to pause agent execution until user responds
+    renderAndWait: ({ args, respond }) => {
+      // Validate args with Zod
+      const parseResult = ValidateSourcesArgsSchema.safeParse(args);
+
+      if (!parseResult.success) {
+        console.error("[HITL] Invalid validate_sources args:", parseResult.error);
+        // Respond with empty to unblock agent
+        respond({ approved: [] });
+        return null;
+      }
+
+      const { sources, query, checkpointId } = parseResult.data;
+
+      // Store respond function for later use
+      respondRef.current = respond;
+
+      // Start validation with the sources
+      startValidation(sources, query, checkpointId);
+
+      // Return null because we're managing the UI externally via state
+      // The SourceValidationDialog is rendered by GenerativeUIRenderer
+      return null;
+    },
+  });
+
+  return {
+    state,
+    startValidation,
+    submitValidation,
+    cancelValidation,
+    resetValidation,
+    isDialogOpen: state.isValidating,
+  };
+}
+
+export default useSourceValidation;
+        ]]>
+      </implementation>
+      <key-points>
+        <![CDATA[
+        CRITICAL PATTERN: renderAndWait
+        - The `renderAndWait` option in useCopilotAction PAUSES agent execution
+        - The agent stream stops and waits for `respond()` to be called
+        - The respond function is stored in a ref for later use
+        - When user submits validation, we call respond({ approved: [...ids] })
+        - Agent then continues with ONLY the approved sources
+
+        State Management:
+        - Tracks pending sources, decisions map, approved/rejected IDs
+        - Supports auto-approve/reject based on confidence thresholds
+        - isSubmitting flag for loading state during submission
+
+        Integration:
+        - Hook returns isDialogOpen for conditional rendering
+        - submitValidation calls the stored respond function
+        - cancelValidation responds with empty approved list
+        ]]>
+      </key-points>
+    </step-4>
+
+    <step-5>
+      <title>Update GenerativeUIRenderer with HITL Integration</title>
+      <file>frontend/components/copilot/GenerativeUIRenderer.tsx</file>
+      <updated-implementation>
+        <![CDATA[
+"use client";
+
+import { useGenerativeUI, type GraphPreviewNode } from "@/hooks/use-generative-ui";
+import { useSourceValidation } from "@/hooks/use-source-validation";
+import { SourceValidationDialog } from "./SourceValidationDialog";
+import { SourceValidationPanel } from "./SourceValidationPanel";
+import type { Source } from "@/types/copilot";
+
+interface GenerativeUIRendererProps {
+  /** Callback when a source card is clicked */
+  onSourceClick?: (source: Source) => void;
+  /** Callback when a graph node is clicked */
+  onGraphNodeClick?: (node: GraphPreviewNode) => void;
+  /** Callback when the graph expand button is clicked */
+  onGraphExpand?: () => void;
+  /** Use modal dialog (true) or inline panel (false) for HITL */
+  useModalForValidation?: boolean;
+  /** Callback when HITL validation completes */
+  onValidationComplete?: (approvedIds: string[]) => void;
+  /** Auto-approve sources above this similarity threshold (0-1) */
+  autoApproveThreshold?: number;
+  /** Auto-reject sources below this similarity threshold (0-1) */
+  autoRejectThreshold?: number;
+}
+
+/**
+ * GenerativeUIRenderer initializes the generative UI action handlers
+ * including Human-in-the-Loop source validation.
+ *
+ * Story 6-3: Generative UI Components
+ * Story 6-4: Human-in-the-Loop Source Validation
+ *
+ * @example
+ * ```tsx
+ * <CopilotSidebar>
+ *   <GenerativeUIRenderer
+ *     useModalForValidation={true}
+ *     onValidationComplete={(ids) => console.log("Approved:", ids)}
+ *     autoApproveThreshold={0.9}  // Auto-approve >= 90% confidence
+ *   />
+ * </CopilotSidebar>
+ * ```
+ */
+export function GenerativeUIRenderer({
+  onSourceClick,
+  onGraphNodeClick,
+  onGraphExpand,
+  useModalForValidation = true,
+  onValidationComplete,
+  autoApproveThreshold,
+  autoRejectThreshold,
+}: GenerativeUIRendererProps) {
+  // Initialize generative UI hooks (Story 6-3)
+  useGenerativeUI({
+    onSourceClick,
+    onGraphNodeClick,
+    onGraphExpand,
+  });
+
+  // Initialize source validation hooks (Story 6-4)
+  const {
+    state: validationState,
+    isDialogOpen,
+    submitValidation,
+    cancelValidation,
+  } = useSourceValidation({
+    onValidationComplete,
+    autoApproveThreshold,
+    autoRejectThreshold,
+  });
+
+  return (
+    <>
+      {/* Modal dialog for HITL validation */}
+      {useModalForValidation && (
+        <SourceValidationDialog
+          open={isDialogOpen}
+          sources={validationState.pendingSources}
+          onSubmit={submitValidation}
+          onCancel={cancelValidation}
+          isSubmitting={validationState.isSubmitting}
+        />
+      )}
+
+      {/* Inline panel for non-modal HITL (rendered in chat flow) */}
+      {!useModalForValidation && isDialogOpen && (
+        <SourceValidationPanel
+          sources={validationState.pendingSources}
+          onSubmit={submitValidation}
+          onSkip={() => submitValidation(validationState.pendingSources.map((s) => s.id))}
+        />
+      )}
+    </>
+  );
+}
+
+export default GenerativeUIRenderer;
+        ]]>
+      </updated-implementation>
+      <key-points>
+        <![CDATA[
+        - Adds useSourceValidation hook initialization
+        - Conditionally renders SourceValidationDialog (modal) or SourceValidationPanel (inline)
+        - Passes validation callbacks to dialog/panel
+        - Supports auto-approve/reject thresholds as props
+        - Returns JSX for the validation UI (no longer returns null)
+        ]]>
+      </key-points>
+    </step-5>
+
+    <step-6>
+      <title>Update Types with HITL Validation Types</title>
+      <file>frontend/types/copilot.ts</file>
+      <additions>
+        <![CDATA[
+        Add the following to the existing frontend/types/copilot.ts file:
+
+        // ============================================
+        // HITL VALIDATION TYPES - Story 6-4
+        // ============================================
+
+        /**
+         * Validation decision for a source in HITL.
+         */
+        export type ValidationDecision = "approved" | "rejected" | "pending";
+
+        /**
+         * Source with validation state for HITL.
+         */
+        export interface ValidatableSource extends Source {
+          validationStatus: ValidationDecision;
+        }
+
+        /**
+         * State of a HITL validation checkpoint.
+         */
+        export interface HITLCheckpoint {
+          checkpointId: string;
+          sources: Source[];
+          query: string;
+          status: "pending" | "approved" | "rejected" | "skipped";
+          approvedSourceIds: string[];
+          rejectedSourceIds: string[];
+        }
+
+        /**
+         * Response format for validation submission.
+         */
+        export interface ValidationResponse {
+          checkpointId: string;
+          status: string;
+          approvedCount: number;
+          rejectedCount: number;
+        }
+
+        // Zod schemas for HITL validation
+        export const ValidationDecisionSchema = z.enum(["approved", "rejected", "pending"]);
+
+        export const ValidatableSourceSchema = SourceSchema.extend({
+          validationStatus: ValidationDecisionSchema,
+        });
+
+        export const HITLCheckpointSchema = z.object({
+          checkpointId: z.string(),
+          sources: z.array(SourceSchema),
+          query: z.string(),
+          status: z.enum(["pending", "approved", "rejected", "skipped"]),
+          approvedSourceIds: z.array(z.string()),
+          rejectedSourceIds: z.array(z.string()),
+        });
+
+        export const ValidationResponseSchema = z.object({
+          checkpointId: z.string(),
+          status: z.string(),
+          approvedCount: z.number(),
+          rejectedCount: z.number(),
+        });
+        ]]>
+      </additions>
+    </step-6>
+
+    <step-7>
+      <title>Backend: Add HITL Classes to AG-UI Bridge</title>
+      <file>backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py</file>
+      <additions>
+        <![CDATA[
+        Add the following to the existing ag_ui_bridge.py file:
+
+        import asyncio
+        import uuid
+        from dataclasses import dataclass, field
+        from enum import Enum
+        from typing import List, Optional, Dict, Any
+
+        from ..models.copilot import (
+            AGUIEvent,
+            ToolCallStartEvent,
+            ToolCallArgsEvent,
+            ToolCallEndEvent,
+            StateSnapshotEvent,
+        )
+
+
+        class HITLStatus(str, Enum):
+            """Status of Human-in-the-Loop validation."""
+            PENDING = "pending"
+            APPROVED = "approved"
+            REJECTED = "rejected"
+            SKIPPED = "skipped"
+
+
+        @dataclass
+        class HITLCheckpoint:
+            """Represents a checkpoint waiting for human validation."""
+
+            checkpoint_id: str
+            sources: List[Dict[str, Any]]
+            query: str
+            status: HITLStatus = HITLStatus.PENDING
+            approved_source_ids: List[str] = field(default_factory=list)
+            rejected_source_ids: List[str] = field(default_factory=list)
+            response_event: Optional[asyncio.Event] = field(default_factory=asyncio.Event)
+
+            def to_dict(self) -> Dict[str, Any]:
+                return {
+                    "checkpoint_id": self.checkpoint_id,
+                    "sources": self.sources,
+                    "query": self.query,
+                    "status": self.status.value,
+                    "approved_source_ids": self.approved_source_ids,
+                    "rejected_source_ids": self.rejected_source_ids,
+                }
+
+
+        class HITLManager:
+            """
+            Manages Human-in-the-Loop validation checkpoints.
+
+            Story 6-4: Human-in-the-Loop Source Validation
+
+            This class handles:
+            - Creating HITL checkpoints and AG-UI events
+            - Async waiting for human validation decisions
+            - Processing validation responses from frontend
+            """
+
+            def __init__(self, timeout: float = 300.0):
+                self._pending_checkpoints: Dict[str, HITLCheckpoint] = {}
+                self._hitl_timeout = timeout  # 5 minutes default
+
+            async def create_checkpoint(
+                self,
+                sources: List[Dict[str, Any]],
+                query: str,
+                checkpoint_id: Optional[str] = None,
+            ) -> tuple[str, List[AGUIEvent]]:
+                """
+                Create a HITL checkpoint and return AG-UI events to trigger validation.
+
+                Args:
+                    sources: List of source dicts to validate
+                    query: The original user query for context
+                    checkpoint_id: Optional checkpoint ID (generated if not provided)
+
+                Returns:
+                    Tuple of (checkpoint_id, list of AG-UI events)
+                """
+                checkpoint_id = checkpoint_id or str(uuid.uuid4())
+
+                checkpoint = HITLCheckpoint(
+                    checkpoint_id=checkpoint_id,
+                    sources=sources,
+                    query=query,
+                )
+                self._pending_checkpoints[checkpoint_id] = checkpoint
+
+                # Create AG-UI events to trigger frontend validate_sources action
+                events = [
+                    ToolCallStartEvent(
+                        tool_call_id=checkpoint_id,
+                        tool_name="validate_sources",
+                    ),
+                    ToolCallArgsEvent(
+                        tool_call_id=checkpoint_id,
+                        args={
+                            "sources": sources,
+                            "query": query,
+                            "checkpointId": checkpoint_id,
+                        },
+                    ),
+                    # Note: Don't send ToolCallEndEvent yet - wait for validation
+                ]
+
+                return checkpoint_id, events
+
+            async def wait_for_validation(
+                self,
+                checkpoint_id: str,
+                timeout: Optional[float] = None,
+            ) -> HITLCheckpoint:
+                """
+                Wait for human validation decision on a checkpoint.
+
+                Args:
+                    checkpoint_id: The checkpoint to wait for
+                    timeout: Optional timeout in seconds (default: 300s)
+
+                Returns:
+                    The checkpoint with validation results
+
+                Raises:
+                    asyncio.TimeoutError: If validation times out
+                    KeyError: If checkpoint not found
+                """
+                checkpoint = self._pending_checkpoints.get(checkpoint_id)
+                if not checkpoint:
+                    raise KeyError(f"Checkpoint {checkpoint_id} not found")
+
+                timeout = timeout or self._hitl_timeout
+
+                try:
+                    await asyncio.wait_for(
+                        checkpoint.response_event.wait(),
+                        timeout=timeout,
+                    )
+                except asyncio.TimeoutError:
+                    # On timeout, treat as "skip" - approve all sources
+                    checkpoint.status = HITLStatus.SKIPPED
+                    checkpoint.approved_source_ids = [s["id"] for s in checkpoint.sources]
+                    logger.warning(
+                        "hitl_validation_timeout",
+                        checkpoint_id=checkpoint_id,
+                        action="auto_approve_all",
+                    )
+
+                return checkpoint
+
+            def receive_validation(
+                self,
+                checkpoint_id: str,
+                approved_source_ids: List[str],
+            ) -> List[AGUIEvent]:
+                """
+                Receive validation response from frontend.
+
+                Args:
+                    checkpoint_id: The checkpoint being responded to
+                    approved_source_ids: List of approved source IDs
+
+                Returns:
+                    AG-UI events to signal completion
+                """
+                checkpoint = self._pending_checkpoints.get(checkpoint_id)
+                if not checkpoint:
+                    raise KeyError(f"Checkpoint {checkpoint_id} not found")
+
+                # Update checkpoint with decisions
+                all_source_ids = {s["id"] for s in checkpoint.sources}
+                checkpoint.approved_source_ids = approved_source_ids
+                checkpoint.rejected_source_ids = list(
+                    all_source_ids - set(approved_source_ids)
+                )
+                checkpoint.status = (
+                    HITLStatus.APPROVED if approved_source_ids else HITLStatus.REJECTED
+                )
+
+                # Signal waiting coroutine
+                checkpoint.response_event.set()
+
+                # Create completion events
+                events = [
+                    ToolCallEndEvent(tool_call_id=checkpoint_id),
+                    StateSnapshotEvent(
+                        state={
+                            "hitlCheckpoint": checkpoint.to_dict(),
+                            "approvedSources": [
+                                s for s in checkpoint.sources
+                                if s["id"] in approved_source_ids
+                            ],
+                        }
+                    ),
+                ]
+
+                return events
+
+            def get_approved_sources(
+                self,
+                checkpoint_id: str,
+            ) -> List[Dict[str, Any]]:
+                """Get the approved sources from a completed checkpoint."""
+                checkpoint = self._pending_checkpoints.get(checkpoint_id)
+                if not checkpoint:
+                    return []
+
+                return [
+                    s for s in checkpoint.sources
+                    if s["id"] in checkpoint.approved_source_ids
+                ]
+
+            def cleanup_checkpoint(self, checkpoint_id: str) -> None:
+                """Remove a checkpoint from memory."""
+                self._pending_checkpoints.pop(checkpoint_id, None)
+
+
+        # Helper function to create validate_sources events
+        def create_validate_sources_events(
+            sources: List[Dict[str, Any]],
+            query: str,
+            checkpoint_id: Optional[str] = None,
+        ) -> List[AGUIEvent]:
+            """
+            Create AG-UI events to trigger source validation on frontend.
+
+            This is a convenience function for triggering HITL validation
+            without using the full HITLManager.
+            """
+            checkpoint_id = checkpoint_id or str(uuid.uuid4())
+
+            return [
+                ToolCallStartEvent(
+                    tool_call_id=checkpoint_id,
+                    tool_name="validate_sources",
+                ),
+                ToolCallArgsEvent(
+                    tool_call_id=checkpoint_id,
+                    args={
+                        "sources": sources,
+                        "query": query,
+                        "checkpointId": checkpoint_id,
+                    },
+                ),
+            ]
+        ]]>
+      </additions>
+    </step-7>
+
+    <step-8>
+      <title>Backend: Add Validation Response Endpoint</title>
+      <file>backend/src/agentic_rag_backend/api/routes/copilot.py</file>
+      <additions>
+        <![CDATA[
+        Add the following to the existing copilot.py routes file:
+
+        from pydantic import BaseModel, Field
+        from typing import List
+
+
+        class ValidationResponseRequest(BaseModel):
+            """Request body for HITL validation response."""
+
+            checkpoint_id: str = Field(..., description="ID of the checkpoint being responded to")
+            approved_source_ids: List[str] = Field(
+                default_factory=list,
+                description="List of approved source IDs"
+            )
+
+
+        class ValidationResponseResult(BaseModel):
+            """Response for HITL validation endpoint."""
+
+            checkpoint_id: str
+            status: str
+            approved_count: int
+            rejected_count: int
+
+
+        def get_hitl_manager(request: Request) -> "HITLManager":
+            """Get HITL manager from app state."""
+            return request.app.state.hitl_manager
+
+
+        @router.post("/validation-response", response_model=ValidationResponseResult)
+        async def receive_validation_response(
+            request_body: ValidationResponseRequest,
+            hitl_manager: "HITLManager" = Depends(get_hitl_manager),
+        ) -> ValidationResponseResult:
+            """
+            Receive Human-in-the-Loop validation response from frontend.
+
+            Story 6-4: Human-in-the-Loop Source Validation
+
+            This endpoint receives the user's approval/rejection decisions
+            and signals the waiting agent to continue with approved sources.
+            """
+            try:
+                events = hitl_manager.receive_validation(
+                    checkpoint_id=request_body.checkpoint_id,
+                    approved_source_ids=request_body.approved_source_ids,
+                )
+
+                # Get checkpoint for response
+                checkpoint = hitl_manager._pending_checkpoints.get(request_body.checkpoint_id)
+                if not checkpoint:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Checkpoint {request_body.checkpoint_id} not found"
+                    )
+
+                return ValidationResponseResult(
+                    checkpoint_id=request_body.checkpoint_id,
+                    status=checkpoint.status.value,
+                    approved_count=len(checkpoint.approved_source_ids),
+                    rejected_count=len(checkpoint.rejected_source_ids),
+                )
+
+            except KeyError:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Checkpoint {request_body.checkpoint_id} not found"
+                )
+        ]]>
+      </additions>
+    </step-8>
+
+    <step-9>
+      <title>Create Component Index Export</title>
+      <file>frontend/components/copilot/components/index.ts</file>
+      <updated-implementation>
+        <![CDATA[
+/**
+ * Generative UI Components
+ * Story 6-3: Generative UI Components
+ * Story 6-4: Human-in-the-Loop Source Validation
+ */
+
+export { SourceCard } from "./SourceCard";
+export { AnswerPanel } from "./AnswerPanel";
+export { GraphPreview, type GraphPreviewNode, type GraphPreviewEdge } from "./GraphPreview";
+export { SourceValidationCard } from "./SourceValidationCard";
+        ]]>
+      </updated-implementation>
+    </step-9>
+  </technical-approach>
+
+  <files-to-create>
+    <file>
+      <path>frontend/components/copilot/components/SourceValidationCard.tsx</path>
+      <purpose>Enhanced SourceCard with approve/reject buttons and Amber-400 pending indicator</purpose>
+    </file>
+    <file>
+      <path>frontend/components/copilot/SourceValidationDialog.tsx</path>
+      <purpose>Modal dialog for HITL source validation with approve/reject all actions</purpose>
+    </file>
+    <file>
+      <path>frontend/components/copilot/SourceValidationPanel.tsx</path>
+      <purpose>Inline collapsible panel alternative for non-modal HITL</purpose>
+    </file>
+    <file>
+      <path>frontend/hooks/use-source-validation.ts</path>
+      <purpose>Custom hook for validation state and CopilotKit renderAndWait integration</purpose>
+    </file>
+  </files-to-create>
+
+  <files-to-modify>
+    <file>
+      <path>frontend/types/copilot.ts</path>
+      <change>Add ValidationDecision, ValidatableSource, HITLCheckpoint, ValidationResponse types and Zod schemas</change>
+    </file>
+    <file>
+      <path>frontend/components/copilot/GenerativeUIRenderer.tsx</path>
+      <change>Add useSourceValidation hook and render SourceValidationDialog/Panel</change>
+    </file>
+    <file>
+      <path>frontend/components/copilot/components/index.ts</path>
+      <change>Export SourceValidationCard</change>
+    </file>
+    <file>
+      <path>backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py</path>
+      <change>Add HITLStatus enum, HITLCheckpoint dataclass, HITLManager class, create_validate_sources_events function</change>
+    </file>
+    <file>
+      <path>backend/src/agentic_rag_backend/api/routes/copilot.py</path>
+      <change>Add POST /validation-response endpoint with ValidationResponseRequest/Result models</change>
+    </file>
+  </files-to-modify>
+
+  <code-patterns>
+    <pattern name="renderAndWait-pattern">
+      <![CDATA[
+      CRITICAL: CopilotKit renderAndWait Pattern for HITL
+
+      The renderAndWait option in useCopilotAction is the KEY to implementing HITL.
+      It PAUSES the agent's execution until the frontend calls respond().
+
+      useCopilotAction({
+        name: "validate_sources",
+        parameters: [...],
+        // renderAndWait instead of just render
+        renderAndWait: ({ args, respond }) => {
+          // args: the action arguments from the agent
+          // respond: function to call when user makes a decision
+
+          // Store respond function for later use
+          respondRef.current = respond;
+
+          // Start validation UI
+          startValidation(args.sources);
+
+          // Return null because we manage UI externally
+          // The dialog is rendered separately based on state
+          return null;
+        },
+      });
+
+      // Later, when user submits validation:
+      const handleSubmit = (approvedIds: string[]) => {
+        if (respondRef.current) {
+          respondRef.current({ approved: approvedIds });
+          respondRef.current = null;
+        }
+        // Agent continues with only approved sources
+      };
+
+      IMPORTANT:
+      - The agent stream STOPS when renderAndWait is invoked
+      - The agent ONLY resumes when respond() is called
+      - The respond payload is returned to the agent as the action result
+      - If user never responds (closes tab), use timeout to auto-respond
+      ]]>
+    </pattern>
+
+    <pattern name="validation-state-cycling">
+      <![CDATA[
+      Validation State Cycling:
+
+      Click on card toggles through states:
+      pending -> approved -> rejected -> pending
+
+      const toggleDecision = (sourceId: string) => {
+        setDecisions((prev) => {
+          const newMap = new Map(prev);
+          const current = newMap.get(sourceId) || "pending";
+          const next: ValidationDecision =
+            current === "pending"
+              ? "approved"
+              : current === "approved"
+                ? "rejected"
+                : "pending";
+          newMap.set(sourceId, next);
+          return newMap;
+        });
+      };
+
+      Direct buttons set specific state:
+      onApprove={() => setDecision(sourceId, "approved")}
+      onReject={() => setDecision(sourceId, "rejected")}
+      ]]>
+    </pattern>
+
+    <pattern name="statistics-computation">
+      <![CDATA[
+      Compute statistics from decisions Map:
+
+      const stats = useMemo(() => {
+        const values = Array.from(decisions.values());
+        return {
+          approved: values.filter((v) => v === "approved").length,
+          rejected: values.filter((v) => v === "rejected").length,
+          pending: values.filter((v) => v === "pending").length,
+          total: sources.length,
+        };
+      }, [decisions, sources.length]);
+
+      Use for:
+      - Disabling "Approve All" when no pending
+      - Showing counts in statistics bar
+      - Disabling submit when no approved
+      - Dynamic button labels ("Continue with 3 Sources")
+      ]]>
+    </pattern>
+
+    <pattern name="backend-async-waiting">
+      <![CDATA[
+      Backend uses asyncio.Event for blocking HITL:
+
+      @dataclass
+      class HITLCheckpoint:
+          checkpoint_id: str
+          sources: List[Dict[str, Any]]
+          query: str
+          status: HITLStatus = HITLStatus.PENDING
+          response_event: Optional[asyncio.Event] = field(default_factory=asyncio.Event)
+
+      # In agent orchestration:
+      checkpoint_id, events = await hitl_manager.create_checkpoint(sources, query)
+      for event in events:
+          yield event  # Trigger frontend validation
+
+      # Wait for human response (blocks here)
+      checkpoint = await hitl_manager.wait_for_validation(checkpoint_id, timeout=300)
+
+      # Continue with only approved sources
+      approved_sources = hitl_manager.get_approved_sources(checkpoint_id)
+
+      # Frontend calls POST /validation-response
+      # Which calls hitl_manager.receive_validation()
+      # Which calls checkpoint.response_event.set()
+      # Which unblocks wait_for_validation()
+      ]]>
+    </pattern>
+  </code-patterns>
+
+  <design-system>
+    <colors>
+      <![CDATA[
+      HITL-SPECIFIC COLORS (PRIMARY FOR THIS STORY):
+
+      AMBER-400 (#FBBF24) - HITL Attention/Pending:
+      - SourceValidationCard border when pending
+      - SourceValidationPanel border
+      - Pending badge background
+      - AlertTriangle icon color
+      - Use: border-amber-400, bg-amber-50, text-amber-500, text-amber-700
+
+      EMERALD-500 (#10B981) - Approved/Validated:
+      - SourceValidationCard border when approved
+      - Approved badge background
+      - Approve button when selected
+      - CheckCircle2 icon color
+      - Use: border-emerald-400, bg-emerald-50, text-emerald-500, text-emerald-700
+
+      RED-500 (#EF4444) - Rejected/Excluded:
+      - SourceValidationCard border when rejected
+      - Rejected badge background
+      - Reject button when selected
+      - XCircle icon color
+      - Use: border-red-300, bg-red-50, text-red-500, text-red-700
+
+      INDIGO-600 (#4F46E5) - Primary Actions:
+      - Submit/Continue button
+      - Source index badge
+      - Use: bg-indigo-600, hover:bg-indigo-700
+
+      OPACITY FOR REJECTED:
+      - Rejected cards: opacity-60
+      - Rejected titles: line-through
+
+      VALIDATION STYLES FUNCTION:
+      function getValidationStyles(status: ValidationDecision): string {
+        switch (status) {
+          case "approved":
+            return "border-emerald-400 bg-emerald-50/50 ring-1 ring-emerald-200";
+          case "rejected":
+            return "border-red-300 bg-red-50/30 ring-1 ring-red-200 opacity-60";
+          case "pending":
+          default:
+            return "border-amber-400 bg-amber-50/50 ring-1 ring-amber-200";
+        }
+      }
+      ]]>
+    </colors>
+
+    <icons>
+      <![CDATA[
+      HITL-SPECIFIC ICONS (from lucide-react):
+
+      Status Icons:
+      - AlertCircle: Pending status (text-amber-500)
+      - CheckCircle2: Approved status (text-emerald-500)
+      - XCircle: Rejected status (text-red-500)
+      - AlertTriangle: Dialog/Panel header attention
+
+      Action Icons:
+      - Check: Approve button
+      - X: Reject button
+      - CheckCheck: Approve All button
+      - XSquare: Reject All button
+      - RotateCcw: Reset button
+      - Loader2: Submitting state (animate-spin)
+      - ChevronDown/ChevronUp: Panel collapse/expand
+      ]]>
+    </icons>
+  </design-system>
+
+  <copilotkit-reference>
+    <renderAndWait-api>
+      <![CDATA[
+      HOOK: useCopilotAction with renderAndWait
+      PACKAGE: @copilotkit/react-core
+
+      PURPOSE: Create actions that PAUSE agent execution until user provides input.
+      This is the foundation of Human-in-the-Loop patterns.
+
+      IMPORT:
+      import { useCopilotAction } from "@copilotkit/react-core";
+
+      TYPE SIGNATURE:
+      useCopilotAction({
+        name: string,
+        description?: string,
+        parameters?: ParameterDefinition[],
+
+        // Regular render (non-blocking):
+        render?: (props: ActionRenderProps) => ReactNode,
+
+        // Blocking render that waits for response:
+        renderAndWait?: (props: RenderAndWaitProps) => ReactNode,
+
+        // Optional handler when action completes:
+        handler?: (args) => any,
+      });
+
+      RenderAndWaitProps:
+      {
+        status: "inProgress" | "executing" | "complete",
+        args: T,                         // Typed action arguments
+        respond: (response: any) => void // Call to unblock agent
+      }
+
+      KEY BEHAVIOR:
+      1. When agent triggers action, renderAndWait is called
+      2. Agent execution PAUSES (streaming stops)
+      3. Frontend can render UI and wait for user input
+      4. When user is ready, call respond(data)
+      5. Agent receives data as action result and CONTINUES
+      6. If renderAndWait returns null, UI must be managed externally
+
+      EXAMPLE FOR HITL:
+      useCopilotAction({
+        name: "validate_sources",
+        description: "Request human approval for sources",
+        parameters: [
+          { name: "sources", type: "object[]", required: true },
+          { name: "query", type: "string", required: false },
+        ],
+        renderAndWait: ({ args, respond }) => {
+          // Store respond for later use
+          respondRef.current = respond;
+
+          // Trigger validation UI via state
+          startValidation(args.sources, args.query);
+
+          // Return null - we manage dialog separately
+          return null;
+        },
+      });
+
+      // When user submits validation:
+      const handleSubmit = (approvedIds: string[]) => {
+        respondRef.current?.({ approved: approvedIds });
+        respondRef.current = null;
+      };
+
+      TIMEOUT HANDLING:
+      If user abandons without responding, implement timeout:
+      - Frontend: setTimeout to auto-respond after X minutes
+      - Backend: asyncio.wait_for with timeout, then auto-approve all
+
+      IMPORTANT NOTES:
+      - Only ONE renderAndWait can be active at a time
+      - If user starts new message, old validation may be abandoned
+      - Always provide a "Skip" option for non-blocking path
+      - Log when timeout auto-responds for debugging
+      ]]>
+    </renderAndWait-api>
+
+    <action-confirmation-patterns>
+      <![CDATA[
+      ACTION CONFIRMATION PATTERNS:
+
+      1. MODAL DIALOG PATTERN (SourceValidationDialog):
+         - Blocks interaction with chat
+         - Forces user to make a decision
+         - Best for critical decisions
+         - Uses shadcn/ui Dialog component
+
+      2. INLINE PANEL PATTERN (SourceValidationPanel):
+         - Renders within chat flow
+         - User can continue typing while reviewing
+         - Collapsible for less distraction
+         - Best for optional review
+
+      3. NOTIFICATION PATTERN (not implemented):
+         - Toast notification that slides in
+         - User can ignore or click to review
+         - Auto-dismiss after timeout
+         - Best for low-priority confirmations
+
+      WHEN TO USE EACH:
+      - High-stakes research: Modal dialog (forces review)
+      - Casual exploration: Inline panel (optional review)
+      - Time-sensitive: Auto-approve with high threshold
+
+      CONFIGURATION IN GenerativeUIRenderer:
+      <GenerativeUIRenderer
+        useModalForValidation={true}     // Modal vs inline
+        autoApproveThreshold={0.9}       // Skip HITL for high confidence
+        autoRejectThreshold={0.3}        // Auto-reject low confidence
+      />
+      ]]>
+    </action-confirmation-patterns>
+  </copilotkit-reference>
+
+  <project-rules>
+    <rule name="naming-conventions">
+      <![CDATA[
+      TypeScript (Frontend):
+      - Components: PascalCase file AND export
+        - SourceValidationCard.tsx -> export const SourceValidationCard
+        - SourceValidationDialog.tsx -> export const SourceValidationDialog
+        - SourceValidationPanel.tsx -> export const SourceValidationPanel
+      - Hooks: camelCase with use prefix
+        - use-source-validation.ts -> export function useSourceValidation
+      - Types/Interfaces: PascalCase
+        - ValidationDecision, ValidatableSource, HITLCheckpoint
+      - Action names: snake_case
+        - validate_sources (matches backend)
+
+      Python (Backend):
+      - Classes: PascalCase
+        - HITLManager, HITLCheckpoint, ValidationResponseRequest
+      - Functions: snake_case
+        - create_validate_sources_events, receive_validation
+      - Enums: PascalCase class, SCREAMING_SNAKE values
+        - HITLStatus.PENDING, HITLStatus.APPROVED
+      ]]>
+    </rule>
+
+    <rule name="validation-requirements">
+      <![CDATA[
+      Frontend: Use Zod for all validation
+
+      const ValidateSourcesArgsSchema = z.object({
+        sources: z.array(SourceSchema),
+        query: z.string().optional(),
+        checkpointId: z.string().optional(),
+      });
+
+      // In renderAndWait:
+      const parseResult = ValidateSourcesArgsSchema.safeParse(args);
+      if (!parseResult.success) {
+        console.error("[HITL] Invalid args:", parseResult.error);
+        respond({ approved: [] }); // Unblock agent
+        return null;
+      }
+
+      Backend: Use Pydantic for all validation
+
+      class ValidationResponseRequest(BaseModel):
+          checkpoint_id: str = Field(..., description="Checkpoint ID")
+          approved_source_ids: List[str] = Field(default_factory=list)
+      ]]>
+    </rule>
+
+    <rule name="client-directive">
+      <![CDATA[
+      All HITL components must be client components:
+
+      "use client";  // Required at top of file
+
+      Files requiring this:
+      - SourceValidationCard.tsx
+      - SourceValidationDialog.tsx
+      - SourceValidationPanel.tsx
+      - use-source-validation.ts
+
+      Reason: These use React hooks (useState, useCallback, useMemo)
+      and CopilotKit hooks (useCopilotAction with renderAndWait).
+      ]]>
+    </rule>
+
+    <rule name="accessibility-requirements">
+      <![CDATA[
+      HITL components MUST be fully accessible:
+
+      SourceValidationCard:
+      - role="button" on clickable card
+      - tabIndex={0} for keyboard focus
+      - onKeyDown for Enter/Space handling
+      - aria-label with source name and current status
+      - aria-label on approve/reject buttons
+
+      SourceValidationDialog:
+      - Uses shadcn/ui Dialog (accessible by default)
+      - Focus trapped within dialog
+      - Escape key closes dialog
+
+      SourceValidationPanel:
+      - Collapsible header is a <button>
+      - aria-expanded on collapse button
+      - All action buttons have labels
+
+      Color NOT the only indicator:
+      - Icons accompany status colors
+      - Strikethrough on rejected titles
+      - Status text in badges ("pending", "approved")
+      ]]>
+    </rule>
+  </project-rules>
+
+  <testing-requirements>
+    <unit-tests>
+      <![CDATA[
+      | Test | Location |
+      |------|----------|
+      | SourceValidationCard renders pending state with Amber-400 | frontend/__tests__/components/copilot/SourceValidationCard.test.tsx |
+      | SourceValidationCard renders approved state with Emerald | frontend/__tests__/components/copilot/SourceValidationCard.test.tsx |
+      | SourceValidationCard renders rejected state with Red | frontend/__tests__/components/copilot/SourceValidationCard.test.tsx |
+      | SourceValidationCard toggles between states on click | frontend/__tests__/components/copilot/SourceValidationCard.test.tsx |
+      | SourceValidationCard handles keyboard events | frontend/__tests__/components/copilot/SourceValidationCard.test.tsx |
+      | SourceValidationDialog approve/reject all works | frontend/__tests__/components/copilot/SourceValidationDialog.test.tsx |
+      | SourceValidationDialog statistics update correctly | frontend/__tests__/components/copilot/SourceValidationDialog.test.tsx |
+      | SourceValidationDialog submit disabled when no approved | frontend/__tests__/components/copilot/SourceValidationDialog.test.tsx |
+      | SourceValidationDialog skip approves all sources | frontend/__tests__/components/copilot/SourceValidationDialog.test.tsx |
+      | SourceValidationPanel collapse/expand works | frontend/__tests__/components/copilot/SourceValidationPanel.test.tsx |
+      | SourceValidationPanel shows mini stats when collapsed | frontend/__tests__/components/copilot/SourceValidationPanel.test.tsx |
+      | useSourceValidation starts validation correctly | frontend/__tests__/hooks/use-source-validation.test.ts |
+      | useSourceValidation submits approved IDs | frontend/__tests__/hooks/use-source-validation.test.ts |
+      | useSourceValidation auto-approve threshold works | frontend/__tests__/hooks/use-source-validation.test.ts |
+      | useSourceValidation auto-reject threshold works | frontend/__tests__/hooks/use-source-validation.test.ts |
+      | useSourceValidation stores respond function | frontend/__tests__/hooks/use-source-validation.test.ts |
+      ]]>
+    </unit-tests>
+
+    <integration-tests>
+      <![CDATA[
+      | Test | Location |
+      |------|----------|
+      | HITL dialog opens when validate_sources action triggers | frontend/__tests__/integration/hitl.test.tsx |
+      | Approved sources are sent back to agent via respond | frontend/__tests__/integration/hitl.test.tsx |
+      | Skip & Use All approves all sources | frontend/__tests__/integration/hitl.test.tsx |
+      | Cancel validation sends empty approved list | frontend/__tests__/integration/hitl.test.tsx |
+      | GenerativeUIRenderer renders validation dialog | frontend/__tests__/integration/hitl.test.tsx |
+      | GenerativeUIRenderer renders validation panel when useModalForValidation=false | frontend/__tests__/integration/hitl.test.tsx |
+      ]]>
+    </integration-tests>
+
+    <e2e-tests>
+      <![CDATA[
+      | Test | Location |
+      |------|----------|
+      | Full HITL flow: query -> sources -> approval -> answer | frontend/tests/e2e/hitl.spec.ts |
+      | HITL blocks synthesis until decision | frontend/tests/e2e/hitl.spec.ts |
+      | Rejected sources excluded from answer | frontend/tests/e2e/hitl.spec.ts |
+      | Skip validation generates answer with all sources | frontend/tests/e2e/hitl.spec.ts |
+      | Keyboard navigation through validation dialog | frontend/tests/e2e/hitl.spec.ts |
+      | Cancel validation stops answer generation | frontend/tests/e2e/hitl.spec.ts |
+      ]]>
+    </e2e-tests>
+
+    <manual-verification>
+      <![CDATA[
+      1. Start backend with `cd backend && uv run uvicorn agentic_rag_backend.main:app --reload`
+      2. Start frontend with `cd frontend && pnpm dev`
+      3. Open browser to `http://localhost:3000`
+      4. Submit a query that triggers source retrieval
+
+      VERIFY VALIDATION DIALOG:
+      5. Verify HITL validation dialog appears with sources
+      6. Check each source shows Amber-400 border when pending
+      7. Check AlertCircle icon appears for pending sources
+      8. Click "Approve All Pending" - verify all turn Emerald
+      9. Click "Reset" - verify all return to Amber pending
+      10. Click individual Approve button - verify that source turns Emerald
+      11. Click individual Reject button - verify that source turns Red with opacity
+      12. Click on source card - verify it cycles through states
+
+      VERIFY STATISTICS:
+      13. Check statistics bar updates as decisions are made
+      14. Verify pending/approved/rejected counts are accurate
+
+      VERIFY SUBMIT FLOW:
+      15. Approve 2 of 4 sources
+      16. Click "Continue with 2 Sources"
+      17. Verify answer is generated using ONLY approved sources
+      18. Verify rejected sources are NOT mentioned in answer
+
+      VERIFY SKIP FLOW:
+      19. Open dialog, click "Skip & Use All"
+      20. Verify answer uses all sources
+
+      VERIFY CANCEL FLOW:
+      21. Open dialog, click "Cancel"
+      22. Verify no answer is generated
+
+      VERIFY KEYBOARD ACCESSIBILITY:
+      23. Tab through all controls in dialog
+      24. Press Enter/Space on source card to toggle
+      25. Press Escape to close dialog
+
+      VERIFY INLINE PANEL (set useModalForValidation={false}):
+      26. Verify panel appears inline in chat
+      27. Click header to collapse/expand
+      28. Verify mini stats show when collapsed
+      29. Complete validation flow with panel
+
+      VERIFY DESIGN SYSTEM COMPLIANCE:
+      30. Amber-400 (#FBBF24) for pending items
+      31. Emerald-500 (#10B981) for approved
+      32. Red-500 (#EF4444) for rejected
+      33. Indigo-600 (#4F46E5) for primary actions
+      ]]>
+    </manual-verification>
+  </testing-requirements>
+
+  <definition-of-done>
+    <![CDATA[
+    - [ ] All acceptance criteria met
+    - [ ] SourceValidationCard component created with:
+      - [ ] Amber-400 border and background for pending
+      - [ ] Emerald-500 styling for approved
+      - [ ] Red-500 styling for rejected
+      - [ ] Status icon (AlertCircle/CheckCircle2/XCircle)
+      - [ ] Approve/Reject buttons on right side
+      - [ ] Click to toggle status
+      - [ ] Keyboard accessible (Enter/Space)
+    - [ ] SourceValidationDialog component created with:
+      - [ ] Modal dialog using shadcn/ui
+      - [ ] Statistics bar with pending/approved/rejected counts
+      - [ ] Approve All / Reject All / Reset buttons
+      - [ ] Scrollable source list
+      - [ ] Skip & Use All button
+      - [ ] Submit button with loading state
+      - [ ] Cancel button
+    - [ ] SourceValidationPanel component created with:
+      - [ ] Amber-400 border
+      - [ ] Collapsible header with mini stats
+      - [ ] Same validation flow as dialog
+    - [ ] use-source-validation hook created with:
+      - [ ] renderAndWait pattern for blocking agent
+      - [ ] State management (pendingSources, decisions, approvedIds)
+      - [ ] Auto-approve/reject threshold support
+      - [ ] Stored respond function reference
+      - [ ] submitValidation calls respond()
+    - [ ] GenerativeUIRenderer updated with:
+      - [ ] useSourceValidation hook integration
+      - [ ] Conditional dialog/panel rendering
+      - [ ] useModalForValidation prop
+      - [ ] autoApproveThreshold prop
+    - [ ] TypeScript types added:
+      - [ ] ValidationDecision type
+      - [ ] ValidatableSource interface
+      - [ ] HITLCheckpoint interface
+      - [ ] ValidationResponse interface
+      - [ ] Zod schemas for all types
+    - [ ] Backend HITL support added:
+      - [ ] HITLStatus enum
+      - [ ] HITLCheckpoint dataclass
+      - [ ] HITLManager class
+      - [ ] create_validate_sources_events function
+      - [ ] POST /validation-response endpoint
+    - [ ] Unit tests passing
+    - [ ] Integration tests passing
+    - [ ] E2E tests passing
+    - [ ] Manual verification completed
+    - [ ] No TypeScript errors
+    - [ ] No ESLint errors
+    - [ ] Code follows project naming conventions
+    - [ ] Design system colors applied correctly
+    - [ ] Keyboard accessible
+    - [ ] ARIA attributes present
+    ]]>
+  </definition-of-done>
+
+  <technical-notes>
+    <renderAndWait-behavior>
+      <![CDATA[
+      RENDERANDWAIT EXECUTION FLOW:
+
+      1. User sends message: "What do the documents say about AI?"
+      2. Agent starts processing, retrieves sources
+      3. Agent triggers validate_sources action with sources
+      4. CopilotKit calls renderAndWait({ args, respond })
+      5. Frontend stores respond function in ref
+      6. Frontend sets isValidating=true, shows dialog
+      7. Agent execution PAUSES (no more streaming)
+
+      (User reviews sources in dialog)
+
+      8. User clicks "Continue with 3 Sources"
+      9. submitValidation(['src-1', 'src-2', 'src-3']) is called
+      10. respondRef.current({ approved: ['src-1', 'src-2', 'src-3'] })
+      11. respondRef.current = null
+      12. Agent receives response and CONTINUES
+      13. Agent synthesizes answer using ONLY approved sources
+      14. Answer streams to chat
+      ]]>
+    </renderAndWait-behavior>
+
+    <timeout-handling>
+      <![CDATA[
+      TIMEOUT BEHAVIOR:
+
+      If user abandons validation (closes tab, navigates away):
+
+      Backend:
+      - HITLManager.wait_for_validation has 300s (5 min) timeout
+      - On timeout, status = SKIPPED, all sources auto-approved
+      - Logs warning: "hitl_validation_timeout"
+      - Agent continues with all sources
+
+      Frontend:
+      - If component unmounts before responding:
+        - useEffect cleanup could auto-respond with []
+        - Or let backend timeout handle it
+
+      Recommendation:
+      - Let backend timeout be the safety net
+      - Frontend should encourage user to complete
+      - Show "Your input is required" in dialog
+      ]]>
+    </timeout-handling>
+
+    <non-blocking-ux>
+      <![CDATA[
+      NON-BLOCKING USER EXPERIENCE:
+
+      The HITL validation is "non-blocking" in terms of USER ACTIONS:
+      - User CAN continue typing new messages while dialog is open
+      - User CAN collapse inline panel and continue chatting
+      - User CAN close tab (backend timeout handles it)
+
+      However, AGENT generation is BLOCKED:
+      - The specific response being generated WAITS for approval
+      - Agent cannot continue without respond() being called
+
+      This is intentional - ensures approved sources are used.
+
+      SKIP OPTION:
+      - Provides quick path to unblock
+      - "Skip & Use All" approves everything
+      - User can always skip if they trust the AI's selections
+      ]]>
+    </non-blocking-ux>
+
+    <state-management>
+      <![CDATA[
+      STATE MANAGEMENT APPROACH:
+
+      Validation state is LOCAL to the hook, not global:
+      - Each validation session is independent
+      - State is transient (cleared after submission)
+      - No persistence across page refreshes
+      - No need for Redux/Zustand
+
+      Why local state:
+      - Validation is a short-lived interaction
+      - No need to persist decisions
+      - Simpler implementation
+      - No risk of stale global state
+
+      State flow:
+      1. renderAndWait triggers -> startValidation()
+      2. User makes decisions -> state.decisions Map updates
+      3. User submits -> submitValidation()
+      4. State resets to initial
+      ]]>
+    </state-management>
+  </technical-notes>
+
+  <risk-mitigation>
+    <![CDATA[
+    | Risk | Mitigation |
+    |------|------------|
+    | User abandons validation (closes tab) | Backend 5-minute timeout auto-approves all |
+    | Large number of sources (20+) | ScrollArea with max-height, "Approve All" shortcut |
+    | Network error during submission | Add retry logic with error message display |
+    | Concurrent validation requests | Unique checkpoint IDs prevent conflicts |
+    | SSR issues with Dialog | "use client" directive, Portal rendering |
+    | User submits before all reviewed | Allow submit with any approved count > 0 |
+    | renderAndWait not supported | Graceful fallback to non-blocking mode |
+    | Mobile viewport too small | Responsive dialog sizing, full-width on mobile |
+    ]]>
+  </risk-mitigation>
+
+  <dependencies>
+    <frontend>
+      <![CDATA[
+      EXISTING PACKAGES (no new installs needed):
+      - @copilotkit/react-core: ^1.50.1 (useCopilotAction with renderAndWait)
+      - @copilotkit/react-ui: ^1.50.1 (CopilotSidebar)
+      - lucide-react: ^0.562.0 (icons)
+      - zod: ^4.2.1 (validation)
+      - clsx: ^2.1.1 (className merging)
+      - tailwind-merge: ^3.4.0 (Tailwind class merging)
+
+      SHADCN/UI COMPONENTS REQUIRED:
+      - Dialog (already installed from previous stories)
+      - Button (already installed)
+      - Badge (already installed)
+      - ScrollArea (already installed)
+
+      If any shadcn/ui components are missing:
+      pnpm dlx shadcn@latest add dialog button badge scroll-area
+      ]]>
+    </frontend>
+
+    <backend>
+      <![CDATA[
+      NO NEW DEPENDENCIES REQUIRED.
+      Uses existing:
+      - pydantic for models
+      - fastapi for routing
+      - asyncio (stdlib) for HITL waiting
+      - uuid (stdlib) for checkpoint IDs
+      - structlog for logging
+      ]]>
+    </backend>
+  </dependencies>
+</story-context>
