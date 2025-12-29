@@ -8,7 +8,7 @@ import structlog
 
 from agentic_rag_backend.db.neo4j import Neo4jClient
 
-from .cache import TTLCache
+from .cache import TTLCache, hash_cache_key
 from .constants import (
     DEFAULT_ENTITY_LIMIT,
     DEFAULT_MAX_HOPS,
@@ -95,9 +95,10 @@ class GraphTraversalService:
 
     async def traverse(self, query: str, tenant_id: str) -> GraphTraversalResult:
         """Traverse graph relationships for a query."""
+        query_hash = hash_cache_key(query)
         cache_key = (
             tenant_id,
-            query,
+            query_hash,
             self.max_hops,
             self.path_limit,
             self.entity_limit,

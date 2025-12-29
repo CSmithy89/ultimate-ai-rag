@@ -13,8 +13,17 @@ from ..db.neo4j import Neo4jClient
 from ..db.postgres import PostgresClient
 from ..indexing.embeddings import DEFAULT_EMBEDDING_MODEL, EmbeddingGenerator
 from ..retrieval import GraphTraversalService, VectorSearchService
+from ..retrieval.constants import (
+    DEFAULT_ENTITY_LIMIT,
+    DEFAULT_MAX_HOPS,
+    DEFAULT_PATH_LIMIT,
+    DEFAULT_RETRIEVAL_CACHE_TTL_SECONDS,
+    DEFAULT_RETRIEVAL_TIMEOUT_SECONDS,
+    DEFAULT_SIMILARITY_THRESHOLD,
+    DEFAULT_VECTOR_LIMIT,
+)
 from ..retrieval.hybrid_synthesis import build_hybrid_prompt
-from ..retrieval.types import GraphTraversalResult, VectorHit
+from ..retrieval.types import GraphNode, GraphPath, GraphTraversalResult, VectorHit
 from ..schemas import (
     GraphEdgeEvidence,
     GraphEvidence,
@@ -33,15 +42,18 @@ else:  # pragma: no cover - typing only
     AgnoAgentType = Any
     AgnoOpenAIChatType = Any
 
-AgnoAgentImpl: type[Any] | None
-AgnoOpenAIChatImpl: type[Any] | None
+AgnoAgentImpl: type[Any] | None = None
+AgnoOpenAIChatImpl: type[Any] | None = None
 
 try:  # pragma: no cover - optional dependency at runtime
-    from agno.agent import Agent as AgnoAgentImpl
-    from agno.models.openai import OpenAIChat as AgnoOpenAIChatImpl
+    from agno.agent import Agent
+    from agno.models.openai import OpenAIChat
 except ImportError:  # pragma: no cover - optional dependency at runtime
-    AgnoAgentImpl = None
-    AgnoOpenAIChatImpl = None
+    Agent = None
+    OpenAIChat = None
+else:  # pragma: no cover - optional dependency at runtime
+    AgnoAgentImpl = Agent
+    AgnoOpenAIChatImpl = OpenAIChat
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +80,13 @@ class OrchestratorAgent:
         postgres: PostgresClient | None = None,
         neo4j: Neo4jClient | None = None,
         embedding_model: str = DEFAULT_EMBEDDING_MODEL,
+        vector_limit: int | None = None,
+        vector_similarity_threshold: float | None = None,
+        graph_max_hops: int | None = None,
+        graph_path_limit: int | None = None,
+        graph_entity_limit: int | None = None,
+        retrieval_timeout_seconds: float | None = None,
+        retrieval_cache_ttl_seconds: float | None = None,
     ) -> None:
         self._agent = None
         self._logger = logger
@@ -85,9 +104,48 @@ class OrchestratorAgent:
             self._vector_search = VectorSearchService(
                 postgres=postgres,
                 embedding_generator=embedding_generator,
+                limit=vector_limit if vector_limit is not None else DEFAULT_VECTOR_LIMIT,
+                similarity_threshold=(
+                    vector_similarity_threshold
+                    if vector_similarity_threshold is not None
+                    else DEFAULT_SIMILARITY_THRESHOLD
+                ),
+                timeout_seconds=(
+                    retrieval_timeout_seconds
+                    if retrieval_timeout_seconds is not None
+                    else DEFAULT_RETRIEVAL_TIMEOUT_SECONDS
+                ),
+                cache_ttl_seconds=(
+                    retrieval_cache_ttl_seconds
+                    if retrieval_cache_ttl_seconds is not None
+                    else DEFAULT_RETRIEVAL_CACHE_TTL_SECONDS
+                ),
             )
         if neo4j:
-            self._graph_traversal = GraphTraversalService(neo4j=neo4j)
+            self._graph_traversal = GraphTraversalService(
+                neo4j=neo4j,
+                max_hops=graph_max_hops if graph_max_hops is not None else DEFAULT_MAX_HOPS,
+                path_limit=(
+                    graph_path_limit
+                    if graph_path_limit is not None
+                    else DEFAULT_PATH_LIMIT
+                ),
+                entity_limit=(
+                    graph_entity_limit
+                    if graph_entity_limit is not None
+                    else DEFAULT_ENTITY_LIMIT
+                ),
+                timeout_seconds=(
+                    retrieval_timeout_seconds
+                    if retrieval_timeout_seconds is not None
+                    else DEFAULT_RETRIEVAL_TIMEOUT_SECONDS
+                ),
+                cache_ttl_seconds=(
+                    retrieval_cache_ttl_seconds
+                    if retrieval_cache_ttl_seconds is not None
+                    else DEFAULT_RETRIEVAL_CACHE_TTL_SECONDS
+                ),
+            )
 
     async def run(
         self, query: str, tenant_id: str, session_id: str | None = None
@@ -109,22 +167,39 @@ class OrchestratorAgent:
 
         vector_hits: list[VectorHit] = []
         graph_result: GraphTraversalResult | None = None
-        if strategy in {RetrievalStrategy.VECTOR, RetrievalStrategy.HYBRID}:
-            vector_hits = await self._run_vector_search(
+        if strategy == RetrievalStrategy.HYBRID:
+            vector_task = self._run_vector_search(
                 query,
                 tenant_id,
                 events,
                 thoughts,
                 trajectory_id,
             )
-        if strategy in {RetrievalStrategy.GRAPH, RetrievalStrategy.HYBRID}:
-            graph_result = await self._run_graph_traversal(
+            graph_task = self._run_graph_traversal(
                 query,
                 tenant_id,
                 events,
                 thoughts,
                 trajectory_id,
             )
+            vector_hits, graph_result = await asyncio.gather(vector_task, graph_task)
+        else:
+            if strategy == RetrievalStrategy.VECTOR:
+                vector_hits = await self._run_vector_search(
+                    query,
+                    tenant_id,
+                    events,
+                    thoughts,
+                    trajectory_id,
+                )
+            if strategy == RetrievalStrategy.GRAPH:
+                graph_result = await self._run_graph_traversal(
+                    query,
+                    tenant_id,
+                    events,
+                    thoughts,
+                    trajectory_id,
+                )
 
         evidence = self._build_evidence(vector_hits, graph_result)
         prompt = self._build_prompt(query, vector_hits, graph_result)
@@ -277,13 +352,20 @@ class OrchestratorAgent:
             if len(preview) > 240:
                 preview = preview[:240].rstrip() + "..."
             similarity = hit.similarity
-            if not math.isfinite(similarity) or similarity < 0 or similarity > 1:
+            if not math.isfinite(similarity):
+                logger.warning(
+                    "vector_similarity_non_finite",
+                    chunk_id=hit.chunk_id,
+                    similarity=similarity,
+                )
+                similarity = 0.0
+            elif similarity < 0 or similarity > 1:
                 logger.warning(
                     "vector_similarity_out_of_range",
                     chunk_id=hit.chunk_id,
                     similarity=similarity,
                 )
-                similarity = min(max(similarity, 0.0), 1.0) if math.isfinite(similarity) else 0.0
+                similarity = min(max(similarity, 0.0), 1.0)
             citations.append(
                 VectorCitation(
                     chunk_id=hit.chunk_id,
@@ -378,20 +460,12 @@ class OrchestratorAgent:
             )
             for edge in graph_result.edges
         ]
-        paths: list[GraphPathEvidence] = []
-        for path in graph_result.paths:
-            expected_edges = max(len(path.node_ids) - 1, 0)
-            if len(path.edge_types) != expected_edges:
-                logger.warning(
-                    "graph_path_edge_mismatch node_count=%s edge_count=%s",
-                    len(path.node_ids),
-                    len(path.edge_types),
-                )
-                continue
-            paths.append(
-                GraphPathEvidence(node_ids=path.node_ids, edge_types=path.edge_types)
-            )
-        explanation = self._build_graph_explanation(graph_result)
+        valid_paths = self._filter_graph_paths(graph_result.paths)
+        paths = [
+            GraphPathEvidence(node_ids=path.node_ids, edge_types=path.edge_types)
+            for path in valid_paths
+        ]
+        explanation = self._build_graph_explanation(graph_result.nodes, valid_paths)
         if explanation is None:
             explanation = "No traversal paths found for the current query."
         return GraphEvidence(
@@ -401,19 +475,14 @@ class OrchestratorAgent:
             explanation=explanation,
         )
 
-    def _build_graph_explanation(self, graph_result: GraphTraversalResult) -> str | None:
-        if not graph_result.paths or not graph_result.nodes:
+    def _build_graph_explanation(
+        self, nodes: list[GraphNode], paths: list[GraphPath]
+    ) -> str | None:
+        if not paths or not nodes:
             return None
-        name_map = {node.id: node.name or node.id for node in graph_result.nodes}
+        name_map = {node.id: node.name or node.id for node in nodes}
         explanations = []
-        for path in graph_result.paths:
-            if len(path.edge_types) != max(len(path.node_ids) - 1, 0):
-                logger.warning(
-                    "graph_path_edge_mismatch node_count=%s edge_count=%s",
-                    len(path.node_ids),
-                    len(path.edge_types),
-                )
-                continue
+        for path in paths:
             segments = []
             for idx, node_id in enumerate(path.node_ids[:-1]):
                 next_id = path.node_ids[idx + 1]
@@ -426,3 +495,17 @@ class OrchestratorAgent:
         if not explanations:
             return None
         return "; ".join(explanations)
+
+    def _filter_graph_paths(self, paths: list[GraphPath]) -> list[GraphPath]:
+        valid_paths: list[GraphPath] = []
+        for path in paths:
+            expected_edges = max(len(path.node_ids) - 1, 0)
+            if len(path.edge_types) != expected_edges:
+                logger.warning(
+                    "graph_path_edge_mismatch node_count=%s edge_count=%s",
+                    len(path.node_ids),
+                    len(path.edge_types),
+                )
+                continue
+            valid_paths.append(path)
+        return valid_paths

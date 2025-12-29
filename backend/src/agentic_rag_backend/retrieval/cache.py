@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
+import hashlib
 from time import monotonic
 from typing import Generic, Hashable, TypeVar
 
@@ -47,3 +48,8 @@ class TTLCache(Generic[T]):
             self._store.pop(key, None)
         while len(self._store) > self.max_size:
             self._store.popitem(last=False)
+
+
+def hash_cache_key(value: str) -> str:
+    """Hash cache keys to avoid storing raw query strings."""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()

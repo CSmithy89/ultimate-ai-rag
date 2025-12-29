@@ -10,7 +10,7 @@ from agentic_rag_backend.core.errors import AppError
 from agentic_rag_backend.db.postgres import PostgresClient
 from agentic_rag_backend.indexing.embeddings import EmbeddingGenerator
 
-from .cache import TTLCache
+from .cache import TTLCache, hash_cache_key
 from .constants import (
     DEFAULT_RETRIEVAL_CACHE_SIZE,
     DEFAULT_RETRIEVAL_CACHE_TTL_SECONDS,
@@ -59,7 +59,8 @@ class VectorSearchService:
             logger.warning("vector_search_invalid_tenant_id", tenant_id=tenant_id)
             return []
 
-        cache_key = (tenant_id, query, self.limit, self.similarity_threshold)
+        query_hash = hash_cache_key(query)
+        cache_key = (tenant_id, query_hash, self.limit, self.similarity_threshold)
         if self._cache:
             cached_hits = self._cache.get(cache_key)
             if cached_hits is not None:

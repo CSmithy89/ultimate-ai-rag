@@ -115,7 +115,9 @@ class IndexerAgent:
             logger.warning("indexer_finish_without_trajectory")
             return None
         self._trajectory.completed_at = datetime.now(timezone.utc)
-        return self._trajectory
+        trajectory = self._trajectory
+        self._trajectory = None
+        return trajectory
 
     def log_thought(self, content: str, **metadata: Any) -> None:
         """

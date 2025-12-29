@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from .constants import MAX_GRAPH_PATHS, MAX_VECTOR_HITS
+from .constants import MAX_GRAPH_PATHS, MAX_VECTOR_CONTENT_CHARS, MAX_VECTOR_HITS
 from .types import GraphTraversalResult, VectorHit
 
 
@@ -39,8 +39,8 @@ def build_hybrid_prompt(
         vector_lines = []
         for hit in ranked_vectors:
             content = hit.content.strip().replace("\n", " ")
-            if len(content) > 500:
-                content = content[:500].rstrip() + "..."
+            if len(content) > MAX_VECTOR_CONTENT_CHARS:
+                content = content[:MAX_VECTOR_CONTENT_CHARS].rstrip() + "..."
             vector_lines.append(f"[vector:{hit.chunk_id}] {content}")
         prompt_parts.append("Vector Evidence:")
         prompt_parts.append("\n".join(vector_lines))

@@ -24,8 +24,8 @@ class StubLogger:
 
 @pytest.mark.asyncio
 async def test_orchestrator_builds_plan_and_logs_events(monkeypatch) -> None:
-    monkeypatch.setattr(orchestrator_module, "Agent", None)
-    monkeypatch.setattr(orchestrator_module, "OpenAIChat", None)
+    monkeypatch.setattr(orchestrator_module, "AgnoAgentImpl", None)
+    monkeypatch.setattr(orchestrator_module, "AgnoOpenAIChatImpl", None)
 
     logger = StubLogger()
     agent = OrchestratorAgent(api_key="test", logger=logger)
