@@ -28,6 +28,22 @@ from .graphs import (
     Neo4jRelationship,
     RelationshipType,
 )
+from .copilot import (
+    AGUIEvent,
+    AGUIEventType,
+    ActionRequestEvent,
+    CopilotConfig,
+    CopilotMessage,
+    CopilotRequest,
+    MessageRole,
+    RunFinishedEvent,
+    RunStartedEvent,
+    StateSnapshotEvent,
+    TextDeltaEvent,
+    TextMessageEndEvent,
+    TextMessageStartEvent,
+    ToolCallEvent,
+)
 
 __all__ = [
     # Ingest models
@@ -55,4 +71,19 @@ __all__ = [
     "Neo4jEntity",
     "Neo4jRelationship",
     "RelationshipType",
+    # Copilot models
+    "AGUIEvent",
+    "AGUIEventType",
+    "ActionRequestEvent",
+    "CopilotConfig",
+    "CopilotMessage",
+    "CopilotRequest",
+    "MessageRole",
+    "RunFinishedEvent",
+    "RunStartedEvent",
+    "StateSnapshotEvent",
+    "TextDeltaEvent",
+    "TextMessageEndEvent",
+    "TextMessageStartEvent",
+    "ToolCallEvent",
 ]
