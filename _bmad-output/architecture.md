@@ -1210,3 +1210,124 @@ cd frontend && npm install @copilotkit/react-core @copilotkit/react-ui
 
 **Document Maintenance:** Update this architecture when major technical decisions are made during implementation.
 
+---
+
+## Architecture Addendum: Graphiti Integration (Epic 5)
+
+**Date Added:** 2025-12-29
+**Status:** Approved
+
+### Overview
+
+Epic 5 introduces Graphiti, Zep's temporal knowledge graph framework, replacing our custom entity extraction and graph building pipeline. This is a significant architectural enhancement that simplifies the codebase while adding temporal query capabilities.
+
+### Technology Change
+
+| Component | Before (Epic 4) | After (Epic 5) |
+|-----------|-----------------|----------------|
+| Entity Extraction | Custom OpenAI prompts | Graphiti SDK |
+| Graph Building | Custom Neo4j queries | Graphiti episode ingestion |
+| Embeddings | Custom pgvector integration | Graphiti built-in (BGE-m3) |
+| Relationship Management | Manual deduplication | Automatic temporal edges |
+| Search | Custom hybrid logic | Graphiti hybrid retrieval |
+
+### New Dependencies
+
+```toml
+# backend/pyproject.toml
+dependencies = [
+  "graphiti-core>=0.5.0",  # Temporal knowledge graph SDK
+]
+```
+
+### Architecture Impact
+
+**Data Flow Change:**
+
+```
+BEFORE:
+Document → Chunker → EntityExtractor → GraphBuilder → Neo4j (custom schema)
+
+AFTER:
+Document → Parser → Graphiti.add_episode() → Neo4j (Graphiti-managed temporal schema)
+```
+
+**New Capabilities:**
+- **Bi-temporal tracking**: Know when facts were true AND when ingested
+- **Point-in-time queries**: Query knowledge graph at specific historical dates
+- **Automatic contradiction resolution**: Temporal edge invalidation
+- **Agent memory**: Episode-based ingestion optimized for agent workflows
+
+### Code Reduction
+
+| Module | Status | Lines |
+|--------|--------|-------|
+| `indexing/entity_extractor.py` | DELETED | -352 |
+| `indexing/graph_builder.py` | DELETED | -295 |
+| `indexing/embeddings.py` | DELETED | -228 |
+| `agents/indexer.py` | SIMPLIFIED | -200 |
+| **Total Reduction** | | **~1,075 lines** |
+
+### New Modules
+
+| Module | Purpose |
+|--------|---------|
+| `db/graphiti.py` | Graphiti client wrapper with custom entity types |
+| `models/entity_types.py` | Pydantic entity type definitions |
+| `indexing/graphiti_ingestion.py` | Episode-based document ingestion |
+| `retrieval/graphiti_retrieval.py` | Temporal-aware hybrid search |
+
+### Custom Entity Types
+
+```python
+from graphiti_core.models import EntityModel
+from pydantic import Field
+
+class TechnicalConcept(EntityModel):
+    domain: str = Field(description="Technical domain")
+    complexity: str = Field(description="Complexity level")
+
+class CodePattern(EntityModel):
+    language: str = Field(description="Programming language")
+    pattern_type: str = Field(description="Pattern type")
+
+class APIEndpoint(EntityModel):
+    method: str = Field(description="HTTP method")
+    path: str = Field(description="Endpoint path")
+
+class ConfigurationOption(EntityModel):
+    config_type: str = Field(description="Configuration type")
+    default_value: str = Field(description="Default value")
+```
+
+### New API Endpoints
+
+```
+POST /api/v1/knowledge/temporal-query
+  - Query knowledge graph at specific point in time
+
+GET /api/v1/knowledge/changes
+  - Get knowledge changes over time period
+
+GET /api/v1/knowledge/entity/{id}/history
+  - Get all temporal versions of an entity
+```
+
+### Migration Strategy
+
+1. **Phase 1**: Parallel installation (Graphiti + existing)
+2. **Phase 2**: Feature flag routing (new docs → Graphiti)
+3. **Phase 3**: Migration of existing knowledge graph
+4. **Phase 4**: Legacy code removal
+5. **Phase 5**: Test suite adaptation
+
+### References
+
+- [Graphiti GitHub](https://github.com/getzep/graphiti)
+- [Zep: Temporal Knowledge Graph Architecture (arXiv)](https://arxiv.org/abs/2501.13956)
+- [Epic 5 Tech Spec](docs/epics/epic-5-tech-spec.md)
+
+---
+
+**Architecture Addendum Status:** APPROVED ✅
+

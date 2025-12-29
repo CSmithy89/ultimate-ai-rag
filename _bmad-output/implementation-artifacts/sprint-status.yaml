@@ -1,4 +1,4 @@
-# generated: 2025-12-28
+# generated: 2025-12-29
 # project: Agentic Rag and Graphrag with copilot
 # project_key: agentic-rag-graphrag-copilot
 # tracking_system: file-system
@@ -33,7 +33,7 @@
 # - SM typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
-generated: 2025-12-28
+generated: 2025-12-29
 project: Agentic Rag and Graphrag with copilot
 project_key: agentic-rag-graphrag-copilot
 tracking_system: file-system
@@ -72,27 +72,37 @@ development_status:
   4-4-knowledge-graph-visualization: done
   epic-4-retrospective: optional
 
-  # Epic 5: Interactive Copilot Experience
-  epic-5: backlog
-  5-1-copilotkit-react-integration: backlog
-  5-2-chat-sidebar-interface: backlog
-  5-3-generative-ui-components: backlog
-  5-4-human-in-the-loop-source-validation: backlog
-  5-5-frontend-actions: backlog
-  epic-5-retrospective: optional
+  # Epic 5: Graphiti Temporal Knowledge Graph Integration (NEW)
+  epic-5-graphiti: in-progress
+  5-1-graphiti-installation-setup: ready-for-dev
+  5-2-episode-ingestion-pipeline: backlog
+  5-3-hybrid-retrieval-integration: backlog
+  5-4-temporal-query-capabilities: backlog
+  5-5-legacy-code-removal-migration: backlog
+  5-6-test-suite-adaptation: backlog
+  epic-5-graphiti-retrospective: optional
 
-  # Epic 6: Protocol Integration & Extensibility
+  # Epic 6: Interactive Copilot Experience (was Epic 5)
   epic-6: backlog
-  6-1-mcp-tool-server-implementation: backlog
-  6-2-a2a-agent-collaboration: backlog
-  6-3-python-extension-sdk: backlog
-  6-4-universal-ag-ui-protocol-access: backlog
+  6-1-copilotkit-react-integration: backlog
+  6-2-chat-sidebar-interface: backlog
+  6-3-generative-ui-components: backlog
+  6-4-human-in-the-loop-source-validation: backlog
+  6-5-frontend-actions: backlog
   epic-6-retrospective: optional
 
-  # Epic 7: Operations & Observability
+  # Epic 7: Protocol Integration & Extensibility (was Epic 6)
   epic-7: backlog
-  7-1-llm-cost-monitoring: backlog
-  7-2-intelligent-model-routing: backlog
-  7-3-trajectory-debugging-interface: backlog
-  7-4-encrypted-trace-storage: backlog
+  7-1-mcp-tool-server-implementation: backlog
+  7-2-a2a-agent-collaboration: backlog
+  7-3-python-extension-sdk: backlog
+  7-4-universal-ag-ui-protocol-access: backlog
   epic-7-retrospective: optional
+
+  # Epic 8: Operations & Observability (was Epic 7)
+  epic-8: backlog
+  8-1-llm-cost-monitoring: backlog
+  8-2-intelligent-model-routing: backlog
+  8-3-trajectory-debugging-interface: backlog
+  8-4-encrypted-trace-storage: backlog
+  epic-8-retrospective: optional
