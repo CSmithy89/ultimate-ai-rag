@@ -74,8 +74,8 @@ development_status:
 
   # Epic 5: Graphiti Temporal Knowledge Graph Integration (NEW)
   epic-5-graphiti: in-progress
-  5-1-graphiti-installation-setup: ready-for-dev
-  5-2-episode-ingestion-pipeline: backlog
+  5-1-graphiti-installation-setup: done
+  5-2-episode-ingestion-pipeline: ready-for-dev
   5-3-hybrid-retrieval-integration: backlog
   5-4-temporal-query-capabilities: backlog
   5-5-legacy-code-removal-migration: backlog
