@@ -73,6 +73,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         struct_logger.warning("database_connection_failed", error=str(e))
 
     # Epic 2: Initialize query orchestrator components
+    pool = None
     if _should_skip_pool():
         app.state.pool = None
         app.state.trajectory_logger = None
@@ -88,10 +89,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
     else:
         pool = create_pool(settings.database_url, settings.db_pool_min, settings.db_pool_max)
-        await pool.open()
-        app.state.pool = pool
-        trajectory_logger = TrajectoryLogger(pool=pool)
-        app.state.trajectory_logger = trajectory_logger
+        try:
+            await pool.open()
+            app.state.pool = pool
+        except Exception as e:
+            struct_logger.warning("pool_open_failed", error=str(e))
+            await pool.close()
+            pool = None
+            app.state.pool = None
+
+        if pool:
+            trajectory_logger = TrajectoryLogger(pool=pool)
+            app.state.trajectory_logger = trajectory_logger
+        else:
+            app.state.trajectory_logger = None
+
         if settings.rate_limit_backend == "redis":
             redis_client = redis.from_url(settings.redis_url, decode_responses=True)
             app.state.redis = redis_client
@@ -110,7 +122,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.orchestrator = OrchestratorAgent(
             api_key=settings.openai_api_key,
             model_id=settings.openai_model_id,
-            logger=trajectory_logger,
+            logger=app.state.trajectory_logger,
         )
 
     yield
