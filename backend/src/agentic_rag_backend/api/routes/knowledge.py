@@ -243,3 +243,184 @@ async def get_orphans(
             error=str(e),
         )
         raise Neo4jError("get_orphans", str(e)) from e
+
+
+# Epic 5 - Temporal Query Endpoints
+
+from pydantic import BaseModel, Field
+from agentic_rag_backend.db.graphiti import GraphitiClient
+from agentic_rag_backend.retrieval.temporal_retrieval import (
+    temporal_search,
+    get_knowledge_changes,
+)
+
+
+class TemporalQueryRequest(BaseModel):
+    """Request body for temporal knowledge query."""
+
+    query: str = Field(..., description="Search query")
+    tenant_id: UUID = Field(..., description="Tenant identifier")
+    as_of_date: Optional[datetime] = Field(
+        None, description="Point-in-time for historical query (ISO 8601)"
+    )
+    num_results: int = Field(5, ge=1, le=100, description="Max results to return")
+
+
+async def get_graphiti(request: Request) -> Optional[GraphitiClient]:
+    """Get Graphiti client from app.state if available."""
+    return getattr(request.app.state, "graphiti", None)
+
+
+@router.post(
+    "/temporal-query",
+    summary="Query knowledge at a point in time",
+    description="Execute temporal search - query knowledge graph at specific point in time.",
+)
+@limiter.limit("30/minute")
+async def post_temporal_query(
+    request: Request,
+    body: TemporalQueryRequest,
+    graphiti: Optional[GraphitiClient] = Depends(get_graphiti),
+) -> dict[str, Any]:
+    """
+    Query knowledge graph at a specific point in time.
+
+    Returns nodes and edges that were valid at the as_of_date.
+    If no as_of_date is provided, returns current state.
+
+    Args:
+        body: Request with query, tenant_id, and optional as_of_date
+        graphiti: Graphiti client dependency
+
+    Returns:
+        Success response with temporal search results
+    """
+    logger.info(
+        "temporal_query_requested",
+        query=body.query[:100],
+        tenant_id=str(body.tenant_id),
+        as_of_date=body.as_of_date.isoformat() if body.as_of_date else None,
+    )
+
+    if not graphiti or not graphiti.is_connected:
+        raise Neo4jError("temporal_query", "Graphiti client not available")
+
+    try:
+        result = await temporal_search(
+            graphiti_client=graphiti,
+            query=body.query,
+            tenant_id=str(body.tenant_id),
+            as_of_date=body.as_of_date,
+            num_results=body.num_results,
+        )
+
+        return success_response({
+            "query": result.query,
+            "as_of_date": result.as_of_date.isoformat() if result.as_of_date else None,
+            "nodes": [
+                {
+                    "uuid": n.uuid,
+                    "name": n.name,
+                    "summary": n.summary,
+                    "labels": n.labels,
+                }
+                for n in result.nodes
+            ],
+            "edges": [
+                {
+                    "uuid": e.uuid,
+                    "source_node_uuid": e.source_node_uuid,
+                    "target_node_uuid": e.target_node_uuid,
+                    "name": e.name,
+                    "fact": e.fact,
+                    "valid_at": e.valid_at.isoformat() if e.valid_at else None,
+                    "invalid_at": e.invalid_at.isoformat() if e.invalid_at else None,
+                }
+                for e in result.edges
+            ],
+            "processing_time_ms": result.processing_time_ms,
+        })
+
+    except Exception as e:
+        logger.error(
+            "temporal_query_failed",
+            query=body.query[:100],
+            tenant_id=str(body.tenant_id),
+            error=str(e),
+        )
+        raise Neo4jError("temporal_query", str(e)) from e
+
+
+@router.get(
+    "/changes",
+    summary="Get knowledge changes over time",
+    description="Retrieve knowledge graph changes (episodes) within a date range.",
+)
+@limiter.limit("30/minute")
+async def get_changes(
+    request: Request,
+    tenant_id: UUID = Query(..., description="Tenant identifier (required)"),
+    start_date: datetime = Query(..., description="Start of date range (ISO 8601)"),
+    end_date: datetime = Query(..., description="End of date range (ISO 8601)"),
+    entity_type: Optional[str] = Query(None, description="Filter by entity type"),
+    graphiti: Optional[GraphitiClient] = Depends(get_graphiti),
+) -> dict[str, Any]:
+    """
+    Get knowledge changes over a time period.
+
+    Returns episodes (document ingestions) and aggregated change statistics.
+
+    Args:
+        tenant_id: Tenant identifier
+        start_date: Start of time period
+        end_date: End of time period
+        entity_type: Optional filter by entity type
+        graphiti: Graphiti client dependency
+
+    Returns:
+        Success response with change timeline
+    """
+    logger.info(
+        "get_changes_requested",
+        tenant_id=str(tenant_id),
+        start_date=start_date.isoformat(),
+        end_date=end_date.isoformat(),
+    )
+
+    if not graphiti or not graphiti.is_connected:
+        raise Neo4jError("get_changes", "Graphiti client not available")
+
+    try:
+        result = await get_knowledge_changes(
+            graphiti_client=graphiti,
+            tenant_id=str(tenant_id),
+            start_date=start_date,
+            end_date=end_date,
+            entity_type=entity_type,
+        )
+
+        return success_response({
+            "start_date": result.start_date.isoformat(),
+            "end_date": result.end_date.isoformat(),
+            "episodes": [
+                {
+                    "uuid": ep.uuid,
+                    "name": ep.name,
+                    "created_at": ep.created_at.isoformat(),
+                    "entities_added": ep.entities_added,
+                    "edges_added": ep.edges_added,
+                }
+                for ep in result.episodes
+            ],
+            "total_entities_added": result.total_entities_added,
+            "total_edges_added": result.total_edges_added,
+            "processing_time_ms": result.processing_time_ms,
+        })
+
+    except Exception as e:
+        logger.error(
+            "get_changes_failed",
+            tenant_id=str(tenant_id),
+            error=str(e),
+        )
+        raise Neo4jError("get_changes", str(e)) from e
