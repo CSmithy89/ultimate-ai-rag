@@ -9,6 +9,7 @@ node_modules/
 frontend/node_modules/
 frontend/.turbo/
 frontend/.next/
+backend/.turbo/
 **/*.tsbuildinfo
 pnpm-debug.log*
 
