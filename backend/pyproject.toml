@@ -30,6 +30,8 @@ dependencies = [
   "pgvector>=0.2.0",
   # Rate limiting
   "slowapi>=0.1.9",
+  # Epic 5 - Graphiti Temporal Knowledge Graph
+  "graphiti-core>=0.5.0",
 ]
 
 [project.scripts]
