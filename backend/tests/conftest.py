@@ -186,3 +186,86 @@ def client(mock_redis_client, mock_postgres_client, monkeypatch):
     # Re-enable rate limiting after tests
     limiter.enabled = True
     app.dependency_overrides.clear()
+
+# Graphiti mock helpers - shared across test files
+
+def make_mock_graphiti_node(
+    uuid: str = "node-1",
+    name: str = "Test Node",
+    summary: str = "A test node",
+    labels: list | None = None,
+):
+    """Create a mock Graphiti node with proper name attribute.
+    
+    Args:
+        uuid: Node UUID
+        name: Node name (uses configure_mock to handle reserved attribute)
+        summary: Node summary/description
+        labels: List of node labels
+        
+    Returns:
+        MagicMock configured as a Graphiti node
+    """
+    if labels is None:
+        labels = ["Entity"]
+    node = MagicMock()
+    node.uuid = uuid
+    node.configure_mock(name=name)  # Handle reserved attribute
+    node.summary = summary
+    node.labels = labels
+    return node
+
+
+def make_mock_graphiti_edge(
+    uuid: str = "edge-1",
+    source_node_uuid: str = "node-1",
+    target_node_uuid: str = "node-2",
+    name: str = "RELATES_TO",
+    fact: str = "Node 1 relates to Node 2",
+    valid_at=None,
+    invalid_at=None,
+):
+    """Create a mock Graphiti edge with temporal validity.
+    
+    Args:
+        uuid: Edge UUID
+        source_node_uuid: Source node UUID
+        target_node_uuid: Target node UUID
+        name: Relationship type name
+        fact: The fact this edge represents
+        valid_at: When the edge became valid (optional)
+        invalid_at: When the edge became invalid (optional)
+        
+    Returns:
+        MagicMock configured as a Graphiti edge
+    """
+    edge = MagicMock()
+    edge.uuid = uuid
+    edge.source_node_uuid = source_node_uuid
+    edge.target_node_uuid = target_node_uuid
+    edge.configure_mock(name=name)  # Handle reserved attribute
+    edge.fact = fact
+    edge.valid_at = valid_at
+    edge.invalid_at = invalid_at
+    return edge
+
+
+@pytest.fixture
+def mock_graphiti_node():
+    """Provide the mock node factory function."""
+    return make_mock_graphiti_node
+
+
+@pytest.fixture
+def mock_graphiti_edge():
+    """Provide the mock edge factory function."""
+    return make_mock_graphiti_edge
+
+
+@pytest.fixture
+def mock_graphiti_search_result(mock_graphiti_node, mock_graphiti_edge):
+    """Create a mock Graphiti search result."""
+    result = MagicMock()
+    result.nodes = [mock_graphiti_node()]
+    result.edges = [mock_graphiti_edge()]
+    return result

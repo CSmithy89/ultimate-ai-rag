@@ -28,6 +28,12 @@ class StubLogger:
     ) -> None:
         self.events.extend(events)
 
+    async def log_observation(
+        self, tenant_id: str, trajectory_id, observation: str
+    ) -> None:
+        """Log a single observation event."""
+        self.events.append((EventType.OBSERVATION, observation))
+
 
 @pytest.mark.asyncio
 async def test_orchestrator_builds_plan_and_logs_events(monkeypatch) -> None:

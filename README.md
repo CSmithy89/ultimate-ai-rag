@@ -73,3 +73,16 @@ docker compose up -d
   - PDF parsing with Docling for structured ingestion
   - Agentic entity extraction and graph construction
   - Knowledge graph visualization in the UI
+
+### Epic 5: Graphiti Temporal Knowledge Graph Integration
+- Status: Complete
+- Stories: 6/6 completed
+- Key Features:
+  - Graphiti integration for temporal knowledge graphs
+  - Episode-based document ingestion with automatic entity/edge extraction
+  - Hybrid retrieval with Graphiti search + vector fallback
+  - Temporal query capabilities (point-in-time search, knowledge changes)
+  - Custom entity types (TechnicalConcept, CodePattern, APIEndpoint, ConfigurationOption)
+  - Feature flags for backend selection (`INGESTION_BACKEND`, `RETRIEVAL_BACKEND`)
+  - Legacy module deprecation with migration path
+  - Comprehensive test suite with 263 tests (86%+ Graphiti module coverage)

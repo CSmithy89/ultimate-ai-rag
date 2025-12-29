@@ -1,9 +1,22 @@
 import os
+import socket
 
 import pytest
 from psycopg import OperationalError, errors
 
 from agentic_rag_backend.trajectory import EventType, TrajectoryLogger, create_pool
+
+
+def _is_postgres_available() -> bool:
+    """Check if PostgreSQL is accessible on localhost:5432."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        result = sock.connect_ex(("127.0.0.1", 5432))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
 
 
 @pytest.mark.integration
@@ -12,6 +25,9 @@ async def test_trajectory_events_isolated_by_tenant() -> None:
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         pytest.skip("DATABASE_URL not set")
+
+    if not _is_postgres_available():
+        pytest.skip("PostgreSQL not available on localhost:5432")
 
     pool = create_pool(database_url, min_size=1, max_size=1)
     await pool.open()

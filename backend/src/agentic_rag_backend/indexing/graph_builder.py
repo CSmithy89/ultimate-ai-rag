@@ -4,6 +4,15 @@ This module provides utilities for building and managing the knowledge graph
 from extracted entities and relationships.
 """
 
+import warnings
+
+warnings.warn(
+    "The graph_builder module is deprecated since v1.0.0 and will be removed in v2.0.0. "
+    "Use graphiti_ingestion.ingest_document_as_episode() which handles graph building automatically via Graphiti.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 from typing import Any, Optional
 from uuid import uuid4
 

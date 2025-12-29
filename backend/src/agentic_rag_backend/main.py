@@ -33,6 +33,10 @@ def _should_skip_pool() -> bool:
     return os.getenv("SKIP_DB_POOL") == "1"
 
 
+def _should_skip_graphiti() -> bool:
+    return os.getenv("SKIP_GRAPHITI") == "1"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
@@ -71,6 +75,31 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         struct_logger.info("database_connections_initialized")
     except Exception as e:
         struct_logger.warning("database_connection_failed", error=str(e))
+
+    # Epic 5: Initialize Graphiti temporal knowledge graph
+    app.state.graphiti = None
+    if not _should_skip_graphiti():
+        try:
+            from .db.graphiti import GraphitiClient, GRAPHITI_AVAILABLE
+
+            if GRAPHITI_AVAILABLE:
+                graphiti_client = GraphitiClient(
+                    uri=settings.neo4j_uri,
+                    user=settings.neo4j_user,
+                    password=settings.neo4j_password,
+                    openai_api_key=settings.openai_api_key,
+                    embedding_model=settings.graphiti_embedding_model,
+                    llm_model=settings.graphiti_llm_model,
+                )
+                await graphiti_client.connect()
+                await graphiti_client.build_indices()
+                app.state.graphiti = graphiti_client
+                struct_logger.info("graphiti_initialized")
+            else:
+                struct_logger.warning("graphiti_not_available", reason="graphiti-core not installed")
+        except Exception as e:
+            struct_logger.warning("graphiti_initialization_failed", error=str(e))
+            app.state.graphiti = None
 
     # Epic 2: Initialize query orchestrator components
     pool = None
@@ -134,6 +163,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     # Shutdown: Close database connections
+    # Epic 5: Graphiti connection
+    if hasattr(app.state, "graphiti") and app.state.graphiti:
+        await app.state.graphiti.disconnect()
+
     # Epic 4 connections
     if hasattr(app.state, "neo4j") and app.state.neo4j:
         await app.state.neo4j.disconnect()

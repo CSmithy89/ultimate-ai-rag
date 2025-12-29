@@ -8,8 +8,8 @@ Tests cover:
 - Missing tenant_id handling
 - Response format validation
 """
-
 from unittest.mock import AsyncMock, MagicMock, patch
+
 from uuid import uuid4
 
 import pytest
@@ -18,11 +18,7 @@ from fastapi.testclient import TestClient
 
 from agentic_rag_backend.api.routes.ingest import router, get_redis, get_postgres, limiter
 from agentic_rag_backend.core.errors import app_error_handler, AppError
-
-
 # Fixtures
-
-
 @pytest.fixture
 def mock_postgres():
     """Mock PostgreSQL client."""
@@ -30,16 +26,12 @@ def mock_postgres():
     mock.create_document = AsyncMock(return_value=uuid4())
     mock.create_job = AsyncMock(return_value=uuid4())
     return mock
-
-
 @pytest.fixture
 def mock_redis():
     """Mock Redis client."""
     mock = MagicMock()
     mock.publish_job = AsyncMock(return_value="12345-0")
     return mock
-
-
 @pytest.fixture
 def mock_settings():
     """Mock settings."""
@@ -54,8 +46,6 @@ def mock_settings():
         docling_table_mode: str = "accurate"
 
     return MockSettings()
-
-
 @pytest.fixture
 def app(mock_redis, mock_postgres):
     """Create a FastAPI test app with the ingest router and mocked dependencies."""
@@ -80,29 +70,19 @@ def app(mock_redis, mock_postgres):
 
     # Re-enable rate limiting after tests
     limiter.enabled = True
-
-
 @pytest.fixture
 def client(app):
     """Create a test client."""
     return TestClient(app)
-
-
 @pytest.fixture
 def sample_pdf_content():
     """Valid PDF content for testing."""
     return b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
-
-
 @pytest.fixture
 def sample_tenant_id():
     """Generate a random tenant ID."""
     return str(uuid4())
-
-
 # Tests
-
-
 class TestUploadDocument:
     """Tests for POST /api/v1/ingest/document endpoint."""
 
@@ -392,8 +372,6 @@ class TestUploadDocument:
         temp_file = Path(job_data["file_path"])
         assert temp_file.exists()
         assert temp_file.read_bytes() == sample_pdf_content
-
-
 class TestResponseFormat:
     """Tests for API response format compliance."""
 

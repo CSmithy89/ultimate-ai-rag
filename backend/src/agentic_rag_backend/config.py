@@ -8,6 +8,10 @@ from typing import Optional, cast
 from dotenv import load_dotenv
 
 
+# Search configuration constants
+DEFAULT_SEARCH_RESULTS = 5
+MAX_SEARCH_RESULTS = 100
+
 @dataclass(frozen=True)
 class Settings:
     """Application settings loaded from environment variables."""
@@ -41,6 +45,11 @@ class Settings:
     chunk_size: int
     chunk_overlap: int
     entity_similarity_threshold: float
+    # Epic 5 - Graphiti settings
+    graphiti_embedding_model: str
+    graphiti_llm_model: str
+    ingestion_backend: str  # "graphiti" or "legacy"
+    retrieval_backend: str  # "graphiti" or "legacy"
 
 
 def load_settings() -> Settings:
@@ -59,7 +68,7 @@ def load_settings() -> Settings:
     try:
         backend_port = int(os.getenv("BACKEND_PORT", "8000"))
     except ValueError as exc:
-        raise RuntimeError(
+        raise ValueError(
             "BACKEND_PORT must be a valid integer. Check your .env file."
         ) from exc
     try:
@@ -70,20 +79,20 @@ def load_settings() -> Settings:
         rate_limit_backend = os.getenv("RATE_LIMIT_BACKEND", "memory")
         rate_limit_redis_prefix = os.getenv("RATE_LIMIT_REDIS_PREFIX", "rate-limit")
     except ValueError as exc:
-        raise RuntimeError(
+        raise ValueError(
             "DB_POOL_MIN, DB_POOL_MAX, REQUEST_MAX_BYTES, and RATE_LIMIT_PER_MINUTE "
             "must be valid integers. Check your .env file."
         ) from exc
     if db_pool_min < min_pool_size or db_pool_max < db_pool_min:
-        raise RuntimeError(
+        raise ValueError(
             "DB_POOL_MIN must be >= 1 and DB_POOL_MAX must be >= DB_POOL_MIN."
         )
     if request_max_bytes < 1:
-        raise RuntimeError("REQUEST_MAX_BYTES must be >= 1.")
+        raise ValueError("REQUEST_MAX_BYTES must be >= 1.")
     if rate_limit_per_minute < 1:
-        raise RuntimeError("RATE_LIMIT_PER_MINUTE must be >= 1.")
+        raise ValueError("RATE_LIMIT_PER_MINUTE must be >= 1.")
     if rate_limit_backend not in {"memory", "redis"}:
-        raise RuntimeError("RATE_LIMIT_BACKEND must be 'memory' or 'redis'.")
+        raise ValueError("RATE_LIMIT_BACKEND must be 'memory' or 'redis'.")
 
     try:
         crawl4ai_rate_limit = float(os.getenv("CRAWL4AI_RATE_LIMIT", "1.0"))
@@ -111,6 +120,19 @@ def load_settings() -> Settings:
     except ValueError:
         entity_similarity_threshold = 0.95
 
+    # Epic 5 - Validate backend selections
+    ingestion_backend = os.getenv("INGESTION_BACKEND", "graphiti")
+    if ingestion_backend not in {"graphiti", "legacy"}:
+        raise ValueError(
+            f"Invalid INGESTION_BACKEND: {ingestion_backend}. "
+            "Must be 'graphiti' or 'legacy'.")
+
+    retrieval_backend = os.getenv("RETRIEVAL_BACKEND", "graphiti")
+    if retrieval_backend not in {"graphiti", "legacy"}:
+        raise ValueError(
+            f"Invalid RETRIEVAL_BACKEND: {retrieval_backend}. "
+            "Must be 'graphiti' or 'legacy'.")
+
     required = [
         "OPENAI_API_KEY",
         "DATABASE_URL",
@@ -123,7 +145,7 @@ def load_settings() -> Settings:
     missing = [key for key, value in values.items() if not value]
     if missing:
         missing_list = ", ".join(sorted(missing))
-        raise RuntimeError(
+        raise ValueError(
             "Missing required environment variables: "
             f"{missing_list}. Copy .env.example to .env and fill values."
         )
@@ -164,6 +186,11 @@ def load_settings() -> Settings:
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         entity_similarity_threshold=entity_similarity_threshold,
+        # Epic 5 - Graphiti settings
+        graphiti_embedding_model=os.getenv("GRAPHITI_EMBEDDING_MODEL", "text-embedding-3-small"),
+        graphiti_llm_model=os.getenv("GRAPHITI_LLM_MODEL", "gpt-4o-mini"),
+        ingestion_backend=ingestion_backend,
+        retrieval_backend=retrieval_backend,
     )
 
 
