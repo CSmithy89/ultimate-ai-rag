@@ -1,4 +1,12 @@
 """LLM-based entity and relationship extraction with structured output."""
+import warnings
+warnings.warn(
+    "The entity_extractor module is deprecated and will be removed in a future version. "
+    "Use graphiti_ingestion.ingest_document_as_episode() which handles entity extraction automatically via Graphiti.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
 
 import json
 import time

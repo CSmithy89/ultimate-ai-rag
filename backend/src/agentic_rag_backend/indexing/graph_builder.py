@@ -1,4 +1,12 @@
 """Graph builder for constructing knowledge graphs in Neo4j.
+import warnings
+warnings.warn(
+    "The graph_builder module is deprecated and will be removed in a future version. "
+    "Use graphiti_ingestion.ingest_document_as_episode() which handles graph building automatically via Graphiti.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
 
 This module provides utilities for building and managing the knowledge graph
 from extracted entities and relationships.
