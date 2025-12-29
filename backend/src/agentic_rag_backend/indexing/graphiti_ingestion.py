@@ -24,6 +24,9 @@ from ..models.entity_types import (
 
 logger = structlog.get_logger(__name__)
 
+# Minimum content length for meaningful ingestion
+MIN_CONTENT_LENGTH = 10
+
 
 @dataclass
 class EpisodeIngestionResult:
@@ -82,10 +85,11 @@ async def ingest_document_as_episode(
         raise RuntimeError("Graphiti client is not connected")
 
     # Validate document content
-    if not document.content or not document.content.strip():
+    content_stripped = document.content.strip() if document.content else ""
+    if len(content_stripped) < MIN_CONTENT_LENGTH:
         raise IngestionError(
             document_id=document_id,
-            reason="Document content is empty",
+            reason=f"Document content too short (min {MIN_CONTENT_LENGTH} chars)",
         )
 
     logger.info(

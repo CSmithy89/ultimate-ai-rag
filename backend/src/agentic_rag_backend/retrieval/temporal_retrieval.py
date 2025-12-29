@@ -26,6 +26,23 @@ def _redact_query(query: str, max_length: int = 50) -> str:
     return f"{query[:20]}...[hash:{query_hash}]"
 
 
+def _ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """Normalize datetime to UTC for consistent comparison.
+    
+    Args:
+        dt: Datetime to normalize (may be naive or aware)
+        
+    Returns:
+        UTC datetime or None if input was None
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        # Assume naive datetime is UTC
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 @dataclass
 class TemporalNode:
     """A node with temporal context."""
@@ -108,11 +125,6 @@ class KnowledgeChangesResult:
     processing_time_ms: int
 
 
-class EntityTypeFilterNotImplemented(Exception):
-    """Raised when entity_type filter is requested but not implemented."""
-    pass
-
-
 async def temporal_search(
     graphiti_client: GraphitiClient,
     query: str,
@@ -179,14 +191,18 @@ async def temporal_search(
             
             # Filter by temporal validity if as_of_date specified
             if as_of_date:
-                valid_at = temporal_edge.valid_at
-                invalid_at = temporal_edge.invalid_at
+                # Normalize all datetimes to UTC for consistent comparison
+                as_of_utc = _ensure_utc(as_of_date)
+                valid_at = _ensure_utc(temporal_edge.valid_at)
+                invalid_at = _ensure_utc(temporal_edge.invalid_at)
                 
-                # Edge must be valid at as_of_date
+                # Edge must be valid at as_of_date:
+                # - valid_at <= as_of_date (edge started before/at query time)
+                # - invalid_at is None OR invalid_at > as_of_date (not yet invalidated)
                 is_valid = True
-                if valid_at and valid_at > as_of_date:
+                if valid_at and valid_at > as_of_utc:
                     is_valid = False
-                if invalid_at and invalid_at <= as_of_date:
+                if invalid_at and invalid_at <= as_of_utc:
                     is_valid = False
                     
                 if is_valid:
@@ -230,7 +246,6 @@ async def get_knowledge_changes(
     tenant_id: str,
     start_date: datetime,
     end_date: datetime,
-    entity_type: Optional[str] = None,
 ) -> KnowledgeChangesResult:
     """
     Get knowledge changes over a time period.
@@ -244,29 +259,20 @@ async def get_knowledge_changes(
     Args:
         graphiti_client: Connected GraphitiClient instance
         tenant_id: Tenant ID for multi-tenancy
-        start_date: Start of time period
-        end_date: End of time period
-        entity_type: Optional filter by entity type (NOT IMPLEMENTED)
+        start_date: Start of time period (timezone-aware recommended)
+        end_date: End of time period (timezone-aware recommended)
 
     Returns:
         KnowledgeChangesResult with change timeline and aggregates
 
     Raises:
         Neo4jError: If Graphiti client is not connected
-        EntityTypeFilterNotImplemented: If entity_type filter is requested
     """
     start_time = time.perf_counter()
 
     # Validate client connection
     if not graphiti_client.is_connected:
         raise Neo4jError("get_knowledge_changes", "Graphiti client is not connected")
-
-    # Reject entity_type filter - not implemented
-    if entity_type:
-        raise EntityTypeFilterNotImplemented(
-            f"entity_type filter '{entity_type}' is not yet implemented. "
-            "Remove this parameter or wait for feature implementation."
-        )
 
     logger.info(
         "get_knowledge_changes_started",
@@ -358,8 +364,6 @@ async def get_knowledge_changes(
 
         return result
 
-    except EntityTypeFilterNotImplemented:
-        raise
     except Exception as e:
         logger.error(
             "get_knowledge_changes_failed",

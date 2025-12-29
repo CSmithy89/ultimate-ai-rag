@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 struct_logger = structlog.get_logger(__name__)
 
 # Connection configuration constants
+# 5 seconds allows graceful shutdown while preventing hung connections
 DEFAULT_DISCONNECT_TIMEOUT = 5.0
 
 
@@ -41,7 +42,6 @@ class GraphitiClient:
     Attributes:
         uri: Neo4j connection URI
         user: Neo4j username
-        password: Neo4j password
         client: The underlying Graphiti instance
     """
 
@@ -72,12 +72,13 @@ class GraphitiClient:
 
         self.uri = uri
         self.user = user
-        self.password = password
+        self._password: Optional[str] = password
         self._openai_api_key: Optional[str] = openai_api_key
         self.embedding_model = embedding_model
         self.llm_model = llm_model
         self._client: Optional[Graphiti] = None
         self._connected = False
+        self._connect_lock = asyncio.Lock()
 
     @property
     def client(self) -> Graphiti:
@@ -104,58 +105,67 @@ class GraphitiClient:
         """Establish connection to Neo4j and initialize Graphiti.
 
         Creates the Graphiti instance with configured LLM client,
-        embedder, and custom entity types. Clears the API key from
-        memory after successful connection for security.
+        embedder, and custom entity types. Clears sensitive credentials
+        from memory after successful connection for security.
+        
+        Thread-safe via asyncio lock to prevent race conditions.
         """
-        if self._connected:
-            struct_logger.warning("graphiti_already_connected")
-            return
+        async with self._connect_lock:
+            if self._connected:
+                struct_logger.warning("graphiti_already_connected")
+                return
 
-        if self._openai_api_key is None:
-            raise RuntimeError(
-                "Cannot connect: API key already cleared. "
-                "Create a new GraphitiClient instance."
-            )
+            if self._openai_api_key is None:
+                raise RuntimeError(
+                    "Cannot connect: API key already cleared. "
+                    "Create a new GraphitiClient instance."
+                )
 
-        try:
-            # Create OpenAI clients for LLM and embeddings
-            llm_client = OpenAIClient(
-                api_key=self._openai_api_key,
-                model=self.llm_model,
-            )
-            embedder = OpenAIEmbedder(
-                api_key=self._openai_api_key,
-                model=self.embedding_model,
-            )
+            try:
+                # Create OpenAI clients for LLM and embeddings
+                llm_client = OpenAIClient(
+                    api_key=self._openai_api_key,
+                    model=self.llm_model,
+                )
+                embedder = OpenAIEmbedder(
+                    api_key=self._openai_api_key,
+                    model=self.embedding_model,
+                )
 
-            # Clear the API key from memory after passing to clients
-            self._openai_api_key = None
+                # Clear the API key from memory after passing to clients
+                self._openai_api_key = None
 
-            # Initialize Graphiti with custom configuration
-            self._client = Graphiti(
-                uri=self.uri,
-                user=self.user,
-                password=self.password,
-                llm_client=llm_client,
-                embedder=embedder,
-            )
+                # Initialize Graphiti with custom configuration
+                self._client = Graphiti(
+                    uri=self.uri,
+                    user=self.user,
+                    password=self._password,
+                    llm_client=llm_client,
+                    embedder=embedder,
+                )
 
-            self._connected = True
-            struct_logger.info(
-                "graphiti_connected",
-                uri=self.uri,
-                embedding_model=self.embedding_model,
-                llm_model=self.llm_model,
-            )
+                # Clear password from memory after successful connection
+                self._password = None
 
-        except Exception as e:
-            self._connected = False
-            self._client = None
-            struct_logger.error("graphiti_connection_failed", error=str(e))
-            raise
+                self._connected = True
+                struct_logger.info(
+                    "graphiti_connected",
+                    uri=self.uri,
+                    embedding_model=self.embedding_model,
+                    llm_model=self.llm_model,
+                )
+
+            except Exception as e:
+                self._connected = False
+                self._client = None
+                struct_logger.error("graphiti_connection_failed", error=str(e))
+                raise
 
     async def disconnect(self, timeout: float = DEFAULT_DISCONNECT_TIMEOUT) -> None:
         """Close the Graphiti connection and cleanup resources.
+        
+        This is a fire-and-forget operation - timeout and errors are logged
+        but not re-raised to allow graceful shutdown even with connection issues.
         
         Args:
             timeout: Maximum seconds to wait for graceful disconnect
@@ -214,6 +224,13 @@ class GraphitiClient:
             Dictionary mapping entity type pairs to valid edge types
         """
         return EDGE_TYPE_MAPPINGS
+
+    def __repr__(self) -> str:
+        """Safe repr that hides sensitive credentials."""
+        return (
+            f"GraphitiClient(uri={self.uri!r}, user={self.user!r}, "
+            f"connected={self._connected})"
+        )
 
 
 async def create_graphiti_client(
