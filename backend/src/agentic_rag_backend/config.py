@@ -8,6 +8,10 @@ from typing import Optional
 from dotenv import load_dotenv
 
 
+# Search configuration constants
+DEFAULT_SEARCH_RESULTS = 5
+MAX_SEARCH_RESULTS = 100
+
 @dataclass(frozen=True)
 class Settings:
     """Application settings loaded from environment variables."""

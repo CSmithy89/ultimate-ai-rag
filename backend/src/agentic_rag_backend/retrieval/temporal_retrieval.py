@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional, Any
+from ..config import DEFAULT_SEARCH_RESULTS
 
 import structlog
 
@@ -102,7 +103,7 @@ async def temporal_search(
     query: str,
     tenant_id: str,
     as_of_date: Optional[datetime] = None,
-    num_results: int = 5,
+    num_results: int = DEFAULT_SEARCH_RESULTS,
 ) -> TemporalSearchResult:
     """
     Execute temporal search - query knowledge at a specific point in time.

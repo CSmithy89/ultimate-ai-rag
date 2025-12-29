@@ -10,6 +10,7 @@ from typing import Optional, Any
 
 import structlog
 
+from ..config import DEFAULT_SEARCH_RESULTS
 from ..db.graphiti import GraphitiClient
 
 logger = structlog.get_logger(__name__)
@@ -72,7 +73,7 @@ async def graphiti_search(
     graphiti_client: GraphitiClient,
     query: str,
     tenant_id: str,
-    num_results: int = 5,
+    num_results: int = DEFAULT_SEARCH_RESULTS,
     center_node_uuid: Optional[str] = None,
 ) -> GraphitiSearchResult:
     """
@@ -150,6 +151,13 @@ async def graphiti_search(
 
         return result
 
+    except ConnectionError as e:
+        logger.error(
+            "graphiti_search_connection_failed",
+            query=query[:100],
+            error=str(e),
+        )
+        raise RuntimeError(f"Connection failed: {e}") from e
     except Exception as e:
         logger.error(
             "graphiti_search_failed",
@@ -165,7 +173,7 @@ async def search_with_backend_routing(
     graphiti_client: Optional[GraphitiClient],
     legacy_retriever: Any,  # Legacy retriever type
     retrieval_backend: str,
-    num_results: int = 5,
+    num_results: int = DEFAULT_SEARCH_RESULTS,
 ) -> GraphitiSearchResult:
     """
     Route search to appropriate backend based on feature flag.

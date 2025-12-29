@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from agentic_rag_backend.config import DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS
 from agentic_rag_backend.core.errors import Neo4jError
 from agentic_rag_backend.db.graphiti import GraphitiClient
 from agentic_rag_backend.db.neo4j import Neo4jClient
@@ -270,7 +271,59 @@ async def get_orphans(
         raise Neo4jError("get_orphans", str(e)) from e
 
 
-# Epic 5 - Temporal Query Endpoints
+# Epic 5 - Temporal Query Models and Endpoints
+
+
+class TemporalNodeResponse(BaseModel):
+    """A node in temporal search results."""
+
+    uuid: str
+    name: str
+    summary: str
+    labels: list[str]
+
+
+class TemporalEdgeResponse(BaseModel):
+    """An edge in temporal search results with validity period."""
+
+    uuid: str
+    source_node_uuid: str
+    target_node_uuid: str
+    name: str
+    fact: str
+    valid_at: Optional[str] = None
+    invalid_at: Optional[str] = None
+
+
+class TemporalSearchResponse(BaseModel):
+    """Response model for temporal search query."""
+
+    query: str
+    as_of_date: Optional[str] = None
+    nodes: list[TemporalNodeResponse]
+    edges: list[TemporalEdgeResponse]
+    processing_time_ms: int
+
+
+class EpisodeResponse(BaseModel):
+    """A single episode (document ingestion) in change history."""
+
+    uuid: str
+    name: str
+    created_at: str
+    entities_added: int
+    edges_added: int
+
+
+class KnowledgeChangesResponse(BaseModel):
+    """Response model for knowledge changes query."""
+
+    start_date: str
+    end_date: str
+    episodes: list[EpisodeResponse]
+    total_entities_added: int
+    total_edges_added: int
+    processing_time_ms: int
 
 
 class TemporalQueryRequest(BaseModel):
@@ -281,13 +334,19 @@ class TemporalQueryRequest(BaseModel):
     as_of_date: Optional[datetime] = Field(
         None, description="Point-in-time for historical query (ISO 8601)"
     )
-    num_results: int = Field(5, ge=1, le=100, description="Max results to return")
+    num_results: int = Field(
+        DEFAULT_SEARCH_RESULTS,
+        ge=1,
+        le=MAX_SEARCH_RESULTS,
+        description="Max results to return",
+    )
 
 
 @router.post(
     "/temporal/search",
     summary="Query knowledge at a point in time",
     description="Execute temporal search - query knowledge graph at specific point in time.",
+    response_model_exclude_none=True,
 )
 @limiter.limit("30/minute")
 async def post_temporal_query(
@@ -324,32 +383,34 @@ async def post_temporal_query(
             num_results=body.num_results,
         )
 
-        return success_response({
-            "query": result.query,
-            "as_of_date": result.as_of_date.isoformat() if result.as_of_date else None,
-            "nodes": [
-                {
-                    "uuid": n.uuid,
-                    "name": n.name,
-                    "summary": n.summary,
-                    "labels": n.labels,
-                }
+        response = TemporalSearchResponse(
+            query=result.query,
+            as_of_date=result.as_of_date.isoformat() if result.as_of_date else None,
+            nodes=[
+                TemporalNodeResponse(
+                    uuid=n.uuid,
+                    name=n.name,
+                    summary=n.summary,
+                    labels=n.labels,
+                )
                 for n in result.nodes
             ],
-            "edges": [
-                {
-                    "uuid": e.uuid,
-                    "source_node_uuid": e.source_node_uuid,
-                    "target_node_uuid": e.target_node_uuid,
-                    "name": e.name,
-                    "fact": e.fact,
-                    "valid_at": e.valid_at.isoformat() if e.valid_at else None,
-                    "invalid_at": e.invalid_at.isoformat() if e.invalid_at else None,
-                }
+            edges=[
+                TemporalEdgeResponse(
+                    uuid=e.uuid,
+                    source_node_uuid=e.source_node_uuid,
+                    target_node_uuid=e.target_node_uuid,
+                    name=e.name,
+                    fact=e.fact,
+                    valid_at=e.valid_at.isoformat() if e.valid_at else None,
+                    invalid_at=e.invalid_at.isoformat() if e.invalid_at else None,
+                )
                 for e in result.edges
             ],
-            "processing_time_ms": result.processing_time_ms,
-        })
+            processing_time_ms=result.processing_time_ms,
+        )
+
+        return success_response(response.model_dump())
 
     except Exception as e:
         logger.error(
@@ -365,6 +426,7 @@ async def post_temporal_query(
     "/temporal/changes",
     summary="Get knowledge changes over time",
     description="Retrieve knowledge graph changes (episodes) within a date range.",
+    response_model_exclude_none=True,
 )
 @limiter.limit("30/minute")
 async def get_changes(
@@ -406,23 +468,25 @@ async def get_changes(
             entity_type=entity_type,
         )
 
-        return success_response({
-            "start_date": result.start_date.isoformat(),
-            "end_date": result.end_date.isoformat(),
-            "episodes": [
-                {
-                    "uuid": ep.uuid,
-                    "name": ep.name,
-                    "created_at": ep.created_at.isoformat(),
-                    "entities_added": ep.entities_added,
-                    "edges_added": ep.edges_added,
-                }
+        response = KnowledgeChangesResponse(
+            start_date=result.start_date.isoformat(),
+            end_date=result.end_date.isoformat(),
+            episodes=[
+                EpisodeResponse(
+                    uuid=ep.uuid,
+                    name=ep.name,
+                    created_at=ep.created_at.isoformat(),
+                    entities_added=ep.entities_added,
+                    edges_added=ep.edges_added,
+                )
                 for ep in result.episodes
             ],
-            "total_entities_added": result.total_entities_added,
-            "total_edges_added": result.total_edges_added,
-            "processing_time_ms": result.processing_time_ms,
-        })
+            total_entities_added=result.total_entities_added,
+            total_edges_added=result.total_edges_added,
+            processing_time_ms=result.processing_time_ms,
+        )
+
+        return success_response(response.model_dump())
 
     except Exception as e:
         logger.error(

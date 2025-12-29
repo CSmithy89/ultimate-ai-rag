@@ -5,6 +5,7 @@ knowledge graph, including connection management, index building,
 and custom entity type configuration.
 """
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -27,6 +28,9 @@ from ..models.entity_types import ENTITY_TYPES, EDGE_TYPE_MAPPINGS
 logger = logging.getLogger(__name__)
 struct_logger = structlog.get_logger(__name__)
 
+# Connection configuration constants
+DEFAULT_DISCONNECT_TIMEOUT = 5.0
+
 
 class GraphitiClient:
     """Managed Graphiti client for temporal knowledge graph operations.
@@ -38,7 +42,6 @@ class GraphitiClient:
         uri: Neo4j connection URI
         user: Neo4j username
         password: Neo4j password
-        openai_api_key: OpenAI API key for LLM operations
         client: The underlying Graphiti instance
     """
 
@@ -70,7 +73,7 @@ class GraphitiClient:
         self.uri = uri
         self.user = user
         self.password = password
-        self.openai_api_key = openai_api_key
+        self._openai_api_key = openai_api_key
         self.embedding_model = embedding_model
         self.llm_model = llm_model
         self._client: Optional[Graphiti] = None
@@ -110,11 +113,11 @@ class GraphitiClient:
         try:
             # Create OpenAI clients for LLM and embeddings
             llm_client = OpenAIClient(
-                api_key=self.openai_api_key,
+                api_key=self._openai_api_key,
                 model=self.llm_model,
             )
             embedder = OpenAIEmbedder(
-                api_key=self.openai_api_key,
+                api_key=self._openai_api_key,
                 model=self.embedding_model,
             )
 
@@ -141,17 +144,29 @@ class GraphitiClient:
             struct_logger.error("graphiti_connection_failed", error=str(e))
             raise
 
-    async def disconnect(self) -> None:
-        """Close the Graphiti connection and cleanup resources."""
+    async def disconnect(self, timeout: float = DEFAULT_DISCONNECT_TIMEOUT) -> None:
+        """Close the Graphiti connection and cleanup resources.
+        
+        Args:
+            timeout: Maximum seconds to wait for graceful disconnect
+        """
         if not self._connected or self._client is None:
             return
 
         try:
-            # Graphiti uses Neo4j driver internally, close it
+            # Graphiti uses Neo4j driver internally, close it with timeout
             if hasattr(self._client, "driver") and self._client.driver:
-                await self._client.driver.close()
+                await asyncio.wait_for(
+                    self._client.driver.close(),
+                    timeout=timeout,
+                )
 
             struct_logger.info("graphiti_disconnected")
+        except asyncio.TimeoutError:
+            struct_logger.error(
+                "graphiti_disconnect_timeout",
+                timeout_seconds=timeout,
+            )
         except Exception as e:
             struct_logger.warning("graphiti_disconnect_error", error=str(e))
         finally:

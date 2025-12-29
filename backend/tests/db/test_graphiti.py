@@ -191,7 +191,7 @@ class TestGraphitiClient:
         )
         assert client.uri == "bolt://localhost:7687"
         assert client.user == "neo4j"
-        assert client.openai_api_key == "sk-test"
+        # API key is private - not exposed as public attribute
         assert client.is_connected is False
 
     def test_client_not_connected_raises(self, mock_graphiti_imports):
