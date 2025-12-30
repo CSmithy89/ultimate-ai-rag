@@ -99,10 +99,10 @@ development_status:
   7-2-a2a-agent-collaboration: done
   7-3-python-extension-sdk: done
   7-4-universal-ag-ui-protocol-access: done
-  epic-7-retrospective: optional
+  epic-7-retrospective: done
 
   # Epic 8: Operations & Observability (was Epic 7)
-  epic-8: backlog
+  epic-8: contexted
   8-1-llm-cost-monitoring: backlog
   8-2-intelligent-model-routing: backlog
   8-3-trajectory-debugging-interface: backlog
