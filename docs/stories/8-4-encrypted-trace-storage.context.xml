@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>8.4</story-id>
+    <story-name>Encrypted Trace Storage</story-name>
+    <epic>Epic 8: Operations &amp; Observability</epic>
+    <status>ready-for-dev</status>
+    <generated>2025-12-31</generated>
+    <depends-on>Story 2.4 (Persistent Trajectory Logging)</depends-on>
+  </metadata>
+
+  <summary>
+    <description>
+      Encrypt trajectory event content before persistence using AES-256-GCM and
+      decrypt it only when serving authorized ops endpoints. Ensure the key is
+      configured via environment settings and tenant isolation is preserved.
+    </description>
+    <user-story>
+      As a security engineer,
+      I want reasoning traces to be encrypted at rest,
+      so that sensitive query content is protected from unauthorized access.
+    </user-story>
+  </summary>
+
+  <acceptance-criteria>
+    <criterion id="AC1">Persist trajectory content encrypted using AES-256.</criterion>
+    <criterion id="AC2">Use an env-configured encryption key.</criterion>
+    <criterion id="AC3">Decrypt events only when serving ops endpoints.</criterion>
+    <criterion id="AC4">Tenant filtering remains enforced for all queries.</criterion>
+    <criterion id="AC5">Encryption does not block query execution.</criterion>
+  </acceptance-criteria>
+
+  <architecture-decisions>
+    <decision id="AD1" category="crypto">
+      <title>AES-256-GCM with prefix marker</title>
+      <description>
+        Use AES-256-GCM with a 12-byte nonce; store payload as base64 with an "enc:" prefix
+        to allow backwards-compatible reads.
+      </description>
+    </decision>
+  </architecture-decisions>
+
+  <configuration>
+    <variable name="TRACE_ENCRYPTION_KEY" default="64 hex chars"/>
+  </configuration>
+
+  <references>
+    <reference path="backend/src/agentic_rag_backend/trajectory.py"/>
+    <reference path="backend/src/agentic_rag_backend/ops/trace_crypto.py"/>
+    <reference path="backend/src/agentic_rag_backend/api/routes/ops.py"/>
+  </references>
+</story-context>

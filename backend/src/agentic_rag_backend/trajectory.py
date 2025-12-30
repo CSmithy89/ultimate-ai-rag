@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 import psycopg
 from psycopg_pool import AsyncConnectionPool
 
+from agentic_rag_backend.ops.trace_crypto import TraceCrypto
 
 class EventType(str, Enum):
     THOUGHT = "thought"
@@ -38,6 +39,12 @@ async def close_pool(pool: AsyncConnectionPool) -> None:
 @dataclass
 class TrajectoryLogger:
     pool: AsyncConnectionPool
+    crypto: TraceCrypto | None = None
+
+    def _encrypt_content(self, content: str) -> str:
+        if self.crypto:
+            return self.crypto.encrypt(content)
+        return content
 
     async def start_trajectory(
         self,
@@ -85,7 +92,13 @@ class TrajectoryLogger:
                     values (%s, %s, %s, %s, %s)
                     """,
                     [
-                        (uuid4(), trajectory_id, tenant_id, event_type.value, content)
+                        (
+                            uuid4(),
+                            trajectory_id,
+                            tenant_id,
+                            event_type.value,
+                            self._encrypt_content(content),
+                        )
                         for event_type, content in events
                     ],
                 )
@@ -106,6 +119,12 @@ class TrajectoryLogger:
                     insert into trajectory_events (id, trajectory_id, tenant_id, event_type, content)
                     values (%s, %s, %s, %s, %s)
                     """,
-                    (uuid4(), trajectory_id, tenant_id, event_type.value, content),
+                    (
+                        uuid4(),
+                        trajectory_id,
+                        tenant_id,
+                        event_type.value,
+                        self._encrypt_content(content),
+                    ),
                 )
             await conn.commit()

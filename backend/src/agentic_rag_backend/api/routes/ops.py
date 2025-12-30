@@ -10,7 +10,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from agentic_rag_backend.ops import CostTracker, CostSummary
+from agentic_rag_backend.ops import CostTracker, CostSummary, TraceCrypto
 from agentic_rag_backend.validation import TENANT_ID_PATTERN
 from psycopg_pool import AsyncConnectionPool
 from psycopg.rows import dict_row
@@ -40,6 +40,15 @@ async def get_trajectory_pool(request: Request) -> AsyncConnectionPool:
     if pool is None:
         raise HTTPException(status_code=503, detail="Trajectory storage unavailable")
     return pool
+
+
+def _decrypt_events(events: list[dict[str, Any]], crypto: TraceCrypto | None) -> None:
+    if not crypto:
+        return
+    for event in events:
+        content = event.get("content")
+        if isinstance(content, str):
+            event["content"] = crypto.decrypt(content)
 
 
 def _decimal_to_float(value: Any) -> Any:
@@ -185,6 +194,7 @@ async def list_trajectories(
 @router.get("/trajectories/{trajectory_id}")
 async def get_trajectory_detail(
     trajectory_id: str,
+    request: Request,
     tenant_id: str = Query(..., pattern=TENANT_ID_PATTERN),
     pool: AsyncConnectionPool = Depends(get_trajectory_pool),
 ) -> dict[str, Any]:
@@ -212,6 +222,9 @@ async def get_trajectory_detail(
                 (trajectory_id, tenant_id),
             )
             events = await cursor.fetchall()
+
+    crypto = getattr(request.app.state, "trace_crypto", None)
+    _decrypt_events(events, crypto)
 
     duration_ms = None
     if events:

@@ -36,7 +36,7 @@ from .protocols.mcp import MCPToolRegistry
 from .rate_limit import InMemoryRateLimiter, RateLimiter, RedisRateLimiter, close_redis
 from .schemas import QueryEnvelope, QueryRequest, QueryResponse, ResponseMeta
 from .trajectory import TrajectoryLogger, close_pool, create_pool
-from .ops import CostTracker, ModelRouter
+from .ops import CostTracker, ModelRouter, TraceCrypto
 
 logger = logging.getLogger(__name__)
 struct_logger = structlog.get_logger(__name__)
@@ -60,6 +60,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     settings = load_settings()
     app.state.settings = settings
+    app.state.trace_crypto = TraceCrypto(settings.trace_encryption_key)
 
     # Epic 4: Initialize database clients for knowledge ingestion
     from .db.neo4j import Neo4jClient
@@ -167,7 +168,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             app.state.pool = None
 
         if pool:
-            trajectory_logger = TrajectoryLogger(pool=pool)
+            trajectory_logger = TrajectoryLogger(
+                pool=pool,
+                crypto=app.state.trace_crypto,
+            )
             app.state.trajectory_logger = trajectory_logger
         else:
             app.state.trajectory_logger = None

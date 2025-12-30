@@ -2,6 +2,7 @@
 
 from .cost_tracker import CostTracker, CostSummary, CostTrendPoint
 from .model_router import ModelRouter, RoutingDecision
+from .trace_crypto import TraceCrypto
 
 __all__ = [
     "CostTracker",
@@ -9,4 +10,5 @@ __all__ = [
     "CostTrendPoint",
     "ModelRouter",
     "RoutingDecision",
+    "TraceCrypto",
 ]

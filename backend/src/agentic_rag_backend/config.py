@@ -73,6 +73,7 @@ class Settings:
     routing_baseline_model: str
     routing_simple_max_score: int
     routing_complex_min_score: int
+    trace_encryption_key: str
 
 
 def load_settings() -> Settings:
@@ -315,6 +316,7 @@ def load_settings() -> Settings:
         routing_baseline_model=routing_baseline_model,
         routing_simple_max_score=routing_simple_max_score,
         routing_complex_min_score=routing_complex_min_score,
+        trace_encryption_key=os.getenv("TRACE_ENCRYPTION_KEY", secrets.token_hex(32)),
     )
 
 
