@@ -119,7 +119,7 @@ async def ingest_document_as_episode(
             episode_body=document.content,
             source_description=source_description,
             reference_time=datetime.now(timezone.utc),
-            entity_types=EPISODE_ENTITY_TYPES,
+            entity_types=EPISODE_ENTITY_TYPES,  # type: ignore[arg-type]
             group_id=tenant_id,  # Multi-tenancy via group_id
         )
 

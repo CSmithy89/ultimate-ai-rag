@@ -42,18 +42,15 @@ else:  # pragma: no cover - typing only
     AgnoAgentType = Any
     AgnoOpenAIChatType = Any
 
-AgnoAgentImpl: type[Any] | None = None
-AgnoOpenAIChatImpl: type[Any] | None = None
+AgnoAgentImpl: type[Any] | None
+AgnoOpenAIChatImpl: type[Any] | None
 
 try:  # pragma: no cover - optional dependency at runtime
-    from agno.agent import Agent
-    from agno.models.openai import OpenAIChat
+    from agno.agent import Agent as AgnoAgentImpl
+    from agno.models.openai import OpenAIChat as AgnoOpenAIChatImpl
 except ImportError:  # pragma: no cover - optional dependency at runtime
-    Agent = None
-    OpenAIChat = None
-else:  # pragma: no cover - optional dependency at runtime
-    AgnoAgentImpl = Agent
-    AgnoOpenAIChatImpl = OpenAIChat
+    AgnoAgentImpl = None
+    AgnoOpenAIChatImpl = None
 
 logger = logging.getLogger(__name__)
 
@@ -355,15 +352,13 @@ class OrchestratorAgent:
             if not math.isfinite(similarity):
                 logger.warning(
                     "vector_similarity_non_finite",
-                    chunk_id=hit.chunk_id,
-                    similarity=similarity,
+                    extra={"chunk_id": hit.chunk_id, "similarity": similarity},
                 )
                 similarity = 0.0
             elif similarity < 0 or similarity > 1:
                 logger.warning(
                     "vector_similarity_out_of_range",
-                    chunk_id=hit.chunk_id,
-                    similarity=similarity,
+                    extra={"chunk_id": hit.chunk_id, "similarity": similarity},
                 )
                 similarity = min(max(similarity, 0.0), 1.0)
             citations.append(
@@ -509,7 +504,7 @@ class OrchestratorAgent:
                     "graph_path_edge_mismatch node_count=%s edge_count=%s",
                     len(path.node_ids),
                     len(path.edge_types),
-                    path=path.node_ids[:3],
+                    extra={"path": path.node_ids[:3]},
                 )
                 continue
             valid_paths.append(path)

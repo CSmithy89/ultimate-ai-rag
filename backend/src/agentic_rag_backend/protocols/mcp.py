@@ -77,7 +77,15 @@ class MCPToolRegistry:
         query = arguments.get("query")
         tenant_id = arguments.get("tenant_id")
         session_id = arguments.get("session_id")
-        payload = QueryRequest(query=query, tenant_id=tenant_id, session_id=session_id)
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("query is required")
+        if not isinstance(tenant_id, str) or not tenant_id.strip():
+            raise ValueError("tenant_id is required")
+        payload = QueryRequest(
+            query=query,
+            tenant_id=tenant_id,
+            session_id=session_id if isinstance(session_id, str) else None,
+        )
         result = await self._orchestrator.run(
             payload.query,
             payload.tenant_id,

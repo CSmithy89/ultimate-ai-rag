@@ -184,7 +184,8 @@ class TestAGUIBridgeMultiTenancy:
         )
 
         bridge = AGUIBridge(mock_orchestrator)
-        events = [e async for e in bridge.process_request(request)]
+        async for _ in bridge.process_request(request):
+            pass
 
         # Verify orchestrator was called with correct tenant_id
         mock_orchestrator.run.assert_called_once()
@@ -229,7 +230,8 @@ class TestAGUIBridgeMultiTenancy:
         )
 
         bridge = AGUIBridge(mock_orchestrator)
-        events = [e async for e in bridge.process_request(request)]
+        async for _ in bridge.process_request(request):
+            pass
 
         # Verify orchestrator was called with correct session_id
         mock_orchestrator.run.assert_called_once()

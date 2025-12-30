@@ -5,7 +5,6 @@ Story 6-4: Human-in-the-Loop Source Validation
 
 import asyncio
 import pytest
-from unittest.mock import MagicMock, patch
 
 from agentic_rag_backend.protocols.ag_ui_bridge import (
     HITLManager,
@@ -181,7 +180,7 @@ class TestHITLManager:
     async def test_wait_for_validation_success(self, manager):
         """Test waiting for validation with successful response."""
         # Create checkpoint
-        checkpoint = await manager.create_checkpoint(
+        await manager.create_checkpoint(
             sources=MOCK_SOURCES,
             query="test query",
             checkpoint_id="test-123",
