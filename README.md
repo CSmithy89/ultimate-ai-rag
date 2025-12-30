@@ -135,3 +135,12 @@ async def example() -> None:
   - A2A collaboration sessions with tenant-scoped message exchange
   - Python SDK for MCP and A2A integrations
   - Universal AG-UI endpoint for non-Copilot clients
+
+### Epic 8: Operations & Observability
+- Status: Complete
+- Stories: 4/4 completed
+- Key Features:
+  - LLM cost monitoring with per-request usage events and alert thresholds
+  - Intelligent model routing based on query complexity with configurable settings
+  - Trajectory debugging interface with filters and timeline inspection
+  - AES-256-GCM encrypted trajectory storage with controlled decryption
