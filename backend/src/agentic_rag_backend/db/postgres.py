@@ -168,7 +168,7 @@ class PostgresClient:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS llm_usage_events (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    tenant_id TEXT NOT NULL,
+                    tenant_id UUID NOT NULL,
                     trajectory_id UUID,
                     model_id TEXT NOT NULL,
                     prompt_tokens INTEGER NOT NULL,
@@ -209,7 +209,7 @@ class PostgresClient:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS llm_cost_alerts (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    tenant_id TEXT NOT NULL,
+                    tenant_id UUID NOT NULL,
                     daily_threshold_usd NUMERIC(12, 2),
                     monthly_threshold_usd NUMERIC(12, 2),
                     enabled BOOLEAN NOT NULL DEFAULT TRUE,

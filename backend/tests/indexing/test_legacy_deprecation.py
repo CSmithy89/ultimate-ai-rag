@@ -116,7 +116,7 @@ class TestLegacyAndNewCoexistence:
 
         result = EpisodeIngestionResult(
             document_id="doc-123",
-            tenant_id="tenant-456",
+            tenant_id="45645645-6456-4564-5645-645645645645",
             episode_uuid="ep-789",
             entities_extracted=5,
             edges_created=3,
@@ -124,7 +124,7 @@ class TestLegacyAndNewCoexistence:
         )
 
         assert result.document_id == "doc-123"
-        assert result.tenant_id == "tenant-456"
+        assert result.tenant_id == "45645645-6456-4564-5645-645645645645"
         assert result.episode_uuid == "ep-789"
         assert result.entities_extracted == 5
         assert result.edges_created == 3

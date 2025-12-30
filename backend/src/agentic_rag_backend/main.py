@@ -1,6 +1,7 @@
 """FastAPI application entry point."""
 
 from contextlib import asynccontextmanager
+import hashlib
 from datetime import datetime, timezone
 import logging
 import os
@@ -60,6 +61,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     settings = load_settings()
     app.state.settings = settings
+    key_bytes = bytes.fromhex(settings.trace_encryption_key)
+    app.state.trace_key_fingerprint = hashlib.sha256(key_bytes).hexdigest()
+    app.state.trace_key_source = (
+        "env" if os.getenv("TRACE_ENCRYPTION_KEY") else "generated"
+    )
     app.state.trace_crypto = TraceCrypto(settings.trace_encryption_key)
 
     # Epic 4: Initialize database clients for knowledge ingestion

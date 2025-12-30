@@ -22,12 +22,20 @@ from agentic_rag_backend.models.graphs import (
     ExtractionResult,
 )
 
-warnings.warn(
-    "The entity_extractor module is deprecated since v1.0.0 and will be removed in v2.0.0. "
-    "Use graphiti_ingestion.ingest_document_as_episode() which handles entity extraction automatically via Graphiti.",
-    DeprecationWarning,
-    stacklevel=2,
-)
+_DEPRECATION_WARNED = False
+
+
+def _warn_deprecated_once() -> None:
+    global _DEPRECATION_WARNED
+    if _DEPRECATION_WARNED:
+        return
+    warnings.warn(
+        "The entity_extractor module is deprecated since v1.0.0 and will be removed in v2.0.0. "
+        "Use graphiti_ingestion.ingest_document_as_episode() which handles entity extraction automatically via Graphiti.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    _DEPRECATION_WARNED = True
 
 logger = structlog.get_logger(__name__)
 
@@ -93,6 +101,7 @@ class EntityExtractor:
         api_key: str,
         model: str = DEFAULT_EXTRACTION_MODEL,
     ) -> None:
+        _warn_deprecated_once()
         """
         Initialize entity extractor.
 
@@ -352,6 +361,7 @@ async def get_entity_extractor(
     Returns:
         EntityExtractor instance
     """
+    _warn_deprecated_once()
     global _entity_extractor
     if _entity_extractor is None:
         if api_key is None:

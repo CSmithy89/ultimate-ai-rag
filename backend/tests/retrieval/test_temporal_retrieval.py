@@ -72,7 +72,7 @@ class TestTemporalSearch:
         result = await temporal_search(
             graphiti_client=mock_graphiti_client,
             query="How does FastAPI work?",
-            tenant_id="test-tenant",
+            tenant_id="99999999-9999-9999-9999-999999999999",
             as_of_date=as_of,
         )
 
@@ -86,7 +86,7 @@ class TestTemporalSearch:
         """Should use tenant_id as group_ids."""
         from agentic_rag_backend.retrieval.temporal_retrieval import temporal_search
 
-        tenant_id = "my-tenant-456"
+        tenant_id = "my-45645645-6456-4564-5645-645645645645"
         await temporal_search(
             graphiti_client=mock_graphiti_client,
             query="test query",
@@ -108,7 +108,7 @@ class TestTemporalSearch:
             await temporal_search(
                 graphiti_client=disconnected_client,
                 query="test query",
-                tenant_id="test-tenant",
+                tenant_id="99999999-9999-9999-9999-999999999999",
             )
 
 
@@ -154,7 +154,7 @@ class TestGetChanges:
 
         result = await get_knowledge_changes(
             graphiti_client=mock_graphiti_client,
-            tenant_id="test-tenant",
+            tenant_id="99999999-9999-9999-9999-999999999999",
             start_date=start_date,
             end_date=end_date,
         )
@@ -169,7 +169,7 @@ class TestGetChanges:
         """Should filter by tenant group ID."""
         from agentic_rag_backend.retrieval.temporal_retrieval import get_knowledge_changes
 
-        tenant_id = "tenant-789"
+        tenant_id = "78978978-9789-7897-8978-978978978978"
         await get_knowledge_changes(
             graphiti_client=mock_graphiti_client,
             tenant_id=tenant_id,
@@ -191,7 +191,7 @@ class TestGetChanges:
         with pytest.raises(Neo4jError, match="not connected"):
             await get_knowledge_changes(
                 graphiti_client=disconnected_client,
-                tenant_id="test-tenant",
+                tenant_id="99999999-9999-9999-9999-999999999999",
                 start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
                 end_date=datetime(2024, 12, 31, tzinfo=timezone.utc),
             )
@@ -226,7 +226,7 @@ class TestTemporalSearchResult:
         as_of = datetime(2024, 6, 1, tzinfo=timezone.utc)
         result = TemporalSearchResult(
             query="test query",
-            tenant_id="test-tenant",
+            tenant_id="99999999-9999-9999-9999-999999999999",
             as_of_date=as_of,
             nodes=[node],
             edges=[edge],
@@ -234,7 +234,7 @@ class TestTemporalSearchResult:
         )
 
         assert result.query == "test query"
-        assert result.tenant_id == "test-tenant"
+        assert result.tenant_id == "99999999-9999-9999-9999-999999999999"
         assert result.as_of_date == as_of
         assert len(result.nodes) == 1
         assert len(result.edges) == 1
@@ -258,7 +258,7 @@ class TestKnowledgeChangesResult:
             edges_added=3,
         )
         result = KnowledgeChangesResult(
-            tenant_id="test-tenant",
+            tenant_id="99999999-9999-9999-9999-999999999999",
             start_date=datetime(2024, 6, 1, tzinfo=timezone.utc),
             end_date=datetime(2024, 6, 30, tzinfo=timezone.utc),
             episodes=[episode],
@@ -267,7 +267,7 @@ class TestKnowledgeChangesResult:
             processing_time_ms=200,
         )
 
-        assert result.tenant_id == "test-tenant"
+        assert result.tenant_id == "99999999-9999-9999-9999-999999999999"
         assert len(result.episodes) == 1
         assert result.total_entities_added == 5
         assert result.total_edges_added == 3
@@ -326,7 +326,7 @@ class TestTemporalEdgeFiltering:
         result = await temporal_search(
             graphiti_client=mock_graphiti_client_with_temporal_edges,
             query="test query",
-            tenant_id="test-tenant",
+            tenant_id="99999999-9999-9999-9999-999999999999",
             as_of_date=as_of,
         )
 
@@ -348,7 +348,7 @@ class TestTemporalEdgeFiltering:
         result = await temporal_search(
             graphiti_client=mock_graphiti_client_with_temporal_edges,
             query="test query",
-            tenant_id="test-tenant",
+            tenant_id="99999999-9999-9999-9999-999999999999",
             as_of_date=as_of,
         )
 
@@ -379,7 +379,7 @@ class TestTemporalSearchExceptionHandling:
             await temporal_search(
                 graphiti_client=failing_client,
                 query="test query",
-                tenant_id="test-tenant",
+                tenant_id="99999999-9999-9999-9999-999999999999",
             )
 
 
@@ -401,7 +401,7 @@ class TestGetChangesExceptionHandling:
         with pytest.raises(ValueError, match="Episodes fetch failed"):
             await get_knowledge_changes(
                 graphiti_client=failing_client,
-                tenant_id="test-tenant",
+                tenant_id="99999999-9999-9999-9999-999999999999",
                 start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
                 end_date=datetime(2024, 12, 31, tzinfo=timezone.utc),
             )

@@ -45,7 +45,10 @@ async def test_orchestrator_builds_plan_and_logs_events(monkeypatch) -> None:
     logger = StubLogger()
     agent = OrchestratorAgent(api_key="test", logger=logger)
 
-    result = await agent.run("compare X versus Y if needed", tenant_id="tenant")
+    result = await agent.run(
+        "compare X versus Y if needed",
+        tenant_id="11111111-1111-1111-1111-111111111111",
+    )
 
     assert result.plan
     assert any("Break down" in step.step for step in result.plan)
@@ -92,7 +95,10 @@ async def test_orchestrator_hybrid_retrieval_builds_evidence(monkeypatch) -> Non
     monkeypatch.setattr(agent, "_run_vector_search", fake_vector)
     monkeypatch.setattr(agent, "_run_graph_traversal", fake_graph)
 
-    result = await agent.run("hybrid query", tenant_id="tenant")
+    result = await agent.run(
+        "hybrid query",
+        tenant_id="11111111-1111-1111-1111-111111111111",
+    )
 
     assert result.evidence is not None
     assert len(result.evidence.vector) == 1

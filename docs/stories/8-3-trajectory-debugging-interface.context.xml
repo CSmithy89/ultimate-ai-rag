@@ -53,9 +53,10 @@
       </description>
     </decision>
     <decision id="AD2" category="error-filter">
-      <title>Error inference via event content</title>
+      <title>Error flag via trajectory metadata</title>
       <description>
-        Use a lightweight heuristic (event content containing "error") to flag error trajectories.
+        Persist a `has_error` flag on trajectories when error events are recorded to support
+        reliable filtering without scanning encrypted content.
       </description>
     </decision>
   </architecture-decisions>

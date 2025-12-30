@@ -32,8 +32,8 @@ async def test_redis_rate_limiter_allows_and_blocks() -> None:
     )
 
     try:
-        assert await limiter.allow("tenant-1") is True
-        assert await limiter.allow("tenant-1") is True
-        assert await limiter.allow("tenant-1") is False
+        assert await limiter.allow("11111111-1111-1111-1111-111111111111") is True
+        assert await limiter.allow("11111111-1111-1111-1111-111111111111") is True
+        assert await limiter.allow("11111111-1111-1111-1111-111111111111") is False
     finally:
         await client.close()

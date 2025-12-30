@@ -39,12 +39,12 @@ class DenyLimiter:
 async def test_create_session_success() -> None:
     manager = A2ASessionManager()
     response = await create_session(
-        request_body=CreateSessionRequest(tenant_id="tenant-1"),
+        request_body=CreateSessionRequest(tenant_id="11111111-1111-1111-1111-111111111111"),
         manager=manager,
         limiter=AllowLimiter(),
     )
 
-    assert response.session["tenant_id"] == "tenant-1"
+    assert response.session["tenant_id"] == "11111111-1111-1111-1111-111111111111"
     assert response.session["session_id"]
     assert response.session["created_at"]
 
@@ -52,12 +52,12 @@ async def test_create_session_success() -> None:
 @pytest.mark.asyncio
 async def test_add_message_success() -> None:
     manager = A2ASessionManager()
-    session = await manager.create_session("tenant-1")
+    session = await manager.create_session("11111111-1111-1111-1111-111111111111")
 
     response = await add_message(
         session_id=session["session_id"],
         request_body=MessageRequest(
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
             sender="agent",
             content="hello",
         ),
@@ -72,12 +72,12 @@ async def test_add_message_success() -> None:
 @pytest.mark.asyncio
 async def test_get_session_tenant_mismatch() -> None:
     manager = A2ASessionManager()
-    session = await manager.create_session("tenant-1")
+    session = await manager.create_session("11111111-1111-1111-1111-111111111111")
 
     with pytest.raises(HTTPException) as exc_info:
         await get_session(
             session_id=session["session_id"],
-            tenant_id="tenant-2",
+            tenant_id="22222222-2222-2222-2222-222222222222",
             manager=manager,
             limiter=AllowLimiter(),
         )
@@ -89,7 +89,7 @@ async def test_rate_limit_applies() -> None:
     manager = A2ASessionManager()
     with pytest.raises(HTTPException) as exc_info:
         await create_session(
-            request_body=CreateSessionRequest(tenant_id="tenant-1"),
+            request_body=CreateSessionRequest(tenant_id="11111111-1111-1111-1111-111111111111"),
             manager=manager,
             limiter=DenyLimiter(),
         )
@@ -100,14 +100,14 @@ async def test_rate_limit_applies() -> None:
 async def test_session_limit_enforced() -> None:
     manager = A2ASessionManager(max_sessions_per_tenant=1, max_sessions_total=1)
     await create_session(
-        request_body=CreateSessionRequest(tenant_id="tenant-1"),
+        request_body=CreateSessionRequest(tenant_id="11111111-1111-1111-1111-111111111111"),
         manager=manager,
         limiter=AllowLimiter(),
     )
 
     with pytest.raises(HTTPException) as exc_info:
         await create_session(
-            request_body=CreateSessionRequest(tenant_id="tenant-1"),
+            request_body=CreateSessionRequest(tenant_id="11111111-1111-1111-1111-111111111111"),
             manager=manager,
             limiter=AllowLimiter(),
         )
@@ -117,12 +117,12 @@ async def test_session_limit_enforced() -> None:
 @pytest.mark.asyncio
 async def test_message_limit_enforced() -> None:
     manager = A2ASessionManager(max_messages_per_session=1)
-    session = await manager.create_session("tenant-1")
+    session = await manager.create_session("11111111-1111-1111-1111-111111111111")
 
     await add_message(
         session_id=session["session_id"],
         request_body=MessageRequest(
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
             sender="agent",
             content="hello",
         ),
@@ -134,7 +134,7 @@ async def test_message_limit_enforced() -> None:
         await add_message(
             session_id=session["session_id"],
             request_body=MessageRequest(
-                tenant_id="tenant-1",
+                tenant_id="11111111-1111-1111-1111-111111111111",
                 sender="agent",
                 content="second",
             ),

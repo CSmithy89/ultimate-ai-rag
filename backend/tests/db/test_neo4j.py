@@ -79,7 +79,7 @@ class TestNeo4jClient:
 
         result = await client.create_entity(
             entity_id="test-id",
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
             name="TestEntity",
             entity_type="Concept",
             description="A test entity",
@@ -100,7 +100,7 @@ class TestNeo4jClient:
             source_id="source-id",
             target_id="target-id",
             relationship_type="USES",
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
             confidence=0.9,
         )
 
@@ -114,7 +114,7 @@ class TestNeo4jClient:
             source_id="source-id",
             target_id="target-id",
             relationship_type="INVALID_TYPE",
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
             confidence=0.9,
         )
 
@@ -132,7 +132,7 @@ class TestNeo4jClient:
         session.run = AsyncMock(return_value=mock_result)
 
         result = await client.find_similar_entity(
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
             name="Entity",
             entity_type="Concept",
         )
@@ -149,7 +149,7 @@ class TestNeo4jClient:
         session.run = AsyncMock(return_value=mock_result)
 
         result = await client.find_similar_entity(
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
             name="NonExistent",
             entity_type="Concept",
         )
@@ -176,7 +176,7 @@ class TestNeo4jClient:
         mock_result.single = mock_single
         session.run = AsyncMock(return_value=mock_result)
 
-        result = await client.get_graph_stats(tenant_id="tenant-1")
+        result = await client.get_graph_stats(tenant_id="11111111-1111-1111-1111-111111111111")
 
         assert "entity_count" in result
         assert "document_count" in result
@@ -195,7 +195,7 @@ class TestNeo4jClient:
 
         result = await client.create_document_node(
             document_id="doc-id",
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
             title="Test Document",
             source_type="pdf",
         )
@@ -215,7 +215,7 @@ class TestNeo4jClient:
 
         result = await client.create_chunk_node(
             chunk_id="chunk-id",
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
             document_id="doc-id",
             chunk_index=0,
             preview="This is the preview...",
@@ -234,7 +234,7 @@ class TestNeo4jClient:
         result = await client.link_chunk_to_entity(
             chunk_id="chunk-id",
             entity_id="entity-id",
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
         )
 
         assert result is True

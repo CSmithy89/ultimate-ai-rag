@@ -18,12 +18,20 @@ from agentic_rag_backend.models.graphs import (
     GraphBuildResult,
 )
 
-warnings.warn(
-    "The graph_builder module is deprecated since v1.0.0 and will be removed in v2.0.0. "
-    "Use graphiti_ingestion.ingest_document_as_episode() which handles graph building automatically via Graphiti.",
-    DeprecationWarning,
-    stacklevel=2,
-)
+_DEPRECATION_WARNED = False
+
+
+def _warn_deprecated_once() -> None:
+    global _DEPRECATION_WARNED
+    if _DEPRECATION_WARNED:
+        return
+    warnings.warn(
+        "The graph_builder module is deprecated since v1.0.0 and will be removed in v2.0.0. "
+        "Use graphiti_ingestion.ingest_document_as_episode() which handles graph building automatically via Graphiti.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    _DEPRECATION_WARNED = True
 
 logger = structlog.get_logger(__name__)
 
@@ -40,6 +48,7 @@ class GraphBuilder:
         neo4j: Neo4jClient,
         similarity_threshold: float = 0.95,
     ) -> None:
+        _warn_deprecated_once()
         """
         Initialize GraphBuilder.
 
@@ -271,6 +280,7 @@ async def create_graph_from_extractions(
     Returns:
         Combined GraphBuildResult
     """
+    _warn_deprecated_once()
     builder = GraphBuilder(neo4j)
 
     total_created = 0

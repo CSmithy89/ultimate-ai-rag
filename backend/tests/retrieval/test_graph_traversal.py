@@ -50,7 +50,7 @@ async def test_graph_traversal_builds_result() -> None:
     neo4j.traverse_paths = AsyncMock(return_value=[path])
 
     service = GraphTraversalService(neo4j=neo4j)
-    result = await service.traverse("Show Alpha relationships", "tenant-1")
+    result = await service.traverse("Show Alpha relationships", "11111111-1111-1111-1111-111111111111")
 
     assert isinstance(result, GraphTraversalResult)
     assert len(result.nodes) == 2
@@ -72,7 +72,7 @@ async def test_graph_traversal_skips_invalid_nodes() -> None:
     neo4j.traverse_paths = AsyncMock(return_value=[path])
 
     service = GraphTraversalService(neo4j=neo4j)
-    result = await service.traverse("Show Alpha relationships", "tenant-1")
+    result = await service.traverse("Show Alpha relationships", "11111111-1111-1111-1111-111111111111")
 
     assert len(result.nodes) == 2
     assert len(result.edges) == 1

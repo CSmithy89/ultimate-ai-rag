@@ -50,6 +50,29 @@ DEFAULT_PRICING: dict[str, Pricing] = {
     ),
 }
 
+TOKENIZER_MODEL_IDS = {"gpt-4o-mini", "gpt-4o", "gpt-4"}
+
+TREND_QUERIES: dict[str, str] = {
+    "hour": """
+        SELECT date_trunc('hour', created_at) AS bucket,
+               COALESCE(SUM(total_cost_usd), 0) AS total_cost_usd,
+               COALESCE(SUM(total_tokens), 0) AS total_tokens
+        FROM llm_usage_events
+        WHERE tenant_id = $1 AND created_at >= $2
+        GROUP BY bucket
+        ORDER BY bucket ASC
+    """,
+    "day": """
+        SELECT date_trunc('day', created_at) AS bucket,
+               COALESCE(SUM(total_cost_usd), 0) AS total_cost_usd,
+               COALESCE(SUM(total_tokens), 0) AS total_tokens
+        FROM llm_usage_events
+        WHERE tenant_id = $1 AND created_at >= $2
+        GROUP BY bucket
+        ORDER BY bucket ASC
+    """,
+}
+
 
 def _load_pricing(raw_pricing: str | None) -> dict[str, Pricing]:
     if not raw_pricing:
@@ -115,6 +138,8 @@ class CostTracker:
         complexity: str | None = None,
         baseline_model_id: str | None = None,
     ) -> None:
+        if model_id not in TOKENIZER_MODEL_IDS:
+            logger.warning("cost_tokenizer_unknown_model", model_id=model_id)
         prompt_tokens = self._estimate_tokens(prompt)
         completion_tokens = self._estimate_tokens(completion)
         total_tokens = prompt_tokens + completion_tokens
@@ -234,17 +259,7 @@ class CostTracker:
                 start,
             )
 
-            trend_query = (
-                "SELECT date_trunc('"
-                + bucket
-                + "', created_at) AS bucket, "
-                "COALESCE(SUM(total_cost_usd), 0) AS total_cost_usd, "
-                "COALESCE(SUM(total_tokens), 0) AS total_tokens "
-                "FROM llm_usage_events "
-                "WHERE tenant_id = $1 AND created_at >= $2 "
-                "GROUP BY bucket "
-                "ORDER BY bucket ASC"
-            )
+            trend_query = TREND_QUERIES.get(bucket, TREND_QUERIES["day"])
             trend_rows = await conn.fetch(trend_query, tenant_id, start)
 
         trend = [

@@ -77,7 +77,7 @@ async def collect_sse_events(response):
 async def test_ag_ui_streams_events() -> None:
     request = AGUIRequest(
         messages=[CopilotMessage(role=MessageRole.USER, content="Hello")],
-        tenant_id="tenant-1",
+        tenant_id="11111111-1111-1111-1111-111111111111",
     )
 
     response = await ag_ui_handler(
@@ -101,7 +101,7 @@ async def test_ag_ui_streams_events() -> None:
 async def test_ag_ui_rate_limit() -> None:
     request = AGUIRequest(
         messages=[CopilotMessage(role=MessageRole.USER, content="Hello")],
-        tenant_id="tenant-1",
+        tenant_id="11111111-1111-1111-1111-111111111111",
     )
 
     with pytest.raises(HTTPException) as exc_info:
@@ -117,7 +117,7 @@ async def test_ag_ui_rate_limit() -> None:
 async def test_ag_ui_handles_empty_messages() -> None:
     request = AGUIRequest(
         messages=[],
-        tenant_id="tenant-1",
+        tenant_id="11111111-1111-1111-1111-111111111111",
     )
 
     response = await ag_ui_handler(
@@ -138,7 +138,7 @@ async def test_ag_ui_fallback_emits_error_events(monkeypatch) -> None:
 
     request = AGUIRequest(
         messages=[CopilotMessage(role=MessageRole.USER, content="Hello")],
-        tenant_id="tenant-1",
+        tenant_id="11111111-1111-1111-1111-111111111111",
     )
 
     response = await ag_ui_module.ag_ui_handler(
@@ -171,7 +171,7 @@ def test_ag_ui_rejects_invalid_actions() -> None:
             "/api/v1/ag-ui",
             json={
                 "messages": [{"role": "user", "content": "Hello"}],
-                "tenant_id": "tenant-1",
+                "tenant_id": "11111111-1111-1111-1111-111111111111",
                 "actions": ["not-a-dict"],
             },
         )

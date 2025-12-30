@@ -22,6 +22,8 @@ uv run agentic-rag-backend
 Notes:
 - Rate limiting supports `RATE_LIMIT_BACKEND=redis` for multi-worker deployments; the in-memory limiter is per-process.
 - Rate-limited endpoints return `429` with RFC 7807 Problem Details and `Retry-After`, configurable via `RATE_LIMIT_RETRY_AFTER_SECONDS`.
+- `TRACE_ENCRYPTION_KEY` is required in non-dev environments; dev/test auto-generates a key per run (existing encrypted traces cannot be decrypted after restart).
+- Cost estimates are token-based and may vary for non-OpenAI models; treat them as directional until reconciled with provider billing.
 
 ### Frontend
 
@@ -49,7 +51,10 @@ async def example() -> None:
         backoff_factor=0.5,
     ) as client:
         tools = await client.list_tools()
-        result = await client.call_tool("knowledge.query", {"tenant_id": "t1", "query": "hello"})
+        result = await client.call_tool(
+            "knowledge.query",
+            {"tenant_id": "11111111-1111-1111-1111-111111111111", "query": "hello"},
+        )
         session = await client.create_a2a_session("t1")
         await client.add_a2a_message(session.session.session_id, "t1", "agent", "hello")
 ```

@@ -48,6 +48,9 @@ Epic 8 delivers operational visibility into LLM usage, cost optimization via int
 
 **Rationale:** Keeps routing transparent, testable, and easy to tune without ML dependencies.
 
+**Limitations:** Keyword-based heuristics can misclassify non-English or math-heavy prompts. Capture routing decisions
+in usage events now; consider manual overrides and feedback loops in a future iteration.
+
 ### 3. Trajectory Debug APIs
 
 **Decision:** Add ops endpoints to list trajectories and return event timelines with timestamps and metadata, filtered by tenant, agent type, and status.
@@ -131,10 +134,15 @@ Epic 8 delivers operational visibility into LLM usage, cost optimization via int
 
 | Risk | Impact | Mitigation |
 |------|--------|-----------|
-| Token estimation differs from provider usage | Medium | Use tiktoken, document estimates, allow pricing overrides |
-| Routing heuristic misclassifies queries | Medium | Configurable thresholds + logging for audit |
-| Encryption key loss | High | Require env key, document rotation strategy |
+| Token estimation differs from provider usage | Medium | Use tiktoken, document estimates, warn on unknown model IDs, allow pricing overrides |
+| Routing heuristic misclassifies queries | Medium | Configurable thresholds + logging for audit + document limitations |
+| Encryption key loss | High | Require env key, warn on dev auto-generation, document rotation strategy |
 | Increased DB load from cost aggregation | Low | Indexes on tenant_id/created_at + windowed queries |
+
+## Deployment Notes
+
+- For large Postgres tables, create new indexes concurrently (or during a maintenance window) to avoid long write locks.
+  Applicable to trajectory and cost tables introduced in this epic.
 
 ---
 

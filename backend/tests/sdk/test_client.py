@@ -55,7 +55,10 @@ async def test_sdk_list_tools_and_call() -> None:
         tools = await client.list_tools()
         assert tools.tools[0].name == "knowledge.query"
 
-        result = await client.call_tool("knowledge.query", {"tenant_id": "t", "query": "q"})
+        result = await client.call_tool(
+            "knowledge.query",
+            {"tenant_id": "11111111-1111-1111-1111-111111111111", "query": "q"},
+        )
         assert result.result["answer"] == "ok"
 
 
@@ -68,7 +71,7 @@ async def test_sdk_a2a_session_flow() -> None:
                 json={
                     "session": {
                         "session_id": "session-1",
-                        "tenant_id": "tenant-1",
+                        "tenant_id": "11111111-1111-1111-1111-111111111111",
                         "created_at": "2025-01-01T00:00:00Z",
                         "messages": [],
                     },
@@ -81,7 +84,7 @@ async def test_sdk_a2a_session_flow() -> None:
                 json={
                     "session": {
                         "session_id": "session-1",
-                        "tenant_id": "tenant-1",
+                        "tenant_id": "11111111-1111-1111-1111-111111111111",
                         "created_at": "2025-01-01T00:00:00Z",
                         "messages": [
                             {
@@ -101,7 +104,7 @@ async def test_sdk_a2a_session_flow() -> None:
                 json={
                     "session": {
                         "session_id": "session-1",
-                        "tenant_id": "tenant-1",
+                        "tenant_id": "11111111-1111-1111-1111-111111111111",
                         "created_at": "2025-01-01T00:00:00Z",
                         "messages": [],
                     },
@@ -114,18 +117,18 @@ async def test_sdk_a2a_session_flow() -> None:
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
         client = AgenticRagClient(base_url="http://test", http_client=http_client)
 
-        session = await client.create_a2a_session("tenant-1")
+        session = await client.create_a2a_session("11111111-1111-1111-1111-111111111111")
         assert session.session.session_id == "session-1"
 
         session = await client.add_a2a_message(
             "session-1",
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
             sender="agent",
             content="hello",
         )
         assert session.session.messages[0].content == "hello"
 
-        session = await client.get_a2a_session("session-1", tenant_id="tenant-1")
+        session = await client.get_a2a_session("session-1", tenant_id="11111111-1111-1111-1111-111111111111")
         assert session.session.session_id == "session-1"
 
 
