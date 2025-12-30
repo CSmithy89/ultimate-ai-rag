@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from asyncio import Lock
 from datetime import datetime, timezone
-from threading import Lock
 from typing import Any
 from uuid import uuid4
 
@@ -67,24 +67,20 @@ class A2ASessionManager:
         if self._session_ttl_seconds <= 0:
             return
         now = datetime.now(timezone.utc)
-        expired_ids = [
-            session_id
-            for session_id, session in self._sessions.items()
-            if (now - session.last_activity).total_seconds() > self._session_ttl_seconds
-        ]
-        for session_id in expired_ids:
-            self._sessions.pop(session_id, None)
+        for session_id, session in list(self._sessions.items()):
+            if (now - session.last_activity).total_seconds() > self._session_ttl_seconds:
+                self._sessions.pop(session_id, None)
 
     def _tenant_session_count_locked(self, tenant_id: str) -> int:
         return sum(1 for session in self._sessions.values() if session.tenant_id == tenant_id)
 
-    def create_session(self, tenant_id: str) -> A2ASession:
+    async def create_session(self, tenant_id: str) -> A2ASession:
         """Create a new A2A session.
 
         Raises:
             ValueError: If session or tenant limits are exceeded.
         """
-        with self._lock:
+        async with self._lock:
             self._prune_expired_locked()
             if self._max_sessions_total and len(self._sessions) >= self._max_sessions_total:
                 raise ValueError("Session limit reached")
@@ -105,15 +101,15 @@ class A2ASessionManager:
             self._sessions[session_id] = session
             return session
 
-    def get_session(self, session_id: str) -> A2ASession | None:
-        with self._lock:
+    async def get_session(self, session_id: str) -> A2ASession | None:
+        async with self._lock:
             self._prune_expired_locked()
             session = self._sessions.get(session_id)
             if session:
                 session.last_activity = datetime.now(timezone.utc)
             return session
 
-    def add_message(
+    async def add_message(
         self,
         session_id: str,
         tenant_id: str,
@@ -121,7 +117,7 @@ class A2ASessionManager:
         content: str,
         metadata: dict[str, Any] | None = None,
     ) -> A2ASession:
-        with self._lock:
+        async with self._lock:
             self._prune_expired_locked()
             session = self._sessions.get(session_id)
             if session is None:

@@ -52,7 +52,7 @@ async def test_create_session_success() -> None:
 @pytest.mark.asyncio
 async def test_add_message_success() -> None:
     manager = A2ASessionManager()
-    session = manager.create_session("tenant-1")
+    session = await manager.create_session("tenant-1")
 
     response = await add_message(
         session_id=session.session_id,
@@ -72,7 +72,7 @@ async def test_add_message_success() -> None:
 @pytest.mark.asyncio
 async def test_get_session_tenant_mismatch() -> None:
     manager = A2ASessionManager()
-    session = manager.create_session("tenant-1")
+    session = await manager.create_session("tenant-1")
 
     with pytest.raises(HTTPException) as exc_info:
         await get_session(
@@ -117,7 +117,7 @@ async def test_session_limit_enforced() -> None:
 @pytest.mark.asyncio
 async def test_message_limit_enforced() -> None:
     manager = A2ASessionManager(max_messages_per_session=1)
-    session = manager.create_session("tenant-1")
+    session = await manager.create_session("tenant-1")
 
     await add_message(
         session_id=session.session_id,

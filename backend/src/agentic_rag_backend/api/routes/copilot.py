@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 import structlog
 
 from ...agents.orchestrator import OrchestratorAgent
+from ...api.utils import rate_limit_exceeded
 from ...models.copilot import CopilotRequest
 from ...protocols.ag_ui_bridge import AGUIBridge
 from ...rate_limit import RateLimiter
@@ -51,7 +52,7 @@ async def copilot_handler(
 
     # Check rate limit
     if not await limiter.allow(tenant_id):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        raise rate_limit_exceeded()
 
     bridge = AGUIBridge(orchestrator)
 

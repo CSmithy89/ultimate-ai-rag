@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+import structlog
 
 from ...agents.orchestrator import OrchestratorAgent
 from ...models.copilot import (
@@ -19,7 +20,10 @@ from ...models.copilot import (
     TextMessageStartEvent,
 )
 from ...protocols.ag_ui_bridge import AGUIBridge
+from ...api.utils import rate_limit_exceeded
 from ...rate_limit import RateLimiter
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/ag-ui", tags=["ag-ui"])
 
@@ -47,7 +51,7 @@ async def ag_ui_handler(
 ) -> StreamingResponse:
     """Stream AG-UI events for generic clients."""
     if not await limiter.allow(request.tenant_id):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        raise rate_limit_exceeded()
 
     copilot_request = CopilotRequest(
         messages=request.messages,
@@ -66,7 +70,8 @@ async def ag_ui_handler(
         try:
             async for event in bridge.process_request(copilot_request):
                 yield f"data: {event.model_dump_json()}\n\n"
-        except Exception:
+        except Exception as exc:
+            logger.exception("ag_ui_stream_failed", error=str(exc))
             # Fallback if bridge fails before emitting error events.
             error_event = TextDeltaEvent(
                 content="An error occurred while processing your request."

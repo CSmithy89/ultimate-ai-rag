@@ -46,6 +46,16 @@ class DenyLimiter:
         return False
 
 
+class FailingBridge:
+    def __init__(self, orchestrator) -> None:
+        self._orchestrator = orchestrator
+
+    async def process_request(self, request):
+        raise RuntimeError("boom")
+        if False:
+            yield None
+
+
 async def collect_sse_events(response):
     events = []
     chunks = []
@@ -118,6 +128,35 @@ async def test_ag_ui_handles_empty_messages() -> None:
 
     events = await collect_sse_events(response)
     assert events[-1]["event"] == "RUN_FINISHED"
+
+
+@pytest.mark.asyncio
+async def test_ag_ui_fallback_emits_error_events(monkeypatch) -> None:
+    from agentic_rag_backend.api.routes import ag_ui as ag_ui_module
+
+    monkeypatch.setattr(ag_ui_module, "AGUIBridge", FailingBridge)
+
+    request = AGUIRequest(
+        messages=[CopilotMessage(role=MessageRole.USER, content="Hello")],
+        tenant_id="tenant-1",
+    )
+
+    response = await ag_ui_module.ag_ui_handler(
+        request=request,
+        orchestrator=DummyOrchestrator(),
+        limiter=AllowLimiter(),
+    )
+
+    events = await collect_sse_events(response)
+    event_types = [event["event"] for event in events]
+
+    assert event_types == [
+        "TEXT_MESSAGE_START",
+        "TEXT_MESSAGE_CONTENT",
+        "TEXT_MESSAGE_END",
+        "RUN_FINISHED",
+    ]
+    assert events[1]["data"]["content"] == "An error occurred while processing your request."
 
 
 def test_ag_ui_rejects_invalid_actions() -> None:

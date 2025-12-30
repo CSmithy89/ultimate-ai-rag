@@ -13,6 +13,7 @@ os.environ.setdefault("REDIS_URL", "redis://localhost:6379")
 os.environ.setdefault("SKIP_DB_POOL", "1")
 os.environ.setdefault("SKIP_GRAPHITI", "1")
 
+import asyncio
 import pytest
 from fastapi import HTTPException
 
@@ -53,6 +54,18 @@ class DummyNeo4j:
             "node_type_breakdown": {"Doc": 1},
             "edge_type_breakdown": {"RELATES_TO": 2},
         }
+
+
+class SlowOrchestrator:
+    async def run(self, query: str, tenant_id: str, session_id: str | None = None) -> OrchestratorResult:
+        await asyncio.sleep(0.05)
+        return OrchestratorResult(
+            answer="slow",
+            plan=[PlanStep(step="Step", status="completed")],
+            thoughts=["Plan step: Step"],
+            retrieval_strategy=RetrievalStrategy.VECTOR,
+            trajectory_id=uuid4(),
+        )
 
 
 @pytest.mark.asyncio
@@ -154,3 +167,23 @@ async def test_call_tool_graph_stats_requires_neo4j() -> None:
             limiter=AllowLimiter(),
         )
     assert exc_info.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_call_tool_times_out() -> None:
+    request = ToolCallRequest(
+        tool="knowledge.query",
+        arguments={"query": "hello", "tenant_id": "tenant-1"},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await call_tool(
+            request_body=request,
+            registry=MCPToolRegistry(
+                orchestrator=SlowOrchestrator(),
+                neo4j=DummyNeo4j(),
+                timeout_seconds=0.001,
+            ),
+            limiter=AllowLimiter(),
+        )
+    assert exc_info.value.status_code == 504

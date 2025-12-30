@@ -21,6 +21,7 @@ uv run agentic-rag-backend
 
 Notes:
 - Rate limiting supports `RATE_LIMIT_BACKEND=redis` for multi-worker deployments; the in-memory limiter is per-process.
+- Rate-limited endpoints return `429` with RFC 7807 Problem Details and `Retry-After: 60` (seconds).
 
 ### Frontend
 
@@ -35,6 +36,29 @@ pnpm dev
 ```bash
 docker compose up -d
 ```
+
+### SDK (Python)
+
+```python
+from agentic_rag_backend.sdk.client import AgenticRagClient
+
+async def example() -> None:
+    async with AgenticRagClient(
+        base_url="http://localhost:8000",
+        max_retries=2,
+        backoff_factor=0.5,
+    ) as client:
+        tools = await client.list_tools()
+        result = await client.call_tool("knowledge.query", {"tenant_id": "t1", "query": "hello"})
+        session = await client.create_a2a_session("t1")
+        await client.add_a2a_message(session.session.session_id, "t1", "agent", "hello")
+```
+
+### A2A Session Lifecycle
+
+- Sessions are stored in memory and cleared on service restart.
+- Sessions expire after `A2A_SESSION_TTL_SECONDS` (default 6 hours).
+- Limits are enforced via `A2A_MAX_SESSIONS_PER_TENANT`, `A2A_MAX_SESSIONS_TOTAL`, and `A2A_MAX_MESSAGES_PER_SESSION`.
 
 ## Epic Progress
 

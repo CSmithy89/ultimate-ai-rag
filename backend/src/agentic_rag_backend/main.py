@@ -27,8 +27,9 @@ from .api.routes import (
     ag_ui_router,
 )
 from .api.routes.ingest import limiter as slowapi_limiter
+from .api.utils import rate_limit_exceeded
 from .config import Settings, load_settings
-from .core.errors import AppError, app_error_handler
+from .core.errors import AppError, app_error_handler, http_exception_handler
 from .protocols.a2a import A2ASessionManager
 from .protocols.mcp import MCPToolRegistry
 from .rate_limit import InMemoryRateLimiter, RateLimiter, RedisRateLimiter, close_redis
@@ -229,6 +230,10 @@ def create_app() -> FastAPI:
         AppError,
         cast(Callable[[Request, Exception], Awaitable[Response]], app_error_handler),
     )
+    app.add_exception_handler(
+        HTTPException,
+        cast(Callable[[Request, Exception], Awaitable[Response]], http_exception_handler),
+    )
 
     # Register routers
     app.include_router(router)  # Query router
@@ -295,7 +300,7 @@ async def run_query(
 ) -> QueryEnvelope:
     try:
         if not await limiter.allow(payload.tenant_id):
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+            raise rate_limit_exceeded()
         result = await orchestrator.run(
             payload.query,
             payload.tenant_id,

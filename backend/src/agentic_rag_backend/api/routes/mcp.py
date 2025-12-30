@@ -8,9 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
 
-from ...agents.orchestrator import OrchestratorAgent
-from ...db.neo4j import Neo4jClient
-from ...api.utils import build_meta
+from ...api.utils import build_meta, rate_limit_exceeded
 from ...protocols.mcp import MCPToolNotFoundError, MCPToolRegistry
 from ...rate_limit import RateLimiter
 
@@ -39,37 +37,16 @@ class ToolCallResponse(BaseModel):
     meta: dict[str, Any]
 
 
-def get_orchestrator(request: Request) -> OrchestratorAgent:
-    """Get orchestrator from app state."""
-    return request.app.state.orchestrator
-
-
 def get_rate_limiter(request: Request) -> RateLimiter:
     """Get rate limiter from app state."""
     return request.app.state.rate_limiter
 
 
-def get_neo4j(request: Request) -> Neo4jClient | None:
-    """Get Neo4j client from app state."""
-    return getattr(request.app.state, "neo4j", None)
-
-
-def get_mcp_registry(
-    request: Request,
-    orchestrator: OrchestratorAgent = Depends(get_orchestrator),
-    neo4j: Neo4jClient | None = Depends(get_neo4j),
-) -> MCPToolRegistry:
+def get_mcp_registry(request: Request) -> MCPToolRegistry:
     """Get or initialize the MCP tool registry."""
     registry = getattr(request.app.state, "mcp_registry", None)
     if registry is None:
-        settings = request.app.state.settings
-        registry = MCPToolRegistry(
-            orchestrator=orchestrator,
-            neo4j=neo4j,
-            timeout_seconds=settings.mcp_tool_timeout_seconds,
-            tool_timeouts=settings.mcp_tool_timeout_overrides,
-        )
-        request.app.state.mcp_registry = registry
+        raise RuntimeError("MCP registry not initialized")
     return registry
 
 
@@ -96,7 +73,7 @@ async def call_tool(
         raise HTTPException(status_code=400, detail="tenant_id is required")
 
     if not await limiter.allow(str(tenant_id)):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        raise rate_limit_exceeded()
 
     try:
         result = await registry.call_tool(request_body.tool, request_body.arguments)

@@ -34,5 +34,14 @@
 - [ ] Add persistent A2A session storage (e.g., Redis) or clearly document in-memory limits.
 - [ ] Add per-tenant A2A message limits and session caps for tiered plans.
 - [ ] Replace MCP tool arg validation with Pydantic models for all tools.
-- [ ] Document rate limit behavior (429 + retry-after) and A2A session lifecycle.
+- [x] Replace A2A threading.Lock with asyncio.Lock and make session ops async-safe.
+- [x] Add RFC 7807 Problem Details responses for HTTPException-based errors (incl. AG-UI rate limits).
+- [x] Log AG-UI stream fallback exceptions before emitting error events.
+- [x] Add A2A TTL expiration test with controlled time.
+- [x] Add A2A concurrent access tests (session creation + message add).
+- [x] Add MCP timeout path test using a slow orchestrator mock.
+- [x] Expand AG-UI error handling test to assert fallback event structure.
+- [x] Document rate limit behavior (429 + retry-after) and A2A session lifecycle.
+- [x] Add SDK usage examples in docstrings or README.
+- [x] Remove redundant MCP registry lazy init in routes (use app state only).
 - [ ] Add observability metrics for A2A sessions, MCP tool latency, AG-UI streams.

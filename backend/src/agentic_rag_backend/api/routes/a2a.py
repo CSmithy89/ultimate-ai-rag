@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 import structlog
 
-from ...api.utils import build_meta
+from ...api.utils import build_meta, rate_limit_exceeded
 from ...protocols.a2a import A2ASessionManager
 from ...rate_limit import RateLimiter
 
@@ -59,10 +59,10 @@ async def create_session(
 ) -> CreateSessionResponse:
     """Create a new A2A collaboration session."""
     if not await limiter.allow(request_body.tenant_id):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        raise rate_limit_exceeded()
 
     try:
-        session = manager.create_session(request_body.tenant_id)
+        session = await manager.create_session(request_body.tenant_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     logger.info("a2a_session_created", session_id=session.session_id)
@@ -79,10 +79,10 @@ async def add_message(
 ) -> SessionResponse:
     """Add a message to an existing A2A session."""
     if not await limiter.allow(request_body.tenant_id):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        raise rate_limit_exceeded()
 
     try:
-        session = manager.add_message(
+        session = await manager.add_message(
             session_id=session_id,
             tenant_id=request_body.tenant_id,
             sender=request_body.sender,
@@ -108,9 +108,9 @@ async def get_session(
 ) -> SessionResponse:
     """Fetch session transcript for a tenant."""
     if not await limiter.allow(tenant_id):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        raise rate_limit_exceeded()
 
-    session = manager.get_session(session_id)
+    session = await manager.get_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
     if session.tenant_id != tenant_id:
