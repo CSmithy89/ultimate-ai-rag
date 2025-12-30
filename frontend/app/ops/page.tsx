@@ -96,11 +96,19 @@ function OpsDashboard() {
             </p>
           ) : summaryQuery.data ? (
             <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="border border-slate-100 rounded-lg p-4">
                   <p className="text-xs uppercase text-slate-500">Total Cost</p>
                   <p className="text-2xl font-semibold text-slate-900">
                     {formatCurrency(summaryQuery.data.total_cost_usd)}
+                  </p>
+                </div>
+                <div className="border border-slate-100 rounded-lg p-4">
+                  <p className="text-xs uppercase text-slate-500">
+                    Total Savings
+                  </p>
+                  <p className="text-2xl font-semibold text-emerald-600">
+                    {formatCurrency(summaryQuery.data.total_savings_usd)}
                   </p>
                 </div>
                 <div className="border border-slate-100 rounded-lg p-4">

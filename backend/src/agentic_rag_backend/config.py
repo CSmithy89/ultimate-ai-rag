@@ -67,6 +67,12 @@ class Settings:
     mcp_tool_max_timeout_seconds: float
     # Epic 8 - Ops settings
     model_pricing_json: str
+    routing_simple_model: str
+    routing_medium_model: str
+    routing_complex_model: str
+    routing_baseline_model: str
+    routing_simple_max_score: int
+    routing_complex_min_score: int
 
 
 def load_settings() -> Settings:
@@ -234,6 +240,25 @@ def load_settings() -> Settings:
     neo4j_password = cast(str, values["NEO4J_PASSWORD"])
     redis_url = cast(str, values["REDIS_URL"])
 
+    routing_simple_model = os.getenv("ROUTING_SIMPLE_MODEL", "gpt-4o-mini")
+    routing_medium_model = os.getenv("ROUTING_MEDIUM_MODEL", "gpt-4o")
+    routing_complex_model = os.getenv("ROUTING_COMPLEX_MODEL", "gpt-4o")
+    routing_baseline_model = os.getenv(
+        "ROUTING_BASELINE_MODEL", routing_complex_model
+    )
+    try:
+        routing_simple_max_score = int(os.getenv("ROUTING_SIMPLE_MAX_SCORE", "2"))
+    except ValueError:
+        routing_simple_max_score = 2
+    try:
+        routing_complex_min_score = int(os.getenv("ROUTING_COMPLEX_MIN_SCORE", "5"))
+    except ValueError:
+        routing_complex_min_score = 5
+    if routing_simple_max_score < 0:
+        routing_simple_max_score = 2
+    if routing_complex_min_score <= routing_simple_max_score:
+        routing_complex_min_score = routing_simple_max_score + 3
+
     return Settings(
         openai_api_key=openai_api_key,
         openai_model_id=os.getenv("OPENAI_MODEL_ID", "gpt-4o-mini"),
@@ -284,6 +309,12 @@ def load_settings() -> Settings:
         mcp_tool_max_timeout_seconds=mcp_tool_max_timeout_seconds,
         # Epic 8 - Ops settings
         model_pricing_json=os.getenv("MODEL_PRICING_JSON", ""),
+        routing_simple_model=routing_simple_model,
+        routing_medium_model=routing_medium_model,
+        routing_complex_model=routing_complex_model,
+        routing_baseline_model=routing_baseline_model,
+        routing_simple_max_score=routing_simple_max_score,
+        routing_complex_min_score=routing_complex_min_score,
     )
 
 

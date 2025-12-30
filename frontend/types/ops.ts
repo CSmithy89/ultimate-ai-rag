@@ -10,6 +10,9 @@ export const CostEventSchema = z.object({
   input_cost_usd: z.number(),
   output_cost_usd: z.number(),
   total_cost_usd: z.number(),
+  baseline_model_id: z.string().nullable().optional(),
+  baseline_total_cost_usd: z.number().nullable().optional(),
+  savings_usd: z.number().nullable().optional(),
   complexity: z.string().nullable().optional(),
   created_at: z.string(),
 });
@@ -18,6 +21,8 @@ export type CostEvent = z.infer<typeof CostEventSchema>;
 
 export const CostSummarySchema = z.object({
   total_cost_usd: z.number(),
+  baseline_cost_usd: z.number(),
+  total_savings_usd: z.number(),
   total_tokens: z.number(),
   total_requests: z.number(),
   by_model: z.array(

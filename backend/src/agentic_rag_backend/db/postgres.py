@@ -182,6 +182,18 @@ class PostgresClient:
                 )
             """)
             await conn.execute("""
+                ALTER TABLE llm_usage_events
+                ADD COLUMN IF NOT EXISTS baseline_model_id TEXT
+            """)
+            await conn.execute("""
+                ALTER TABLE llm_usage_events
+                ADD COLUMN IF NOT EXISTS baseline_total_cost_usd NUMERIC(12, 6)
+            """)
+            await conn.execute("""
+                ALTER TABLE llm_usage_events
+                ADD COLUMN IF NOT EXISTS savings_usd NUMERIC(12, 6)
+            """)
+            await conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_llm_usage_events_tenant_id
                 ON llm_usage_events(tenant_id)
             """)

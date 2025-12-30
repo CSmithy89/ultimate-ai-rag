@@ -30,6 +30,8 @@ class CostTrendPoint:
 @dataclass(frozen=True)
 class CostSummary:
     total_cost_usd: Decimal
+    baseline_cost_usd: Decimal
+    total_savings_usd: Decimal
     total_tokens: int
     total_requests: int
     by_model: list[dict[str, Any]]
@@ -111,6 +113,7 @@ class CostTracker:
         completion: str,
         trajectory_id: UUID | None = None,
         complexity: str | None = None,
+        baseline_model_id: str | None = None,
     ) -> None:
         prompt_tokens = self._estimate_tokens(prompt)
         completion_tokens = self._estimate_tokens(completion)
@@ -118,6 +121,17 @@ class CostTracker:
         input_cost, output_cost, total_cost = self._calculate_costs(
             model_id, prompt_tokens, completion_tokens
         )
+        baseline_total_cost = Decimal("0")
+        savings = Decimal("0")
+        if baseline_model_id:
+            _, _, baseline_total_cost = self._calculate_costs(
+                baseline_model_id,
+                prompt_tokens,
+                completion_tokens,
+            )
+            savings = baseline_total_cost - total_cost
+            if savings < 0:
+                savings = Decimal("0")
 
         async with self._pool.acquire() as conn:
             await conn.execute(
@@ -132,9 +146,12 @@ class CostTracker:
                     input_cost_usd,
                     output_cost_usd,
                     total_cost_usd,
+                    baseline_model_id,
+                    baseline_total_cost_usd,
+                    savings_usd,
                     complexity
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                 """,
                 tenant_id,
                 trajectory_id,
@@ -145,6 +162,9 @@ class CostTracker:
                 input_cost,
                 output_cost,
                 total_cost,
+                baseline_model_id,
+                baseline_total_cost,
+                savings,
                 complexity,
             )
 
@@ -156,6 +176,7 @@ class CostTracker:
                 """
                 SELECT id, trajectory_id, model_id, prompt_tokens, completion_tokens,
                        total_tokens, input_cost_usd, output_cost_usd, total_cost_usd,
+                       baseline_model_id, baseline_total_cost_usd, savings_usd,
                        complexity, created_at
                 FROM llm_usage_events
                 WHERE tenant_id = $1
@@ -190,7 +211,9 @@ class CostTracker:
                 """
                 SELECT COUNT(*) AS total_requests,
                        COALESCE(SUM(total_tokens), 0) AS total_tokens,
-                       COALESCE(SUM(total_cost_usd), 0) AS total_cost_usd
+                       COALESCE(SUM(total_cost_usd), 0) AS total_cost_usd,
+                       COALESCE(SUM(baseline_total_cost_usd), 0) AS baseline_cost_usd,
+                       COALESCE(SUM(savings_usd), 0) AS total_savings_usd
                 FROM llm_usage_events
                 WHERE tenant_id = $1 AND created_at >= $2
                 """,
@@ -240,6 +263,8 @@ class CostTracker:
 
         return CostSummary(
             total_cost_usd=totals["total_cost_usd"],
+            baseline_cost_usd=totals["baseline_cost_usd"],
+            total_savings_usd=totals["total_savings_usd"],
             total_tokens=totals["total_tokens"],
             total_requests=totals["total_requests"],
             by_model=[dict(row) for row in by_model],

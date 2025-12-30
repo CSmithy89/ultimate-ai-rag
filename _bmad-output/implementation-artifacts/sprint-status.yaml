@@ -104,7 +104,7 @@ development_status:
   # Epic 8: Operations & Observability (was Epic 7)
   epic-8: in-progress
   8-1-llm-cost-monitoring: done
-  8-2-intelligent-model-routing: backlog
+  8-2-intelligent-model-routing: done
   8-3-trajectory-debugging-interface: backlog
   8-4-encrypted-trace-storage: backlog
   epic-8-retrospective: optional

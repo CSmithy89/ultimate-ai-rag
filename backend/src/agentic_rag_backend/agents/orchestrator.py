@@ -35,7 +35,7 @@ from ..schemas import (
     VectorCitation,
 )
 from ..trajectory import EventType, TrajectoryLogger
-from ..ops import CostTracker
+from ..ops import CostTracker, ModelRouter
 
 if TYPE_CHECKING:
     from agno.agent import Agent as AgnoAgentType
@@ -77,6 +77,7 @@ class OrchestratorAgent:
         model_id: str = "gpt-4o-mini",
         logger: TrajectoryLogger | None = None,
         cost_tracker: CostTracker | None = None,
+        model_router: ModelRouter | None = None,
         postgres: PostgresClient | None = None,
         neo4j: Neo4jClient | None = None,
         embedding_model: str = DEFAULT_EMBEDDING_MODEL,
@@ -88,16 +89,14 @@ class OrchestratorAgent:
         retrieval_timeout_seconds: float | None = None,
         retrieval_cache_ttl_seconds: float | None = None,
     ) -> None:
-        self._agent = None
+        self._api_key = api_key
         self._logger = logger
         self._cost_tracker = cost_tracker
+        self._model_router = model_router
         self._model_id = model_id
+        self._agents: dict[str, Any] = {}
         self._vector_search: VectorSearchService | None = None
         self._graph_traversal: GraphTraversalService | None = None
-        if AgnoAgentImpl is not None and AgnoOpenAIChatImpl is not None:
-            self._agent = AgnoAgentImpl(
-                model=AgnoOpenAIChatImpl(api_key=api_key, id=model_id)
-            )
         if postgres:
             embedding_generator = EmbeddingGenerator(
                 api_key=api_key,
@@ -149,6 +148,18 @@ class OrchestratorAgent:
                 ),
             )
 
+    def _get_agent(self, model_id: str) -> AgnoAgentType | None:
+        if AgnoAgentImpl is None or AgnoOpenAIChatImpl is None:
+            return None
+        cached = self._agents.get(model_id)
+        if cached:
+            return cached
+        agent = AgnoAgentImpl(
+            model=AgnoOpenAIChatImpl(api_key=self._api_key, id=model_id)
+        )
+        self._agents[model_id] = agent
+        return agent
+
     async def run(
         self, query: str, tenant_id: str, session_id: str | None = None
     ) -> OrchestratorResult:
@@ -158,9 +169,28 @@ class OrchestratorAgent:
             if self._logger
             else None
         )
+        routing_decision = None
+        selected_model_id = self._model_id
+        baseline_model_id = None
+        if self._model_router:
+            routing_decision = self._model_router.route(query)
+            selected_model_id = routing_decision.model_id
+            baseline_model_id = routing_decision.baseline_model_id
+            routing_note = (
+                "Routing decision: "
+                f"{routing_decision.complexity} "
+                f"(score={routing_decision.score}) "
+                f"model={routing_decision.model_id}"
+            )
+            if routing_decision.reason:
+                routing_note += f" reason={','.join(routing_decision.reason)}"
+        else:
+            routing_note = f"Routing decision: default model={self._model_id}"
         plan = self._build_plan(query)
         logger.debug("orchestrator_plan_generated", steps=len(plan))
         completed_plan, thoughts, events = self._execute_plan(plan)
+        thoughts.append(routing_note)
+        events.append((EventType.ACTION, routing_note))
         strategy = select_retrieval_strategy(query)
         strategy_note = f"Selected retrieval strategy: {strategy.value}"
         thoughts.append(strategy_note)
@@ -206,8 +236,9 @@ class OrchestratorAgent:
         evidence = self._build_evidence(vector_hits, graph_result)
         prompt = self._build_prompt(query, vector_hits, graph_result)
 
-        if self._agent:
-            response = await asyncio.to_thread(self._agent.run, prompt)
+        agent = self._get_agent(selected_model_id)
+        if agent:
+            response = await asyncio.to_thread(agent.run, prompt)
             content = getattr(response, "content", response)
             answer = str(content)
         else:
@@ -225,10 +256,12 @@ class OrchestratorAgent:
             try:
                 await self._cost_tracker.record_usage(
                     tenant_id=tenant_id,
-                    model_id=self._model_id,
+                    model_id=selected_model_id,
                     prompt=prompt,
                     completion=answer,
                     trajectory_id=trajectory_id,
+                    complexity=routing_decision.complexity if routing_decision else None,
+                    baseline_model_id=baseline_model_id,
                 )
             except Exception as exc:  # pragma: no cover - non-critical telemetry
                 logger.warning("cost_tracking_failed", error=str(exc))

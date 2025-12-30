@@ -101,6 +101,8 @@ async def upsert_cost_alerts(
 def _serialize_summary(summary: CostSummary) -> dict[str, Any]:
     return {
         "total_cost_usd": _decimal_to_float(summary.total_cost_usd),
+        "baseline_cost_usd": _decimal_to_float(summary.baseline_cost_usd),
+        "total_savings_usd": _decimal_to_float(summary.total_savings_usd),
         "total_tokens": summary.total_tokens,
         "total_requests": summary.total_requests,
         "by_model": [

@@ -36,7 +36,7 @@ from .protocols.mcp import MCPToolRegistry
 from .rate_limit import InMemoryRateLimiter, RateLimiter, RedisRateLimiter, close_redis
 from .schemas import QueryEnvelope, QueryRequest, QueryResponse, ResponseMeta
 from .trajectory import TrajectoryLogger, close_pool, create_pool
-from .ops import CostTracker
+from .ops import CostTracker, ModelRouter
 
 logger = logging.getLogger(__name__)
 struct_logger = structlog.get_logger(__name__)
@@ -79,6 +79,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             app.state.postgres.pool,
             pricing_json=settings.model_pricing_json,
         )
+        app.state.model_router = ModelRouter(
+            simple_model=settings.routing_simple_model,
+            medium_model=settings.routing_medium_model,
+            complex_model=settings.routing_complex_model,
+            baseline_model=settings.routing_baseline_model,
+            simple_max_score=settings.routing_simple_max_score,
+            complex_min_score=settings.routing_complex_min_score,
+        )
 
         # Initialize Neo4j
         app.state.neo4j = Neo4jClient(
@@ -93,6 +101,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         struct_logger.warning("database_connection_failed", error=str(e))
         app.state.cost_tracker = None
+        app.state.model_router = ModelRouter(
+            simple_model=settings.routing_simple_model,
+            medium_model=settings.routing_medium_model,
+            complex_model=settings.routing_complex_model,
+            baseline_model=settings.routing_baseline_model,
+            simple_max_score=settings.routing_simple_max_score,
+            complex_min_score=settings.routing_complex_min_score,
+        )
 
     # Epic 5: Initialize Graphiti temporal knowledge graph
     app.state.graphiti = None
@@ -137,6 +153,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             neo4j=getattr(app.state, "neo4j", None),
             embedding_model=settings.embedding_model,
             cost_tracker=getattr(app.state, "cost_tracker", None),
+            model_router=getattr(app.state, "model_router", None),
         )
     else:
         pool = create_pool(settings.database_url, settings.db_pool_min, settings.db_pool_max)
@@ -178,6 +195,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             neo4j=getattr(app.state, "neo4j", None),
             embedding_model=settings.embedding_model,
             cost_tracker=getattr(app.state, "cost_tracker", None),
+            model_router=getattr(app.state, "model_router", None),
         )
 
     app.state.a2a_manager = A2ASessionManager(
