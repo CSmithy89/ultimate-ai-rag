@@ -14,7 +14,6 @@ import {
   X,
   FileText,
   FileJson,
-  FileType,
 } from "lucide-react";
 import type { ActionStates, ActionableContent, ExportFormat } from "@/hooks/use-copilot-actions";
 
@@ -195,15 +194,7 @@ export const ActionButtons = memo(function ActionButtons({
                 <FileJson className="h-4 w-4" />
                 JSON
               </button>
-              <button
-                type="button"
-                onClick={() => handleExport("pdf")}
-                className="flex items-center gap-2 w-full px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
-                role="menuitem"
-              >
-                <FileType className="h-4 w-4" />
-                PDF
-              </button>
+              {/* PDF export hidden until backend implementation is ready (returns 501) */}
             </div>
           </>
         )}

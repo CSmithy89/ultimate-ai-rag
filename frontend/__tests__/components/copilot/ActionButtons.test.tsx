@@ -59,7 +59,7 @@ describe("ActionButtons", () => {
 
       expect(screen.getByText("Markdown")).toBeInTheDocument();
       expect(screen.getByText("JSON")).toBeInTheDocument();
-      expect(screen.getByText("PDF")).toBeInTheDocument();
+      // PDF option hidden until backend implementation is ready
     });
   });
 

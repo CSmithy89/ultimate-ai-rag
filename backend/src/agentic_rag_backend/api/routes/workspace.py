@@ -15,17 +15,21 @@ import hashlib
 import hmac
 import json
 import logging
-import secrets
 from typing import Any, Literal, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Header, Query
+from fastapi import APIRouter, Header, Query, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from agentic_rag_backend.config import get_settings
 from agentic_rag_backend.core.errors import TenantRequiredError
 
+
+# Rate limiter instance - key function extracts client IP
+limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 logger = logging.getLogger(__name__)
@@ -35,14 +39,16 @@ logger = logging.getLogger(__name__)
 # Constants
 # ============================================
 
-# Maximum content size to prevent DoS (100KB)
+# Maximum content size to prevent DoS (100KB bytes, not characters)
 MAX_CONTENT_SIZE = 100_000
 
 # Share link expiration (24 hours)
 SHARE_LINK_TTL_HOURS = 24
 
-# Secret for signing share tokens (in production, use from config)
-_SHARE_SECRET = secrets.token_hex(32)
+
+def _get_share_secret() -> str:
+    """Get share secret from config (cached via lru_cache in get_settings)."""
+    return get_settings().share_secret
 
 
 # ============================================
@@ -61,13 +67,19 @@ class SaveContentRequest(BaseModel):
     """Request to save content to workspace."""
 
     content_id: str = Field(..., description="Unique ID of the content")
-    content: str = Field(..., description="The content to save", max_length=MAX_CONTENT_SIZE)
+    content: str = Field(..., description="The content to save")
     title: Optional[str] = Field(None, description="Title for saved content", max_length=500)
     query: Optional[str] = Field(None, description="Original query", max_length=10_000)
     sources: Optional[list[SourceInfo]] = Field(None, description="Source references")
     session_id: Optional[str] = Field(None, description="Session ID")
     trajectory_id: Optional[str] = Field(None, description="Trajectory ID")
     tenant_id: Optional[str] = Field(None, description="Tenant ID")
+
+    @field_validator("content")
+    @classmethod
+    def validate_content_size(cls, v: str) -> str:
+        """Validate content byte size (UTF-8)."""
+        return _validate_byte_size(v, MAX_CONTENT_SIZE)
 
 
 class SavedContentData(BaseModel):
@@ -89,12 +101,18 @@ class ExportContentRequest(BaseModel):
     """Request to export content."""
 
     content_id: str = Field(..., description="Unique ID of the content")
-    content: str = Field(..., description="The content to export", max_length=MAX_CONTENT_SIZE)
+    content: str = Field(..., description="The content to export")
     title: Optional[str] = Field(None, description="Title for export", max_length=500)
     query: Optional[str] = Field(None, description="Original query", max_length=10_000)
     sources: Optional[list[SourceInfo]] = Field(None, description="Source references")
     format: Literal["markdown", "pdf", "json"] = Field(..., description="Export format")
     tenant_id: Optional[str] = Field(None, description="Tenant ID")
+
+    @field_validator("content")
+    @classmethod
+    def validate_content_size(cls, v: str) -> str:
+        """Validate content byte size (UTF-8)."""
+        return _validate_byte_size(v, MAX_CONTENT_SIZE)
 
 
 class ExportContentResponse(BaseModel):
@@ -108,12 +126,18 @@ class ShareContentRequest(BaseModel):
     """Request to share content."""
 
     content_id: str = Field(..., description="Unique ID of the content")
-    content: str = Field(..., description="The content to share", max_length=MAX_CONTENT_SIZE)
+    content: str = Field(..., description="The content to share")
     title: Optional[str] = Field(None, description="Title for shared content", max_length=500)
     query: Optional[str] = Field(None, description="Original query", max_length=10_000)
     sources: Optional[list[SourceInfo]] = Field(None, description="Source references")
     session_id: Optional[str] = Field(None, description="Session ID")
     tenant_id: Optional[str] = Field(None, description="Tenant ID")
+
+    @field_validator("content")
+    @classmethod
+    def validate_content_size(cls, v: str) -> str:
+        """Validate content byte size (UTF-8)."""
+        return _validate_byte_size(v, MAX_CONTENT_SIZE)
 
 
 class SharedContentData(BaseModel):
@@ -135,11 +159,17 @@ class BookmarkContentRequest(BaseModel):
     """Request to bookmark content."""
 
     content_id: str = Field(..., description="Unique ID of the content")
-    content: str = Field(..., description="The content to bookmark", max_length=MAX_CONTENT_SIZE)
+    content: str = Field(..., description="The content to bookmark")
     title: Optional[str] = Field(None, description="Title for bookmark", max_length=500)
     query: Optional[str] = Field(None, description="Original query", max_length=10_000)
     session_id: Optional[str] = Field(None, description="Session ID")
     tenant_id: Optional[str] = Field(None, description="Tenant ID")
+
+    @field_validator("content")
+    @classmethod
+    def validate_content_size(cls, v: str) -> str:
+        """Validate content byte size (UTF-8)."""
+        return _validate_byte_size(v, MAX_CONTENT_SIZE)
 
 
 class BookmarkedContentData(BaseModel):
@@ -219,7 +249,7 @@ def _generate_share_token(share_id: str, expires_at: datetime) -> str:
     """
     message = f"{share_id}:{expires_at.isoformat()}"
     return hmac.new(
-        _SHARE_SECRET.encode(),
+        _get_share_secret().encode(),
         message.encode(),
         hashlib.sha256
     ).hexdigest()[:16]
@@ -240,12 +270,35 @@ def _verify_share_token(share_id: str, expires_at: datetime, token: str) -> bool
     return hmac.compare_digest(expected, token)
 
 
+def _validate_byte_size(value: str, max_bytes: int) -> str:
+    """Validate string byte size (UTF-8).
+
+    Args:
+        value: String to validate
+        max_bytes: Maximum allowed byte size
+
+    Returns:
+        The original string if valid
+
+    Raises:
+        ValueError: If byte size exceeds maximum
+    """
+    byte_size = len(value.encode('utf-8'))
+    if byte_size > max_bytes:
+        raise ValueError(
+            f'Content size ({byte_size} bytes) exceeds maximum of {max_bytes} bytes'
+        )
+    return value
+
+
 # ============================================
 # Endpoints
 # ============================================
 
 @router.post("/save", response_model=SaveContentResponse)
+@limiter.limit("30/minute")
 async def save_content(
+    request: Request,
     request_body: SaveContentRequest,
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
 ) -> SaveContentResponse:
@@ -297,7 +350,9 @@ async def save_content(
 
 
 @router.post("/export")
+@limiter.limit("20/minute")
 async def export_content(
+    request: Request,
     request_body: ExportContentRequest,
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
 ) -> Response:
@@ -416,7 +471,9 @@ async def export_content(
 
 
 @router.post("/share", response_model=ShareContentResponse)
+@limiter.limit("10/minute")
 async def share_content(
+    request: Request,
     request_body: ShareContentRequest,
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
 ) -> ShareContentResponse:
@@ -476,7 +533,9 @@ async def share_content(
 
 
 @router.post("/bookmark", response_model=BookmarkContentResponse)
+@limiter.limit("30/minute")
 async def bookmark_content(
+    request: Request,
     request_body: BookmarkContentRequest,
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
 ) -> BookmarkContentResponse:
@@ -526,7 +585,9 @@ async def bookmark_content(
 
 
 @router.get("/bookmarks", response_model=BookmarksListResponse)
+@limiter.limit("60/minute")
 async def get_bookmarks(
+    request: Request,
     tenant_id: str = Query(..., description="Tenant ID"),
     limit: int = Query(50, ge=1, le=100, description="Maximum bookmarks to return"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),

@@ -69,6 +69,33 @@ export interface ActionableContent {
 }
 
 /**
+ * Custom Event: copilot:follow-up
+ *
+ * This event is dispatched when a user triggers a follow-up question action.
+ * Components can listen for this event to populate the chat input with a suggested query.
+ *
+ * @event copilot:follow-up
+ *
+ * @example
+ * // Listen for follow-up events
+ * useEffect(() => {
+ *   const handler = (e: CustomEvent<CopilotFollowUpEventDetail>) => {
+ *     const { suggestedQuery, context } = e.detail;
+ *     setChatInput(suggestedQuery);
+ *   };
+ *   document.addEventListener("copilot:follow-up", handler as EventListener);
+ *   return () => document.removeEventListener("copilot:follow-up", handler as EventListener);
+ * }, []);
+ *
+ * @property {string} suggestedQuery - The suggested follow-up question text
+ * @property {ActionableContent} context - The original content context for the follow-up
+ */
+export interface CopilotFollowUpEventDetail {
+  suggestedQuery: string;
+  context: ActionableContent;
+}
+
+/**
  * Result of an action.
  */
 export interface ActionResult {

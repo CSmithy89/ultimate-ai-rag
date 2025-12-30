@@ -5,36 +5,51 @@ Code Review Fixes: Security and validation improvements
 """
 
 import pytest
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from agentic_rag_backend.main import app
+from agentic_rag_backend.config import load_settings
 from agentic_rag_backend.api.routes.workspace import (
     SaveContentRequest,
-    SaveContentResponse,
     ExportContentRequest,
-    ExportContentResponse,
     ShareContentRequest,
-    ShareContentResponse,
     BookmarkContentRequest,
-    BookmarkContentResponse,
-    BookmarksListResponse,
     SourceInfo,
-    save_content,
-    export_content,
-    share_content,
-    bookmark_content,
-    get_bookmarks,
     MAX_CONTENT_SIZE,
     _bookmarks_storage,
+    _workspace_storage,
+    _shares_storage,
+    limiter,
 )
-from agentic_rag_backend.core.errors import TenantRequiredError
+
+
+@pytest.fixture
+def client():
+    """Create test client with proper app state setup."""
+    # Set up app.state.settings required by middleware
+    app.state.settings = load_settings()
+
+    # Disable rate limiting for tests
+    limiter.enabled = False
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+    # Re-enable rate limiting after tests
+    limiter.enabled = True
 
 
 @pytest.fixture(autouse=True)
-def clear_bookmark_storage():
-    """Clear bookmark storage before each test for isolation."""
+def clear_storage():
+    """Clear storage before each test for isolation."""
     _bookmarks_storage.clear()
+    _workspace_storage.clear()
+    _shares_storage.clear()
     yield
     _bookmarks_storage.clear()
+    _workspace_storage.clear()
+    _shares_storage.clear()
 
 
 class TestSaveContentRequest:
@@ -49,7 +64,7 @@ class TestSaveContentRequest:
             query="What is test?",
             tenant_id="tenant-1",
         )
-        
+
         assert request.content_id == "test-123"
         assert request.content == "This is test content"
         assert request.title == "Test Title"
@@ -77,7 +92,7 @@ class TestSaveContentRequest:
             content_id="test-123",
             content="Content only",
         )
-        
+
         assert request.title is None
         assert request.query is None
         assert request.tenant_id is None
@@ -93,7 +108,7 @@ class TestExportContentRequest:
             content="Export this content",
             format="markdown",
         )
-        
+
         assert request.format == "markdown"
 
     def test_valid_export_request_json(self):
@@ -103,7 +118,7 @@ class TestExportContentRequest:
             content="Export this content",
             format="json",
         )
-        
+
         assert request.format == "json"
 
     def test_valid_export_request_pdf(self):
@@ -113,7 +128,7 @@ class TestExportContentRequest:
             content="Export this content",
             format="pdf",
         )
-        
+
         assert request.format == "pdf"
 
     def test_invalid_export_format(self):
@@ -137,7 +152,7 @@ class TestShareContentRequest:
             title="Shared Content",
             tenant_id="tenant-1",
         )
-        
+
         assert request.content_id == "test-123"
         assert request.title == "Shared Content"
 
@@ -151,7 +166,7 @@ class TestShareContentRequest:
                 SourceInfo(id="source-2", title="Source 2", url="https://example.com"),
             ],
         )
-        
+
         assert len(request.sources) == 2
         assert request.sources[0].id == "source-1"
 
@@ -167,7 +182,7 @@ class TestBookmarkContentRequest:
             title="Bookmarked Item",
             tenant_id="tenant-1",
         )
-        
+
         assert request.content_id == "test-123"
         assert request.title == "Bookmarked Item"
 
@@ -175,268 +190,300 @@ class TestBookmarkContentRequest:
 class TestSaveContentEndpoint:
     """Tests for save_content endpoint."""
 
-    @pytest.mark.asyncio
-    async def test_save_content_success(self):
+    def test_save_content_success(self, client):
         """Test successful content save."""
-        request_body = SaveContentRequest(
-            content_id="content-123",
-            content="AI response content to save",
-            title="Saved Response",
-            query="What was the question?",
-            tenant_id="tenant-1",
+        response = client.post(
+            "/api/v1/workspace/save",
+            json={
+                "content_id": "content-123",
+                "content": "AI response content to save",
+                "title": "Saved Response",
+                "query": "What was the question?",
+                "tenant_id": "tenant-1",
+            },
         )
 
-        result = await save_content(request_body=request_body)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["data"]["content_id"] == "content-123"
+        assert data["data"]["workspace_id"] is not None
+        assert data["data"]["saved_at"] is not None
 
-        assert result.data is not None
-        assert result.data.content_id == "content-123"
-        assert result.data.workspace_id is not None
-        assert result.data.saved_at is not None
-
-    @pytest.mark.asyncio
-    async def test_save_content_with_no_title(self):
+    def test_save_content_with_no_title(self, client):
         """Test save content without title."""
-        request_body = SaveContentRequest(
-            content_id="content-456",
-            content="Response without title",
-            tenant_id="tenant-1",
+        response = client.post(
+            "/api/v1/workspace/save",
+            json={
+                "content_id": "content-456",
+                "content": "Response without title",
+                "tenant_id": "tenant-1",
+            },
         )
 
-        result = await save_content(request_body=request_body)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["data"]["content_id"] == "content-456"
 
-        assert result.data is not None
-        assert result.data.content_id == "content-456"
-
-    @pytest.mark.asyncio
-    async def test_save_requires_tenant_id(self):
+    def test_save_requires_tenant_id(self, client):
         """Test save fails without tenant_id."""
-        request_body = SaveContentRequest(
-            content_id="content-123",
-            content="Content to save",
+        response = client.post(
+            "/api/v1/workspace/save",
+            json={
+                "content_id": "content-123",
+                "content": "Content to save",
+            },
         )
 
-        with pytest.raises(TenantRequiredError):
-            # Must pass x_tenant_id=None explicitly when calling directly
-            # (not through FastAPI) since default is Header object not None
-            await save_content(request_body=request_body, x_tenant_id=None)
+        assert response.status_code == 400
+        data = response.json()
+        assert data["title"] == "Tenant Required"
 
 
 class TestExportContentEndpoint:
     """Tests for export_content endpoint."""
 
-    @pytest.mark.asyncio
-    async def test_export_markdown_success(self):
+    def test_export_markdown_success(self, client):
         """Test successful markdown export returns Response."""
-        request_body = ExportContentRequest(
-            content_id="content-123",
-            content="# Heading\n\nParagraph content",
-            title="Markdown Doc",
-            format="markdown",
-            tenant_id="tenant-1",
+        response = client.post(
+            "/api/v1/workspace/export",
+            json={
+                "content_id": "content-123",
+                "content": "# Heading\n\nParagraph content",
+                "title": "Markdown Doc",
+                "format": "markdown",
+                "tenant_id": "tenant-1",
+            },
         )
 
-        result = await export_content(request_body=request_body)
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "text/markdown; charset=utf-8"
 
-        # Returns a Response object for download
-        assert result.media_type == "text/markdown"
-        assert result.status_code == 200
-
-    @pytest.mark.asyncio
-    async def test_export_json_success(self):
+    def test_export_json_success(self, client):
         """Test successful JSON export."""
-        request_body = ExportContentRequest(
-            content_id="content-123",
-            content="Plain text content",
-            format="json",
-            tenant_id="tenant-1",
+        response = client.post(
+            "/api/v1/workspace/export",
+            json={
+                "content_id": "content-123",
+                "content": "Plain text content",
+                "format": "json",
+                "tenant_id": "tenant-1",
+            },
         )
 
-        result = await export_content(request_body=request_body)
+        assert response.status_code == 200
+        assert "application/json" in response.headers["content-type"]
 
-        assert result.media_type == "application/json"
-        assert result.status_code == 200
-
-    @pytest.mark.asyncio
-    async def test_export_pdf_returns_not_implemented(self):
+    def test_export_pdf_returns_not_implemented(self, client):
         """Test PDF export returns 501 Not Implemented."""
-        request_body = ExportContentRequest(
-            content_id="content-123",
-            content="Content for PDF",
-            format="pdf",
-            tenant_id="tenant-1",
+        response = client.post(
+            "/api/v1/workspace/export",
+            json={
+                "content_id": "content-123",
+                "content": "Content for PDF",
+                "format": "pdf",
+                "tenant_id": "tenant-1",
+            },
         )
 
-        result = await export_content(request_body=request_body)
+        assert response.status_code == 501
+        data = response.json()
+        assert data["status"] == 501
 
-        assert result.status_code == 501
-
-    @pytest.mark.asyncio
-    async def test_export_requires_tenant_id(self):
+    def test_export_requires_tenant_id(self, client):
         """Test export fails without tenant_id."""
-        request_body = ExportContentRequest(
-            content_id="content-123",
-            content="Content to export",
-            format="markdown",
+        response = client.post(
+            "/api/v1/workspace/export",
+            json={
+                "content_id": "content-123",
+                "content": "Content to export",
+                "format": "markdown",
+            },
         )
 
-        with pytest.raises(TenantRequiredError):
-            await export_content(request_body=request_body, x_tenant_id=None)
+        assert response.status_code == 400
 
 
 class TestShareContentEndpoint:
     """Tests for share_content endpoint."""
 
-    @pytest.mark.asyncio
-    async def test_share_content_success(self):
+    def test_share_content_success(self, client):
         """Test successful content share."""
-        request_body = ShareContentRequest(
-            content_id="content-123",
-            content="Content to share",
-            title="Shared Response",
-            tenant_id="tenant-1",
+        response = client.post(
+            "/api/v1/workspace/share",
+            json={
+                "content_id": "content-123",
+                "content": "Content to share",
+                "title": "Shared Response",
+                "tenant_id": "tenant-1",
+            },
         )
 
-        result = await share_content(request_body=request_body)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["data"]["share_url"] is not None
+        assert "share" in data["data"]["share_url"]
+        assert data["data"]["expires_at"] is not None
 
-        assert result.data is not None
-        assert result.data.share_url is not None
-        assert "share" in result.data.share_url
-        assert result.data.expires_at is not None  # Check expiration is set
-
-    @pytest.mark.asyncio
-    async def test_share_content_unique_urls(self):
+    def test_share_content_unique_urls(self, client):
         """Test each share generates unique URL."""
-        request_body = ShareContentRequest(
-            content_id="content-123",
-            content="Same content",
-            tenant_id="tenant-1",
-        )
+        payload = {
+            "content_id": "content-123",
+            "content": "Same content",
+            "tenant_id": "tenant-1",
+        }
 
-        result1 = await share_content(request_body=request_body)
-        result2 = await share_content(request_body=request_body)
+        result1 = client.post("/api/v1/workspace/share", json=payload)
+        result2 = client.post("/api/v1/workspace/share", json=payload)
 
-        assert result1.data.share_url != result2.data.share_url
+        assert result1.json()["data"]["share_url"] != result2.json()["data"]["share_url"]
 
-    @pytest.mark.asyncio
-    async def test_share_content_includes_token(self):
+    def test_share_content_includes_token(self, client):
         """Test share URL includes signed token."""
-        request_body = ShareContentRequest(
-            content_id="content-123",
-            content="Content to share",
-            tenant_id="tenant-1",
+        response = client.post(
+            "/api/v1/workspace/share",
+            json={
+                "content_id": "content-123",
+                "content": "Content to share",
+                "tenant_id": "tenant-1",
+            },
         )
 
-        result = await share_content(request_body=request_body)
+        assert response.status_code == 200
+        data = response.json()
+        assert "token=" in data["data"]["share_url"]
 
-        assert "token=" in result.data.share_url
-
-    @pytest.mark.asyncio
-    async def test_share_requires_tenant_id(self):
+    def test_share_requires_tenant_id(self, client):
         """Test share fails without tenant_id."""
-        request_body = ShareContentRequest(
-            content_id="content-123",
-            content="Content to share",
+        response = client.post(
+            "/api/v1/workspace/share",
+            json={
+                "content_id": "content-123",
+                "content": "Content to share",
+            },
         )
 
-        with pytest.raises(TenantRequiredError):
-            await share_content(request_body=request_body, x_tenant_id=None)
+        assert response.status_code == 400
 
 
 class TestBookmarkContentEndpoint:
     """Tests for bookmark_content endpoint."""
 
-    @pytest.mark.asyncio
-    async def test_bookmark_content_success(self):
+    def test_bookmark_content_success(self, client):
         """Test successful content bookmark."""
-        request_body = BookmarkContentRequest(
-            content_id="content-123",
-            content="AI response to bookmark",
-            title="Bookmarked Response",
-            tenant_id="tenant-1",
+        response = client.post(
+            "/api/v1/workspace/bookmark",
+            json={
+                "content_id": "content-123",
+                "content": "AI response to bookmark",
+                "title": "Bookmarked Response",
+                "tenant_id": "tenant-1",
+            },
         )
 
-        result = await bookmark_content(request_body=request_body)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["data"]["bookmark_id"] is not None
+        assert data["data"]["bookmarked_at"] is not None
 
-        assert result.data is not None
-        assert result.data.bookmark_id is not None
-        assert result.data.bookmarked_at is not None
-
-    @pytest.mark.asyncio
-    async def test_bookmark_requires_tenant_id(self):
+    def test_bookmark_requires_tenant_id(self, client):
         """Test bookmark fails without tenant_id."""
-        request_body = BookmarkContentRequest(
-            content_id="content-123",
-            content="Content to bookmark",
+        response = client.post(
+            "/api/v1/workspace/bookmark",
+            json={
+                "content_id": "content-123",
+                "content": "Content to bookmark",
+            },
         )
 
-        with pytest.raises(TenantRequiredError):
-            await bookmark_content(request_body=request_body, x_tenant_id=None)
+        assert response.status_code == 400
 
 
 class TestGetBookmarksEndpoint:
     """Tests for get_bookmarks endpoint."""
 
-    @pytest.mark.asyncio
-    async def test_get_bookmarks_returns_list(self):
+    def test_get_bookmarks_returns_list(self, client):
         """Test get bookmarks returns list."""
-        # Call with explicit values (not Query objects)
-        result = await get_bookmarks(tenant_id="tenant-1", limit=50, offset=0)
-        
-        assert result.data is not None
-        assert isinstance(result.data, list)
+        response = client.get(
+            "/api/v1/workspace/bookmarks",
+            params={"tenant_id": "tenant-1"},
+        )
 
-    @pytest.mark.asyncio
-    async def test_get_bookmarks_empty_for_new_tenant(self):
+        assert response.status_code == 200
+        data = response.json()
+        assert data["data"] is not None
+        assert isinstance(data["data"], list)
+
+    def test_get_bookmarks_empty_for_new_tenant(self, client):
         """Test get bookmarks returns empty for new tenant."""
-        result = await get_bookmarks(tenant_id="new-tenant-xyz", limit=50, offset=0)
+        response = client.get(
+            "/api/v1/workspace/bookmarks",
+            params={"tenant_id": "new-tenant-xyz"},
+        )
 
-        assert result.data == []
+        assert response.status_code == 200
+        data = response.json()
+        assert data["data"] == []
 
 
 class TestMultiTenantIsolation:
     """Tests for multi-tenant data isolation."""
 
-    @pytest.mark.asyncio
-    async def test_bookmarks_isolated_between_tenants(self):
+    def test_bookmarks_isolated_between_tenants(self, client):
         """Test bookmarks are isolated between tenants."""
         # Create bookmark for tenant-1
-        request1 = BookmarkContentRequest(
-            content_id="content-123",
-            content="Tenant 1 content",
-            title="Tenant 1 Bookmark",
-            tenant_id="tenant-1",
+        client.post(
+            "/api/v1/workspace/bookmark",
+            json={
+                "content_id": "content-123",
+                "content": "Tenant 1 content",
+                "title": "Tenant 1 Bookmark",
+                "tenant_id": "tenant-1",
+            },
         )
-        await bookmark_content(request_body=request1)
 
         # Create bookmark for tenant-2
-        request2 = BookmarkContentRequest(
-            content_id="content-456",
-            content="Tenant 2 content",
-            title="Tenant 2 Bookmark",
-            tenant_id="tenant-2",
+        client.post(
+            "/api/v1/workspace/bookmark",
+            json={
+                "content_id": "content-456",
+                "content": "Tenant 2 content",
+                "title": "Tenant 2 Bookmark",
+                "tenant_id": "tenant-2",
+            },
         )
-        await bookmark_content(request_body=request2)
 
         # Get bookmarks for tenant-1
-        result1 = await get_bookmarks(tenant_id="tenant-1", limit=50, offset=0)
-        assert len(result1.data) == 1
-        assert result1.data[0].content_id == "content-123"
+        result1 = client.get(
+            "/api/v1/workspace/bookmarks",
+            params={"tenant_id": "tenant-1"},
+        )
+        data1 = result1.json()
+        assert len(data1["data"]) == 1
+        assert data1["data"][0]["content_id"] == "content-123"
 
         # Get bookmarks for tenant-2
-        result2 = await get_bookmarks(tenant_id="tenant-2", limit=50, offset=0)
-        assert len(result2.data) == 1
-        assert result2.data[0].content_id == "content-456"
+        result2 = client.get(
+            "/api/v1/workspace/bookmarks",
+            params={"tenant_id": "tenant-2"},
+        )
+        data2 = result2.json()
+        assert len(data2["data"]) == 1
+        assert data2["data"][0]["content_id"] == "content-456"
 
         # Get bookmarks for tenant-3 (should be empty)
-        result3 = await get_bookmarks(tenant_id="tenant-3", limit=50, offset=0)
-        assert len(result3.data) == 0
+        result3 = client.get(
+            "/api/v1/workspace/bookmarks",
+            params={"tenant_id": "tenant-3"},
+        )
+        data3 = result3.json()
+        assert len(data3["data"]) == 0
 
 
 class TestContentSizeLimits:
     """Tests for content size validation."""
 
     def test_save_content_rejects_oversized_content(self):
-        """Test save request rejects content over MAX_CONTENT_SIZE."""
+        """Test save request rejects content over MAX_CONTENT_SIZE bytes."""
         oversized_content = "x" * (MAX_CONTENT_SIZE + 1)
 
         with pytest.raises(ValidationError):
@@ -447,7 +494,7 @@ class TestContentSizeLimits:
             )
 
     def test_export_content_rejects_oversized_content(self):
-        """Test export request rejects content over MAX_CONTENT_SIZE."""
+        """Test export request rejects content over MAX_CONTENT_SIZE bytes."""
         oversized_content = "x" * (MAX_CONTENT_SIZE + 1)
 
         with pytest.raises(ValidationError):
@@ -459,7 +506,7 @@ class TestContentSizeLimits:
             )
 
     def test_share_content_rejects_oversized_content(self):
-        """Test share request rejects content over MAX_CONTENT_SIZE."""
+        """Test share request rejects content over MAX_CONTENT_SIZE bytes."""
         oversized_content = "x" * (MAX_CONTENT_SIZE + 1)
 
         with pytest.raises(ValidationError):
@@ -470,7 +517,7 @@ class TestContentSizeLimits:
             )
 
     def test_bookmark_content_rejects_oversized_content(self):
-        """Test bookmark request rejects content over MAX_CONTENT_SIZE."""
+        """Test bookmark request rejects content over MAX_CONTENT_SIZE bytes."""
         oversized_content = "x" * (MAX_CONTENT_SIZE + 1)
 
         with pytest.raises(ValidationError):
@@ -481,7 +528,7 @@ class TestContentSizeLimits:
             )
 
     def test_save_content_accepts_max_size_content(self):
-        """Test save request accepts content at MAX_CONTENT_SIZE."""
+        """Test save request accepts content at MAX_CONTENT_SIZE bytes."""
         max_content = "x" * MAX_CONTENT_SIZE
 
         # Should not raise
@@ -491,3 +538,32 @@ class TestContentSizeLimits:
             tenant_id="tenant-1",
         )
         assert len(request.content) == MAX_CONTENT_SIZE
+
+    def test_multibyte_content_validates_bytes_not_chars(self):
+        """Test content validation uses byte size, not character count.
+
+        Multi-byte UTF-8 characters (like emoji) should count as more than 1.
+        This prevents DoS attacks using emoji-heavy content.
+        """
+        # Each emoji is 4 bytes in UTF-8
+        emoji = "\U0001F600"  # grinning face emoji
+        assert len(emoji) == 1  # 1 character
+        assert len(emoji.encode("utf-8")) == 4  # 4 bytes
+
+        # Create content that is under char limit but over byte limit
+        # MAX_CONTENT_SIZE / 4 emojis would be at the byte limit
+        # Add 1 more to go over
+        emoji_count = (MAX_CONTENT_SIZE // 4) + 1
+        emoji_content = emoji * emoji_count
+
+        # Character count is under limit but byte count is over
+        assert len(emoji_content) < MAX_CONTENT_SIZE
+        assert len(emoji_content.encode("utf-8")) > MAX_CONTENT_SIZE
+
+        # Should reject based on byte size
+        with pytest.raises(ValidationError):
+            SaveContentRequest(
+                content_id="content-123",
+                content=emoji_content,
+                tenant_id="tenant-1",
+            )
