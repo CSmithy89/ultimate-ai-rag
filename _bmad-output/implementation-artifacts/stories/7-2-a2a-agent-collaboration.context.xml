@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <story-summary>
+    <![CDATA[
+    Story 7-2 adds Agent-to-Agent (A2A) collaboration APIs. The backend will manage
+    in-memory collaboration sessions and expose endpoints for creating sessions,
+    posting messages, and retrieving transcripts. Tenant isolation and rate limiting
+    must mirror existing API patterns.
+    ]]>
+  </story-summary>
+
+  <relevant-files>
+    <![CDATA[
+    - backend/src/agentic_rag_backend/api/routes/copilot.py (rate limiting + validation patterns)
+    - backend/src/agentic_rag_backend/main.py (router registration)
+    - backend/src/agentic_rag_backend/rate_limit.py (RateLimiter interface)
+    ]]>
+  </relevant-files>
+</story-context>

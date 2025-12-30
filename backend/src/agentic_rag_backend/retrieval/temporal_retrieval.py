@@ -224,6 +224,8 @@ async def temporal_search(
             if as_of_date:
                 # Normalize all datetimes to UTC for consistent comparison
                 as_of_utc = _ensure_utc(as_of_date)
+                if as_of_utc is None:
+                    continue
                 valid_at = _ensure_utc(temporal_edge.valid_at)
                 invalid_at = _ensure_utc(temporal_edge.invalid_at)
                 
@@ -327,7 +329,7 @@ async def get_knowledge_changes(
 
     try:
         # Get episodes for the tenant in the date range
-        episodes_raw = await graphiti_client.client.get_episodes_by_group_ids(
+        episodes_raw = await graphiti_client.client.get_episodes_by_group_ids(  # type: ignore[attr-defined]
             group_ids=[tenant_id],
         )
 

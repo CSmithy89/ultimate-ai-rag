@@ -1,9 +1,11 @@
 """Error handling with RFC 7807 Problem Details support."""
 
 from enum import Enum
+from http import HTTPStatus
+import json
 from typing import Any, Optional
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
 
@@ -320,6 +322,23 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
         status_code=exc.status,
         content=exc.to_problem_detail(str(request.url.path)),
     )
+
+
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    """Convert HTTPException errors to RFC 7807 Problem Details responses."""
+    status_code = exc.status_code
+    title = HTTPStatus(status_code).phrase if status_code in HTTPStatus else "HTTP Error"
+    detail = exc.detail
+    if not isinstance(detail, str):
+        detail = json.dumps(detail)
+    problem = {
+        "type": f"https://api.example.com/errors/http-{status_code}",
+        "title": title,
+        "status": status_code,
+        "detail": detail,
+        "instance": str(request.url.path),
+    }
+    return JSONResponse(status_code=status_code, content=problem, headers=exc.headers)
 
 
 # Epic 5 - Graphiti Ingestion Errors

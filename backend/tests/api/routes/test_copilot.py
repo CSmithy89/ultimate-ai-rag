@@ -24,7 +24,6 @@ from agentic_rag_backend.api.routes.copilot import (
     copilot_handler,
     receive_validation_response,
     ValidationResponseRequest,
-    ValidationResponseResult,
 )
 from agentic_rag_backend.models.copilot import (
     CopilotConfig,
@@ -32,7 +31,7 @@ from agentic_rag_backend.models.copilot import (
     CopilotRequest,
     MessageRole,
 )
-from agentic_rag_backend.protocols.ag_ui_bridge import HITLManager, HITLCheckpoint, HITLStatus
+from agentic_rag_backend.protocols.ag_ui_bridge import HITLManager
 from agentic_rag_backend.schemas import PlanStep
 
 
@@ -495,8 +494,7 @@ class TestValidationResponseHandler:
         checkpoint_id = str(uuid4())
         
         # Create a checkpoint first
-        import asyncio
-        checkpoint = await hitl_manager.create_checkpoint(
+        await hitl_manager.create_checkpoint(
             sources=[
                 {"id": "source-1", "title": "Doc 1"},
                 {"id": "source-2", "title": "Doc 2"},

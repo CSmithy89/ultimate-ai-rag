@@ -1,5 +1,6 @@
 """Configuration management for the Agentic RAG Backend."""
 
+import json
 import os
 import secrets
 from dataclasses import dataclass
@@ -26,6 +27,7 @@ class Settings:
     rate_limit_per_minute: int
     rate_limit_backend: str
     rate_limit_redis_prefix: str
+    rate_limit_retry_after_seconds: int
     neo4j_uri: str
     neo4j_user: str
     neo4j_password: str
@@ -53,6 +55,16 @@ class Settings:
     retrieval_backend: str  # "graphiti" or "legacy"
     # Epic 6 - Workspace settings
     share_secret: str  # Secret for signing share links (set via SHARE_SECRET env var)
+    # Epic 7 - A2A settings
+    a2a_session_ttl_seconds: int
+    a2a_cleanup_interval_seconds: int
+    a2a_max_sessions_per_tenant: int
+    a2a_max_sessions_total: int
+    a2a_max_messages_per_session: int
+    # Epic 7 - MCP settings
+    mcp_tool_timeout_seconds: float
+    mcp_tool_timeout_overrides: dict[str, float]
+    mcp_tool_max_timeout_seconds: float
 
 
 def load_settings() -> Settings:
@@ -81,6 +93,7 @@ def load_settings() -> Settings:
         rate_limit_per_minute = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
         rate_limit_backend = os.getenv("RATE_LIMIT_BACKEND", "memory")
         rate_limit_redis_prefix = os.getenv("RATE_LIMIT_REDIS_PREFIX", "rate-limit")
+        rate_limit_retry_after_seconds = int(os.getenv("RATE_LIMIT_RETRY_AFTER_SECONDS", "60"))
     except ValueError as exc:
         raise ValueError(
             "DB_POOL_MIN, DB_POOL_MAX, REQUEST_MAX_BYTES, and RATE_LIMIT_PER_MINUTE "
@@ -94,6 +107,8 @@ def load_settings() -> Settings:
         raise ValueError("REQUEST_MAX_BYTES must be >= 1.")
     if rate_limit_per_minute < 1:
         raise ValueError("RATE_LIMIT_PER_MINUTE must be >= 1.")
+    if rate_limit_retry_after_seconds < 1:
+        raise ValueError("RATE_LIMIT_RETRY_AFTER_SECONDS must be >= 1.")
     if rate_limit_backend not in {"memory", "redis"}:
         raise ValueError("RATE_LIMIT_BACKEND must be 'memory' or 'redis'.")
 
@@ -122,6 +137,63 @@ def load_settings() -> Settings:
         entity_similarity_threshold = float(os.getenv("ENTITY_SIMILARITY_THRESHOLD", "0.95"))
     except ValueError:
         entity_similarity_threshold = 0.95
+
+    try:
+        a2a_session_ttl_seconds = int(os.getenv("A2A_SESSION_TTL_SECONDS", "21600"))
+    except ValueError:
+        a2a_session_ttl_seconds = 21600
+
+    try:
+        a2a_cleanup_interval_seconds = int(os.getenv("A2A_CLEANUP_INTERVAL_SECONDS", "3600"))
+    except ValueError:
+        a2a_cleanup_interval_seconds = 3600
+
+    try:
+        a2a_max_sessions_per_tenant = int(os.getenv("A2A_MAX_SESSIONS_PER_TENANT", "100"))
+    except ValueError:
+        a2a_max_sessions_per_tenant = 100
+
+    try:
+        a2a_max_sessions_total = int(os.getenv("A2A_MAX_SESSIONS_TOTAL", "1000"))
+    except ValueError:
+        a2a_max_sessions_total = 1000
+
+    try:
+        a2a_max_messages_per_session = int(os.getenv("A2A_MAX_MESSAGES_PER_SESSION", "1000"))
+    except ValueError:
+        a2a_max_messages_per_session = 1000
+
+    try:
+        mcp_tool_timeout_seconds = float(os.getenv("MCP_TOOL_TIMEOUT_SECONDS", "30"))
+    except ValueError:
+        mcp_tool_timeout_seconds = 30.0
+
+    try:
+        mcp_tool_max_timeout_seconds = float(os.getenv("MCP_TOOL_MAX_TIMEOUT_SECONDS", "300"))
+    except ValueError:
+        mcp_tool_max_timeout_seconds = 300.0
+    if mcp_tool_max_timeout_seconds <= 0:
+        mcp_tool_max_timeout_seconds = 300.0
+
+    raw_mcp_timeouts = os.getenv("MCP_TOOL_TIMEOUT_OVERRIDES", "")
+    mcp_tool_timeout_overrides: dict[str, float] = {}
+    if raw_mcp_timeouts:
+        try:
+            parsed = json.loads(raw_mcp_timeouts)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "MCP_TOOL_TIMEOUT_OVERRIDES must be valid JSON (e.g. "
+                '{\"knowledge.query\": 30, \"knowledge.graph_stats\": 10}).'
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("MCP_TOOL_TIMEOUT_OVERRIDES must be a JSON object.")
+        for key, value in parsed.items():
+            try:
+                mcp_tool_timeout_overrides[str(key)] = float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "MCP_TOOL_TIMEOUT_OVERRIDES values must be numeric."
+                ) from exc
 
     # Epic 5 - Validate backend selections
     ingestion_backend = os.getenv("INGESTION_BACKEND", "graphiti")
@@ -170,6 +242,7 @@ def load_settings() -> Settings:
         rate_limit_per_minute=rate_limit_per_minute,
         rate_limit_backend=rate_limit_backend,
         rate_limit_redis_prefix=rate_limit_redis_prefix,
+        rate_limit_retry_after_seconds=rate_limit_retry_after_seconds,
         neo4j_uri=neo4j_uri,
         neo4j_user=neo4j_user,
         neo4j_password=neo4j_password,
@@ -197,6 +270,16 @@ def load_settings() -> Settings:
         # Epic 6 - Workspace settings
         # Default generates random secret if not set (for dev), but production should set SHARE_SECRET
         share_secret=os.getenv("SHARE_SECRET", secrets.token_hex(32)),
+        # Epic 7 - A2A settings
+        a2a_session_ttl_seconds=a2a_session_ttl_seconds,
+        a2a_cleanup_interval_seconds=a2a_cleanup_interval_seconds,
+        a2a_max_sessions_per_tenant=a2a_max_sessions_per_tenant,
+        a2a_max_sessions_total=a2a_max_sessions_total,
+        a2a_max_messages_per_session=a2a_max_messages_per_session,
+        # Epic 7 - MCP settings
+        mcp_tool_timeout_seconds=mcp_tool_timeout_seconds,
+        mcp_tool_timeout_overrides=mcp_tool_timeout_overrides,
+        mcp_tool_max_timeout_seconds=mcp_tool_max_timeout_seconds,
     )
 
 

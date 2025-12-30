@@ -151,11 +151,11 @@ class GraphitiClient:
 
             try:
                 # Create OpenAI clients for LLM and embeddings
-                llm_client = OpenAIClient(
+                llm_client = OpenAIClient(  # type: ignore[call-arg]
                     api_key=self._openai_api_key,
                     model=self.llm_model,
                 )
-                embedder = OpenAIEmbedder(
+                embedder = OpenAIEmbedder(  # type: ignore[call-arg]
                     api_key=self._openai_api_key,
                     model=self.embedding_model,
                 )

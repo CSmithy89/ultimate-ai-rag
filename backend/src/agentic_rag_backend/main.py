@@ -17,10 +17,21 @@ from starlette.responses import JSONResponse, Response
 import structlog
 
 from .agents.orchestrator import OrchestratorAgent
-from .api.routes import ingest_router, knowledge_router, copilot_router, workspace_router
+from .api.routes import (
+    ingest_router,
+    knowledge_router,
+    copilot_router,
+    workspace_router,
+    mcp_router,
+    a2a_router,
+    ag_ui_router,
+)
 from .api.routes.ingest import limiter as slowapi_limiter
+from .api.utils import rate_limit_exceeded
 from .config import Settings, load_settings
-from .core.errors import AppError, app_error_handler
+from .core.errors import AppError, app_error_handler, http_exception_handler
+from .protocols.a2a import A2ASessionManager
+from .protocols.mcp import MCPToolRegistry
 from .rate_limit import InMemoryRateLimiter, RateLimiter, RedisRateLimiter, close_redis
 from .schemas import QueryEnvelope, QueryRequest, QueryResponse, ResponseMeta
 from .trajectory import TrajectoryLogger, close_pool, create_pool
@@ -160,9 +171,28 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             embedding_model=settings.embedding_model,
         )
 
+    app.state.a2a_manager = A2ASessionManager(
+        session_ttl_seconds=settings.a2a_session_ttl_seconds,
+        max_sessions_per_tenant=settings.a2a_max_sessions_per_tenant,
+        max_sessions_total=settings.a2a_max_sessions_total,
+        max_messages_per_session=settings.a2a_max_messages_per_session,
+    )
+    await app.state.a2a_manager.start_cleanup_task(
+        settings.a2a_cleanup_interval_seconds
+    )
+    app.state.mcp_registry = MCPToolRegistry(
+        orchestrator=app.state.orchestrator,
+        neo4j=getattr(app.state, "neo4j", None),
+        timeout_seconds=settings.mcp_tool_timeout_seconds,
+        tool_timeouts=settings.mcp_tool_timeout_overrides,
+        max_timeout_seconds=settings.mcp_tool_max_timeout_seconds,
+    )
+
     yield
 
     # Shutdown: Close database connections
+    if hasattr(app.state, "a2a_manager") and app.state.a2a_manager:
+        await app.state.a2a_manager.stop_cleanup_task()
     # Epic 5: Graphiti connection
     if hasattr(app.state, "graphiti") and app.state.graphiti:
         await app.state.graphiti.disconnect()
@@ -206,6 +236,10 @@ def create_app() -> FastAPI:
         AppError,
         cast(Callable[[Request, Exception], Awaitable[Response]], app_error_handler),
     )
+    app.add_exception_handler(
+        HTTPException,
+        cast(Callable[[Request, Exception], Awaitable[Response]], http_exception_handler),
+    )
 
     # Register routers
     app.include_router(router)  # Query router
@@ -213,6 +247,9 @@ def create_app() -> FastAPI:
     app.include_router(knowledge_router, prefix="/api/v1")  # Epic 4: Knowledge graph
     app.include_router(copilot_router, prefix="/api/v1")  # Epic 6: Copilot
     app.include_router(workspace_router, prefix="/api/v1")  # Epic 6: Workspace actions
+    app.include_router(mcp_router, prefix="/api/v1")  # Epic 7: MCP tools
+    app.include_router(a2a_router, prefix="/api/v1")  # Epic 7: A2A collaboration
+    app.include_router(ag_ui_router, prefix="/api/v1")  # Epic 7: AG-UI universal
 
     return app
 
@@ -269,7 +306,7 @@ async def run_query(
 ) -> QueryEnvelope:
     try:
         if not await limiter.allow(payload.tenant_id):
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+            raise rate_limit_exceeded()
         result = await orchestrator.run(
             payload.query,
             payload.tenant_id,

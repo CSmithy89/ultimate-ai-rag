@@ -145,7 +145,8 @@ const ActionItem = memo(function ActionItem({
   action: ActionHistoryItem;
 }) {
   const ActionIcon = getActionTypeIcon(action.type);
-  const { border, bg, icon } = getStatusStyles(action.status);
+  const normalizedStatus = action.status === "idle" ? "pending" : action.status;
+  const { border, bg, icon } = getStatusStyles(normalizedStatus);
 
   return (
     <div

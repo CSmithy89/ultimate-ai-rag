@@ -4,24 +4,27 @@ Defines domain-specific entity types that extend Graphiti's EntityModel
 for technical documentation and code-related knowledge extraction.
 """
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
-try:
-    from graphiti_core.nodes import EntityNode
-except ImportError:
-    # Fallback for when graphiti-core is not installed
-    from pydantic import BaseModel
+if TYPE_CHECKING:
+    from graphiti_core.nodes import EntityNode as EntityNodeBase
+else:
+    try:
+        from graphiti_core.nodes import EntityNode as EntityNodeBase
+    except ImportError:
+        # Fallback for when graphiti-core is not installed
+        class EntityNodeBase(BaseModel):
+            """Fallback EntityNode when graphiti-core is not available."""
 
-    class EntityNode(BaseModel):
-        """Fallback EntityNode when graphiti-core is not available."""
+            name: str
+            uuid: str = ""
+            group_id: str = ""
+            created_at: Optional[str] = None
+            summary: str = ""
 
-        name: str
-        uuid: str = ""
-        group_id: str = ""
-        created_at: Optional[str] = None
-        summary: str = ""
+EntityNode = EntityNodeBase
 
 
 class TechnicalConcept(EntityNode):
@@ -117,7 +120,7 @@ class ConfigurationOption(EntityNode):
 
 
 # Entity type registry for Graphiti configuration
-ENTITY_TYPES = [
+ENTITY_TYPES: list[type] = [
     TechnicalConcept,
     CodePattern,
     APIEndpoint,

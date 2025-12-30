@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <story-summary>
+    <![CDATA[
+    Story 7-1 introduces an MCP-style tool server for external agents. The backend will expose
+    tool discovery and invocation endpoints, backed by a lightweight tool registry that maps
+    tool names to existing backend capabilities.
+
+    Key integrations:
+    - OrchestratorAgent for knowledge.query tool
+    - Rate limiter for tenant-based throttling
+    - FastAPI router registration in main.py
+    ]]>
+  </story-summary>
+
+  <relevant-files>
+    <![CDATA[
+    - backend/src/agentic_rag_backend/main.py (router registration)
+    - backend/src/agentic_rag_backend/api/routes/__init__.py (router exports)
+    - backend/src/agentic_rag_backend/api/routes/copilot.py (SSE + rate limiting patterns)
+    - backend/src/agentic_rag_backend/main.py (query endpoint pattern)
+    - backend/src/agentic_rag_backend/agents/orchestrator.py (run method)
+    - backend/src/agentic_rag_backend/rate_limit.py (RateLimiter interface)
+    - backend/src/agentic_rag_backend/db/neo4j.py (graph stats)
+    ]]>
+  </relevant-files>
+</story-context>

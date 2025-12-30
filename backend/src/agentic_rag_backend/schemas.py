@@ -3,6 +3,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .validation import TENANT_ID_PATTERN
+
 
 class QueryRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
@@ -11,12 +13,12 @@ class QueryRequest(BaseModel):
         ...,
         min_length=1,
         max_length=255,
-        pattern=r"^[A-Za-z0-9._:-]{1,255}$",
+        pattern=TENANT_ID_PATTERN,
     )
     session_id: str | None = Field(
         None,
         max_length=255,
-        pattern=r"^[A-Za-z0-9._:-]{1,255}$",
+        pattern=TENANT_ID_PATTERN,
     )
 
     @field_validator("query")

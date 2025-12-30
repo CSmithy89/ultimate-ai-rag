@@ -94,11 +94,11 @@ development_status:
   epic-6-retrospective: done
 
   # Epic 7: Protocol Integration & Extensibility (was Epic 6)
-  epic-7: backlog
-  7-1-mcp-tool-server-implementation: backlog
-  7-2-a2a-agent-collaboration: backlog
-  7-3-python-extension-sdk: backlog
-  7-4-universal-ag-ui-protocol-access: backlog
+  epic-7: done
+  7-1-mcp-tool-server-implementation: done
+  7-2-a2a-agent-collaboration: done
+  7-3-python-extension-sdk: done
+  7-4-universal-ag-ui-protocol-access: done
   epic-7-retrospective: optional
 
   # Epic 8: Operations & Observability (was Epic 7)

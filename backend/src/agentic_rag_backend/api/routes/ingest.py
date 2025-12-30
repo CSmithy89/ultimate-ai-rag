@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
-import aiofiles  # type: ignore[import-untyped]
+import aiofiles
 import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel

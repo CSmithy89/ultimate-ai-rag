@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 import asyncio
 import math
-import logging
 import re
 from typing import Any, TYPE_CHECKING
 from uuid import UUID
+
+import structlog
 
 from ..retrieval_router import RetrievalStrategy, select_retrieval_strategy
 from ..db.neo4j import Neo4jClient
@@ -46,16 +47,13 @@ AgnoAgentImpl: type[Any] | None = None
 AgnoOpenAIChatImpl: type[Any] | None = None
 
 try:  # pragma: no cover - optional dependency at runtime
-    from agno.agent import Agent
-    from agno.models.openai import OpenAIChat
+    from agno.agent import Agent as AgnoAgentImpl
+    from agno.models.openai import OpenAIChat as AgnoOpenAIChatImpl
 except ImportError:  # pragma: no cover - optional dependency at runtime
-    Agent = None
-    OpenAIChat = None
-else:  # pragma: no cover - optional dependency at runtime
-    AgnoAgentImpl = Agent
-    AgnoOpenAIChatImpl = OpenAIChat
+    AgnoAgentImpl = None
+    AgnoOpenAIChatImpl = None
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -157,13 +155,13 @@ class OrchestratorAgent:
             else None
         )
         plan = self._build_plan(query)
-        logger.debug("Generated plan with %s steps", len(plan))
+        logger.debug("orchestrator_plan_generated", steps=len(plan))
         completed_plan, thoughts, events = self._execute_plan(plan)
         strategy = select_retrieval_strategy(query)
         strategy_note = f"Selected retrieval strategy: {strategy.value}"
         thoughts.append(strategy_note)
         events.append((EventType.ACTION, strategy_note))
-        logger.debug("Retrieval strategy selected: %s", strategy.value)
+        logger.debug("retrieval_strategy_selected", strategy=strategy.value)
 
         vector_hits: list[VectorHit] = []
         graph_result: GraphTraversalResult | None = None
@@ -209,7 +207,7 @@ class OrchestratorAgent:
             content = getattr(response, "content", response)
             answer = str(content)
         else:
-            logger.warning("Agno agent unavailable; returning placeholder response.")
+            logger.warning("agno_agent_unavailable")
             answer = f"Received query: {query}"
 
         events.append(
@@ -312,7 +310,7 @@ class OrchestratorAgent:
                 await self._logger.log_observation(tenant_id, trajectory_id, error_note)
             else:
                 events.append((EventType.OBSERVATION, error_note))
-            logger.warning("vector_search_failed: %s", exc)
+            logger.warning("vector_search_failed", error=str(exc))
             return []
         observation = f"Vector hits: {len(hits)}"
         if self._logger and trajectory_id:
@@ -424,7 +422,7 @@ class OrchestratorAgent:
                 await self._logger.log_observation(tenant_id, trajectory_id, error_note)
             else:
                 events.append((EventType.OBSERVATION, error_note))
-            logger.warning("graph_traversal_failed: %s", exc)
+            logger.warning("graph_traversal_failed", error=str(exc))
             return None
         observation = f"Graph paths: {len(result.paths)}"
         if self._logger and trajectory_id:
@@ -506,9 +504,9 @@ class OrchestratorAgent:
             expected_edges = max(len(path.node_ids) - 1, 0)
             if len(path.edge_types) != expected_edges:
                 logger.warning(
-                    "graph_path_edge_mismatch node_count=%s edge_count=%s",
-                    len(path.node_ids),
-                    len(path.edge_types),
+                    "graph_path_edge_mismatch",
+                    node_count=len(path.node_ids),
+                    edge_count=len(path.edge_types),
                     path=path.node_ids[:3],
                 )
                 continue
