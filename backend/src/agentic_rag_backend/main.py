@@ -23,6 +23,7 @@ from .api.routes import (
     copilot_router,
     workspace_router,
     mcp_router,
+    a2a_router,
 )
 from .api.routes.ingest import limiter as slowapi_limiter
 from .config import Settings, load_settings
@@ -220,6 +221,7 @@ def create_app() -> FastAPI:
     app.include_router(copilot_router, prefix="/api/v1")  # Epic 6: Copilot
     app.include_router(workspace_router, prefix="/api/v1")  # Epic 6: Workspace actions
     app.include_router(mcp_router, prefix="/api/v1")  # Epic 7: MCP tools
+    app.include_router(a2a_router, prefix="/api/v1")  # Epic 7: A2A collaboration
 
     return app
 
