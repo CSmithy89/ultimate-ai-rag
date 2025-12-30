@@ -1,8 +1,31 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useCopilotAction } from "@copilotkit/react-core";
 import { useToast } from "@/hooks/use-toast";
+
+/**
+ * Clipboard write with fallback for older browsers.
+ */
+async function writeToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text);
+  }
+  // Fallback for older browsers
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.style.position = "fixed";
+  textArea.style.left = "-9999px";
+  textArea.style.top = "-9999px";
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+  try {
+    document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textArea);
+  }
+}
 
 /**
  * Action types supported by the system.
@@ -147,6 +170,15 @@ export function useCopilotActions(
   const { toast } = useToast();
   const [actionStates, setActionStates] = useState<ActionStates>(initialActionStates);
   const resetTimersRef = useRef<Map<ActionType, NodeJS.Timeout>>(new Map());
+
+  // Cleanup timers on unmount to prevent memory leaks
+  useEffect(() => {
+    const timersRef = resetTimersRef.current;
+    return () => {
+      timersRef.forEach((timer) => clearTimeout(timer));
+      timersRef.clear();
+    };
+  }, []);
 
   /**
    * Update state for a specific action with auto-reset.
@@ -356,8 +388,8 @@ export function useCopilotActions(
         const data = await response.json();
         const shareUrl = data.data?.share_url || data.share_url;
 
-        // Copy to clipboard
-        await navigator.clipboard.writeText(shareUrl);
+        // Copy to clipboard (with fallback for older browsers)
+        await writeToClipboard(shareUrl);
 
         setActionState("share", "success");
         toast({
@@ -504,17 +536,30 @@ export function useCopilotActions(
         required: true,
       },
       {
+        name: "content_text",
+        type: "string",
+        description: "The actual content/response text to save",
+        required: true,
+      },
+      {
         name: "title",
         type: "string",
         description: "Optional title for the saved content",
         required: false,
       },
+      {
+        name: "query",
+        type: "string",
+        description: "Original query that generated this response",
+        required: false,
+      },
     ],
-    handler: async ({ content_id, title }) => {
+    handler: async ({ content_id, content_text, title, query }) => {
       const content: ActionableContent = {
         id: content_id as string,
-        content: "",
+        content: content_text as string,
         title: title as string | undefined,
+        query: query as string | undefined,
       };
       await saveToWorkspace(content);
       return { success: true, action: "save_to_workspace" };
@@ -533,16 +578,29 @@ export function useCopilotActions(
         required: true,
       },
       {
+        name: "content_text",
+        type: "string",
+        description: "The actual content/response text to export",
+        required: true,
+      },
+      {
         name: "format",
         type: "string",
         description: "Export format: markdown, pdf, or json",
         required: true,
       },
+      {
+        name: "title",
+        type: "string",
+        description: "Optional title for the export",
+        required: false,
+      },
     ],
-    handler: async ({ content_id, format }) => {
+    handler: async ({ content_id, content_text, format, title }) => {
       const content: ActionableContent = {
         id: content_id as string,
-        content: "",
+        content: content_text as string,
+        title: title as string | undefined,
       };
       await exportContent(content, format as ExportFormat);
       return { success: true, action: "export_content", format };
@@ -560,11 +618,24 @@ export function useCopilotActions(
         description: "Unique ID of the content to share",
         required: true,
       },
+      {
+        name: "content_text",
+        type: "string",
+        description: "The actual content/response text to share",
+        required: true,
+      },
+      {
+        name: "title",
+        type: "string",
+        description: "Optional title for the shared content",
+        required: false,
+      },
     ],
-    handler: async ({ content_id }) => {
+    handler: async ({ content_id, content_text, title }) => {
       const content: ActionableContent = {
         id: content_id as string,
-        content: "",
+        content: content_text as string,
+        title: title as string | undefined,
       };
       const shareUrl = await shareContent(content);
       return { success: true, action: "share_content", shareUrl };
@@ -582,11 +653,24 @@ export function useCopilotActions(
         description: "Unique ID of the content to bookmark",
         required: true,
       },
+      {
+        name: "content_text",
+        type: "string",
+        description: "The actual content/response text to bookmark",
+        required: true,
+      },
+      {
+        name: "title",
+        type: "string",
+        description: "Optional title for the bookmark",
+        required: false,
+      },
     ],
-    handler: async ({ content_id }) => {
+    handler: async ({ content_id, content_text, title }) => {
       const content: ActionableContent = {
         id: content_id as string,
-        content: "",
+        content: content_text as string,
+        title: title as string | undefined,
       };
       await bookmarkContent(content);
       return { success: true, action: "bookmark_content" };

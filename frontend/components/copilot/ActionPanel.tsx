@@ -15,15 +15,17 @@ import {
   Trash2,
   Clock,
 } from "lucide-react";
-import type { ActionType } from "@/hooks/use-copilot-actions";
+import type { ActionType, ActionState } from "@/hooks/use-copilot-actions";
 
 /**
  * Single action history item.
+ * Note: status uses ActionState for consistency, mapped from loading -> pending
  */
 export interface ActionHistoryItem {
   id: string;
   type: ActionType;
-  status: "pending" | "success" | "error";
+  /** Status uses subset of ActionState: idle maps to pending, loading to pending */
+  status: Extract<ActionState, "idle" | "success" | "error"> | "pending";
   timestamp: string;
   title: string;
   error?: string;
@@ -102,12 +104,24 @@ function getStatusStyles(status: "pending" | "success" | "error"): {
 }
 
 /**
- * Format timestamp for display.
+ * Format timestamp for display with validation.
  */
 function formatTimestamp(timestamp: string): string {
   const date = new Date(timestamp);
+
+  // Validate the date is valid
+  if (isNaN(date.getTime())) {
+    return "Unknown";
+  }
+
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
+
+  // Handle future dates (clock skew)
+  if (diffMs < 0) {
+    return "Just now";
+  }
+
   const diffMins = Math.floor(diffMs / 60000);
 
   if (diffMins < 1) {
