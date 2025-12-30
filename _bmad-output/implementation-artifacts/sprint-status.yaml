@@ -97,7 +97,7 @@ development_status:
   epic-7: contexted
   7-1-mcp-tool-server-implementation: done
   7-2-a2a-agent-collaboration: done
-  7-3-python-extension-sdk: backlog
+  7-3-python-extension-sdk: done
   7-4-universal-ag-ui-protocol-access: backlog
   epic-7-retrospective: optional
 

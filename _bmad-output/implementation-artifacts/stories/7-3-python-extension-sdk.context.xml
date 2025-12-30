@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <story-summary>
+    <![CDATA[
+    Story 7-3 delivers a Python SDK that wraps MCP and A2A endpoints using httpx.
+    The SDK provides typed response models and async client helpers for external
+    integrations.
+    ]]>
+  </story-summary>
+
+  <relevant-files>
+    <![CDATA[
+    - backend/src/agentic_rag_backend/api/routes/mcp.py (MCP response shapes)
+    - backend/src/agentic_rag_backend/api/routes/a2a.py (A2A response shapes)
+    - backend/pyproject.toml (httpx dependency)
+    ]]>
+  </relevant-files>
+</story-context>
