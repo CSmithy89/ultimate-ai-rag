@@ -115,13 +115,13 @@ inputDocuments:
 |----|------|-------|-------------|--------|
 | FR1 | 1 | 1.3 | Docker Compose Development Environment | ✅ Covered |
 | FR2 | 1 | 1.4 | Environment Configuration System | ✅ Covered |
-| FR3 | 5 | 5.1 | CopilotKit React Integration | ✅ Covered |
-| FR4 | 6 | 6.3 | Python Extension SDK | ✅ Covered |
-| FR5 | 6 | 6.4 | Universal AG-UI Protocol Access | ✅ Covered |
+| FR3 | 6 | 6.1 | CopilotKit React Integration | ✅ Covered |
+| FR4 | 7 | 7.3 | Python Extension SDK | ✅ Covered |
+| FR5 | 7 | 7.4 | Universal AG-UI Protocol Access | ✅ Covered |
 | FR6 | 2 | 2.2 | Multi-Step Query Planning | ✅ Covered |
 | FR7 | 2 | 2.3 | Dynamic Retrieval Method Selection | ✅ Covered |
-| FR8 | 6 | 6.1 | MCP Tool Server Implementation | ✅ Covered |
-| FR9 | 6 | 6.2 | A2A Agent Collaboration | ✅ Covered |
+| FR8 | 7 | 7.1 | MCP Tool Server Implementation | ✅ Covered |
+| FR9 | 7 | 7.2 | A2A Agent Collaboration | ✅ Covered |
 | FR10 | 2 | 2.4 | Persistent Trajectory Logging | ✅ Covered |
 | FR11 | 3 | 3.1 | Vector Semantic Search | ✅ Covered |
 | FR12 | 3 | 3.2 | Graph Relationship Traversal | ✅ Covered |
@@ -131,25 +131,25 @@ inputDocuments:
 | FR16 | 4 | 4.2 | PDF Document Parsing | ✅ Covered |
 | FR17 | 4 | 4.3 | Agentic Entity Extraction | ✅ Covered |
 | FR18 | 4 | 4.4 | Knowledge Graph Visualization | ✅ Covered |
-| FR19 | 5 | 5.2 | Chat Sidebar Interface | ✅ Covered |
-| FR20 | 5 | 5.3 | Generative UI Components | ✅ Covered |
-| FR21 | 5 | 5.4 | Human-in-the-Loop Source Validation | ✅ Covered |
-| FR22 | 5 | 5.5 | Frontend Actions | ✅ Covered |
-| FR23 | 7 | 7.1 | LLM Cost Monitoring | ✅ Covered |
-| FR24 | 7 | 7.2 | Intelligent Model Routing | ✅ Covered |
-| FR25 | 7 | 7.3 | Trajectory Debugging Interface | ✅ Covered |
+| FR19 | 6 | 6.2 | Chat Sidebar Interface | ✅ Covered |
+| FR20 | 6 | 6.3 | Generative UI Components | ✅ Covered |
+| FR21 | 6 | 6.4 | Human-in-the-Loop Source Validation | ✅ Covered |
+| FR22 | 6 | 6.5 | Frontend Actions | ✅ Covered |
+| FR23 | 8 | 8.1 | LLM Cost Monitoring | ✅ Covered |
+| FR24 | 8 | 8.2 | Intelligent Model Routing | ✅ Covered |
+| FR25 | 8 | 8.3 | Trajectory Debugging Interface | ✅ Covered |
 
 ### NFR Coverage in Acceptance Criteria
 
 | NFR | Description | Story Coverage |
 |-----|-------------|----------------|
-| NFR1 | <10s response time | Story 2.1 AC, Story 5.2 (streaming) |
+| NFR1 | <10s response time | Story 2.1 AC, Story 6.2 (streaming) |
 | NFR2 | <5 min ingestion | Story 4.2 AC (explicit target) |
-| NFR3 | Multi-tenant isolation | Story 3.2 AC, Story 7.1 AC, Story 7.4 AC |
-| NFR4 | Encrypted traces at rest | Story 7.4 (dedicated story) |
+| NFR3 | Multi-tenant isolation | Story 3.2 AC, Story 8.1 AC, Story 8.4 AC |
+| NFR4 | Encrypted traces at rest | Story 8.4 (dedicated story) |
 | NFR5 | 1M+ nodes/edges | Epic 3/4 headers |
 | NFR6 | 50+ concurrent agents | Epic 2 header |
-| NFR7 | 100% MCP/AG-UI compliance | Story 6.1 AC, Story 6.4 AC |
+| NFR7 | 100% MCP/AG-UI compliance | Story 7.1 AC, Story 7.4 AC |
 | NFR8 | Stateless recovery | Story 2.4 AC (explicit) |
 
 ### Coverage Analysis Results
@@ -170,9 +170,10 @@ inputDocuments:
 | Epic 2: Agentic Query | 4 | FR6, FR7, FR10 |
 | Epic 3: Hybrid Retrieval | 4 | FR11, FR12, FR13, FR14 |
 | Epic 4: Ingestion Pipeline | 4 | FR15, FR16, FR17, FR18 |
-| Epic 5: Copilot Experience | 5 | FR3, FR19, FR20, FR21, FR22 |
-| Epic 6: Protocol Integration | 4 | FR4, FR5, FR8, FR9 |
-| Epic 7: Operations | 4 | FR23, FR24, FR25 |
+| Epic 5: Graphiti Integration | 6 | Addendum (no new FRs) |
+| Epic 6: Copilot Experience | 5 | FR3, FR19, FR20, FR21, FR22 |
+| Epic 7: Protocol Integration | 4 | FR4, FR5, FR8, FR9 |
+| Epic 8: Operations | 4 | FR23, FR24, FR25 |
 
 **Gaps Identified:** None
 
@@ -227,9 +228,10 @@ inputDocuments:
 | Epic 2: Agentic Query | ✅ Agents directory | src/agents/orchestrator.py, retriever.py |
 | Epic 3: Hybrid Retrieval | ✅ Retrieval + Tools | src/retrieval/hybrid.py, src/tools/ |
 | Epic 4: Ingestion | ✅ Indexing directory | src/indexing/pipeline.py, entity_extractor.py |
-| Epic 5: Copilot | ✅ Copilot components | components/copilot/, providers/ |
-| Epic 6: Protocols | ✅ Protocols directory | src/protocols/mcp_server.py, a2a_handler.py |
-| Epic 7: Operations | ✅ Core + middleware | src/core/cost_tracker.py, middleware/trajectory.py |
+| Epic 5: Graphiti | ✅ Graphiti integration | src/db/graphiti.py, src/indexing/graphiti_ingestion.py |
+| Epic 6: Copilot | ✅ Copilot components | components/copilot/, providers/ |
+| Epic 7: Protocols | ✅ Protocols directory | src/protocols/mcp_server.py, a2a_handler.py |
+| Epic 8: Operations | ✅ Core + middleware | src/core/cost_tracker.py, middleware/trajectory.py |
 
 ### Cross-Cutting Concerns Coverage
 
@@ -322,9 +324,10 @@ The architecture document includes comprehensive self-validation:
 2. Epic 2: Agentic Query & Reasoning (Stories 2.1-2.4)
 3. Epic 3: Hybrid Knowledge Retrieval (Stories 3.1-3.4)
 4. Epic 4: Knowledge Ingestion Pipeline (Stories 4.1-4.4)
-5. Epic 5: Interactive Copilot Experience (Stories 5.1-5.5)
-6. Epic 6: Protocol Integration & Extensibility (Stories 6.1-6.4)
-7. Epic 7: Operations & Observability (Stories 7.1-7.4)
+5. Epic 5: Graphiti Temporal Knowledge Graph Integration (Stories 5.1-5.6)
+6. Epic 6: Interactive Copilot Experience (Stories 6.1-6.5)
+7. Epic 7: Protocol Integration & Extensibility (Stories 7.1-7.4)
+8. Epic 8: Operations & Observability (Stories 8.1-8.4)
 
 **Next Step:** Run `/bmad:bmm:workflows:sprint-planning` to generate sprint status tracking
 
@@ -333,4 +336,3 @@ The architecture document includes comprehensive self-validation:
 **Report Generated:** 2025-12-28
 **Workflow:** check-implementation-readiness
 **Status:** COMPLETE
-
