@@ -32,6 +32,7 @@ class CostSummary:
     total_cost_usd: Decimal
     baseline_cost_usd: Decimal
     total_savings_usd: Decimal
+    total_premium_usd: Decimal
     total_tokens: int
     total_requests: int
     by_model: list[dict[str, Any]]
@@ -155,8 +156,6 @@ class CostTracker:
                 completion_tokens,
             )
             savings = baseline_total_cost - total_cost
-            if savings < 0:
-                savings = Decimal("0")
 
         async with self._pool.acquire() as conn:
             await conn.execute(
@@ -236,7 +235,10 @@ class CostTracker:
                        COALESCE(SUM(total_tokens), 0) AS total_tokens,
                        COALESCE(SUM(total_cost_usd), 0) AS total_cost_usd,
                        COALESCE(SUM(baseline_total_cost_usd), 0) AS baseline_cost_usd,
-                       COALESCE(SUM(savings_usd), 0) AS total_savings_usd
+                       COALESCE(SUM(CASE WHEN savings_usd > 0 THEN savings_usd ELSE 0 END), 0)
+                           AS total_savings_usd,
+                       COALESCE(SUM(CASE WHEN savings_usd < 0 THEN -savings_usd ELSE 0 END), 0)
+                           AS total_premium_usd
                 FROM llm_usage_events
                 WHERE tenant_id = $1 AND created_at >= $2
                 """,
@@ -277,6 +279,7 @@ class CostTracker:
             total_cost_usd=totals["total_cost_usd"],
             baseline_cost_usd=totals["baseline_cost_usd"],
             total_savings_usd=totals["total_savings_usd"],
+            total_premium_usd=totals["total_premium_usd"],
             total_tokens=totals["total_tokens"],
             total_requests=totals["total_requests"],
             by_model=[dict(row) for row in by_model],

@@ -9,7 +9,7 @@ import {
   useUpdateCostAlerts,
 } from "@/hooks/use-ops-dashboard";
 
-const DEMO_TENANT_ID = "00000000-0000-0000-0000-000000000001";
+const tenantId = process.env.NEXT_PUBLIC_TENANT_ID ?? "";
 function formatCurrency(value: number) {
   return `$${value.toFixed(4)}`;
 }
@@ -35,9 +35,9 @@ function TrendBars({ values }: { values: number[] }) {
 
 function OpsDashboard() {
   const [window, setWindow] = useState("day");
-  const summaryQuery = useCostSummary(DEMO_TENANT_ID, window);
-  const eventsQuery = useCostEvents(DEMO_TENANT_ID);
-  const alertsQuery = useCostAlerts(DEMO_TENANT_ID);
+  const summaryQuery = useCostSummary(tenantId, window);
+  const eventsQuery = useCostEvents(tenantId);
+  const alertsQuery = useCostAlerts(tenantId);
   const updateAlerts = useUpdateCostAlerts();
 
   const trendValues = useMemo(() => {
@@ -70,6 +70,11 @@ function OpsDashboard() {
           <p className="text-slate-600">
             Monitor LLM usage, costs, and operational thresholds.
           </p>
+          {!tenantId ? (
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Set NEXT_PUBLIC_TENANT_ID to view ops data for a tenant.
+            </p>
+          ) : null}
         </header>
 
         <section className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
@@ -110,6 +115,10 @@ function OpsDashboard() {
                   <p className="text-2xl font-semibold text-emerald-600">
                     {formatCurrency(summaryQuery.data.total_savings_usd)}
                   </p>
+                  <p className="text-xs text-slate-500">
+                    Routing premium:{" "}
+                    {formatCurrency(summaryQuery.data.total_premium_usd)}
+                  </p>
                 </div>
                 <div className="border border-slate-100 rounded-lg p-4">
                   <p className="text-xs uppercase text-slate-500">
@@ -134,6 +143,9 @@ function OpsDashboard() {
                   <h3 className="text-sm font-semibold text-slate-700">
                     Cost Trend
                   </h3>
+                  <p className="text-xs text-slate-500">
+                    Estimates use OpenAI tokenization and may differ for other models.
+                  </p>
                   {trendValues.length ? (
                     <TrendBars values={trendValues} />
                   ) : (
@@ -199,12 +211,15 @@ function OpsDashboard() {
               className="space-y-3"
               onSubmit={(event) => {
                 event.preventDefault();
+                if (!tenantId) {
+                  return;
+                }
                 const dailyValue =
                   dailyThreshold === "" ? null : Number(dailyThreshold);
                 const monthlyValue =
                   monthlyThreshold === "" ? null : Number(monthlyThreshold);
                 updateAlerts.mutate({
-                  tenant_id: DEMO_TENANT_ID,
+                  tenant_id: tenantId,
                   daily_threshold_usd:
                     dailyValue !== null && Number.isFinite(dailyValue)
                       ? dailyValue
@@ -252,8 +267,8 @@ function OpsDashboard() {
               </div>
               <button
                 type="submit"
-                className="bg-indigo-600 text-white text-sm px-4 py-2 rounded-md"
-                disabled={updateAlerts.isPending}
+                className="bg-indigo-600 text-white text-sm px-4 py-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!tenantId || updateAlerts.isPending}
               >
                 {updateAlerts.isPending ? "Saving..." : "Save thresholds"}
               </button>

@@ -14,6 +14,7 @@ export function useCostSummary(tenantId: string, window: string) {
     queryFn: () => api.ops.getCostSummary(tenantId, window),
     staleTime: 30000,
     refetchInterval: 30000,
+    enabled: Boolean(tenantId),
   });
 }
 
@@ -23,6 +24,7 @@ export function useCostEvents(tenantId: string) {
     queryFn: () => api.ops.getCostEvents(tenantId),
     staleTime: 15000,
     refetchInterval: 15000,
+    enabled: Boolean(tenantId),
   });
 }
 
@@ -31,6 +33,7 @@ export function useCostAlerts(tenantId: string) {
     queryKey: ["ops", "costs", "alerts", tenantId],
     queryFn: () => api.ops.getCostAlerts(tenantId),
     staleTime: 60000,
+    enabled: Boolean(tenantId),
   });
 }
 
@@ -56,6 +59,7 @@ export function useTrajectories(
     queryFn: () => api.ops.getTrajectories(tenantId, options),
     staleTime: 20000,
     refetchInterval: 20000,
+    enabled: Boolean(tenantId),
   });
 }
 
@@ -63,7 +67,7 @@ export function useTrajectoryDetail(tenantId: string, trajectoryId: string | nul
   return useQuery<TrajectoryDetail>({
     queryKey: ["ops", "trajectory", tenantId, trajectoryId],
     queryFn: () => api.ops.getTrajectoryDetail(tenantId, trajectoryId ?? ""),
-    enabled: Boolean(trajectoryId),
+    enabled: Boolean(tenantId && trajectoryId),
     staleTime: 20000,
   });
 }

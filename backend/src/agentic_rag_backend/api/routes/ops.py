@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+import structlog
 
 from agentic_rag_backend.api.utils import build_meta, rate_limit_exceeded
 from agentic_rag_backend.ops import CostTracker, CostSummary, TraceCrypto
@@ -17,6 +18,7 @@ from psycopg_pool import AsyncConnectionPool
 from psycopg.rows import dict_row
 
 router = APIRouter(prefix="/ops", tags=["ops"])
+logger = structlog.get_logger(__name__)
 
 
 def success_response(data: Any) -> dict[str, Any]:
@@ -92,6 +94,7 @@ class CostSummaryDataResponse(BaseModel):
     total_cost_usd: float
     baseline_cost_usd: float
     total_savings_usd: float
+    total_premium_usd: float
     total_tokens: int
     total_requests: int
     by_model: list[CostSummaryByModelResponse]
@@ -117,6 +120,7 @@ class CostEventResponse(BaseModel):
     baseline_model_id: Optional[str] = None
     baseline_total_cost_usd: Optional[float] = None
     savings_usd: Optional[float] = None
+    routing_premium_usd: Optional[float] = None
     complexity: Optional[str] = None
     created_at: datetime
 
@@ -233,10 +237,16 @@ async def list_cost_events(
     if not await limiter.allow(tenant_id):
         raise rate_limit_exceeded()
     events = await cost_tracker.list_events(tenant_id, limit=limit, offset=offset)
-    serialized = [
-        {key: _decimal_to_float(value) for key, value in event.items()}
-        for event in events
-    ]
+    serialized = []
+    for event in events:
+        row = {key: _decimal_to_float(value) for key, value in event.items()}
+        baseline = event.get("baseline_total_cost_usd") or Decimal("0")
+        total = event.get("total_cost_usd") or Decimal("0")
+        premium = Decimal("0")
+        if event.get("baseline_model_id"):
+            premium = total - baseline if total > baseline else Decimal("0")
+        row["routing_premium_usd"] = _decimal_to_float(premium)
+        serialized.append(row)
     return success_response({"events": serialized})
 
 
@@ -266,6 +276,13 @@ async def upsert_cost_alerts(
     if not await limiter.allow(payload.tenant_id):
         raise rate_limit_exceeded()
     await cost_tracker.upsert_alerts(
+        tenant_id=payload.tenant_id,
+        daily_threshold_usd=payload.daily_threshold_usd,
+        monthly_threshold_usd=payload.monthly_threshold_usd,
+        enabled=payload.enabled,
+    )
+    logger.info(
+        "ops_alerts_updated",
         tenant_id=payload.tenant_id,
         daily_threshold_usd=payload.daily_threshold_usd,
         monthly_threshold_usd=payload.monthly_threshold_usd,
@@ -302,6 +319,7 @@ def _serialize_summary(summary: CostSummary) -> dict[str, Any]:
         "total_cost_usd": _decimal_to_float(summary.total_cost_usd),
         "baseline_cost_usd": _decimal_to_float(summary.baseline_cost_usd),
         "total_savings_usd": _decimal_to_float(summary.total_savings_usd),
+        "total_premium_usd": _decimal_to_float(summary.total_premium_usd),
         "total_tokens": summary.total_tokens,
         "total_requests": summary.total_requests,
         "by_model": [

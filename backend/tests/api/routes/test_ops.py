@@ -84,6 +84,7 @@ class DummyCostTracker:
             total_cost_usd=Decimal("1.00"),
             baseline_cost_usd=Decimal("1.50"),
             total_savings_usd=Decimal("0.50"),
+            total_premium_usd=Decimal("0.00"),
             total_tokens=100,
             total_requests=2,
             by_model=[

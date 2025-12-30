@@ -18,8 +18,7 @@ import {
 import type { GraphFilterState, GraphNode, GraphEdge } from '../../types/graphs';
 import { entityColors } from '../../types/graphs';
 
-// Demo tenant ID for development - in production this would come from auth context
-const DEMO_TENANT_ID = '00000000-0000-0000-0000-000000000001';
+const tenantId = process.env.NEXT_PUBLIC_TENANT_ID ?? '';
 
 /**
  * Stats panel component displaying graph statistics.
@@ -197,12 +196,12 @@ function KnowledgePageContent() {
     isLoading: graphLoading,
     error: graphError,
   } = useKnowledgeGraph({
-    tenantId: DEMO_TENANT_ID,
+    tenantId,
     limit: 100,
   });
 
   // Fetch stats
-  const { data: statsData } = useKnowledgeStats(DEMO_TENANT_ID);
+  const { data: statsData } = useKnowledgeStats(tenantId);
 
   // Handle node click
   const handleNodeClick = (node: GraphNode) => {
@@ -247,6 +246,11 @@ function KnowledgePageContent() {
           <p className="text-sm text-gray-500 mt-1">
             Visualize entities and their relationships
           </p>
+          {!tenantId ? (
+            <p className="mt-3 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Set NEXT_PUBLIC_TENANT_ID to view knowledge graph data for a tenant.
+            </p>
+          ) : null}
         </div>
       </header>
 

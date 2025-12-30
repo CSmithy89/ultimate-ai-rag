@@ -1,8 +1,8 @@
 """align tenant_id types to UUID
 
-Revision ID: 20260115_000004
+Revision ID: 20250115_000004
 Revises: 20251231_000003
-Create Date: 2026-01-15 00:00:00
+Create Date: 2025-01-15 00:00:00
 """
 
 from alembic import op
@@ -10,28 +10,37 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = "20260115_000004"
+revision = "20250115_000004"
 down_revision = "20251231_000003"
 branch_labels = None
 depends_on = None
 
 UUID_REGEX = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-ZERO_UUID = "00000000-0000-0000-0000-000000000000"
 
 
-def _normalize_tenant_ids(table_name: str) -> None:
-    op.execute(
-        f"""
-        UPDATE {table_name}
-        SET tenant_id = '{ZERO_UUID}'
-        WHERE tenant_id IS NULL OR tenant_id !~* '{UUID_REGEX}'
-        """
+def _assert_valid_tenant_ids(table_name: str) -> None:
+    bind = op.get_bind()
+    result = bind.execute(
+        sa.text(
+            f"""
+            SELECT COUNT(*)
+            FROM {table_name}
+            WHERE tenant_id IS NULL OR tenant_id !~* :uuid_regex
+            """
+        ),
+        {"uuid_regex": UUID_REGEX},
     )
+    invalid_count = result.scalar() or 0
+    if invalid_count:
+        raise RuntimeError(
+            f"{table_name} contains {invalid_count} invalid tenant_id values; "
+            "clean the data before running this migration."
+        )
 
 
 def upgrade() -> None:
     for table in ("trajectories", "trajectory_events", "llm_usage_events", "llm_cost_alerts"):
-        _normalize_tenant_ids(table)
+        _assert_valid_tenant_ids(table)
 
     op.alter_column(
         "trajectories",

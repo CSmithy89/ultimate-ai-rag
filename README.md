@@ -23,6 +23,7 @@ Notes:
 - Rate limiting supports `RATE_LIMIT_BACKEND=redis` for multi-worker deployments; the in-memory limiter is per-process.
 - Rate-limited endpoints return `429` with RFC 7807 Problem Details and `Retry-After`, configurable via `RATE_LIMIT_RETRY_AFTER_SECONDS`.
 - `TRACE_ENCRYPTION_KEY` is required in non-dev environments; dev/test auto-generates a key per run (existing encrypted traces cannot be decrypted after restart).
+- To rotate `TRACE_ENCRYPTION_KEY`, decrypt existing traces with the old key and re-encrypt with the new key before switching.
 - Cost estimates are token-based and may vary for non-OpenAI models; treat them as directional until reconciled with provider billing.
 
 ### Frontend
