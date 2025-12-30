@@ -1,5 +1,20 @@
 # Changelog
 
+## [Epic 7] - Protocol Integration & Extensibility - 2025-12-30
+
+### Added
+- MCP tool discovery and invocation endpoints (`/api/v1/mcp/tools`, `/api/v1/mcp/call`)
+- A2A collaboration APIs for session creation and messaging (`/api/v1/a2a`)
+- Universal AG-UI endpoint for protocol-agnostic clients (`/api/v1/ag-ui`)
+- Python SDK client for MCP and A2A integrations
+- MCP tool registry with `knowledge.query` and `knowledge.graph_stats` tools
+
+### Changed
+- None
+
+### Fixed
+- None
+
 ## [Epic 6] - Interactive Copilot Experience - 2025-12-30
 
 ### Added
