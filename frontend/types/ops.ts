@@ -55,3 +55,37 @@ export const AlertConfigSchema = z
   .nullable();
 
 export type AlertConfig = z.infer<typeof AlertConfigSchema>;
+
+export const TrajectorySummarySchema = z.object({
+  id: z.string(),
+  session_id: z.string().nullable().optional(),
+  agent_type: z.string().nullable().optional(),
+  created_at: z.string(),
+  has_error: z.boolean(),
+  event_count: z.number(),
+  last_event_at: z.string().nullable().optional(),
+});
+
+export type TrajectorySummary = z.infer<typeof TrajectorySummarySchema>;
+
+export const TrajectoryEventSchema = z.object({
+  id: z.string(),
+  event_type: z.string(),
+  content: z.string(),
+  created_at: z.string(),
+});
+
+export type TrajectoryEvent = z.infer<typeof TrajectoryEventSchema>;
+
+export const TrajectoryDetailSchema = z.object({
+  trajectory: z.object({
+    id: z.string(),
+    session_id: z.string().nullable().optional(),
+    agent_type: z.string().nullable().optional(),
+    created_at: z.string(),
+  }),
+  events: z.array(TrajectoryEventSchema),
+  duration_ms: z.number().nullable().optional(),
+});
+
+export type TrajectoryDetail = z.infer<typeof TrajectoryDetailSchema>;

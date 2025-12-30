@@ -18,6 +18,8 @@ import {
   CostEventSchema,
   CostSummarySchema,
   AlertConfigSchema,
+  TrajectorySummarySchema,
+  TrajectoryDetailSchema,
 } from '../types/ops';
 import { z } from 'zod';
 
@@ -151,6 +153,29 @@ export const ops = {
       body: JSON.stringify(payload),
     });
     return AlertConfigSchema.parse(response.data.alerts);
+  },
+
+  async getTrajectories(
+    tenantId: string,
+    options?: { status?: string; agentType?: string; limit?: number; offset?: number }
+  ) {
+    const queryString = buildQueryString({
+      tenantId,
+      status: options?.status,
+      agentType: options?.agentType,
+      limit: options?.limit,
+      offset: options?.offset,
+    });
+    const response = await fetchApi<{ trajectories: unknown[] }>(
+      '/ops/trajectories?' + queryString
+    );
+    return z.array(TrajectorySummarySchema).parse(response.data.trajectories);
+  },
+
+  async getTrajectoryDetail(tenantId: string, trajectoryId: string) {
+    const queryString = buildQueryString({ tenantId });
+    const response = await fetchApi('/ops/trajectories/' + trajectoryId + '?' + queryString);
+    return TrajectoryDetailSchema.parse(response.data);
   },
 };
 

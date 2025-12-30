@@ -20,7 +20,9 @@ class StubLogger:
     def __init__(self) -> None:
         self.events: list[tuple[EventType, str]] = []
 
-    async def start_trajectory(self, tenant_id: str, session_id: str | None):
+    async def start_trajectory(
+        self, tenant_id: str, session_id: str | None, agent_type: str | None = None
+    ):
         return uuid4()
 
     async def log_events(

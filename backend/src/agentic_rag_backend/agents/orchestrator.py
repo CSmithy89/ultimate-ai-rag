@@ -165,7 +165,7 @@ class OrchestratorAgent:
     ) -> OrchestratorResult:
         """Run the orchestrator for a query and return the response payload."""
         trajectory_id = (
-            await self._logger.start_trajectory(tenant_id, session_id)
+            await self._logger.start_trajectory(tenant_id, session_id, "orchestrator")
             if self._logger
             else None
         )

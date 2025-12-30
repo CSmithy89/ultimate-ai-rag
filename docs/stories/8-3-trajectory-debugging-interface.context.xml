@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>8.3</story-id>
+    <story-name>Trajectory Debugging Interface</story-name>
+    <epic>Epic 8: Operations &amp; Observability</epic>
+    <status>ready-for-dev</status>
+    <generated>2025-12-31</generated>
+    <depends-on>Story 2.4 (Persistent Trajectory Logging)</depends-on>
+  </metadata>
+
+  <summary>
+    <description>
+      Expose ops endpoints to list trajectories and view event timelines with
+      timestamps, agent type filters, and error status indicators. Add a UI for
+      browsing and inspecting trajectory events.
+    </description>
+    <user-story>
+      As a developer,
+      I want to review the reasoning trajectory of past queries,
+      so that I can debug agent behavior and identify issues.
+    </user-story>
+  </summary>
+
+  <acceptance-criteria>
+    <criterion id="AC1">
+      Given trajectories exist, when the viewer opens, then a list of sessions is shown.
+    </criterion>
+    <criterion id="AC2">
+      Given a session is selected, when the detail view loads, then events are shown in order.
+    </criterion>
+    <criterion id="AC3">
+      Given events are shown, when the timeline renders, then thoughts, actions, and observations
+      are visible in sequence.
+    </criterion>
+    <criterion id="AC4">
+      Given event content includes tool call outputs, when events are shown, then results are visible.
+    </criterion>
+    <criterion id="AC5">
+      Given event timestamps, when events are shown, then timing information is visible.
+    </criterion>
+    <criterion id="AC6">
+      Given filters are applied, when the list refreshes, then trajectories can be filtered by
+      error status or agent type.
+    </criterion>
+  </acceptance-criteria>
+
+  <architecture-decisions>
+    <decision id="AD1" category="schema">
+      <title>Add agent_type to trajectories</title>
+      <description>
+        Add `agent_type` column and index to enable filtering by agent source.
+      </description>
+    </decision>
+    <decision id="AD2" category="error-filter">
+      <title>Error inference via event content</title>
+      <description>
+        Use a lightweight heuristic (event content containing "error") to flag error trajectories.
+      </description>
+    </decision>
+  </architecture-decisions>
+
+  <api-contracts>
+    <endpoint>
+      <method>GET</method>
+      <path>/api/v1/ops/trajectories</path>
+      <notes>Supports tenant_id, status, agent_type, limit, offset.</notes>
+    </endpoint>
+    <endpoint>
+      <method>GET</method>
+      <path>/api/v1/ops/trajectories/{trajectory_id}</path>
+      <notes>Returns ordered events with timestamps and duration.</notes>
+    </endpoint>
+  </api-contracts>
+
+  <references>
+    <reference path="backend/src/agentic_rag_backend/trajectory.py"/>
+    <reference path="backend/src/agentic_rag_backend/api/routes/ops.py"/>
+    <reference path="frontend/app/ops/trajectories/page.tsx"/>
+  </references>
+</story-context>

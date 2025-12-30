@@ -39,14 +39,22 @@ async def close_pool(pool: AsyncConnectionPool) -> None:
 class TrajectoryLogger:
     pool: AsyncConnectionPool
 
-    async def start_trajectory(self, tenant_id: str, session_id: Optional[str]) -> UUID:
+    async def start_trajectory(
+        self,
+        tenant_id: str,
+        session_id: Optional[str],
+        agent_type: Optional[str] = None,
+    ) -> UUID:
         """Create a trajectory row and return its ID."""
         trajectory_id = uuid4()
         async with self.pool.connection() as conn:
             async with conn.cursor() as cursor:
                 await cursor.execute(
-                    "insert into trajectories (id, tenant_id, session_id) values (%s, %s, %s)",
-                    (trajectory_id, tenant_id, session_id),
+                    """
+                    insert into trajectories (id, tenant_id, session_id, agent_type)
+                    values (%s, %s, %s, %s)
+                    """,
+                    (trajectory_id, tenant_id, session_id, agent_type),
                 )
             await conn.commit()
         return trajectory_id

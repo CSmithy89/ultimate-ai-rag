@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field
 
 from agentic_rag_backend.ops import CostTracker, CostSummary
 from agentic_rag_backend.validation import TENANT_ID_PATTERN
+from psycopg_pool import AsyncConnectionPool
+from psycopg.rows import dict_row
 
 router = APIRouter(prefix="/ops", tags=["ops"])
 
@@ -31,6 +33,13 @@ async def get_cost_tracker(request: Request) -> CostTracker:
     if tracker is None:
         raise HTTPException(status_code=503, detail="Cost tracker unavailable")
     return tracker
+
+
+async def get_trajectory_pool(request: Request) -> AsyncConnectionPool:
+    pool = getattr(request.app.state, "pool", None)
+    if pool is None:
+        raise HTTPException(status_code=503, detail="Trajectory storage unavailable")
+    return pool
 
 
 def _decimal_to_float(value: Any) -> Any:
@@ -119,3 +128,102 @@ def _serialize_summary(summary: CostSummary) -> dict[str, Any]:
         ],
         "alerts": {key: _decimal_to_float(value) for key, value in summary.alerts.items()},
     }
+
+
+@router.get("/trajectories")
+async def list_trajectories(
+    tenant_id: str = Query(..., pattern=TENANT_ID_PATTERN),
+    status: str | None = Query(None, description="error|ok"),
+    agent_type: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    pool: AsyncConnectionPool = Depends(get_trajectory_pool),
+) -> dict[str, Any]:
+    conditions = ["t.tenant_id = %s"]
+    params: list[Any] = [tenant_id]
+
+    if agent_type:
+        conditions.append("t.agent_type = %s")
+        params.append(agent_type)
+
+    error_clause = (
+        "EXISTS (SELECT 1 FROM trajectory_events e "
+        "WHERE e.trajectory_id = t.id AND e.tenant_id = t.tenant_id "
+        "AND e.content ILIKE '%error%')"
+    )
+    if status == "error":
+        conditions.append(error_clause)
+    elif status == "ok":
+        conditions.append(f"NOT {error_clause}")
+
+    where_sql = " AND ".join(conditions)
+    query = f"""
+        SELECT t.id,
+               t.session_id,
+               t.agent_type,
+               t.created_at,
+               {error_clause} AS has_error,
+               (SELECT COUNT(*) FROM trajectory_events e
+                WHERE e.trajectory_id = t.id) AS event_count,
+               (SELECT MAX(created_at) FROM trajectory_events e
+                WHERE e.trajectory_id = t.id) AS last_event_at
+        FROM trajectories t
+        WHERE {where_sql}
+        ORDER BY t.created_at DESC
+        LIMIT %s OFFSET %s
+    """
+    params.extend([limit, offset])
+
+    async with pool.connection() as conn:
+        async with conn.cursor(row_factory=dict_row) as cursor:
+            await cursor.execute(query, params)
+            rows = await cursor.fetchall()
+
+    return success_response({"trajectories": rows})
+
+
+@router.get("/trajectories/{trajectory_id}")
+async def get_trajectory_detail(
+    trajectory_id: str,
+    tenant_id: str = Query(..., pattern=TENANT_ID_PATTERN),
+    pool: AsyncConnectionPool = Depends(get_trajectory_pool),
+) -> dict[str, Any]:
+    async with pool.connection() as conn:
+        async with conn.cursor(row_factory=dict_row) as cursor:
+            await cursor.execute(
+                """
+                SELECT id, session_id, agent_type, created_at
+                FROM trajectories
+                WHERE id = %s AND tenant_id = %s
+                """,
+                (trajectory_id, tenant_id),
+            )
+            trajectory = await cursor.fetchone()
+            if not trajectory:
+                raise HTTPException(status_code=404, detail="Trajectory not found")
+
+            await cursor.execute(
+                """
+                SELECT id, event_type, content, created_at
+                FROM trajectory_events
+                WHERE trajectory_id = %s AND tenant_id = %s
+                ORDER BY created_at ASC
+                """,
+                (trajectory_id, tenant_id),
+            )
+            events = await cursor.fetchall()
+
+    duration_ms = None
+    if events:
+        start = events[0]["created_at"]
+        end = events[-1]["created_at"]
+        if start and end:
+            duration_ms = int((end - start).total_seconds() * 1000)
+
+    return success_response(
+        {
+            "trajectory": trajectory,
+            "events": events,
+            "duration_ms": duration_ms,
+        }
+    )
