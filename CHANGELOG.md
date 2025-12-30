@@ -1,5 +1,45 @@
 # Changelog
 
+## [Epic 6] - Interactive Copilot Experience - 2025-12-30
+
+### Added
+- CopilotKit React integration with `@copilotkit/react-core` and `@copilotkit/react-ui`
+- `CopilotProvider` wrapper component for application-wide CopilotKit context
+- Next.js API route `/api/copilotkit` for CopilotKit runtime
+- `ChatSidebar` component with polished chat interface using shadcn/ui styling
+- `ThoughtTraceStepper` component showing agent progress with expandable details
+- Generative UI components:
+  - `SourceCard` for citation display with confidence indicators
+  - `AnswerPanel` for formatted markdown responses with source references
+  - `GraphPreview` for entity relationship visualization using React Flow
+- `GenerativeUIRenderer` for dynamic component rendering via AG-UI protocol
+- Human-in-the-Loop source validation:
+  - `SourceValidationDialog` modal for reviewing/approving sources
+  - `SourceValidationPanel` inline panel alternative
+  - `SourceValidationCard` for individual source approval UI
+  - `useSourceValidation` hook with auto-approve/reject thresholds
+- Frontend actions system:
+  - `ActionButtons` component (Save, Export, Share, Bookmark, Follow-up)
+  - `ActionPanel` slide-out panel showing action history
+  - `useCopilotActions` hook with CopilotKit action registration
+  - Export dropdown supporting Markdown, PDF, JSON formats
+  - Toast notification system with `useToast` hook
+- Backend workspace API endpoints:
+  - `POST /api/v1/workspace/save` - Save content to workspace
+  - `POST /api/v1/workspace/export` - Export as markdown/PDF/JSON
+  - `POST /api/v1/workspace/share` - Generate shareable link
+  - `POST /api/v1/workspace/bookmark` - Bookmark content
+  - `GET /api/v1/workspace/bookmarks` - List bookmarks
+- TypeScript types and Zod schemas for all copilot data structures
+- Comprehensive test suite: 315+ frontend tests, 21 backend workspace tests
+
+### Changed
+- `frontend/app/layout.tsx` now includes `CopilotProvider` and `Toaster`
+- Design system follows "Professional Forge" direction (Indigo-600, Slate, Emerald-500)
+
+### Fixed
+- None
+
 ## [Epic 5] - Graphiti Temporal Knowledge Graph Integration - 2025-12-29
 
 ### Added

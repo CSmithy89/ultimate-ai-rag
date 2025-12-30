@@ -1,6 +1,6 @@
 # Story 6-4: Human-in-the-Loop Source Validation
 
-Status: drafted
+Status: done
 Epic: 6 - Interactive Copilot Experience
 Priority: High
 Depends on: Story 6-3 (Generative UI Components)
