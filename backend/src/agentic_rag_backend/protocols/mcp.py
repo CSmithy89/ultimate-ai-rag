@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..agents.orchestrator import OrchestratorAgent
 from ..db.neo4j import Neo4jClient
 from ..schemas import QueryRequest
+from ..validation import TENANT_ID_PATTERN
 
 
 class MCPToolNotFoundError(KeyError):
@@ -23,7 +24,7 @@ class GraphStatsRequest(BaseModel):
         ...,
         min_length=1,
         max_length=255,
-        pattern=r"^[A-Za-z0-9._:-]{1,255}$",
+        pattern=TENANT_ID_PATTERN,
     )
 
 

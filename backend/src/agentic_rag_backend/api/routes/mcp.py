@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -12,10 +11,9 @@ from pydantic import BaseModel, Field, ValidationError
 from ...api.utils import build_meta, rate_limit_exceeded
 from ...protocols.mcp import MCPToolNotFoundError, MCPToolRegistry
 from ...rate_limit import RateLimiter
+from ...validation import is_valid_tenant_id
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
-
-TENANT_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,255}$")
 
 
 class ToolDescriptor(BaseModel):
@@ -72,14 +70,13 @@ async def call_tool(
 ) -> ToolCallResponse:
     """Invoke a tool by name with arguments."""
     tenant_id = request_body.arguments.get("tenant_id")
-    if (
-        not isinstance(tenant_id, str)
-        or not tenant_id.strip()
-        or not TENANT_ID_PATTERN.match(tenant_id)
-    ):
+    if not isinstance(tenant_id, str):
+        raise HTTPException(status_code=400, detail="tenant_id is required")
+    tenant_id = tenant_id.strip()
+    if not is_valid_tenant_id(tenant_id):
         raise HTTPException(status_code=400, detail="tenant_id is required")
 
-    if not await limiter.allow(str(tenant_id)):
+    if not await limiter.allow(tenant_id):
         raise rate_limit_exceeded()
 
     try:

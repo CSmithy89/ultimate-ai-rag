@@ -38,7 +38,7 @@
 - [ ] Add CodeQL security scanning.
 - [ ] Consider switching backend healthcheck to curl/wget (requires adding it to the image).
 - [ ] Add TODOs/notes for deferred service wiring (DB/Redis clients) if needed.
-- [ ] Add persistent A2A session storage (e.g., Redis) or clearly document in-memory limits.
+- [x] Add persistent A2A session storage (e.g., Redis) or clearly document in-memory limits.
 - [ ] Add per-tenant A2A message limits and session caps for tiered plans.
 - [ ] Replace MCP tool arg validation with Pydantic models for all tools.
 - [x] Replace A2A threading.Lock with asyncio.Lock and make session ops async-safe.
@@ -51,4 +51,7 @@
 - [x] Document rate limit behavior (429 + retry-after) and A2A session lifecycle.
 - [x] Add SDK usage examples in docstrings or README.
 - [x] Remove redundant MCP registry lazy init in routes (use app state only).
+- [x] Add MCP tenant_id validation that disallows consecutive special chars.
+- [x] Reduce per-request A2A pruning overhead with interval-based pruning.
+- [x] Avoid deep-copying A2A sessions on every read by returning snapshots.
 - [ ] Add observability metrics for A2A sessions, MCP tool latency, AG-UI streams.

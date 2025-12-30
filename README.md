@@ -60,6 +60,7 @@ async def example() -> None:
 - Sessions expire after `A2A_SESSION_TTL_SECONDS` (default 6 hours).
 - Expired sessions are pruned every `A2A_CLEANUP_INTERVAL_SECONDS` (default 1 hour).
 - Limits are enforced via `A2A_MAX_SESSIONS_PER_TENANT`, `A2A_MAX_SESSIONS_TOTAL`, and `A2A_MAX_MESSAGES_PER_SESSION`.
+- At defaults, worst-case memory usage can exceed ~10GB; tune limits or use a persistent backend for production.
 
 ## Epic Progress
 

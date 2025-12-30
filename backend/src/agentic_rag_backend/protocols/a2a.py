@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+import time
 from dataclasses import dataclass, field
 from asyncio import Lock
 from datetime import datetime, timezone
@@ -26,14 +27,6 @@ class A2AMessage:
             "metadata": self.metadata,
         }
 
-    def copy(self) -> "A2AMessage":
-        return A2AMessage(
-            sender=self.sender,
-            content=self.content,
-            timestamp=self.timestamp,
-            metadata=dict(self.metadata),
-        )
-
 
 @dataclass
 class A2ASession:
@@ -51,15 +44,6 @@ class A2ASession:
             "last_activity": self.last_activity.isoformat().replace("+00:00", "Z"),
             "messages": [message.to_dict() for message in self.messages],
         }
-
-    def copy(self) -> "A2ASession":
-        return A2ASession(
-            session_id=self.session_id,
-            tenant_id=self.tenant_id,
-            created_at=self.created_at,
-            last_activity=self.last_activity,
-            messages=[message.copy() for message in self.messages],
-        )
 
 
 class A2ASessionManager:
@@ -83,6 +67,8 @@ class A2ASessionManager:
         self._max_sessions_total = max_sessions_total
         self._max_messages_per_session = max_messages_per_session
         self._cleanup_task: asyncio.Task[None] | None = None
+        self._last_prune = 0.0
+        self._prune_interval_seconds = 60.0
 
     def _prune_expired_locked(self) -> None:
         if self._session_ttl_seconds <= 0:
@@ -91,6 +77,15 @@ class A2ASessionManager:
         for session_id, session in list(self._sessions.items()):
             if (now - session.last_activity).total_seconds() > self._session_ttl_seconds:
                 self._sessions.pop(session_id, None)
+
+    def _maybe_prune_locked(self) -> None:
+        if self._session_ttl_seconds <= 0:
+            return
+        now = time.monotonic()
+        if now - self._last_prune < self._prune_interval_seconds:
+            return
+        self._last_prune = now
+        self._prune_expired_locked()
 
     def _tenant_session_count_locked(self, tenant_id: str) -> int:
         return sum(1 for session in self._sessions.values() if session.tenant_id == tenant_id)
@@ -109,6 +104,7 @@ class A2ASessionManager:
             return
         if self._cleanup_task and not self._cleanup_task.done():
             return
+        self._prune_interval_seconds = max(1.0, min(self._prune_interval_seconds, float(interval_seconds)))
         self._cleanup_task = asyncio.create_task(
             self._periodic_cleanup_task(interval_seconds)
         )
@@ -121,17 +117,17 @@ class A2ASessionManager:
             await self._cleanup_task
         self._cleanup_task = None
 
-    def _clone_session(self, session: A2ASession) -> A2ASession:
-        return session.copy()
+    def _snapshot_session(self, session: A2ASession) -> dict[str, Any]:
+        return session.to_dict()
 
-    async def create_session(self, tenant_id: str) -> A2ASession:
-        """Create a new A2A session.
+    async def create_session(self, tenant_id: str) -> dict[str, Any]:
+        """Create a new A2A session snapshot.
 
         Raises:
             ValueError: If session or tenant limits are exceeded.
         """
         async with self._lock:
-            self._prune_expired_locked()
+            self._maybe_prune_locked()
             if self._max_sessions_total and len(self._sessions) >= self._max_sessions_total:
                 raise ValueError("Session limit reached")
             if (
@@ -149,15 +145,15 @@ class A2ASessionManager:
                 last_activity=now,
             )
             self._sessions[session_id] = session
-            return self._clone_session(session)
+            return self._snapshot_session(session)
 
-    async def get_session(self, session_id: str) -> A2ASession | None:
+    async def get_session(self, session_id: str) -> dict[str, Any] | None:
         async with self._lock:
-            self._prune_expired_locked()
+            self._maybe_prune_locked()
             session = self._sessions.get(session_id)
             if session:
                 session.last_activity = datetime.now(timezone.utc)
-            return self._clone_session(session) if session else None
+            return self._snapshot_session(session) if session else None
 
     async def add_message(
         self,
@@ -166,9 +162,10 @@ class A2ASessionManager:
         sender: str,
         content: str,
         metadata: dict[str, Any] | None = None,
-    ) -> A2ASession:
+    ) -> dict[str, Any]:
+        """Append a message and return a session snapshot."""
         async with self._lock:
-            self._prune_expired_locked()
+            self._maybe_prune_locked()
             session = self._sessions.get(session_id)
             if session is None:
                 raise KeyError("session not found")
@@ -187,4 +184,4 @@ class A2ASessionManager:
             )
             session.messages.append(message)
             session.last_activity = datetime.now(timezone.utc)
-            return self._clone_session(session)
+            return self._snapshot_session(session)

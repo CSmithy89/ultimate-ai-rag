@@ -55,7 +55,7 @@ async def test_add_message_success() -> None:
     session = await manager.create_session("tenant-1")
 
     response = await add_message(
-        session_id=session.session_id,
+        session_id=session["session_id"],
         request_body=MessageRequest(
             tenant_id="tenant-1",
             sender="agent",
@@ -65,7 +65,7 @@ async def test_add_message_success() -> None:
         limiter=AllowLimiter(),
     )
 
-    assert response.session["session_id"] == session.session_id
+    assert response.session["session_id"] == session["session_id"]
     assert response.session["messages"][0]["content"] == "hello"
 
 
@@ -76,7 +76,7 @@ async def test_get_session_tenant_mismatch() -> None:
 
     with pytest.raises(HTTPException) as exc_info:
         await get_session(
-            session_id=session.session_id,
+            session_id=session["session_id"],
             tenant_id="tenant-2",
             manager=manager,
             limiter=AllowLimiter(),
@@ -120,7 +120,7 @@ async def test_message_limit_enforced() -> None:
     session = await manager.create_session("tenant-1")
 
     await add_message(
-        session_id=session.session_id,
+        session_id=session["session_id"],
         request_body=MessageRequest(
             tenant_id="tenant-1",
             sender="agent",
@@ -132,7 +132,7 @@ async def test_message_limit_enforced() -> None:
 
     with pytest.raises(HTTPException) as exc_info:
         await add_message(
-            session_id=session.session_id,
+            session_id=session["session_id"],
             request_body=MessageRequest(
                 tenant_id="tenant-1",
                 sender="agent",

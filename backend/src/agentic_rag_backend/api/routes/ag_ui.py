@@ -22,6 +22,7 @@ from ...models.copilot import (
 from ...protocols.ag_ui_bridge import AGUIBridge
 from ...api.utils import rate_limit_exceeded
 from ...rate_limit import RateLimiter
+from ...validation import TENANT_ID_PATTERN
 
 logger = structlog.get_logger(__name__)
 
@@ -30,7 +31,7 @@ router = APIRouter(prefix="/ag-ui", tags=["ag-ui"])
 
 class AGUIRequest(BaseModel):
     messages: list[CopilotMessage] = Field(default_factory=list)
-    tenant_id: str = Field(..., min_length=1, max_length=255)
+    tenant_id: str = Field(..., min_length=1, max_length=255, pattern=TENANT_ID_PATTERN)
     session_id: str | None = Field(None, max_length=255)
     actions: list[dict[str, Any]] = Field(default_factory=list)
 

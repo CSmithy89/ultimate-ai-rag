@@ -12,9 +12,10 @@ from agentic_rag_backend.protocols.a2a import A2ASessionManager
 async def test_a2a_prunes_expired_sessions() -> None:
     manager = A2ASessionManager(session_ttl_seconds=1)
     session = await manager.create_session("tenant-1")
-    manager._sessions[session.session_id].last_activity = datetime.now(timezone.utc) - timedelta(seconds=5)
+    manager._sessions[session["session_id"]].last_activity = datetime.now(timezone.utc) - timedelta(seconds=5)
+    manager._prune_interval_seconds = 0
 
-    fetched = await manager.get_session(session.session_id)
+    fetched = await manager.get_session(session["session_id"])
 
     assert fetched is None
 
@@ -23,12 +24,12 @@ async def test_a2a_prunes_expired_sessions() -> None:
 async def test_a2a_cleanup_task_prunes_expired_sessions() -> None:
     manager = A2ASessionManager(session_ttl_seconds=1)
     session = await manager.create_session("tenant-1")
-    manager._sessions[session.session_id].last_activity = datetime.now(timezone.utc) - timedelta(seconds=5)
+    manager._sessions[session["session_id"]].last_activity = datetime.now(timezone.utc) - timedelta(seconds=5)
 
     await manager.start_cleanup_task(0.01)
     try:
         await asyncio.sleep(0.02)
-        assert session.session_id not in manager._sessions
+        assert session["session_id"] not in manager._sessions
     finally:
         await manager.stop_cleanup_task()
 
@@ -41,7 +42,7 @@ async def test_a2a_concurrent_session_creation() -> None:
         *[manager.create_session("tenant-1") for _ in range(5)]
     )
 
-    session_ids = {session.session_id for session in sessions}
+    session_ids = {session["session_id"] for session in sessions}
     assert len(session_ids) == 5
 
 
@@ -53,7 +54,7 @@ async def test_a2a_concurrent_message_add() -> None:
     await asyncio.gather(
         *[
             manager.add_message(
-                session_id=session.session_id,
+                session_id=session["session_id"],
                 tenant_id="tenant-1",
                 sender="agent",
                 content=f"message-{idx}",
@@ -62,6 +63,6 @@ async def test_a2a_concurrent_message_add() -> None:
         ]
     )
 
-    fetched = await manager.get_session(session.session_id)
+    fetched = await manager.get_session(session["session_id"])
     assert fetched is not None
-    assert len(fetched.messages) == 5
+    assert len(fetched["messages"]) == 5
