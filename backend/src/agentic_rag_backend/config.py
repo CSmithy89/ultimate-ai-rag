@@ -18,6 +18,7 @@ MAX_SEARCH_RESULTS = 100
 class Settings:
     """Application settings loaded from environment variables."""
 
+    app_env: str
     openai_api_key: str
     openai_model_id: str
     database_url: str
@@ -87,6 +88,8 @@ def load_settings() -> Settings:
         RuntimeError: If required environment variables are missing
     """
     load_dotenv()
+
+    app_env = os.getenv("APP_ENV", "development").strip().lower()
 
     min_pool_size = 1
     try:
@@ -260,7 +263,18 @@ def load_settings() -> Settings:
     if routing_complex_min_score <= routing_simple_max_score:
         routing_complex_min_score = routing_simple_max_score + 3
 
+    trace_key = os.getenv("TRACE_ENCRYPTION_KEY")
+    if trace_key:
+        trace_encryption_key = trace_key
+    elif app_env in {"development", "dev", "test", "local"}:
+        trace_encryption_key = secrets.token_hex(32)
+    else:
+        raise ValueError(
+            "TRACE_ENCRYPTION_KEY must be set for non-development environments."
+        )
+
     return Settings(
+        app_env=app_env,
         openai_api_key=openai_api_key,
         openai_model_id=os.getenv("OPENAI_MODEL_ID", "gpt-4o-mini"),
         database_url=database_url,
@@ -316,7 +330,7 @@ def load_settings() -> Settings:
         routing_baseline_model=routing_baseline_model,
         routing_simple_max_score=routing_simple_max_score,
         routing_complex_min_score=routing_complex_min_score,
-        trace_encryption_key=os.getenv("TRACE_ENCRYPTION_KEY", secrets.token_hex(32)),
+        trace_encryption_key=trace_encryption_key,
     )
 
 

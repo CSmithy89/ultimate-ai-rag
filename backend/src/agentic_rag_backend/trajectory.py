@@ -46,6 +46,10 @@ class TrajectoryLogger:
             return self.crypto.encrypt(content)
         return content
 
+    @staticmethod
+    def _should_flag_error(content: str) -> bool:
+        return "error" in content.lower()
+
     async def start_trajectory(
         self,
         tenant_id: str,
@@ -58,10 +62,10 @@ class TrajectoryLogger:
             async with conn.cursor() as cursor:
                 await cursor.execute(
                     """
-                    insert into trajectories (id, tenant_id, session_id, agent_type)
-                    values (%s, %s, %s, %s)
+                    insert into trajectories (id, tenant_id, session_id, agent_type, has_error)
+                    values (%s, %s, %s, %s, %s)
                     """,
-                    (trajectory_id, tenant_id, session_id, agent_type),
+                    (trajectory_id, tenant_id, session_id, agent_type, False),
                 )
             await conn.commit()
         return trajectory_id
@@ -102,6 +106,15 @@ class TrajectoryLogger:
                         for event_type, content in events
                     ],
                 )
+                if any(self._should_flag_error(content) for _, content in events):
+                    await cursor.execute(
+                        """
+                        update trajectories
+                        set has_error = true
+                        where id = %s and tenant_id = %s
+                        """,
+                        (trajectory_id, tenant_id),
+                    )
             await conn.commit()
 
     async def _log_event(
@@ -127,4 +140,13 @@ class TrajectoryLogger:
                         self._encrypt_content(content),
                     ),
                 )
+                if self._should_flag_error(content):
+                    await cursor.execute(
+                        """
+                        update trajectories
+                        set has_error = true
+                        where id = %s and tenant_id = %s
+                        """,
+                        (trajectory_id, tenant_id),
+                    )
             await conn.commit()

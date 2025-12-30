@@ -1,14 +1,14 @@
 # Review Follow-ups
 
 ## Epic 8 Review Follow-ups
-- [ ] Require a stable `TRACE_ENCRYPTION_KEY` in non-dev environments; fail startup if missing to prevent data loss.
-- [ ] Fix keyword matching in `backend/src/agentic_rag_backend/ops/model_router.py` to use proper word-boundary regex (`\b`).
-- [ ] Log decryption failures in `TraceCrypto.decrypt` (warn) and include exception class for troubleshooting.
-- [ ] Replace trajectory error detection that scans encrypted content with a durable error flag (e.g., `has_error` column or `event_type=error`).
-- [ ] Eliminate SQL string interpolation for trajectory/error filtering and cost trend bucket selection; use allowlists or safe parameters.
-- [ ] Make `RoutingDecision.reason` immutable (tuple) to honor frozen dataclass semantics.
+- [x] Require a stable `TRACE_ENCRYPTION_KEY` in non-dev environments; fail startup if missing to prevent data loss.
+- [x] Fix keyword matching in `backend/src/agentic_rag_backend/ops/model_router.py` to use proper word-boundary regex (`\b`).
+- [x] Log decryption failures in `TraceCrypto.decrypt` (warn) and include exception class for troubleshooting.
+- [x] Replace trajectory error detection that scans encrypted content with a durable error flag (e.g., `has_error` column or `event_type=error`).
+- [x] Eliminate SQL string interpolation for trajectory/error filtering and cost trend bucket selection; use allowlists or safe parameters.
+- [x] Make `RoutingDecision.reason` immutable (tuple) to honor frozen dataclass semantics.
 - [ ] Align tenant_id type strategy across ops/trajectory tables; decide on UUID vs TEXT and migrate accordingly.
-- [ ] Update story context XML statuses for 8.3 and 8.4 to `done` for consistency.
+- [x] Update story context XML statuses for 8.3 and 8.4 to `done` for consistency.
 
 ## Implemented
 - [x] Fix backend app export so `from agentic_rag_backend import app` works.

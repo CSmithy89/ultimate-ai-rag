@@ -4,7 +4,7 @@
     <story-id>8.4</story-id>
     <story-name>Encrypted Trace Storage</story-name>
     <epic>Epic 8: Operations &amp; Observability</epic>
-    <status>ready-for-dev</status>
+    <status>done</status>
     <generated>2025-12-31</generated>
     <depends-on>Story 2.4 (Persistent Trajectory Logging)</depends-on>
   </metadata>

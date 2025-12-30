@@ -35,7 +35,7 @@ class RoutingDecision:
     baseline_model_id: str
     complexity: str
     score: int
-    reason: list[str]
+    reason: tuple[str, ...]
 
 
 class ModelRouter:
@@ -88,7 +88,7 @@ class ModelRouter:
             baseline_model_id=self._baseline_model,
             complexity=complexity,
             score=score,
-            reason=reason,
+            reason=tuple(reason),
         )
 
     def _count_keyword_hits(self, query: str) -> int:
@@ -97,6 +97,6 @@ class ModelRouter:
         text = query.lower()
         hits = 0
         for keyword in COMPLEXITY_KEYWORDS:
-            if re.search(rf"\\b{re.escape(keyword)}\\b", text):
+            if re.search(rf"\b{re.escape(keyword)}\b", text):
                 hits += 1
         return hits

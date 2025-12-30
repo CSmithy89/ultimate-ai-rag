@@ -192,19 +192,17 @@ class CostTracker:
     async def get_summary(
         self, tenant_id: str, window: str = "day"
     ) -> CostSummary:
-        if window not in {"day", "week", "month"}:
+        bucket_map = {
+            "day": ("hour", timedelta(days=1)),
+            "week": ("day", timedelta(days=7)),
+            "month": ("day", timedelta(days=30)),
+        }
+        if window not in bucket_map:
             window = "day"
 
+        bucket, delta = bucket_map[window]
         now = datetime.now(timezone.utc)
-        if window == "day":
-            start = now - timedelta(days=1)
-            bucket = "hour"
-        elif window == "week":
-            start = now - timedelta(days=7)
-            bucket = "day"
-        else:
-            start = now - timedelta(days=30)
-            bucket = "day"
+        start = now - delta
 
         async with self._pool.acquire() as conn:
             totals = await conn.fetchrow(
@@ -236,19 +234,18 @@ class CostTracker:
                 start,
             )
 
-            trend_rows = await conn.fetch(
-                f"""
-                SELECT date_trunc('{bucket}', created_at) AS bucket,
-                       COALESCE(SUM(total_cost_usd), 0) AS total_cost_usd,
-                       COALESCE(SUM(total_tokens), 0) AS total_tokens
-                FROM llm_usage_events
-                WHERE tenant_id = $1 AND created_at >= $2
-                GROUP BY bucket
-                ORDER BY bucket ASC
-                """,
-                tenant_id,
-                start,
+            trend_query = (
+                "SELECT date_trunc('"
+                + bucket
+                + "', created_at) AS bucket, "
+                "COALESCE(SUM(total_cost_usd), 0) AS total_cost_usd, "
+                "COALESCE(SUM(total_tokens), 0) AS total_tokens "
+                "FROM llm_usage_events "
+                "WHERE tenant_id = $1 AND created_at >= $2 "
+                "GROUP BY bucket "
+                "ORDER BY bucket ASC"
             )
+            trend_rows = await conn.fetch(trend_query, tenant_id, start)
 
         trend = [
             CostTrendPoint(

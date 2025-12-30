@@ -4,9 +4,11 @@ import base64
 import os
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+import structlog
 
 
 _PREFIX = "enc:"
+logger = structlog.get_logger(__name__)
 
 
 class TraceCrypto:
@@ -35,5 +37,10 @@ class TraceCrypto:
             ciphertext = data[12:]
             plaintext = self._aesgcm.decrypt(nonce, ciphertext, None)
             return plaintext.decode("utf-8")
-        except Exception:
-            return "<encrypted>"
+        except Exception as exc:
+            logger.warning(
+                "trace_decrypt_failed",
+                error=str(exc),
+                error_type=exc.__class__.__name__,
+            )
+            return f"<encrypted: {exc.__class__.__name__}>"

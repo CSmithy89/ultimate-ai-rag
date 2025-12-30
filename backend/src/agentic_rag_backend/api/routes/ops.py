@@ -159,32 +159,27 @@ async def list_trajectories(
         conditions.append("t.agent_type = %s")
         params.append(agent_type)
 
-    error_clause = (
-        "EXISTS (SELECT 1 FROM trajectory_events e "
-        "WHERE e.trajectory_id = t.id AND e.tenant_id = t.tenant_id "
-        "AND e.content ILIKE '%error%')"
-    )
     if status == "error":
-        conditions.append(error_clause)
+        conditions.append("t.has_error = true")
     elif status == "ok":
-        conditions.append(f"NOT {error_clause}")
+        conditions.append("t.has_error = false")
 
     where_sql = " AND ".join(conditions)
-    query = f"""
-        SELECT t.id,
-               t.session_id,
-               t.agent_type,
-               t.created_at,
-               {error_clause} AS has_error,
-               (SELECT COUNT(*) FROM trajectory_events e
-                WHERE e.trajectory_id = t.id) AS event_count,
-               (SELECT MAX(created_at) FROM trajectory_events e
-                WHERE e.trajectory_id = t.id) AS last_event_at
-        FROM trajectories t
-        WHERE {where_sql}
-        ORDER BY t.created_at DESC
-        LIMIT %s OFFSET %s
-    """
+    query = (
+        "SELECT t.id, "
+        "t.session_id, "
+        "t.agent_type, "
+        "t.created_at, "
+        "t.has_error AS has_error, "
+        "(SELECT COUNT(*) FROM trajectory_events e "
+        "WHERE e.trajectory_id = t.id AND e.tenant_id = t.tenant_id) AS event_count, "
+        "(SELECT MAX(created_at) FROM trajectory_events e "
+        "WHERE e.trajectory_id = t.id AND e.tenant_id = t.tenant_id) AS last_event_at "
+        "FROM trajectories t "
+        "WHERE " + where_sql + " "
+        "ORDER BY t.created_at DESC "
+        "LIMIT %s OFFSET %s"
+    )
     params.extend([limit, offset])
 
     async with pool.connection() as conn:
