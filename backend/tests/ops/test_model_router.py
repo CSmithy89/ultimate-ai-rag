@@ -25,3 +25,18 @@ def test_routing_score_thresholds() -> None:
     assert decision_complex.complexity == "complex"
     assert decision_complex.model_id == "complex"
     assert isinstance(decision_complex.reason, tuple)
+
+
+def test_routing_non_english_long_query_uses_length() -> None:
+    router = ModelRouter(
+        simple_model="simple",
+        medium_model="medium",
+        complex_model="complex",
+        baseline_model="baseline",
+        simple_max_score=1,
+        complex_min_score=4,
+    )
+
+    query = "hola " * 80
+    decision = router.route(query)
+    assert "long_query" in decision.reason

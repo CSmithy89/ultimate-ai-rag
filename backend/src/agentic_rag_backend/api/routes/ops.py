@@ -363,6 +363,7 @@ async def list_trajectories(
     elif status == "ok":
         conditions.append("t.has_error = false")
 
+    # Conditions are allowlisted literals; do not interpolate user input here.
     where_sql = " AND ".join(conditions)
     query = (
         "SELECT t.id, "

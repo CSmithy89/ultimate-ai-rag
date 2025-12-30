@@ -18,6 +18,7 @@
 - [x] Log warning when TRACE_ENCRYPTION_KEY is auto-generated in dev; document key rotation expectations.
 - [x] Consider a healthcheck to verify TRACE_ENCRYPTION_KEY persistence across restarts.
 - [x] Document routing heuristic limitations + future override/feedback path in Epic 8 docs.
+- [ ] Create follow-up story for cost alert delivery (email/webhook) and background alert evaluation.
 - [x] Warn when token estimation uses unknown model_id; document estimation accuracy limits.
 - [x] Fail fast on invalid routing thresholds instead of silently resetting defaults.
 - [x] Review migrations for concurrent index creation or document production-safe rollout steps.

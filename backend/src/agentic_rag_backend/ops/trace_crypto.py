@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import os
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.exceptions import InvalidTag
 import structlog
 
 
@@ -37,10 +39,13 @@ class TraceCrypto:
             ciphertext = data[12:]
             plaintext = self._aesgcm.decrypt(nonce, ciphertext, None)
             return plaintext.decode("utf-8")
-        except Exception as exc:
+        except (InvalidTag, ValueError, binascii.Error) as exc:
             logger.warning(
                 "trace_decrypt_failed",
                 error=str(exc),
                 error_type=exc.__class__.__name__,
             )
             return f"<encrypted: {exc.__class__.__name__}>"
+        except Exception:
+            logger.exception("trace_decrypt_unexpected_failure")
+            raise
