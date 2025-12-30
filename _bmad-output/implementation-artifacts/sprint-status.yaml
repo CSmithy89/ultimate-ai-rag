@@ -72,7 +72,7 @@ development_status:
   4-2-pdf-document-parsing: done
   4-3-agentic-entity-extraction: done
   4-4-knowledge-graph-visualization: done
-  epic-4-retrospective: optional
+  epic-4-retrospective: done
 
   # Epic 5: Graphiti Temporal Knowledge Graph Integration (NEW)
   epic-5-graphiti: done
