@@ -180,6 +180,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         orchestrator=app.state.orchestrator,
         neo4j=getattr(app.state, "neo4j", None),
         timeout_seconds=settings.mcp_tool_timeout_seconds,
+        tool_timeouts=settings.mcp_tool_timeout_overrides,
     )
 
     yield

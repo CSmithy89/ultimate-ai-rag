@@ -1,5 +1,6 @@
 """Configuration management for the Agentic RAG Backend."""
 
+import json
 import os
 import secrets
 from dataclasses import dataclass
@@ -60,6 +61,7 @@ class Settings:
     a2a_max_messages_per_session: int
     # Epic 7 - MCP settings
     mcp_tool_timeout_seconds: float
+    mcp_tool_timeout_overrides: dict[str, float]
 
 
 def load_settings() -> Settings:
@@ -155,6 +157,26 @@ def load_settings() -> Settings:
     except ValueError:
         mcp_tool_timeout_seconds = 30.0
 
+    raw_mcp_timeouts = os.getenv("MCP_TOOL_TIMEOUT_OVERRIDES", "")
+    mcp_tool_timeout_overrides: dict[str, float] = {}
+    if raw_mcp_timeouts:
+        try:
+            parsed = json.loads(raw_mcp_timeouts)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "MCP_TOOL_TIMEOUT_OVERRIDES must be valid JSON (e.g. "
+                '{\"knowledge.query\": 30, \"knowledge.graph_stats\": 10}).'
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("MCP_TOOL_TIMEOUT_OVERRIDES must be a JSON object.")
+        for key, value in parsed.items():
+            try:
+                mcp_tool_timeout_overrides[str(key)] = float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "MCP_TOOL_TIMEOUT_OVERRIDES values must be numeric."
+                ) from exc
+
     # Epic 5 - Validate backend selections
     ingestion_backend = os.getenv("INGESTION_BACKEND", "graphiti")
     if ingestion_backend not in {"graphiti", "legacy"}:
@@ -236,6 +258,7 @@ def load_settings() -> Settings:
         a2a_max_messages_per_session=a2a_max_messages_per_session,
         # Epic 7 - MCP settings
         mcp_tool_timeout_seconds=mcp_tool_timeout_seconds,
+        mcp_tool_timeout_overrides=mcp_tool_timeout_overrides,
     )
 
 

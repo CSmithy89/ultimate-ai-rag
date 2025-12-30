@@ -7,15 +7,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
-import structlog
 
 from ...agents.orchestrator import OrchestratorAgent
 from ...db.neo4j import Neo4jClient
 from ...api.utils import build_meta
 from ...protocols.mcp import MCPToolNotFoundError, MCPToolRegistry
 from ...rate_limit import RateLimiter
-
-logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
@@ -70,6 +67,7 @@ def get_mcp_registry(
             orchestrator=orchestrator,
             neo4j=neo4j,
             timeout_seconds=settings.mcp_tool_timeout_seconds,
+            tool_timeouts=settings.mcp_tool_timeout_overrides,
         )
         request.app.state.mcp_registry = registry
     return registry
@@ -108,8 +106,5 @@ async def call_tool(
         raise HTTPException(status_code=504, detail="Tool execution timed out") from exc
     except (ValueError, ValidationError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:  # pragma: no cover - safeguard
-        logger.exception("mcp_tool_call_failed", tool=request_body.tool, error=str(exc))
-        raise HTTPException(status_code=500, detail="Tool invocation failed") from exc
 
     return ToolCallResponse(tool=request_body.tool, result=result, meta=build_meta())

@@ -95,9 +95,6 @@ async def add_message(
         raise HTTPException(status_code=404, detail="Session not found") from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail="Tenant not authorized") from exc
-    except Exception as exc:  # pragma: no cover - safeguard
-        logger.exception("a2a_add_message_failed", session_id=session_id, error=str(exc))
-        raise HTTPException(status_code=500, detail="Failed to add message") from exc
 
     return SessionResponse(session=session.to_dict(), meta=build_meta())
 

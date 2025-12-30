@@ -27,6 +27,7 @@ class MCPTool:
     description: str
     input_schema: dict[str, Any]
     handler: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+    timeout_seconds: float | None = None
 
 
 class MCPToolRegistry:
@@ -37,10 +38,12 @@ class MCPToolRegistry:
         orchestrator: OrchestratorAgent,
         neo4j: Neo4jClient | None,
         timeout_seconds: float | None = None,
+        tool_timeouts: dict[str, float] | None = None,
     ) -> None:
         self._orchestrator = orchestrator
         self._neo4j = neo4j
-        self._timeout_seconds = timeout_seconds
+        self._default_timeout_seconds = timeout_seconds
+        self._tool_timeouts = tool_timeouts or {}
         self._tools = {
             "knowledge.query": MCPTool(
                 name="knowledge.query",
@@ -55,6 +58,7 @@ class MCPToolRegistry:
                     "required": ["query", "tenant_id"],
                 },
                 handler=self._run_query,
+                timeout_seconds=self._tool_timeouts.get("knowledge.query"),
             ),
             "knowledge.graph_stats": MCPTool(
                 name="knowledge.graph_stats",
@@ -65,6 +69,7 @@ class MCPToolRegistry:
                     "required": ["tenant_id"],
                 },
                 handler=self._graph_stats,
+                timeout_seconds=self._tool_timeouts.get("knowledge.graph_stats"),
             ),
         }
 
@@ -84,6 +89,13 @@ class MCPToolRegistry:
         tool = self._tools.get(name)
         if not tool:
             raise MCPToolNotFoundError(name)
+        timeout = (
+            tool.timeout_seconds
+            if tool.timeout_seconds is not None
+            else self._default_timeout_seconds
+        )
+        if timeout and timeout > 0:
+            return await asyncio.wait_for(tool.handler(arguments), timeout=timeout)
         return await tool.handler(arguments)
 
     async def _run_query(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -99,21 +111,11 @@ class MCPToolRegistry:
             tenant_id=tenant_id,
             session_id=session_id if isinstance(session_id, str) else None,
         )
-        if self._timeout_seconds and self._timeout_seconds > 0:
-            result = await asyncio.wait_for(
-                self._orchestrator.run(
-                    payload.query,
-                    payload.tenant_id,
-                    payload.session_id,
-                ),
-                timeout=self._timeout_seconds,
-            )
-        else:
-            result = await self._orchestrator.run(
-                payload.query,
-                payload.tenant_id,
-                payload.session_id,
-            )
+        result = await self._orchestrator.run(
+            payload.query,
+            payload.tenant_id,
+            payload.session_id,
+        )
         return {
             "answer": result.answer,
             "plan": [step.model_dump() for step in result.plan],

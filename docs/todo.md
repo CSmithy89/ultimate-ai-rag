@@ -20,6 +20,11 @@
 - [x] Add AG-UI error event fallback for failed streams.
 - [x] Align orchestrator logging with structlog key/value style.
 - [x] Add tests for MCP graph_stats without Neo4j and AG-UI empty messages.
+- [x] Make MCP tool timeouts configurable per tool or tool class.
+- [x] Narrow broad exception handling in MCP/A2A routes where practical.
+- [x] Add SDK retry/backoff for 429/503 and custom SDK exception types.
+- [x] Add integration tests that cover MCP → orchestrator → response flow.
+- [x] Add AG-UI validation tests for invalid actions payloads.
 
 ## Optional / Future
 - [ ] Add Dependabot for npm + pip updates.
@@ -29,10 +34,5 @@
 - [ ] Add persistent A2A session storage (e.g., Redis) or clearly document in-memory limits.
 - [ ] Add per-tenant A2A message limits and session caps for tiered plans.
 - [ ] Replace MCP tool arg validation with Pydantic models for all tools.
-- [ ] Make MCP tool timeouts configurable per tool or tool class.
-- [ ] Narrow broad exception handling in MCP/A2A routes where practical.
-- [ ] Add SDK retry/backoff for 429/503 and custom SDK exception types.
-- [ ] Add integration tests that cover MCP → orchestrator → response flow.
-- [ ] Add AG-UI validation tests for invalid actions payloads.
 - [ ] Document rate limit behavior (429 + retry-after) and A2A session lifecycle.
 - [ ] Add observability metrics for A2A sessions, MCP tool latency, AG-UI streams.

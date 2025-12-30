@@ -15,7 +15,10 @@ os.environ.setdefault("SKIP_GRAPHITI", "1")
 import httpx
 import pytest
 
-from agentic_rag_backend.sdk.client import AgenticRagClient
+from agentic_rag_backend.sdk.client import (
+    AgenticRagClient,
+    AgenticRagHTTPError,
+)
 
 
 @pytest.mark.asyncio
@@ -134,5 +137,35 @@ async def test_sdk_raises_for_error_responses() -> None:
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
         client = AgenticRagClient(base_url="http://test", http_client=http_client)
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(AgenticRagHTTPError):
             await client.list_tools()
+
+
+@pytest.mark.asyncio
+async def test_sdk_retries_on_transient_error() -> None:
+    calls = {"count": 0}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return httpx.Response(503, json={"detail": "unavailable"})
+        return httpx.Response(
+            200,
+            json={
+                "tools": [
+                    {
+                        "name": "knowledge.query",
+                        "description": "Run a RAG query",
+                        "input_schema": {"type": "object"},
+                    }
+                ],
+                "meta": {"requestId": "1"},
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
+        client = AgenticRagClient(base_url="http://test", http_client=http_client, max_retries=1)
+        tools = await client.list_tools()
+        assert tools.tools[0].name == "knowledge.query"
+        assert calls["count"] == 2

@@ -17,6 +17,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 from agentic_rag_backend.agents.orchestrator import OrchestratorResult, RetrievalStrategy
 from agentic_rag_backend.api.routes.ag_ui import AGUIRequest, ag_ui_handler
@@ -117,3 +118,24 @@ async def test_ag_ui_handles_empty_messages() -> None:
 
     events = await collect_sse_events(response)
     assert events[-1]["event"] == "RUN_FINISHED"
+
+
+def test_ag_ui_rejects_invalid_actions() -> None:
+    from agentic_rag_backend.main import app
+    from agentic_rag_backend.api.routes.ag_ui import get_orchestrator, get_rate_limiter
+
+    app.dependency_overrides[get_orchestrator] = lambda: DummyOrchestrator()
+    app.dependency_overrides[get_rate_limiter] = lambda: AllowLimiter()
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/ag-ui",
+            json={
+                "messages": [{"role": "user", "content": "Hello"}],
+                "tenant_id": "tenant-1",
+                "actions": ["not-a-dict"],
+            },
+        )
+        assert response.status_code == 422
+
+    app.dependency_overrides.clear()
