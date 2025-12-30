@@ -91,7 +91,7 @@ development_status:
   6-3-generative-ui-components: done
   6-4-human-in-the-loop-source-validation: done
   6-5-frontend-actions: done
-  epic-6-retrospective: optional
+  epic-6-retrospective: done
 
   # Epic 7: Protocol Integration & Extensibility (was Epic 6)
   epic-7: backlog

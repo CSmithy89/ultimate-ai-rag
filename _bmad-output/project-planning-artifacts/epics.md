@@ -107,12 +107,12 @@ This document provides the complete epic and story breakdown for Agentic Rag and
 | FR1 | Epic 1 | Docker container deployment |
 | FR2 | Epic 1 | Environment variable configuration |
 | FR3 | Epic 5 | npm package for React integration |
-| FR4 | Epic 6 | pip package for Python extension |
-| FR5 | Epic 6 | AG-UI protocol for any language |
+| FR4 | Epic 7 | pip package for Python extension |
+| FR5 | Epic 7 | AG-UI protocol for any language |
 | FR6 | Epic 2 | Multi-step execution planning |
 | FR7 | Epic 2 | Dynamic retrieval method selection |
-| FR8 | Epic 6 | MCP external tools |
-| FR9 | Epic 6 | A2A agent collaboration |
+| FR8 | Epic 7 | MCP external tools |
+| FR9 | Epic 7 | A2A agent collaboration |
 | FR10 | Epic 2 | Persistent trajectory/thought trace |
 | FR11 | Epic 3 | Vector semantic search |
 | FR12 | Epic 3 | Graph relationship traversal |
@@ -126,9 +126,9 @@ This document provides the complete epic and story breakdown for Agentic Rag and
 | FR20 | Epic 5 | Generative UI components |
 | FR21 | Epic 5 | Human-in-the-Loop validation |
 | FR22 | Epic 5 | Frontend actions |
-| FR23 | Epic 7 | LLM cost monitoring |
-| FR24 | Epic 7 | Intelligent model routing |
-| FR25 | Epic 7 | Trajectory debugging |
+| FR23 | Epic 8 | LLM cost monitoring |
+| FR24 | Epic 8 | Intelligent model routing |
+| FR25 | Epic 8 | Trajectory debugging |
 
 ## Epic List
 
@@ -162,13 +162,13 @@ End-users have a polished chat interface with Human-in-the-Loop source validatio
 **FRs covered:** FR3, FR19, FR20, FR21, FR22
 **NFRs addressed:** NFR1 (<10s response)
 
-### Epic 6: Protocol Integration & Extensibility
+### Epic 7: Protocol Integration & Extensibility
 The system integrates with external tools via MCP, enables agent collaboration via A2A, and provides SDKs for Python extension and universal AG-UI access.
 
 **FRs covered:** FR4, FR5, FR8, FR9
 **NFRs addressed:** NFR7 (100% MCP/AG-UI compliance)
 
-### Epic 7: Operations & Observability
+### Epic 8: Operations & Observability
 Ops engineers can monitor real-time LLM costs, configure intelligent model routing for cost optimization, and debug agent trajectories.
 
 **FRs covered:** FR23, FR24, FR25
@@ -534,11 +534,11 @@ So that **it can highlight text, open modals, or trigger UI changes**.
 
 ---
 
-## Epic 6: Protocol Integration & Extensibility
+## Epic 7: Protocol Integration & Extensibility
 
 The system integrates with external tools via MCP, enables agent collaboration via A2A, and provides SDKs for Python extension and universal AG-UI access.
 
-### Story 6.1: MCP Tool Server Implementation
+### Story 7.1: MCP Tool Server Implementation
 
 As a **developer**,
 I want **agents to use external tools via the Model Context Protocol**,
@@ -554,7 +554,7 @@ So that **they can access databases, APIs, and services through a standard inter
 **And** tool calls are logged in the trajectory
 **And** the implementation adheres 100% to MCP specification (NFR7)
 
-### Story 6.2: A2A Agent Collaboration
+### Story 7.2: A2A Agent Collaboration
 
 As a **developer**,
 I want **multiple agents to collaborate and delegate tasks**,
@@ -570,7 +570,7 @@ So that **complex workflows can be distributed across specialized agents**.
 **And** delegation is tracked in the trajectory
 **And** the implementation adheres to A2A specification
 
-### Story 6.3: Python Extension SDK
+### Story 7.3: Python Extension SDK
 
 As a **Python developer**,
 I want **to extend the core agent logic using a pip package**,
@@ -586,7 +586,7 @@ So that **I can customize agent behavior without forking the codebase**.
 **And** extend the indexing pipeline
 **And** documentation covers all extension points
 
-### Story 6.4: Universal AG-UI Protocol Access
+### Story 7.4: Universal AG-UI Protocol Access
 
 As a **developer using any language**,
 I want **to interact with the system via standardized AG-UI protocol**,
@@ -605,11 +605,11 @@ So that **I can build custom frontends in any technology stack**.
 
 ---
 
-## Epic 7: Operations & Observability
+## Epic 8: Operations & Observability
 
 Ops engineers can monitor real-time LLM costs, configure intelligent model routing for cost optimization, and debug agent trajectories.
 
-### Story 7.1: LLM Cost Monitoring
+### Story 8.1: LLM Cost Monitoring
 
 As an **ops engineer**,
 I want **to monitor real-time LLM interaction costs**,
@@ -625,7 +625,7 @@ So that **I can track spending and identify optimization opportunities**.
 **And** historical cost trends are displayed
 **And** alerts can be configured for spending thresholds
 
-### Story 7.2: Intelligent Model Routing
+### Story 8.2: Intelligent Model Routing
 
 As an **ops engineer**,
 I want **the system to route queries to different LLM models based on complexity**,
@@ -642,7 +642,7 @@ So that **simple queries use cheaper models while complex ones get premium model
 **And** routing decisions are logged in the trajectory
 **And** cost savings are tracked and reported
 
-### Story 7.3: Trajectory Debugging Interface
+### Story 8.3: Trajectory Debugging Interface
 
 As a **developer**,
 I want **to review the reasoning trajectory of past queries**,
@@ -659,7 +659,7 @@ So that **I can debug agent behavior and identify issues**.
 **And** see timing information for each step
 **And** can filter by error status or agent type
 
-### Story 7.4: Encrypted Trace Storage
+### Story 8.4: Encrypted Trace Storage
 
 As a **security engineer**,
 I want **reasoning traces to be encrypted at rest**,
@@ -674,4 +674,3 @@ So that **sensitive query content is protected from unauthorized access**.
 **And** decryption only occurs for authorized access
 **And** multi-tenant data remains isolated (NFR3)
 **And** encryption does not significantly impact query latency
-
