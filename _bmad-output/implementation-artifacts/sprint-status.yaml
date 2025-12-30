@@ -85,13 +85,13 @@ development_status:
   epic-5-graphiti-retrospective: optional
 
   # Epic 6: Interactive Copilot Experience (was Epic 5)
-  epic-6: in-progress
+  epic-6: done
   6-1-copilotkit-react-integration: done
   6-2-chat-sidebar-interface: done
   6-3-generative-ui-components: done
-  6-4-human-in-the-loop-source-validation: review
-  6-5-frontend-actions: backlog
-  epic-6-retrospective: optional
+  6-4-human-in-the-loop-source-validation: done
+  6-5-frontend-actions: done
+  epic-6-retrospective: done
 
   # Epic 7: Protocol Integration & Extensibility (was Epic 6)
   epic-7: backlog

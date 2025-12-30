@@ -1,6 +1,7 @@
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { CopilotProvider } from "../components/copilot/CopilotProvider";
+import { Toaster } from "../components/ui/Toaster";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -27,6 +28,7 @@ export default function RootLayout({
       <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans`}>
         <CopilotProvider>
           {children}
+          <Toaster />
         </CopilotProvider>
       </body>
     </html>

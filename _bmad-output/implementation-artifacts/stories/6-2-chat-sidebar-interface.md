@@ -1,6 +1,6 @@
 # Story 6-2: Chat Sidebar Interface
 
-Status: drafted
+Status: done
 Epic: 6 - Interactive Copilot Experience
 Priority: High
 Depends on: Story 6-1 (CopilotKit React Integration)

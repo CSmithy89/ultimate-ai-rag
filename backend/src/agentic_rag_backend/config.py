@@ -1,6 +1,7 @@
 """Configuration management for the Agentic RAG Backend."""
 
 import os
+import secrets
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Optional, cast
@@ -50,6 +51,8 @@ class Settings:
     graphiti_llm_model: str
     ingestion_backend: str  # "graphiti" or "legacy"
     retrieval_backend: str  # "graphiti" or "legacy"
+    # Epic 6 - Workspace settings
+    share_secret: str  # Secret for signing share links (set via SHARE_SECRET env var)
 
 
 def load_settings() -> Settings:
@@ -191,6 +194,9 @@ def load_settings() -> Settings:
         graphiti_llm_model=os.getenv("GRAPHITI_LLM_MODEL", "gpt-4o-mini"),
         ingestion_backend=ingestion_backend,
         retrieval_backend=retrieval_backend,
+        # Epic 6 - Workspace settings
+        # Default generates random secret if not set (for dev), but production should set SHARE_SECRET
+        share_secret=os.getenv("SHARE_SECRET", secrets.token_hex(32)),
     )
 
 

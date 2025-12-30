@@ -86,3 +86,17 @@ docker compose up -d
   - Feature flags for backend selection (`INGESTION_BACKEND`, `RETRIEVAL_BACKEND`)
   - Legacy module deprecation with migration path
   - Comprehensive test suite with 263 tests (86%+ Graphiti module coverage)
+
+### Epic 6: Interactive Copilot Experience
+- Status: Complete
+- Stories: 5/5 completed
+- Key Features:
+  - CopilotKit React integration with provider and API route
+  - Chat sidebar interface with "Thought Trace" stepper showing agent progress
+  - Generative UI components (SourceCard, AnswerPanel, GraphPreview)
+  - Human-in-the-Loop source validation before answer synthesis
+  - Frontend actions (Save, Export, Share, Bookmark, Follow-up)
+  - Toast notification system with success/error states
+  - Action history panel for tracking user interactions
+  - Backend workspace API endpoints for content management
+  - 315+ frontend tests with comprehensive component coverage

@@ -106,13 +106,13 @@ This document provides the complete epic and story breakdown for Agentic Rag and
 |----|------|-------------|
 | FR1 | Epic 1 | Docker container deployment |
 | FR2 | Epic 1 | Environment variable configuration |
-| FR3 | Epic 5 | npm package for React integration |
-| FR4 | Epic 6 | pip package for Python extension |
-| FR5 | Epic 6 | AG-UI protocol for any language |
+| FR3 | Epic 6 | npm package for React integration |
+| FR4 | Epic 7 | pip package for Python extension |
+| FR5 | Epic 7 | AG-UI protocol for any language |
 | FR6 | Epic 2 | Multi-step execution planning |
 | FR7 | Epic 2 | Dynamic retrieval method selection |
-| FR8 | Epic 6 | MCP external tools |
-| FR9 | Epic 6 | A2A agent collaboration |
+| FR8 | Epic 7 | MCP external tools |
+| FR9 | Epic 7 | A2A agent collaboration |
 | FR10 | Epic 2 | Persistent trajectory/thought trace |
 | FR11 | Epic 3 | Vector semantic search |
 | FR12 | Epic 3 | Graph relationship traversal |
@@ -122,13 +122,13 @@ This document provides the complete epic and story breakdown for Agentic Rag and
 | FR16 | Epic 4 | Docling PDF parsing |
 | FR17 | Epic 4 | Agentic entity extraction |
 | FR18 | Epic 4 | Knowledge graph visualization |
-| FR19 | Epic 5 | Chat sidebar interface |
-| FR20 | Epic 5 | Generative UI components |
-| FR21 | Epic 5 | Human-in-the-Loop validation |
-| FR22 | Epic 5 | Frontend actions |
-| FR23 | Epic 7 | LLM cost monitoring |
-| FR24 | Epic 7 | Intelligent model routing |
-| FR25 | Epic 7 | Trajectory debugging |
+| FR19 | Epic 6 | Chat sidebar interface |
+| FR20 | Epic 6 | Generative UI components |
+| FR21 | Epic 6 | Human-in-the-Loop validation |
+| FR22 | Epic 6 | Frontend actions |
+| FR23 | Epic 8 | LLM cost monitoring |
+| FR24 | Epic 8 | Intelligent model routing |
+| FR25 | Epic 8 | Trajectory debugging |
 
 ## Epic List
 
@@ -156,19 +156,25 @@ Users can ingest documents from URLs or PDFs and autonomously build knowledge gr
 **FRs covered:** FR15, FR16, FR17, FR18
 **NFRs addressed:** NFR2 (<5 min ingestion), NFR5 (1M+ nodes)
 
-### Epic 5: Interactive Copilot Experience
+### Epic 5: Graphiti Temporal Knowledge Graph Integration
+Replace the custom knowledge graph pipeline with Graphiti to enable temporal ingestion and querying while reducing maintenance overhead.
+
+**FRs covered:** (architecture addendum; no new FRs)
+**NFRs addressed:** NFR5 (1M+ nodes)
+
+### Epic 6: Interactive Copilot Experience
 End-users have a polished chat interface with Human-in-the-Loop source validation, generative UI components, and frontend action capabilities.
 
 **FRs covered:** FR3, FR19, FR20, FR21, FR22
 **NFRs addressed:** NFR1 (<10s response)
 
-### Epic 6: Protocol Integration & Extensibility
+### Epic 7: Protocol Integration & Extensibility
 The system integrates with external tools via MCP, enables agent collaboration via A2A, and provides SDKs for Python extension and universal AG-UI access.
 
 **FRs covered:** FR4, FR5, FR8, FR9
 **NFRs addressed:** NFR7 (100% MCP/AG-UI compliance)
 
-### Epic 7: Operations & Observability
+### Epic 8: Operations & Observability
 Ops engineers can monitor real-time LLM costs, configure intelligent model routing for cost optimization, and debug agent trajectories.
 
 **FRs covered:** FR23, FR24, FR25
@@ -449,11 +455,99 @@ So that **I can identify gaps, orphan nodes, and data quality issues**.
 
 ---
 
-## Epic 5: Interactive Copilot Experience
+## Epic 5: Graphiti Temporal Knowledge Graph Integration
+
+Replace the custom knowledge graph pipeline with Graphiti to enable temporal ingestion and querying while reducing maintenance overhead.
+
+### Story 5.1: Graphiti Installation & Setup
+
+As a **developer**,
+I want **to install and configure Graphiti**,
+So that **temporal knowledge graph capabilities are available in the backend**.
+
+**Acceptance Criteria:**
+
+**Given** the backend codebase
+**When** Graphiti is installed and configured
+**Then** the dependency is pinned and documented
+**And** the Graphiti client connects to Neo4j successfully
+**And** a basic smoke test verifies ingestion can run
+
+### Story 5.2: Episode Ingestion Pipeline
+
+As a **developer**,
+I want **to ingest documents as Graphiti episodes**,
+So that **entities and relationships are tracked with temporal context**.
+
+**Acceptance Criteria:**
+
+**Given** a parsed document
+**When** it is ingested as a Graphiti episode
+**Then** entities and relationships are created with temporal metadata
+**And** tenant isolation is preserved
+**And** ingestion errors are logged in the trajectory
+
+### Story 5.3: Hybrid Retrieval Integration
+
+As a **developer**,
+I want **hybrid retrieval to use Graphiti for graph lookups**,
+So that **answers include temporal context alongside vector results**.
+
+**Acceptance Criteria:**
+
+**Given** a user query
+**When** hybrid retrieval runs
+**Then** Graphiti graph results are included in the response
+**And** vector and graph results are synthesized
+**And** tenant isolation is preserved
+
+### Story 5.4: Temporal Query Capabilities
+
+As a **developer**,
+I want **to query the knowledge graph at a specific point in time**,
+So that **historical answers can be generated when needed**.
+
+**Acceptance Criteria:**
+
+**Given** a query with a time filter
+**When** it is executed
+**Then** the graph results reflect that point in time
+**And** the system defaults to latest data when no time is provided
+
+### Story 5.5: Legacy Code Removal & Migration
+
+As a **developer**,
+I want **to remove legacy graph ingestion code and migrate existing data**,
+So that **maintenance is simplified and the pipeline is consistent**.
+
+**Acceptance Criteria:**
+
+**Given** the Graphiti pipeline is working
+**When** legacy ingestion code is removed
+**Then** the codebase no longer uses the old extraction pipeline
+**And** existing data is available in the new schema
+**And** documentation reflects the migration
+
+### Story 5.6: Test Suite Adaptation
+
+As a **developer**,
+I want **tests updated for Graphiti workflows**,
+So that **regressions are caught in ingestion and retrieval**.
+
+**Acceptance Criteria:**
+
+**Given** Graphiti integration
+**When** the test suite runs
+**Then** ingestion and retrieval tests pass
+**And** coverage is maintained for graph-related components
+
+---
+
+## Epic 6: Interactive Copilot Experience
 
 End-users have a polished chat interface with Human-in-the-Loop source validation, generative UI components, and frontend action capabilities.
 
-### Story 5.1: CopilotKit React Integration
+### Story 6.1: CopilotKit React Integration
 
 As a **React developer**,
 I want **to integrate the Copilot UI using an npm package**,
@@ -468,7 +562,7 @@ So that **I can add AI chat capabilities to my app with minimal code**.
 **And** the integration requires only environment configuration
 **And** TypeScript types are available for all components
 
-### Story 5.2: Chat Sidebar Interface
+### Story 6.2: Chat Sidebar Interface
 
 As an **end-user**,
 I want **to interact with the AI through a pre-built chat sidebar**,
@@ -484,7 +578,7 @@ So that **I can ask questions and receive responses naturally**.
 **And** view the "Thought Trace" stepper showing agent progress
 **And** the sidebar uses the design system colors (Indigo-600, Slate)
 
-### Story 5.3: Generative UI Components
+### Story 6.3: Generative UI Components
 
 As an **end-user**,
 I want **the AI to render specialized UI components within the chat**,
@@ -500,7 +594,7 @@ So that **I can see interactive visualizations like graph explorers**.
 **And** components are interactive (clickable, zoomable)
 **And** the UX follows the "Professional Forge" design direction
 
-### Story 5.4: Human-in-the-Loop Source Validation
+### Story 6.4: Human-in-the-Loop Source Validation
 
 As a **researcher**,
 I want **to review and approve/reject sources before the answer is generated**,
@@ -517,7 +611,7 @@ So that **I can ensure the AI uses only trusted, relevant information**.
 **And** the UI uses Amber-400 for attention items
 **And** validation is non-blocking if user continues typing
 
-### Story 5.5: Frontend Actions
+### Story 6.5: Frontend Actions
 
 As an **end-user**,
 I want **the AI to take actions within my application**,
@@ -534,11 +628,11 @@ So that **it can highlight text, open modals, or trigger UI changes**.
 
 ---
 
-## Epic 6: Protocol Integration & Extensibility
+## Epic 7: Protocol Integration & Extensibility
 
 The system integrates with external tools via MCP, enables agent collaboration via A2A, and provides SDKs for Python extension and universal AG-UI access.
 
-### Story 6.1: MCP Tool Server Implementation
+### Story 7.1: MCP Tool Server Implementation
 
 As a **developer**,
 I want **agents to use external tools via the Model Context Protocol**,
@@ -554,7 +648,7 @@ So that **they can access databases, APIs, and services through a standard inter
 **And** tool calls are logged in the trajectory
 **And** the implementation adheres 100% to MCP specification (NFR7)
 
-### Story 6.2: A2A Agent Collaboration
+### Story 7.2: A2A Agent Collaboration
 
 As a **developer**,
 I want **multiple agents to collaborate and delegate tasks**,
@@ -570,7 +664,7 @@ So that **complex workflows can be distributed across specialized agents**.
 **And** delegation is tracked in the trajectory
 **And** the implementation adheres to A2A specification
 
-### Story 6.3: Python Extension SDK
+### Story 7.3: Python Extension SDK
 
 As a **Python developer**,
 I want **to extend the core agent logic using a pip package**,
@@ -586,7 +680,7 @@ So that **I can customize agent behavior without forking the codebase**.
 **And** extend the indexing pipeline
 **And** documentation covers all extension points
 
-### Story 6.4: Universal AG-UI Protocol Access
+### Story 7.4: Universal AG-UI Protocol Access
 
 As a **developer using any language**,
 I want **to interact with the system via standardized AG-UI protocol**,
@@ -605,11 +699,11 @@ So that **I can build custom frontends in any technology stack**.
 
 ---
 
-## Epic 7: Operations & Observability
+## Epic 8: Operations & Observability
 
 Ops engineers can monitor real-time LLM costs, configure intelligent model routing for cost optimization, and debug agent trajectories.
 
-### Story 7.1: LLM Cost Monitoring
+### Story 8.1: LLM Cost Monitoring
 
 As an **ops engineer**,
 I want **to monitor real-time LLM interaction costs**,
@@ -625,7 +719,7 @@ So that **I can track spending and identify optimization opportunities**.
 **And** historical cost trends are displayed
 **And** alerts can be configured for spending thresholds
 
-### Story 7.2: Intelligent Model Routing
+### Story 8.2: Intelligent Model Routing
 
 As an **ops engineer**,
 I want **the system to route queries to different LLM models based on complexity**,
@@ -642,7 +736,7 @@ So that **simple queries use cheaper models while complex ones get premium model
 **And** routing decisions are logged in the trajectory
 **And** cost savings are tracked and reported
 
-### Story 7.3: Trajectory Debugging Interface
+### Story 8.3: Trajectory Debugging Interface
 
 As a **developer**,
 I want **to review the reasoning trajectory of past queries**,
@@ -659,7 +753,7 @@ So that **I can debug agent behavior and identify issues**.
 **And** see timing information for each step
 **And** can filter by error status or agent type
 
-### Story 7.4: Encrypted Trace Storage
+### Story 8.4: Encrypted Trace Storage
 
 As a **security engineer**,
 I want **reasoning traces to be encrypted at rest**,
@@ -674,4 +768,3 @@ So that **sensitive query content is protected from unauthorized access**.
 **And** decryption only occurs for authorized access
 **And** multi-tenant data remains isolated (NFR3)
 **And** encryption does not significantly impact query latency
-

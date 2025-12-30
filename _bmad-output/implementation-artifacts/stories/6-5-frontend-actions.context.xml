@@ -1,0 +1,3074 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <story-summary>
+    <![CDATA[
+    Story 6-5 implements Frontend Actions - enabling users to perform common actions on AI-generated
+    responses including Save to Workspace, Export (markdown/PDF/JSON), Share (clipboard link),
+    Bookmark, and Follow-up Query. This provides seamless workflow integration without leaving
+    the chat interface.
+
+    Key deliverables:
+    - ActionButtons component: Row of action buttons (Save, Export dropdown, Share, Bookmark, Follow-up)
+    - ActionPanel component: Slide-out sheet showing action history
+    - use-copilot-actions hook: State management, API calls, CopilotKit action registration
+    - Backend workspace endpoints: POST /workspace/save, /export, /share, /bookmark
+    - Toast notifications: Success/error feedback using shadcn/ui toast
+    - Agent-triggered actions: CopilotKit useCopilotAction registration for programmatic triggering
+
+    The useCopilotAction hook pattern enables both user-initiated actions AND agent-triggered
+    actions via the AG-UI protocol, providing a unified interface for frontend operations.
+    ]]>
+  </story-summary>
+
+  <dependencies>
+    <story-6-1-artifacts>
+      <![CDATA[
+      Story 6-1 (DONE) established the foundational CopilotKit integration:
+
+      FILES CREATED:
+      - frontend/components/copilot/CopilotProvider.tsx - Root CopilotKit wrapper
+      - frontend/app/api/copilotkit/route.ts - Next.js API route for runtime
+      - frontend/types/copilot.ts - TypeScript types (Source, ThoughtStep, AgentState)
+      - backend/src/agentic_rag_backend/api/routes/copilot.py - FastAPI SSE endpoint
+      - backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py - AG-UI protocol handler
+      - backend/src/agentic_rag_backend/models/copilot.py - Pydantic event models
+
+      KEY PATTERNS ESTABLISHED:
+      - SSE event streaming: RUN_STARTED -> STATE_SNAPSHOT -> TEXT_MESSAGE_* -> RUN_FINISHED
+      - tenant_id required in request config (multi-tenancy)
+      - Rate limiting on copilot endpoint
+      - Generic error messages returned to client
+      ]]>
+    </story-6-1-artifacts>
+
+    <story-6-2-artifacts>
+      <![CDATA[
+      Story 6-2 (DONE) established the Chat Sidebar Interface:
+
+      FILES CREATED:
+      - frontend/components/copilot/ChatSidebar.tsx - Main chat interface
+      - frontend/components/copilot/ThoughtTraceStepper.tsx - Agent progress indicator
+      - frontend/components/copilot/CopilotErrorBoundary.tsx - Error handling
+      - frontend/hooks/use-thought-trace.ts - Thought trace state management
+
+      KEY PATTERNS ESTABLISHED:
+      - useCoAgentStateRender for agent state rendering
+      - Design system colors (Indigo-600, Emerald-500, Slate)
+      - Typography (Inter for body, JetBrains Mono for traces)
+      - Component memoization for performance
+      ]]>
+    </story-6-2-artifacts>
+
+    <story-6-3-artifacts>
+      <![CDATA[
+      Story 6-3 (DONE) established the Generative UI Components:
+
+      FILES CREATED:
+      - frontend/components/copilot/components/SourceCard.tsx - Citation display with confidence badges
+      - frontend/components/copilot/components/AnswerPanel.tsx - Markdown-rendered responses
+      - frontend/components/copilot/components/GraphPreview.tsx - Mini React Flow visualization
+      - frontend/components/copilot/GenerativeUIRenderer.tsx - Initializes generative UI handlers
+      - frontend/hooks/use-generative-ui.tsx - Registers CopilotKit render actions
+
+      KEY PATTERNS ESTABLISHED:
+      - useCopilotAction with render function for dynamic UI
+      - Zod validation of action arguments
+      - Confidence badge color coding (Emerald >= 90%, Indigo >= 70%, Amber >= 50%)
+      - useCoAgentStateRender for state synchronization
+      ]]>
+    </story-6-3-artifacts>
+
+    <story-6-4-artifacts>
+      <![CDATA[
+      Story 6-4 (DONE) established the Human-in-the-Loop Source Validation:
+
+      FILES CREATED:
+      - frontend/components/copilot/components/SourceValidationCard.tsx - Card with approve/reject buttons
+      - frontend/components/copilot/SourceValidationDialog.tsx - Modal validation dialog
+      - frontend/components/copilot/SourceValidationPanel.tsx - Inline validation panel
+      - frontend/hooks/use-source-validation.ts - Validation state management
+
+      KEY PATTERNS ESTABLISHED:
+      - useCopilotAction with render callback for UI state updates
+      - setTimeout(fn, 0) pattern for state updates from render callbacks
+      - ValidationDecision type: "approved" | "rejected" | "pending"
+      - Amber-400 for pending, Emerald-500 for approved, Red-500 for rejected
+      ]]>
+    </story-6-4-artifacts>
+
+    <existing-copilot-provider>
+      <![CDATA[
+      // frontend/components/copilot/CopilotProvider.tsx (EXISTING - to be modified)
+      "use client";
+
+      import { CopilotKit } from "@copilotkit/react-core";
+      import "@copilotkit/react-ui/styles.css";
+      import { ReactNode } from "react";
+
+      interface CopilotProviderProps {
+        children: ReactNode;
+      }
+
+      export function CopilotProvider({ children }: CopilotProviderProps) {
+        return (
+          <CopilotKit runtimeUrl="/api/copilotkit">
+            {children}
+          </CopilotKit>
+        );
+      }
+      ]]>
+    </existing-copilot-provider>
+
+    <existing-generative-ui-renderer>
+      <![CDATA[
+      // frontend/components/copilot/GenerativeUIRenderer.tsx (EXISTING - to be modified)
+      "use client";
+
+      import { useGenerativeUI, type GraphPreviewNode } from "@/hooks/use-generative-ui";
+      import { useSourceValidation } from "@/hooks/use-source-validation";
+      import { SourceValidationDialog } from "./SourceValidationDialog";
+      import { SourceValidationPanel } from "./SourceValidationPanel";
+      import type { Source } from "@/types/copilot";
+
+      interface GenerativeUIRendererProps {
+        onSourceClick?: (source: Source) => void;
+        onGraphNodeClick?: (node: GraphPreviewNode) => void;
+        onGraphExpand?: () => void;
+        useModalForValidation?: boolean;
+        onValidationComplete?: (approvedIds: string[]) => void;
+        autoApproveThreshold?: number;
+        autoRejectThreshold?: number;
+      }
+
+      export function GenerativeUIRenderer({
+        onSourceClick,
+        onGraphNodeClick,
+        onGraphExpand,
+        useModalForValidation = true,
+        onValidationComplete,
+        autoApproveThreshold,
+        autoRejectThreshold,
+      }: GenerativeUIRendererProps) {
+        useGenerativeUI({
+          onSourceClick,
+          onGraphNodeClick,
+          onGraphExpand,
+        });
+
+        const {
+          state: validationState,
+          isDialogOpen,
+          submitValidation,
+          cancelValidation,
+        } = useSourceValidation({
+          onValidationComplete,
+          autoApproveThreshold,
+          autoRejectThreshold,
+        });
+
+        return (
+          <>
+            {useModalForValidation && (
+              <SourceValidationDialog
+                open={isDialogOpen}
+                sources={validationState.pendingSources}
+                onSubmit={submitValidation}
+                onCancel={cancelValidation}
+                isSubmitting={validationState.isSubmitting}
+              />
+            )}
+            {!useModalForValidation && isDialogOpen && (
+              <SourceValidationPanel
+                sources={validationState.pendingSources}
+                onSubmit={submitValidation}
+                onSkip={() => submitValidation(validationState.pendingSources.map((s) => s.id))}
+              />
+            )}
+          </>
+        );
+      }
+      ]]>
+    </existing-generative-ui-renderer>
+
+    <existing-types>
+      <![CDATA[
+      // frontend/types/copilot.ts (EXISTING - to be extended)
+      import { z } from 'zod';
+
+      export interface Source {
+        id: string;
+        title: string;
+        preview: string;
+        similarity: number;
+        metadata?: Record<string, unknown>;
+        isApproved?: boolean;
+      }
+
+      export interface ThoughtStep {
+        step: string;
+        status: "pending" | "in_progress" | "completed";
+        timestamp?: string;
+        details?: string;
+      }
+
+      export interface AgentState {
+        currentStep: string;
+        thoughts: ThoughtStep[];
+        retrievedSources: Source[];
+        validatedSources: Source[];
+        answer: string | null;
+        trajectoryId: string | null;
+      }
+
+      // Zod schemas
+      export const SourceSchema = z.object({
+        id: z.string(),
+        title: z.string(),
+        preview: z.string(),
+        similarity: z.number().min(0).max(1),
+        metadata: z.record(z.string(), z.unknown()).optional(),
+        isApproved: z.boolean().optional(),
+      });
+      ]]>
+    </existing-types>
+
+    <existing-api-client>
+      <![CDATA[
+      // frontend/lib/api.ts (EXISTING - pattern reference)
+      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+
+      async function fetchApi<T>(
+        endpoint: string,
+        options?: RequestInit
+      ): Promise<ApiResponse<T>> {
+        const url = API_BASE_URL + endpoint;
+
+        const response = await fetch(url, {
+          ...options,
+          headers: {
+            'Content-Type': 'application/json',
+            ...options?.headers,
+          },
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(
+            errorData.detail || errorData.title || 'API error: ' + response.status
+          );
+        }
+
+        return response.json();
+      }
+
+      // Use this pattern for workspace API calls
+      ]]>
+    </existing-api-client>
+
+    <existing-use-generative-ui>
+      <![CDATA[
+      // frontend/hooks/use-generative-ui.tsx (EXISTING - pattern reference)
+      "use client";
+
+      import { useCopilotAction, useCoAgentStateRender } from "@copilotkit/react-core";
+      import { useState, useCallback } from "react";
+      import { z } from "zod";
+
+      // Key pattern: useCopilotAction with render function
+      useCopilotAction({
+        name: "show_sources",
+        description: "Display retrieved sources as citation cards",
+        parameters: [
+          {
+            name: "sources",
+            type: "object[]",
+            description: "Array of source objects",
+            required: true,
+          },
+        ],
+        render: ({ status, args }) => {
+          // Validate with Zod
+          const parseResult = ShowSourcesArgsSchema.safeParse(args);
+          if (!parseResult.success) {
+            return <ValidationErrorFallback message={parseResult.error.message} />;
+          }
+
+          if (status === "executing" || status === "complete") {
+            return <SourceCards sources={parseResult.data.sources} />;
+          }
+          return <></>;
+        },
+      });
+      ]]>
+    </existing-use-generative-ui>
+
+    <existing-use-source-validation>
+      <![CDATA[
+      // frontend/hooks/use-source-validation.ts (EXISTING - pattern reference for useCopilotAction)
+      "use client";
+
+      import React, { useState, useCallback, useRef } from "react";
+      import { useCopilotAction } from "@copilotkit/react-core";
+
+      // Key pattern: useCopilotAction with handler for non-render actions
+      // For Story 6-5, we use handler instead of render for actions that don't render UI
+      useCopilotAction({
+        name: "validate_sources",
+        description: "Request human approval for retrieved sources",
+        parameters: [
+          {
+            name: "sources",
+            type: "object[]",
+            description: "Array of sources requiring validation",
+            required: true,
+          },
+        ],
+        render: ({ status, args }) => {
+          // State updates in render callback
+          if (status === "executing" && args.sources) {
+            // Use setTimeout(fn, 0) to defer state updates
+            setTimeout(() => startValidation(args.sources), 0);
+          }
+          return React.createElement(React.Fragment);
+        },
+      });
+      ]]>
+    </existing-use-source-validation>
+  </dependencies>
+
+  <acceptance-criteria>
+    <![CDATA[
+    - Given the AI generates a response with actionable content
+    - When action buttons are displayed below the response
+    - Then users see a row of action buttons: Save, Export, Share, Bookmark, Follow-up
+    - And clicking Save triggers backend API to save content to user's workspace
+    - And clicking Export offers download in markdown/PDF/JSON formats
+    - And clicking Share generates a shareable link and copies to clipboard
+    - And clicking Bookmark saves the response for quick access later
+    - And clicking Follow-up opens a pre-filled input for related queries
+    - And each action displays loading state during API call
+    - And each action shows success toast notification on completion
+    - And each action shows error toast notification on failure
+    - And actions are registered with useCopilotAction hooks
+    - And the AI can programmatically trigger actions via AG-UI protocol
+    - And action completion is logged in agent trajectory
+    ]]>
+  </acceptance-criteria>
+
+  <technical-approach>
+    <step-1>
+      <title>Create use-toast Hook (if not exists)</title>
+      <file>frontend/hooks/use-toast.ts</file>
+      <implementation>
+        <![CDATA[
+"use client";
+
+import { useState, useCallback } from "react";
+
+export type ToastVariant = "default" | "destructive";
+
+export interface Toast {
+  id: string;
+  variant: ToastVariant;
+  title: string;
+  description?: string;
+}
+
+export interface UseToastReturn {
+  toasts: Toast[];
+  toast: (options: Omit<Toast, "id">) => void;
+  dismiss: (id: string) => void;
+  dismissAll: () => void;
+}
+
+/**
+ * useToast hook provides toast notification functionality.
+ *
+ * Story 6-5: Frontend Actions
+ *
+ * @example
+ * ```tsx
+ * const { toast } = useToast();
+ * toast({
+ *   variant: "default",
+ *   title: "Success!",
+ *   description: "Content saved to workspace",
+ * });
+ * ```
+ */
+export function useToast(): UseToastReturn {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const toast = useCallback((options: Omit<Toast, "id">) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    const newToast: Toast = { id, ...options };
+
+    setToasts((prev) => [...prev, newToast]);
+
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 5000);
+  }, []);
+
+  const dismiss = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const dismissAll = useCallback(() => {
+    setToasts([]);
+  }, []);
+
+  return { toasts, toast, dismiss, dismissAll };
+}
+
+export default useToast;
+        ]]>
+      </implementation>
+      <key-points>
+        <![CDATA[
+        - Simple toast implementation if shadcn/ui toast not installed
+        - Auto-dismiss after 5 seconds
+        - Support for default (success) and destructive (error) variants
+        - Can be replaced with shadcn/ui toast if added to project
+        ]]>
+      </key-points>
+    </step-1>
+
+    <step-2>
+      <title>Create Toaster Component</title>
+      <file>frontend/components/ui/toaster.tsx</file>
+      <implementation>
+        <![CDATA[
+"use client";
+
+import { memo } from "react";
+import { cn } from "@/lib/utils";
+import { X, CheckCircle2, XCircle } from "lucide-react";
+import { useToast, type Toast } from "@/hooks/use-toast";
+
+/**
+ * ToastItem displays a single toast notification.
+ */
+const ToastItem = memo(function ToastItem({
+  toast,
+  onDismiss,
+}: {
+  toast: Toast;
+  onDismiss: (id: string) => void;
+}) {
+  const isError = toast.variant === "destructive";
+
+  return (
+    <div
+      className={cn(
+        "pointer-events-auto flex w-full max-w-md rounded-lg shadow-lg",
+        "border p-4 transition-all duration-300 ease-in-out",
+        isError
+          ? "bg-red-50 border-red-200 text-red-900"
+          : "bg-white border-slate-200 text-slate-900"
+      )}
+      role="alert"
+      aria-live="assertive"
+    >
+      {/* Icon */}
+      <div className="flex-shrink-0 mr-3">
+        {isError ? (
+          <XCircle className="h-5 w-5 text-red-500" />
+        ) : (
+          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+        )}
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium">{toast.title}</p>
+        {toast.description && (
+          <p
+            className={cn(
+              "mt-1 text-sm",
+              isError ? "text-red-700" : "text-slate-600"
+            )}
+          >
+            {toast.description}
+          </p>
+        )}
+      </div>
+
+      {/* Dismiss button */}
+      <button
+        type="button"
+        onClick={() => onDismiss(toast.id)}
+        className={cn(
+          "flex-shrink-0 ml-4 inline-flex rounded-md p-1.5",
+          "focus:outline-none focus:ring-2",
+          isError
+            ? "text-red-500 hover:bg-red-100 focus:ring-red-400"
+            : "text-slate-400 hover:bg-slate-100 focus:ring-slate-400"
+        )}
+        aria-label="Dismiss"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+});
+
+/**
+ * Toaster renders toast notifications in a fixed position.
+ *
+ * Story 6-5: Frontend Actions
+ *
+ * Place this component at the root of your app:
+ * ```tsx
+ * <CopilotProvider>
+ *   {children}
+ *   <Toaster />
+ * </CopilotProvider>
+ * ```
+ */
+export function Toaster() {
+  const { toasts, dismiss } = useToast();
+
+  if (toasts.length === 0) return null;
+
+  return (
+    <div
+      className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"
+      aria-label="Notifications"
+    >
+      {toasts.map((toast) => (
+        <ToastItem key={toast.id} toast={toast} onDismiss={dismiss} />
+      ))}
+    </div>
+  );
+}
+
+export default Toaster;
+        ]]>
+      </implementation>
+      <key-points>
+        <![CDATA[
+        - Fixed position bottom-right
+        - Emerald-500 icon for success, Red-500 for error
+        - Accessible with role="alert" and aria-live
+        - Dismiss button on each toast
+        - Stacked layout for multiple toasts
+        ]]>
+      </key-points>
+    </step-2>
+
+    <step-3>
+      <title>Create use-copilot-actions Hook</title>
+      <file>frontend/hooks/use-copilot-actions.ts</file>
+      <implementation>
+        <![CDATA[
+"use client";
+
+import { useState, useCallback, useRef } from "react";
+import { useCopilotAction } from "@copilotkit/react-core";
+import { useToast } from "@/hooks/use-toast";
+import type { ActionableContent, ExportFormat } from "@/types/copilot";
+
+/**
+ * Action types supported by the system.
+ */
+export type ActionType = "save" | "export" | "share" | "bookmark" | "followUp";
+
+/**
+ * State of an action.
+ */
+export type ActionState = "idle" | "loading" | "success" | "error";
+
+/**
+ * Result of an action.
+ */
+export interface ActionResult {
+  success: boolean;
+  message?: string;
+  data?: unknown;
+  error?: string;
+}
+
+/**
+ * State for all actions.
+ */
+export type ActionStates = Record<ActionType, ActionState>;
+
+/**
+ * Options for the useCopilotActions hook.
+ */
+export interface UseCopilotActionsOptions {
+  /** Tenant ID for multi-tenant operations */
+  tenantId?: string;
+  /** Callback when save completes */
+  onSaveComplete?: (result: ActionResult) => void;
+  /** Callback when export completes */
+  onExportComplete?: (result: ActionResult) => void;
+  /** Callback when share completes */
+  onShareComplete?: (result: ActionResult, shareUrl: string) => void;
+  /** Callback when bookmark completes */
+  onBookmarkComplete?: (result: ActionResult) => void;
+  /** Callback to handle follow-up query */
+  onFollowUp?: (query: string, context: ActionableContent) => void;
+  /** State reset delay after success (ms) */
+  successResetDelay?: number;
+  /** State reset delay after error (ms) */
+  errorResetDelay?: number;
+}
+
+/**
+ * Return type for the useCopilotActions hook.
+ */
+export interface UseCopilotActionsReturn {
+  /** Current state of all actions */
+  actionStates: ActionStates;
+  /** Save content to workspace */
+  saveToWorkspace: (content: ActionableContent) => Promise<void>;
+  /** Export content in specified format */
+  exportContent: (content: ActionableContent, format: ExportFormat) => Promise<void>;
+  /** Share content and get shareable link */
+  shareContent: (content: ActionableContent) => Promise<string>;
+  /** Bookmark content */
+  bookmarkContent: (content: ActionableContent) => Promise<void>;
+  /** Trigger follow-up query */
+  triggerFollowUp: (content: ActionableContent) => void;
+  /** Reset all action states */
+  resetStates: () => void;
+  /** Whether any action is in progress */
+  isLoading: boolean;
+}
+
+/**
+ * Initial state for all actions.
+ */
+const initialActionStates: ActionStates = {
+  save: "idle",
+  export: "idle",
+  share: "idle",
+  bookmark: "idle",
+  followUp: "idle",
+};
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+
+/**
+ * useCopilotActions hook manages frontend actions for AI responses
+ * and integrates with CopilotKit for agent-triggered actions.
+ *
+ * Story 6-5: Frontend Actions
+ *
+ * Supported actions:
+ * - save_to_workspace: Save content to user's workspace
+ * - export_content: Export as markdown/PDF/JSON
+ * - share_content: Generate shareable link
+ * - bookmark_content: Save for quick access
+ * - follow_up_query: Pre-fill follow-up input
+ *
+ * @example
+ * ```tsx
+ * function ChatResponse({ content }: { content: ActionableContent }) {
+ *   const {
+ *     actionStates,
+ *     saveToWorkspace,
+ *     exportContent,
+ *     shareContent,
+ *     bookmarkContent,
+ *     triggerFollowUp,
+ *   } = useCopilotActions({
+ *     onSaveComplete: (result) => console.log("Saved:", result),
+ *   });
+ *
+ *   return (
+ *     <ActionButtons
+ *       content={content}
+ *       actionStates={actionStates}
+ *       onSave={saveToWorkspace}
+ *       onExport={exportContent}
+ *       onShare={shareContent}
+ *       onBookmark={bookmarkContent}
+ *       onFollowUp={triggerFollowUp}
+ *     />
+ *   );
+ * }
+ * ```
+ */
+export function useCopilotActions(
+  options: UseCopilotActionsOptions = {}
+): UseCopilotActionsReturn {
+  const {
+    tenantId,
+    onSaveComplete,
+    onExportComplete,
+    onShareComplete,
+    onBookmarkComplete,
+    onFollowUp,
+    successResetDelay = 2000,
+    errorResetDelay = 3000,
+  } = options;
+
+  const { toast } = useToast();
+  const [actionStates, setActionStates] = useState<ActionStates>(initialActionStates);
+  const resetTimersRef = useRef<Map<ActionType, NodeJS.Timeout>>(new Map());
+
+  /**
+   * Update state for a specific action with auto-reset.
+   */
+  const setActionState = useCallback(
+    (action: ActionType, state: ActionState) => {
+      setActionStates((prev) => ({ ...prev, [action]: state }));
+
+      // Clear existing timer for this action
+      const existingTimer = resetTimersRef.current.get(action);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+      }
+
+      // Auto-reset after success or error
+      if (state === "success" || state === "error") {
+        const delay = state === "success" ? successResetDelay : errorResetDelay;
+        const timer = setTimeout(() => {
+          setActionStates((prev) => ({ ...prev, [action]: "idle" }));
+        }, delay);
+        resetTimersRef.current.set(action, timer);
+      }
+    },
+    [successResetDelay, errorResetDelay]
+  );
+
+  /**
+   * Show toast notification.
+   */
+  const showToast = useCallback(
+    (
+      variant: "default" | "destructive",
+      title: string,
+      description?: string
+    ) => {
+      toast({
+        variant,
+        title,
+        description,
+      });
+    },
+    [toast]
+  );
+
+  /**
+   * Save content to workspace.
+   */
+  const saveToWorkspace = useCallback(
+    async (content: ActionableContent): Promise<void> => {
+      setActionState("save", "loading");
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/workspace/save`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content_id: content.id,
+            content: content.content,
+            title: content.title || `Response - ${new Date().toLocaleString()}`,
+            query: content.query,
+            sources: content.sources,
+            session_id: content.sessionId,
+            trajectory_id: content.trajectoryId,
+            tenant_id: tenantId,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.detail || "Failed to save content");
+        }
+
+        const data = await response.json();
+
+        setActionState("save", "success");
+        showToast("default", "Saved to workspace", "Content saved successfully");
+
+        const result: ActionResult = {
+          success: true,
+          message: "Content saved to workspace",
+          data: data.data,
+        };
+        onSaveComplete?.(result);
+      } catch (error) {
+        setActionState("save", "error");
+        const errorMessage =
+          error instanceof Error ? error.message : "Failed to save content";
+        showToast("destructive", "Save failed", errorMessage);
+
+        const result: ActionResult = {
+          success: false,
+          error: errorMessage,
+        };
+        onSaveComplete?.(result);
+      }
+    },
+    [tenantId, setActionState, showToast, onSaveComplete]
+  );
+
+  /**
+   * Export content in specified format.
+   */
+  const exportContent = useCallback(
+    async (content: ActionableContent, format: ExportFormat): Promise<void> => {
+      setActionState("export", "loading");
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/workspace/export`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content_id: content.id,
+            content: content.content,
+            title: content.title || "AI Response",
+            query: content.query,
+            sources: content.sources,
+            format,
+            tenant_id: tenantId,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.detail || "Failed to export content");
+        }
+
+        // Get filename and blob
+        const timestamp = new Date().toISOString().split("T")[0];
+        let blob: Blob;
+        let filename: string;
+
+        switch (format) {
+          case "markdown": {
+            const text = await response.text();
+            blob = new Blob([text], { type: "text/markdown" });
+            filename = `response-${timestamp}.md`;
+            break;
+          }
+          case "pdf": {
+            blob = await response.blob();
+            filename = `response-${timestamp}.pdf`;
+            break;
+          }
+          case "json": {
+            const json = await response.json();
+            blob = new Blob([JSON.stringify(json, null, 2)], {
+              type: "application/json",
+            });
+            filename = `response-${timestamp}.json`;
+            break;
+          }
+        }
+
+        // Trigger download
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        setActionState("export", "success");
+        showToast("default", "Export complete", `Downloaded as ${format.toUpperCase()}`);
+
+        const result: ActionResult = {
+          success: true,
+          message: `Exported as ${format}`,
+          data: { filename },
+        };
+        onExportComplete?.(result);
+      } catch (error) {
+        setActionState("export", "error");
+        const errorMessage =
+          error instanceof Error ? error.message : "Failed to export content";
+        showToast("destructive", "Export failed", errorMessage);
+
+        const result: ActionResult = {
+          success: false,
+          error: errorMessage,
+        };
+        onExportComplete?.(result);
+      }
+    },
+    [tenantId, setActionState, showToast, onExportComplete]
+  );
+
+  /**
+   * Share content and get shareable link.
+   */
+  const shareContent = useCallback(
+    async (content: ActionableContent): Promise<string> => {
+      setActionState("share", "loading");
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/workspace/share`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content_id: content.id,
+            content: content.content,
+            title: content.title || "Shared AI Response",
+            query: content.query,
+            sources: content.sources,
+            session_id: content.sessionId,
+            tenant_id: tenantId,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.detail || "Failed to create share link");
+        }
+
+        const data = await response.json();
+        const shareUrl = data.data?.share_url || data.share_url;
+
+        // Copy to clipboard
+        await navigator.clipboard.writeText(shareUrl);
+
+        setActionState("share", "success");
+        showToast("default", "Link copied!", "Shareable link copied to clipboard");
+
+        const result: ActionResult = {
+          success: true,
+          message: "Share link created and copied",
+          data: { shareUrl },
+        };
+        onShareComplete?.(result, shareUrl);
+
+        return shareUrl;
+      } catch (error) {
+        setActionState("share", "error");
+        const errorMessage =
+          error instanceof Error ? error.message : "Failed to create share link";
+        showToast("destructive", "Share failed", errorMessage);
+
+        const result: ActionResult = {
+          success: false,
+          error: errorMessage,
+        };
+        onShareComplete?.(result, "");
+
+        throw error;
+      }
+    },
+    [tenantId, setActionState, showToast, onShareComplete]
+  );
+
+  /**
+   * Bookmark content.
+   */
+  const bookmarkContent = useCallback(
+    async (content: ActionableContent): Promise<void> => {
+      setActionState("bookmark", "loading");
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/workspace/bookmark`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content_id: content.id,
+            content: content.content,
+            title: content.title || "Bookmarked Response",
+            query: content.query,
+            session_id: content.sessionId,
+            tenant_id: tenantId,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.detail || "Failed to bookmark content");
+        }
+
+        setActionState("bookmark", "success");
+        showToast("default", "Bookmarked", "Response added to bookmarks");
+
+        const result: ActionResult = {
+          success: true,
+          message: "Content bookmarked",
+        };
+        onBookmarkComplete?.(result);
+      } catch (error) {
+        setActionState("bookmark", "error");
+        const errorMessage =
+          error instanceof Error ? error.message : "Failed to bookmark content";
+        showToast("destructive", "Bookmark failed", errorMessage);
+
+        const result: ActionResult = {
+          success: false,
+          error: errorMessage,
+        };
+        onBookmarkComplete?.(result);
+      }
+    },
+    [tenantId, setActionState, showToast, onBookmarkComplete]
+  );
+
+  /**
+   * Trigger follow-up query.
+   */
+  const triggerFollowUp = useCallback(
+    (content: ActionableContent): void => {
+      // Generate suggested follow-up based on content
+      const suggestedQuery = `Following up on "${content.query || "the previous response"}": `;
+
+      if (onFollowUp) {
+        onFollowUp(suggestedQuery, content);
+      } else {
+        // Default behavior: dispatch event for chat input to capture
+        document.dispatchEvent(
+          new CustomEvent("copilot:follow-up", {
+            detail: {
+              suggestedQuery,
+              context: content,
+            },
+          })
+        );
+      }
+    },
+    [onFollowUp]
+  );
+
+  /**
+   * Reset all action states.
+   */
+  const resetStates = useCallback(() => {
+    // Clear all timers
+    for (const timer of resetTimersRef.current.values()) {
+      clearTimeout(timer);
+    }
+    resetTimersRef.current.clear();
+
+    // Reset states
+    setActionStates(initialActionStates);
+  }, []);
+
+  // ============================================================================
+  // Register CopilotKit actions for agent-triggered operations
+  // ============================================================================
+
+  // Save to Workspace Action
+  useCopilotAction({
+    name: "save_to_workspace",
+    description: "Save the AI response to the user's workspace for later reference",
+    parameters: [
+      {
+        name: "content_id",
+        type: "string",
+        description: "Unique ID of the content to save",
+        required: true,
+      },
+      {
+        name: "content",
+        type: "string",
+        description: "The content to save",
+        required: true,
+      },
+      {
+        name: "title",
+        type: "string",
+        description: "Optional title for the saved content",
+        required: false,
+      },
+    ],
+    handler: async ({ content_id, content: contentText, title }) => {
+      const actionableContent: ActionableContent = {
+        id: content_id,
+        content: contentText,
+        title,
+      };
+      await saveToWorkspace(actionableContent);
+      return { success: true, action: "save_to_workspace" };
+    },
+  });
+
+  // Export Content Action
+  useCopilotAction({
+    name: "export_content",
+    description: "Export the AI response in a specified format (markdown, pdf, json)",
+    parameters: [
+      {
+        name: "content_id",
+        type: "string",
+        description: "Unique ID of the content to export",
+        required: true,
+      },
+      {
+        name: "content",
+        type: "string",
+        description: "The content to export",
+        required: true,
+      },
+      {
+        name: "format",
+        type: "string",
+        description: "Export format: markdown, pdf, or json",
+        required: true,
+      },
+    ],
+    handler: async ({ content_id, content: contentText, format }) => {
+      const actionableContent: ActionableContent = {
+        id: content_id,
+        content: contentText,
+      };
+      await exportContent(actionableContent, format as ExportFormat);
+      return { success: true, action: "export_content", format };
+    },
+  });
+
+  // Share Content Action
+  useCopilotAction({
+    name: "share_content",
+    description: "Generate a shareable link for the AI response",
+    parameters: [
+      {
+        name: "content_id",
+        type: "string",
+        description: "Unique ID of the content to share",
+        required: true,
+      },
+      {
+        name: "content",
+        type: "string",
+        description: "The content to share",
+        required: true,
+      },
+    ],
+    handler: async ({ content_id, content: contentText }) => {
+      const actionableContent: ActionableContent = {
+        id: content_id,
+        content: contentText,
+      };
+      const shareUrl = await shareContent(actionableContent);
+      return { success: true, action: "share_content", shareUrl };
+    },
+  });
+
+  // Bookmark Content Action
+  useCopilotAction({
+    name: "bookmark_content",
+    description: "Bookmark the AI response for quick access later",
+    parameters: [
+      {
+        name: "content_id",
+        type: "string",
+        description: "Unique ID of the content to bookmark",
+        required: true,
+      },
+      {
+        name: "content",
+        type: "string",
+        description: "The content to bookmark",
+        required: true,
+      },
+    ],
+    handler: async ({ content_id, content: contentText }) => {
+      const actionableContent: ActionableContent = {
+        id: content_id,
+        content: contentText,
+      };
+      await bookmarkContent(actionableContent);
+      return { success: true, action: "bookmark_content" };
+    },
+  });
+
+  // Follow-up Query Action
+  useCopilotAction({
+    name: "suggest_follow_up",
+    description: "Suggest a follow-up query based on the current response",
+    parameters: [
+      {
+        name: "suggested_query",
+        type: "string",
+        description: "The suggested follow-up query",
+        required: true,
+      },
+      {
+        name: "context",
+        type: "string",
+        description: "Context from the current response",
+        required: false,
+      },
+    ],
+    handler: async ({ suggested_query, context }) => {
+      document.dispatchEvent(
+        new CustomEvent("copilot:follow-up", {
+          detail: {
+            suggestedQuery: suggested_query,
+            context: { id: "suggested", content: context || "" },
+          },
+        })
+      );
+      return { success: true, action: "suggest_follow_up" };
+    },
+  });
+
+  // Compute loading state
+  const isLoading = Object.values(actionStates).some(
+    (state) => state === "loading"
+  );
+
+  return {
+    actionStates,
+    saveToWorkspace,
+    exportContent,
+    shareContent,
+    bookmarkContent,
+    triggerFollowUp,
+    resetStates,
+    isLoading,
+  };
+}
+
+export default useCopilotActions;
+        ]]>
+      </implementation>
+      <key-points>
+        <![CDATA[
+        - Registers 5 CopilotKit actions: save, export, share, bookmark, follow-up
+        - Each action has loading/success/error states with auto-reset
+        - Toast notifications for user feedback
+        - API calls to backend endpoints using fetch
+        - Export triggers file download via blob URL
+        - Share copies link to clipboard using navigator.clipboard
+        - Follow-up dispatches custom event "copilot:follow-up"
+        - Agent can trigger actions programmatically via handler
+        - State auto-resets: 2s for success, 3s for error
+        ]]>
+      </key-points>
+    </step-3>
+
+    <step-4>
+      <title>Create ActionButtons Component</title>
+      <file>frontend/components/copilot/ActionButtons.tsx</file>
+      <implementation>
+        <![CDATA[
+"use client";
+
+import { memo, useState, useCallback } from "react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  Save,
+  Download,
+  Share2,
+  Bookmark,
+  MessageSquarePlus,
+  Loader2,
+  Check,
+  X,
+  FileText,
+  FileJson,
+  FileType,
+  ChevronDown,
+} from "lucide-react";
+import type { ActionState, ActionType } from "@/hooks/use-copilot-actions";
+import type { ActionableContent, ExportFormat } from "@/types/copilot";
+
+interface ActionButtonsProps {
+  /** Content to perform actions on */
+  content: ActionableContent;
+  /** Current state of each action */
+  actionStates: Record<ActionType, ActionState>;
+  /** Callback to save content to workspace */
+  onSave: (content: ActionableContent) => Promise<void>;
+  /** Callback to export content */
+  onExport: (content: ActionableContent, format: ExportFormat) => Promise<void>;
+  /** Callback to share content */
+  onShare: (content: ActionableContent) => Promise<string>;
+  /** Callback to bookmark content */
+  onBookmark: (content: ActionableContent) => Promise<void>;
+  /** Callback to trigger follow-up query */
+  onFollowUp: (content: ActionableContent) => void;
+  /** Whether actions are disabled */
+  disabled?: boolean;
+  /** Optional class name */
+  className?: string;
+  /** Compact mode for smaller button size */
+  compact?: boolean;
+}
+
+/**
+ * Get icon for action state.
+ */
+function getStateIcon(
+  state: ActionState,
+  defaultIcon: React.ReactNode
+): React.ReactNode {
+  switch (state) {
+    case "loading":
+      return <Loader2 className="h-4 w-4 animate-spin" />;
+    case "success":
+      return <Check className="h-4 w-4 text-emerald-500" />;
+    case "error":
+      return <X className="h-4 w-4 text-red-500" />;
+    default:
+      return defaultIcon;
+  }
+}
+
+/**
+ * ActionButtons provides a row of action buttons for AI responses.
+ *
+ * Story 6-5: Frontend Actions
+ *
+ * Actions:
+ * - Save: Save content to user's workspace
+ * - Export: Download as markdown/PDF/JSON
+ * - Share: Generate shareable link
+ * - Bookmark: Quick-access bookmark
+ * - Follow-up: Pre-fill follow-up query
+ *
+ * Design System:
+ * - Indigo-600 (#4F46E5) for primary actions (hover state)
+ * - Emerald-500 (#10B981) for success state
+ * - Red-500 (#EF4444) for error state
+ * - Amber-500 (#F59E0B) for bookmark active state
+ * - Slate for neutral/secondary
+ *
+ * @example
+ * ```tsx
+ * <ActionButtons
+ *   content={{ id: "1", content: "AI response...", query: "What is..." }}
+ *   actionStates={actionStates}
+ *   onSave={handleSave}
+ *   onExport={handleExport}
+ *   onShare={handleShare}
+ *   onBookmark={handleBookmark}
+ *   onFollowUp={handleFollowUp}
+ * />
+ * ```
+ */
+export const ActionButtons = memo(function ActionButtons({
+  content,
+  actionStates,
+  onSave,
+  onExport,
+  onShare,
+  onBookmark,
+  onFollowUp,
+  disabled = false,
+  className,
+  compact = false,
+}: ActionButtonsProps) {
+  const [isBookmarked, setIsBookmarked] = useState(false);
+
+  // Handle save action
+  const handleSave = useCallback(async () => {
+    await onSave(content);
+  }, [content, onSave]);
+
+  // Handle export action
+  const handleExport = useCallback(
+    async (format: ExportFormat) => {
+      await onExport(content, format);
+    },
+    [content, onExport]
+  );
+
+  // Handle share action
+  const handleShare = useCallback(async () => {
+    await onShare(content);
+  }, [content, onShare]);
+
+  // Handle bookmark action
+  const handleBookmark = useCallback(async () => {
+    await onBookmark(content);
+    setIsBookmarked((prev) => !prev);
+  }, [content, onBookmark]);
+
+  // Handle follow-up action
+  const handleFollowUp = useCallback(() => {
+    onFollowUp(content);
+  }, [content, onFollowUp]);
+
+  const buttonSize = compact ? "sm" : "default";
+  const iconSize = compact ? "h-3.5 w-3.5" : "h-4 w-4";
+
+  return (
+    <TooltipProvider delayDuration={300}>
+      <div
+        className={cn(
+          "flex items-center gap-1 flex-wrap",
+          compact ? "gap-0.5" : "gap-1",
+          className
+        )}
+        role="toolbar"
+        aria-label="Response actions"
+      >
+        {/* Save to Workspace */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size={buttonSize}
+              onClick={handleSave}
+              disabled={disabled || actionStates.save === "loading"}
+              className={cn(
+                "text-slate-600 hover:text-indigo-600 hover:bg-indigo-50",
+                actionStates.save === "success" && "text-emerald-600",
+                actionStates.save === "error" && "text-red-600"
+              )}
+              aria-label="Save to workspace"
+            >
+              {getStateIcon(
+                actionStates.save,
+                <Save className={iconSize} />
+              )}
+              {!compact && <span className="ml-1.5">Save</span>}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Save to workspace</p>
+          </TooltipContent>
+        </Tooltip>
+
+        {/* Export Dropdown */}
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size={buttonSize}
+                  disabled={disabled || actionStates.export === "loading"}
+                  className={cn(
+                    "text-slate-600 hover:text-indigo-600 hover:bg-indigo-50",
+                    actionStates.export === "success" && "text-emerald-600",
+                    actionStates.export === "error" && "text-red-600"
+                  )}
+                  aria-label="Export content"
+                >
+                  {getStateIcon(
+                    actionStates.export,
+                    <Download className={iconSize} />
+                  )}
+                  {!compact && (
+                    <>
+                      <span className="ml-1.5">Export</span>
+                      <ChevronDown className="h-3 w-3 ml-0.5" />
+                    </>
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Export content</p>
+            </TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onClick={() => handleExport("markdown")}>
+              <FileText className="h-4 w-4 mr-2" />
+              Markdown (.md)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleExport("pdf")}>
+              <FileType className="h-4 w-4 mr-2" />
+              PDF Document
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleExport("json")}>
+              <FileJson className="h-4 w-4 mr-2" />
+              JSON Data
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Share */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size={buttonSize}
+              onClick={handleShare}
+              disabled={disabled || actionStates.share === "loading"}
+              className={cn(
+                "text-slate-600 hover:text-indigo-600 hover:bg-indigo-50",
+                actionStates.share === "success" && "text-emerald-600",
+                actionStates.share === "error" && "text-red-600"
+              )}
+              aria-label="Share response"
+            >
+              {getStateIcon(
+                actionStates.share,
+                <Share2 className={iconSize} />
+              )}
+              {!compact && <span className="ml-1.5">Share</span>}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Copy shareable link</p>
+          </TooltipContent>
+        </Tooltip>
+
+        {/* Bookmark */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size={buttonSize}
+              onClick={handleBookmark}
+              disabled={disabled || actionStates.bookmark === "loading"}
+              className={cn(
+                "text-slate-600 hover:text-indigo-600 hover:bg-indigo-50",
+                (actionStates.bookmark === "success" || isBookmarked) &&
+                  "text-amber-500",
+                actionStates.bookmark === "error" && "text-red-600"
+              )}
+              aria-label={isBookmarked ? "Remove bookmark" : "Bookmark response"}
+              aria-pressed={isBookmarked}
+            >
+              {getStateIcon(
+                actionStates.bookmark,
+                <Bookmark
+                  className={cn(iconSize, isBookmarked && "fill-current")}
+                />
+              )}
+              {!compact && <span className="ml-1.5">Bookmark</span>}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{isBookmarked ? "Remove bookmark" : "Bookmark for later"}</p>
+          </TooltipContent>
+        </Tooltip>
+
+        {/* Follow-up Query */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size={buttonSize}
+              onClick={handleFollowUp}
+              disabled={disabled}
+              className="text-slate-600 hover:text-indigo-600 hover:bg-indigo-50"
+              aria-label="Ask follow-up question"
+            >
+              <MessageSquarePlus className={iconSize} />
+              {!compact && <span className="ml-1.5">Follow-up</span>}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Ask a follow-up question</p>
+          </TooltipContent>
+        </Tooltip>
+      </div>
+    </TooltipProvider>
+  );
+});
+
+export default ActionButtons;
+        ]]>
+      </implementation>
+      <key-points>
+        <![CDATA[
+        - Row of action buttons with consistent styling
+        - Dropdown menu for export format selection (markdown, PDF, JSON)
+        - Loading, success, and error states for each action (icon changes)
+        - Tooltips for accessibility and guidance
+        - Compact mode for space-constrained layouts (no labels, smaller icons)
+        - Bookmark toggle state visual feedback (amber fill when active)
+        - Design system colors: Indigo-600 hover, Emerald-500 success, Red-500 error
+        - Keyboard accessible via Button component
+        ]]>
+      </key-points>
+    </step-4>
+
+    <step-5>
+      <title>Create ActionPanel Component</title>
+      <file>frontend/components/copilot/ActionPanel.tsx</file>
+      <implementation>
+        <![CDATA[
+"use client";
+
+import { memo } from "react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import {
+  History,
+  Save,
+  Download,
+  Share2,
+  Bookmark,
+  MessageSquarePlus,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  ChevronRight,
+} from "lucide-react";
+import type { ActionType } from "@/hooks/use-copilot-actions";
+
+/**
+ * Action history entry.
+ */
+export interface ActionHistoryEntry {
+  id: string;
+  type: ActionType;
+  timestamp: Date;
+  status: "success" | "error";
+  contentTitle?: string;
+  details?: string;
+  errorMessage?: string;
+}
+
+/**
+ * Get icon for action type.
+ */
+function getActionIcon(type: ActionType): React.ReactNode {
+  const iconClass = "h-4 w-4";
+  switch (type) {
+    case "save":
+      return <Save className={iconClass} />;
+    case "export":
+      return <Download className={iconClass} />;
+    case "share":
+      return <Share2 className={iconClass} />;
+    case "bookmark":
+      return <Bookmark className={iconClass} />;
+    case "followUp":
+      return <MessageSquarePlus className={iconClass} />;
+    default:
+      return <Clock className={iconClass} />;
+  }
+}
+
+/**
+ * Get label for action type.
+ */
+function getActionLabel(type: ActionType): string {
+  switch (type) {
+    case "save":
+      return "Saved to Workspace";
+    case "export":
+      return "Exported Content";
+    case "share":
+      return "Shared Link";
+    case "bookmark":
+      return "Bookmarked";
+    case "followUp":
+      return "Follow-up Query";
+    default:
+      return "Action";
+  }
+}
+
+/**
+ * Format relative time.
+ */
+function formatRelativeTime(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHour = Math.floor(diffMin / 60);
+
+  if (diffSec < 60) return "Just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHour < 24) return `${diffHour}h ago`;
+  return date.toLocaleDateString();
+}
+
+interface ActionPanelProps {
+  /** Action history entries */
+  history: ActionHistoryEntry[];
+  /** Callback to clear history */
+  onClearHistory?: () => void;
+  /** Callback when clicking an entry */
+  onEntryClick?: (entry: ActionHistoryEntry) => void;
+  /** Optional class name */
+  className?: string;
+}
+
+/**
+ * ActionPanel shows action history and status in a slide-out sheet.
+ *
+ * Story 6-5: Frontend Actions
+ *
+ * Features:
+ * - Action history with timestamps
+ * - Success/error status for each action
+ * - Clear history option
+ * - Click to view action details
+ *
+ * @example
+ * ```tsx
+ * <ActionPanel
+ *   history={actionHistory}
+ *   onClearHistory={() => setActionHistory([])}
+ * />
+ * ```
+ */
+export const ActionPanel = memo(function ActionPanel({
+  history,
+  onClearHistory,
+  onEntryClick,
+  className,
+}: ActionPanelProps) {
+  const successCount = history.filter((e) => e.status === "success").length;
+  const errorCount = history.filter((e) => e.status === "error").length;
+
+  return (
+    <Sheet>
+      <SheetTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(
+            "gap-2 text-slate-600 hover:text-indigo-600",
+            className
+          )}
+          aria-label="View action history"
+        >
+          <History className="h-4 w-4" />
+          <span>Actions</span>
+          {history.length > 0 && (
+            <Badge variant="secondary" className="ml-1 h-5 min-w-[20px] px-1">
+              {history.length}
+            </Badge>
+          )}
+        </Button>
+      </SheetTrigger>
+      <SheetContent className="w-[400px] sm:w-[540px]">
+        <SheetHeader>
+          <SheetTitle className="flex items-center gap-2">
+            <History className="h-5 w-5" />
+            Action History
+          </SheetTitle>
+          <SheetDescription>
+            Recent actions performed on AI responses
+          </SheetDescription>
+        </SheetHeader>
+
+        {/* Statistics */}
+        <div className="flex items-center gap-4 py-4 border-b border-slate-100">
+          <Badge
+            variant="outline"
+            className="bg-emerald-50 text-emerald-700 border-emerald-200"
+          >
+            <CheckCircle2 className="h-3 w-3 mr-1" />
+            {successCount} successful
+          </Badge>
+          {errorCount > 0 && (
+            <Badge
+              variant="outline"
+              className="bg-red-50 text-red-700 border-red-200"
+            >
+              <XCircle className="h-3 w-3 mr-1" />
+              {errorCount} failed
+            </Badge>
+          )}
+          {onClearHistory && history.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onClearHistory}
+              className="ml-auto text-slate-500 hover:text-slate-700"
+            >
+              Clear
+            </Button>
+          )}
+        </div>
+
+        {/* History list */}
+        <ScrollArea className="h-[calc(100vh-200px)] pr-4">
+          {history.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-slate-500">
+              <Clock className="h-12 w-12 mb-4 text-slate-300" />
+              <p className="text-sm">No actions yet</p>
+              <p className="text-xs text-slate-400 mt-1">
+                Actions will appear here as you interact with responses
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2 py-4">
+              {history.map((entry) => (
+                <button
+                  key={entry.id}
+                  onClick={() => onEntryClick?.(entry)}
+                  className={cn(
+                    "w-full flex items-start gap-3 p-3 rounded-lg border transition-colors text-left",
+                    entry.status === "success"
+                      ? "border-slate-200 hover:border-emerald-200 hover:bg-emerald-50/30"
+                      : "border-red-200 bg-red-50/30 hover:bg-red-50/50"
+                  )}
+                >
+                  {/* Status icon */}
+                  <div
+                    className={cn(
+                      "flex-shrink-0 p-2 rounded-full",
+                      entry.status === "success"
+                        ? "bg-emerald-100 text-emerald-600"
+                        : "bg-red-100 text-red-600"
+                    )}
+                  >
+                    {getActionIcon(entry.type)}
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-sm text-slate-900">
+                        {getActionLabel(entry.type)}
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        {formatRelativeTime(entry.timestamp)}
+                      </span>
+                    </div>
+                    {entry.contentTitle && (
+                      <p className="text-sm text-slate-600 truncate mt-0.5">
+                        {entry.contentTitle}
+                      </p>
+                    )}
+                    {entry.details && (
+                      <p className="text-xs text-slate-500 mt-1">
+                        {entry.details}
+                      </p>
+                    )}
+                    {entry.status === "error" && entry.errorMessage && (
+                      <p className="text-xs text-red-600 mt-1">
+                        {entry.errorMessage}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Arrow */}
+                  <ChevronRight className="h-4 w-4 text-slate-400 flex-shrink-0 mt-2" />
+                </button>
+              ))}
+            </div>
+          )}
+        </ScrollArea>
+      </SheetContent>
+    </Sheet>
+  );
+});
+
+export default ActionPanel;
+        ]]>
+      </implementation>
+      <key-points>
+        <![CDATA[
+        - Slide-out Sheet component (shadcn/ui)
+        - Trigger button with badge showing action count
+        - Statistics bar: successful vs failed counts
+        - Clear history option
+        - Empty state with helpful message
+        - History entries with relative timestamps
+        - Different styling for success vs error entries
+        - Clickable entries for viewing details
+        ]]>
+      </key-points>
+    </step-5>
+
+    <step-6>
+      <title>Update Types</title>
+      <file>frontend/types/copilot.ts</file>
+      <changes>
+        <![CDATA[
+// Add these types to the existing frontend/types/copilot.ts file
+
+// ============================================
+// FRONTEND ACTIONS TYPES - Story 6-5
+// ============================================
+
+/**
+ * Action types supported by the system.
+ */
+export type ActionType = "save" | "export" | "share" | "bookmark" | "followUp";
+
+/**
+ * State of an action.
+ */
+export type ActionState = "idle" | "loading" | "success" | "error";
+
+/**
+ * Export format options.
+ */
+export type ExportFormat = "markdown" | "pdf" | "json";
+
+/**
+ * Content that can be actioned upon.
+ */
+export interface ActionableContent {
+  /** Unique ID for this content */
+  id: string;
+  /** The response text/content */
+  content: string;
+  /** Optional title for saved content */
+  title?: string;
+  /** Original query that generated this response */
+  query?: string;
+  /** Sources used in generating the response */
+  sources?: Source[];
+  /** Timestamp of the response */
+  timestamp?: string;
+  /** Session/conversation ID */
+  sessionId?: string;
+  /** Trajectory ID for this response */
+  trajectoryId?: string;
+}
+
+/**
+ * Result of an action operation.
+ */
+export interface ActionResult {
+  success: boolean;
+  message?: string;
+  data?: unknown;
+  error?: string;
+}
+
+/**
+ * Response from save endpoint.
+ */
+export interface SaveContentResponse {
+  id: string;
+  contentId: string;
+  title: string;
+  savedAt: string;
+  workspacePath: string;
+}
+
+/**
+ * Response from share endpoint.
+ */
+export interface ShareContentResponse {
+  shareId: string;
+  shareUrl: string;
+  expiresAt?: string;
+}
+
+/**
+ * Response from bookmark endpoint.
+ */
+export interface BookmarkResponse {
+  bookmarkId: string;
+  contentId: string;
+  title: string;
+  createdAt: string;
+}
+
+/**
+ * Bookmark list item.
+ */
+export interface BookmarkListItem {
+  bookmarkId: string;
+  contentId: string;
+  title: string;
+  preview: string;
+  query?: string;
+  createdAt: string;
+}
+
+// Zod schemas for validation
+export const ActionTypeSchema = z.enum([
+  "save",
+  "export",
+  "share",
+  "bookmark",
+  "followUp",
+]);
+
+export const ActionStateSchema = z.enum([
+  "idle",
+  "loading",
+  "success",
+  "error",
+]);
+
+export const ExportFormatSchema = z.enum(["markdown", "pdf", "json"]);
+
+export const ActionableContentSchema = z.object({
+  id: z.string(),
+  content: z.string(),
+  title: z.string().optional(),
+  query: z.string().optional(),
+  sources: z.array(SourceSchema).optional(),
+  timestamp: z.string().optional(),
+  sessionId: z.string().optional(),
+  trajectoryId: z.string().optional(),
+});
+
+export const ActionResultSchema = z.object({
+  success: z.boolean(),
+  message: z.string().optional(),
+  data: z.unknown().optional(),
+  error: z.string().optional(),
+});
+
+export const SaveContentResponseSchema = z.object({
+  id: z.string(),
+  contentId: z.string(),
+  title: z.string(),
+  savedAt: z.string(),
+  workspacePath: z.string(),
+});
+
+export const ShareContentResponseSchema = z.object({
+  shareId: z.string(),
+  shareUrl: z.string(),
+  expiresAt: z.string().optional(),
+});
+
+export const BookmarkResponseSchema = z.object({
+  bookmarkId: z.string(),
+  contentId: z.string(),
+  title: z.string(),
+  createdAt: z.string(),
+});
+        ]]>
+      </changes>
+      <key-points>
+        <![CDATA[
+        - ActionType: 5 action types
+        - ActionState: 4 states (idle, loading, success, error)
+        - ExportFormat: 3 export formats
+        - ActionableContent: Content with all context for actions
+        - ActionResult: Standardized result format
+        - Response types for save, share, bookmark endpoints
+        - Zod schemas for runtime validation
+        ]]>
+      </key-points>
+    </step-6>
+
+    <step-7>
+      <title>Create Backend Workspace Endpoints</title>
+      <file>backend/src/agentic_rag_backend/api/routes/workspace.py</file>
+      <implementation>
+        <![CDATA[
+"""
+Workspace API routes for frontend actions.
+
+Story 6-5: Frontend Actions
+
+Endpoints:
+- POST /workspace/save - Save content to workspace
+- POST /workspace/export - Export content in various formats
+- POST /workspace/share - Generate shareable link
+- POST /workspace/bookmark - Bookmark content
+- GET /workspace/bookmarks - List bookmarks
+- DELETE /workspace/bookmark/{bookmark_id} - Delete bookmark
+"""
+
+from datetime import datetime
+from typing import List, Optional
+from uuid import uuid4
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+import io
+
+router = APIRouter(prefix="/workspace", tags=["workspace"])
+
+
+# ============================================================================
+# Request/Response Models
+# ============================================================================
+
+
+class SourceReference(BaseModel):
+    """Reference to a source used in content."""
+
+    id: str
+    title: str
+    url: Optional[str] = None
+
+
+class SaveContentRequest(BaseModel):
+    """Request to save content to workspace."""
+
+    content_id: str = Field(..., description="Unique ID of the content")
+    content: str = Field(..., description="The content to save")
+    title: str = Field(..., description="Title for the saved content")
+    query: Optional[str] = Field(None, description="Original query")
+    sources: Optional[List[SourceReference]] = Field(None, description="Source references")
+    session_id: Optional[str] = Field(None, description="Session ID")
+    trajectory_id: Optional[str] = Field(None, description="Trajectory ID")
+    tenant_id: Optional[str] = Field(None, description="Tenant ID for multi-tenancy")
+
+
+class SaveContentResponse(BaseModel):
+    """Response after saving content."""
+
+    id: str
+    content_id: str
+    title: str
+    saved_at: datetime
+    workspace_path: str
+
+
+class ExportContentRequest(BaseModel):
+    """Request to export content."""
+
+    content_id: str = Field(..., description="Unique ID of the content")
+    content: str = Field(..., description="The content to export")
+    title: str = Field(..., description="Title for export")
+    query: Optional[str] = Field(None, description="Original query")
+    sources: Optional[List[SourceReference]] = Field(None, description="Source references")
+    format: str = Field(..., description="Export format: markdown, pdf, json")
+    tenant_id: Optional[str] = Field(None, description="Tenant ID")
+
+
+class ShareContentRequest(BaseModel):
+    """Request to share content."""
+
+    content_id: str = Field(..., description="Unique ID of the content")
+    content: str = Field(..., description="The content to share")
+    title: str = Field(..., description="Title for shared content")
+    query: Optional[str] = Field(None, description="Original query")
+    sources: Optional[List[SourceReference]] = Field(None, description="Source references")
+    session_id: Optional[str] = Field(None, description="Session ID")
+    tenant_id: Optional[str] = Field(None, description="Tenant ID")
+
+
+class ShareContentResponse(BaseModel):
+    """Response with shareable link."""
+
+    share_id: str
+    share_url: str
+    expires_at: Optional[datetime] = None
+
+
+class BookmarkRequest(BaseModel):
+    """Request to bookmark content."""
+
+    content_id: str = Field(..., description="Unique ID of the content")
+    content: str = Field(..., description="Content preview")
+    title: str = Field(..., description="Bookmark title")
+    query: Optional[str] = Field(None, description="Original query")
+    session_id: Optional[str] = Field(None, description="Session ID")
+    tenant_id: Optional[str] = Field(None, description="Tenant ID")
+
+
+class BookmarkResponse(BaseModel):
+    """Response after bookmarking."""
+
+    bookmark_id: str
+    content_id: str
+    title: str
+    created_at: datetime
+
+
+class BookmarkListItem(BaseModel):
+    """Item in bookmark list."""
+
+    bookmark_id: str
+    content_id: str
+    title: str
+    preview: str
+    query: Optional[str] = None
+    created_at: datetime
+
+
+# ============================================================================
+# API Response Wrapper (per project conventions)
+# ============================================================================
+
+
+def wrap_response(data: dict) -> dict:
+    """Wrap response data per project API conventions."""
+    return {
+        "data": data,
+        "meta": {
+            "requestId": str(uuid4()),
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+    }
+
+
+# ============================================================================
+# Endpoints
+# ============================================================================
+
+
+@router.post("/save")
+async def save_to_workspace(request: SaveContentRequest) -> dict:
+    """
+    Save content to user's workspace.
+
+    Story 6-5: Frontend Actions
+
+    This endpoint saves AI-generated content to the user's workspace
+    for later reference. Content is stored with metadata including
+    the original query, sources, and trajectory ID.
+    """
+    # TODO: Implement actual persistence to database
+    # For now, return mock response
+
+    saved_id = str(uuid4())
+    workspace_path = f"/workspace/{request.tenant_id or 'default'}/{saved_id}"
+
+    # Log action to trajectory if trajectory_id provided
+    if request.trajectory_id:
+        # TODO: Log to trajectory system
+        pass
+
+    response = SaveContentResponse(
+        id=saved_id,
+        content_id=request.content_id,
+        title=request.title,
+        saved_at=datetime.utcnow(),
+        workspace_path=workspace_path,
+    )
+
+    return wrap_response(response.model_dump())
+
+
+@router.post("/export")
+async def export_content(request: ExportContentRequest):
+    """
+    Export content in specified format.
+
+    Story 6-5: Frontend Actions
+
+    Supported formats:
+    - markdown: Plain text with markdown formatting
+    - pdf: PDF document (placeholder - returns 501)
+    - json: Structured JSON data
+    """
+    if request.format == "markdown":
+        # Generate markdown content
+        md_content = f"# {request.title}\n\n"
+        if request.query:
+            md_content += f"**Query:** {request.query}\n\n"
+        md_content += f"{request.content}\n\n"
+
+        if request.sources:
+            md_content += "## Sources\n\n"
+            for idx, source in enumerate(request.sources, 1):
+                url_part = f" - [{source.url}]({source.url})" if source.url else ""
+                md_content += f"{idx}. {source.title}{url_part}\n"
+
+        md_content += f"\n---\n*Exported on {datetime.utcnow().isoformat()}*\n"
+
+        return StreamingResponse(
+            io.BytesIO(md_content.encode("utf-8")),
+            media_type="text/markdown",
+            headers={
+                "Content-Disposition": f'attachment; filename="{request.title}.md"'
+            },
+        )
+
+    elif request.format == "pdf":
+        # TODO: Implement PDF generation (requires reportlab or similar)
+        raise HTTPException(
+            status_code=501,
+            detail="PDF export not yet implemented. Please use markdown format.",
+        )
+
+    elif request.format == "json":
+        # Generate JSON export
+        export_data = {
+            "id": request.content_id,
+            "title": request.title,
+            "content": request.content,
+            "query": request.query,
+            "sources": [s.model_dump() for s in (request.sources or [])],
+            "exported_at": datetime.utcnow().isoformat(),
+            "tenant_id": request.tenant_id,
+        }
+
+        return wrap_response(export_data)
+
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported export format: {request.format}. Supported: markdown, pdf, json",
+        )
+
+
+@router.post("/share")
+async def share_content(request: ShareContentRequest) -> dict:
+    """
+    Generate a shareable link for content.
+
+    Story 6-5: Frontend Actions
+
+    Creates a shareable link that allows others to view the AI response.
+    Links can optionally have expiration dates.
+    """
+    # TODO: Implement actual share link persistence
+    # For now, return mock response
+
+    share_id = str(uuid4())[:8]  # Short ID for URL
+
+    # Generate shareable URL
+    # In production, this would use the configured domain
+    base_url = "https://app.example.com"
+    share_url = f"{base_url}/share/{share_id}"
+
+    response = ShareContentResponse(
+        share_id=share_id,
+        share_url=share_url,
+        expires_at=None,  # No expiration by default
+    )
+
+    return wrap_response(response.model_dump())
+
+
+@router.post("/bookmark")
+async def bookmark_content(request: BookmarkRequest) -> dict:
+    """
+    Bookmark content for quick access.
+
+    Story 6-5: Frontend Actions
+
+    Bookmarks are stored per-user and can be retrieved via GET /bookmarks.
+    """
+    # TODO: Implement actual bookmark persistence
+    # For now, return mock response
+
+    bookmark_id = str(uuid4())
+
+    response = BookmarkResponse(
+        bookmark_id=bookmark_id,
+        content_id=request.content_id,
+        title=request.title,
+        created_at=datetime.utcnow(),
+    )
+
+    return wrap_response(response.model_dump())
+
+
+@router.get("/bookmarks")
+async def list_bookmarks(
+    tenant_id: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict:
+    """
+    List user's bookmarks.
+
+    Story 6-5: Frontend Actions
+    """
+    # TODO: Implement actual bookmark retrieval
+    # For now, return empty list
+
+    return wrap_response({"bookmarks": [], "total": 0})
+
+
+@router.delete("/bookmark/{bookmark_id}")
+async def delete_bookmark(bookmark_id: str, tenant_id: Optional[str] = None) -> dict:
+    """
+    Delete a bookmark.
+
+    Story 6-5: Frontend Actions
+    """
+    # TODO: Implement actual bookmark deletion
+    # For now, return success
+
+    return wrap_response({"success": True, "bookmark_id": bookmark_id})
+        ]]>
+      </implementation>
+      <key-points>
+        <![CDATA[
+        - POST /workspace/save - Returns SaveContentResponse with workspace path
+        - POST /workspace/export - Returns file download (markdown/PDF/JSON)
+        - POST /workspace/share - Returns ShareContentResponse with shareable URL
+        - POST /workspace/bookmark - Returns BookmarkResponse
+        - GET /workspace/bookmarks - Returns paginated bookmark list
+        - DELETE /workspace/bookmark/{id} - Deletes a bookmark
+        - All responses wrapped per project API conventions
+        - tenant_id parameter for multi-tenancy
+        - PDF export returns 501 (not implemented placeholder)
+        ]]>
+      </key-points>
+    </step-7>
+
+    <step-8>
+      <title>Register Workspace Router</title>
+      <file>backend/src/agentic_rag_backend/main.py</file>
+      <changes>
+        <![CDATA[
+# Add this import at the top with other route imports
+from .api.routes import workspace
+
+# Add this line where other routers are registered
+app.include_router(workspace.router, prefix="/api/v1")
+        ]]>
+      </changes>
+    </step-8>
+
+    <step-9>
+      <title>Update GenerativeUIRenderer</title>
+      <file>frontend/components/copilot/GenerativeUIRenderer.tsx</file>
+      <changes>
+        <![CDATA[
+// Add import for useCopilotActions
+import { useCopilotActions } from "@/hooks/use-copilot-actions";
+
+// Update the component to initialize actions hook
+export function GenerativeUIRenderer({
+  onSourceClick,
+  onGraphNodeClick,
+  onGraphExpand,
+  useModalForValidation = true,
+  onValidationComplete,
+  autoApproveThreshold,
+  autoRejectThreshold,
+}: GenerativeUIRendererProps) {
+  // Initialize generative UI hooks (Story 6-3)
+  useGenerativeUI({
+    onSourceClick,
+    onGraphNodeClick,
+    onGraphExpand,
+  });
+
+  // Initialize source validation hooks (Story 6-4)
+  const {
+    state: validationState,
+    isDialogOpen,
+    submitValidation,
+    cancelValidation,
+  } = useSourceValidation({
+    onValidationComplete,
+    autoApproveThreshold,
+    autoRejectThreshold,
+  });
+
+  // Initialize frontend actions hooks (Story 6-5)
+  // This registers CopilotKit actions for agent-triggered operations
+  useCopilotActions();
+
+  return (
+    // ... existing JSX
+  );
+}
+        ]]>
+      </changes>
+      <key-points>
+        <![CDATA[
+        - Add useCopilotActions import
+        - Call useCopilotActions() in component to register CopilotKit actions
+        - This enables agent-triggered save/export/share/bookmark operations
+        ]]>
+      </key-points>
+    </step-9>
+  </technical-approach>
+
+  <files-to-create>
+    <file path="frontend/hooks/use-toast.ts" purpose="Toast notification hook" />
+    <file path="frontend/components/ui/toaster.tsx" purpose="Toast notification renderer" />
+    <file path="frontend/hooks/use-copilot-actions.ts" purpose="Actions state and CopilotKit integration" />
+    <file path="frontend/components/copilot/ActionButtons.tsx" purpose="Row of action buttons" />
+    <file path="frontend/components/copilot/ActionPanel.tsx" purpose="Action history slide-out panel" />
+    <file path="backend/src/agentic_rag_backend/api/routes/workspace.py" purpose="Backend workspace endpoints" />
+  </files-to-create>
+
+  <files-to-modify>
+    <file path="frontend/types/copilot.ts" change="Add ActionType, ActionState, ExportFormat, ActionableContent types and Zod schemas" />
+    <file path="frontend/components/copilot/GenerativeUIRenderer.tsx" change="Add useCopilotActions() call to register CopilotKit actions" />
+    <file path="backend/src/agentic_rag_backend/main.py" change="Include workspace router" />
+  </files-to-modify>
+
+  <code-patterns>
+    <useCopilotAction-pattern>
+      <![CDATA[
+      // Pattern for registering CopilotKit actions with handler (Story 6-5)
+      // Use handler instead of render for actions that don't render UI
+      useCopilotAction({
+        name: "save_to_workspace",
+        description: "Save the AI response to the user's workspace",
+        parameters: [
+          {
+            name: "content_id",
+            type: "string",
+            description: "Unique ID of the content to save",
+            required: true,
+          },
+          {
+            name: "content",
+            type: "string",
+            description: "The content to save",
+            required: true,
+          },
+          {
+            name: "title",
+            type: "string",
+            description: "Optional title",
+            required: false,
+          },
+        ],
+        handler: async ({ content_id, content, title }) => {
+          // Execute the action
+          await saveToWorkspace({ id: content_id, content, title });
+          return { success: true, action: "save_to_workspace" };
+        },
+      });
+      ]]>
+    </useCopilotAction-pattern>
+
+    <toast-notification-pattern>
+      <![CDATA[
+      // Pattern for showing toast notifications
+      const { toast } = useToast();
+
+      // Success toast
+      toast({
+        variant: "default",
+        title: "Success!",
+        description: "Content saved to workspace",
+      });
+
+      // Error toast
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to save content",
+      });
+      ]]>
+    </toast-notification-pattern>
+
+    <file-download-pattern>
+      <![CDATA[
+      // Pattern for triggering file download
+      const blob = new Blob([content], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "filename.md";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      ]]>
+    </file-download-pattern>
+
+    <clipboard-pattern>
+      <![CDATA[
+      // Pattern for copying to clipboard
+      await navigator.clipboard.writeText(shareUrl);
+      ]]>
+    </clipboard-pattern>
+
+    <custom-event-pattern>
+      <![CDATA[
+      // Pattern for follow-up query communication
+      document.dispatchEvent(
+        new CustomEvent("copilot:follow-up", {
+          detail: {
+            suggestedQuery: "Following up on...",
+            context: { id: "123", content: "..." },
+          },
+        })
+      );
+
+      // Listening for follow-up events in chat input
+      useEffect(() => {
+        const handleFollowUp = (event: CustomEvent) => {
+          const { suggestedQuery } = event.detail;
+          setInputValue(suggestedQuery);
+        };
+        document.addEventListener("copilot:follow-up", handleFollowUp);
+        return () => document.removeEventListener("copilot:follow-up", handleFollowUp);
+      }, []);
+      ]]>
+    </custom-event-pattern>
+
+    <action-state-auto-reset>
+      <![CDATA[
+      // Pattern for auto-resetting action states
+      const setActionState = useCallback(
+        (action: ActionType, state: ActionState) => {
+          setActionStates((prev) => ({ ...prev, [action]: state }));
+
+          // Auto-reset after success (2s) or error (3s)
+          if (state === "success" || state === "error") {
+            const delay = state === "success" ? 2000 : 3000;
+            const timer = setTimeout(() => {
+              setActionStates((prev) => ({ ...prev, [action]: "idle" }));
+            }, delay);
+            // Store timer ref for cleanup
+          }
+        },
+        []
+      );
+      ]]>
+    </action-state-auto-reset>
+  </code-patterns>
+
+  <design-system>
+    <colors>
+      <![CDATA[
+      Design System Colors (per UX Specification):
+
+      PRIMARY ACTIONS:
+      - Indigo-600 (#4F46E5): Primary action buttons, hover states
+      - Indigo-50: Hover background for ghost buttons
+
+      SUCCESS STATES:
+      - Emerald-500 (#10B981): Success icons, badges
+      - Emerald-50: Success toast background
+      - Emerald-100: Success icon background
+      - Emerald-600: Success text
+
+      ERROR STATES:
+      - Red-500 (#EF4444): Error icons, badges
+      - Red-50: Error toast background
+      - Red-100: Error icon background
+      - Red-600: Error text
+
+      BOOKMARK ACTIVE:
+      - Amber-500 (#F59E0B): Active bookmark icon
+
+      NEUTRAL:
+      - Slate-600: Default button text
+      - Slate-400: Muted text, icons
+      - Slate-200: Borders
+      - Slate-100: Dividers
+      - Slate-50: Subtle backgrounds
+      ]]>
+    </colors>
+
+    <button-styling>
+      <![CDATA[
+      Button Styling:
+
+      Ghost Action Button (default):
+      - text-slate-600
+      - hover:text-indigo-600
+      - hover:bg-indigo-50
+
+      Success State:
+      - text-emerald-600
+
+      Error State:
+      - text-red-600
+
+      Bookmark Active:
+      - text-amber-500
+      - fill-current (for filled icon)
+
+      Primary Submit Button:
+      - bg-indigo-600
+      - hover:bg-indigo-700
+      - text-white
+      ]]>
+    </button-styling>
+
+    <toast-styling>
+      <![CDATA[
+      Toast Notification Styling:
+
+      Success Toast:
+      - bg-white
+      - border-slate-200
+      - text-slate-900
+      - CheckCircle2 icon: text-emerald-500
+
+      Error Toast:
+      - bg-red-50
+      - border-red-200
+      - text-red-900
+      - XCircle icon: text-red-500
+
+      Position: Fixed bottom-right (bottom-4 right-4)
+      ]]>
+    </toast-styling>
+  </design-system>
+
+  <copilotkit-reference>
+    <![CDATA[
+    CopilotKit useCopilotAction API Reference:
+
+    import { useCopilotAction } from "@copilotkit/react-core";
+
+    useCopilotAction({
+      // Required: Unique action name
+      name: "action_name",
+
+      // Required: Description for the AI to understand when to use this action
+      description: "What this action does",
+
+      // Required: Parameters the action accepts
+      parameters: [
+        {
+          name: "param_name",
+          type: "string" | "number" | "boolean" | "object" | "object[]",
+          description: "What this parameter is for",
+          required: true | false,
+        },
+      ],
+
+      // Option 1: handler - For actions that don't render UI
+      // The agent calls this function and gets the return value
+      handler: async ({ param1, param2 }) => {
+        // Execute action
+        return { success: true, data: result };
+      },
+
+      // Option 2: render - For actions that render UI
+      // status: "executing" | "complete"
+      // args: The arguments passed to the action
+      render: ({ status, args }) => {
+        if (status === "executing") {
+          return <LoadingUI />;
+        }
+        return <ResultUI data={args} />;
+      },
+    });
+
+    Agent can trigger these actions by name in its response.
+    The action result is returned to the agent for context.
+    ]]>
+  </copilotkit-reference>
+
+  <project-rules>
+    <![CDATA[
+    Project Rules to Follow:
+
+    NAMING CONVENTIONS:
+    - TypeScript: camelCase functions, PascalCase components
+    - Hooks: use-hook-name.ts with useHookName export
+    - Components: ComponentName.tsx
+
+    VALIDATION:
+    - Frontend: Zod schemas for all data structures
+    - Backend: Pydantic models for all request/response
+
+    API CONVENTIONS:
+    - Success: {"data": {...}, "meta": {"requestId": "uuid", "timestamp": "ISO8601"}}
+    - Error: RFC 7807 format
+
+    MULTI-TENANCY:
+    - Include tenant_id in all API requests
+
+    DATA FETCHING:
+    - Use TanStack Query for data fetching (not raw fetch in components)
+    - Direct fetch OK in hooks for action handlers
+
+    COMPONENT PATTERNS:
+    - Memoize with React.memo
+    - Use useCallback for callbacks
+    - Use useMemo for computed values
+
+    TESTING:
+    - Unit tests for hooks and components
+    - Integration tests for API interactions
+    - E2E tests for user flows
+    ]]>
+  </project-rules>
+
+  <testing-requirements>
+    <unit-tests>
+      <![CDATA[
+      Frontend Unit Tests (Vitest + React Testing Library):
+
+      // frontend/__tests__/components/copilot/ActionButtons.test.tsx
+      describe("ActionButtons", () => {
+        it("renders all action buttons", () => {});
+        it("shows loading state during save action", () => {});
+        it("shows success state after save completes", () => {});
+        it("shows error state on save failure", () => {});
+        it("export dropdown shows format options", () => {});
+        it("bookmark toggles fill state", () => {});
+        it("disables buttons when disabled prop is true", () => {});
+        it("renders compact mode correctly", () => {});
+      });
+
+      // frontend/__tests__/hooks/use-copilot-actions.test.ts
+      describe("useCopilotActions", () => {
+        it("saves content to workspace", async () => {});
+        it("exports content as markdown", async () => {});
+        it("exports content as JSON", async () => {});
+        it("copies share link to clipboard", async () => {});
+        it("bookmarks content", async () => {});
+        it("triggers follow-up event", () => {});
+        it("auto-resets success state after delay", async () => {});
+        it("auto-resets error state after delay", async () => {});
+        it("calls callbacks on completion", async () => {});
+      });
+
+      // frontend/__tests__/components/copilot/ActionPanel.test.tsx
+      describe("ActionPanel", () => {
+        it("shows trigger button with badge count", () => {});
+        it("opens sheet on trigger click", () => {});
+        it("displays action history entries", () => {});
+        it("shows empty state when no history", () => {});
+        it("clears history on clear button click", () => {});
+        it("shows statistics for success/error counts", () => {});
+      });
+      ]]>
+    </unit-tests>
+
+    <integration-tests>
+      <![CDATA[
+      Frontend Integration Tests:
+
+      // frontend/__tests__/integration/actions.test.tsx
+      describe("Actions Integration", () => {
+        it("save action calls backend API and shows toast", async () => {});
+        it("export action downloads file", async () => {});
+        it("share action copies URL to clipboard", async () => {});
+        it("CopilotKit actions can be triggered by agent", async () => {});
+        it("error handling shows error toast", async () => {});
+      });
+      ]]>
+    </integration-tests>
+
+    <backend-tests>
+      <![CDATA[
+      Backend Tests (pytest):
+
+      # backend/tests/api/routes/test_workspace.py
+      class TestWorkspaceRoutes:
+          async def test_save_to_workspace_success(self):
+              """POST /workspace/save returns correct response."""
+
+          async def test_export_markdown(self):
+              """POST /workspace/export returns markdown file."""
+
+          async def test_export_json(self):
+              """POST /workspace/export returns JSON data."""
+
+          async def test_export_pdf_not_implemented(self):
+              """POST /workspace/export returns 501 for PDF."""
+
+          async def test_export_invalid_format(self):
+              """POST /workspace/export returns 400 for invalid format."""
+
+          async def test_share_content(self):
+              """POST /workspace/share generates shareable URL."""
+
+          async def test_bookmark_content(self):
+              """POST /workspace/bookmark creates bookmark."""
+
+          async def test_list_bookmarks(self):
+              """GET /workspace/bookmarks returns list."""
+
+          async def test_delete_bookmark(self):
+              """DELETE /workspace/bookmark/{id} deletes bookmark."""
+      ]]>
+    </backend-tests>
+
+    <e2e-tests>
+      <![CDATA[
+      E2E Tests (Playwright):
+
+      // frontend/tests/e2e/actions.spec.ts
+      test.describe("Frontend Actions", () => {
+        test("full save flow", async ({ page }) => {
+          // Submit query, wait for response
+          // Click save button
+          // Verify loading state
+          // Verify success toast appears
+        });
+
+        test("export markdown flow", async ({ page }) => {
+          // Submit query, wait for response
+          // Click export dropdown
+          // Select markdown
+          // Verify file downloads
+        });
+
+        test("share flow copies URL", async ({ page }) => {
+          // Submit query, wait for response
+          // Click share button
+          // Verify "Link copied" toast
+          // Verify clipboard contains URL
+        });
+
+        test("bookmark toggle", async ({ page }) => {
+          // Click bookmark
+          // Verify amber fill
+          // Click again
+          // Verify no fill
+        });
+
+        test("follow-up prefills input", async ({ page }) => {
+          // Click follow-up button
+          // Verify chat input contains suggested query
+        });
+      });
+      ]]>
+    </e2e-tests>
+  </testing-requirements>
+
+  <definition-of-done>
+    <![CDATA[
+    Definition of Done Checklist:
+
+    FUNCTIONALITY:
+    [ ] ActionButtons component renders all 5 action buttons
+    [ ] Save button calls POST /workspace/save and shows toast
+    [ ] Export dropdown offers markdown/PDF/JSON formats
+    [ ] Export markdown triggers file download
+    [ ] Export JSON triggers file download
+    [ ] Share button calls POST /workspace/share and copies URL
+    [ ] Bookmark button calls POST /workspace/bookmark and toggles fill
+    [ ] Follow-up button dispatches copilot:follow-up event
+    [ ] Loading states shown during API calls (spinner icon)
+    [ ] Success states shown on completion (check icon)
+    [ ] Error states shown on failure (X icon)
+    [ ] Success toast appears on action completion
+    [ ] Error toast appears on action failure
+    [ ] Action states auto-reset (2s success, 3s error)
+
+    COPILOTKIT INTEGRATION:
+    [ ] 5 useCopilotAction hooks registered
+    [ ] Agent can trigger save_to_workspace action
+    [ ] Agent can trigger export_content action
+    [ ] Agent can trigger share_content action
+    [ ] Agent can trigger bookmark_content action
+    [ ] Agent can trigger suggest_follow_up action
+
+    BACKEND:
+    [ ] POST /workspace/save endpoint implemented
+    [ ] POST /workspace/export endpoint implemented
+    [ ] POST /workspace/share endpoint implemented
+    [ ] POST /workspace/bookmark endpoint implemented
+    [ ] GET /workspace/bookmarks endpoint implemented
+    [ ] DELETE /workspace/bookmark/{id} endpoint implemented
+    [ ] Responses follow project API conventions
+
+    TYPES & VALIDATION:
+    [ ] ActionType type added
+    [ ] ActionState type added
+    [ ] ExportFormat type added
+    [ ] ActionableContent interface added
+    [ ] ActionResult interface added
+    [ ] Zod schemas added for all types
+    [ ] Pydantic models added for all endpoints
+
+    TESTS:
+    [ ] Unit tests for ActionButtons component
+    [ ] Unit tests for useCopilotActions hook
+    [ ] Unit tests for ActionPanel component
+    [ ] Integration tests for API calls
+    [ ] Backend tests for workspace endpoints
+    [ ] E2E tests for user flows
+
+    CODE QUALITY:
+    [ ] No TypeScript errors
+    [ ] No ESLint warnings
+    [ ] Components memoized appropriately
+    [ ] Design system colors applied correctly
+    [ ] Accessible (aria-labels, keyboard navigation)
+    [ ] Follows project naming conventions
+
+    MANUAL VERIFICATION:
+    [ ] All action buttons visible below AI responses
+    [ ] Each action shows correct state transitions
+    [ ] Toast notifications appear correctly
+    [ ] Export files download properly
+    [ ] Share copies valid URL to clipboard
+    [ ] Bookmark icon toggles correctly
+    [ ] Follow-up prefills chat input
+    ]]>
+  </definition-of-done>
+
+  <manual-verification-steps>
+    <![CDATA[
+    Manual Verification Steps:
+
+    1. Start backend: cd backend && uv run uvicorn agentic_rag_backend.main:app --reload
+    2. Start frontend: cd frontend && pnpm dev
+    3. Open browser: http://localhost:3000
+
+    4. Submit a query and wait for AI response
+
+    5. Verify action buttons appear below response:
+       - Save button with Save icon
+       - Export button with dropdown arrow
+       - Share button with Share2 icon
+       - Bookmark button with Bookmark icon
+       - Follow-up button with MessageSquarePlus icon
+
+    6. Test Save action:
+       - Click Save button
+       - Verify icon changes to spinner (loading)
+       - Verify icon changes to checkmark (success)
+       - Verify toast: "Saved to workspace"
+       - Verify icon returns to Save after 2 seconds
+
+    7. Test Export Markdown:
+       - Click Export dropdown
+       - Select "Markdown (.md)"
+       - Verify icon changes to spinner
+       - Verify file downloads
+       - Verify toast: "Export complete"
+
+    8. Test Export JSON:
+       - Click Export dropdown
+       - Select "JSON Data"
+       - Verify file downloads with .json extension
+
+    9. Test Share:
+       - Click Share button
+       - Verify icon changes to spinner
+       - Verify toast: "Link copied!"
+       - Open new browser tab, paste - verify URL format
+
+    10. Test Bookmark:
+        - Click Bookmark button
+        - Verify icon fills with amber color
+        - Verify toast: "Bookmarked"
+        - Click again - verify icon unfills
+
+    11. Test Follow-up:
+        - Click Follow-up button
+        - Verify chat input is pre-filled with "Following up on..."
+
+    12. Test Error State:
+        - Disconnect network (DevTools > Network > Offline)
+        - Click Save button
+        - Verify icon shows X (error)
+        - Verify toast shows error message
+        - Verify error styling (red)
+        - Reconnect network
+
+    13. Verify Accessibility:
+        - Tab through all buttons
+        - Verify tooltips appear on focus
+        - Verify keyboard can activate buttons (Enter/Space)
+    ]]>
+  </manual-verification-steps>
+
+  <shadcn-components-required>
+    <![CDATA[
+    shadcn/ui Components Required:
+
+    Existing (verify installed):
+    - Button
+    - Dialog (from Story 6-4)
+    - ScrollArea (from Story 6-4)
+    - Badge (from Story 6-4)
+
+    New (add if not installed):
+    - DropdownMenu: npx shadcn-ui@latest add dropdown-menu
+    - Tooltip: npx shadcn-ui@latest add tooltip
+    - Sheet: npx shadcn-ui@latest add sheet
+    - Toast (optional): npx shadcn-ui@latest add toast
+
+    Note: The context includes a custom useToast hook and Toaster component
+    that can be used if shadcn/ui toast is not installed. If shadcn/ui toast
+    is preferred, run the add command and update imports accordingly.
+    ]]>
+  </shadcn-components-required>
+</story-context>
