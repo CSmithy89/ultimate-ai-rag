@@ -9,7 +9,15 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ...agents.orchestrator import OrchestratorAgent
-from ...models.copilot import CopilotConfig, CopilotMessage, CopilotRequest
+from ...models.copilot import (
+    CopilotConfig,
+    CopilotMessage,
+    CopilotRequest,
+    RunFinishedEvent,
+    TextDeltaEvent,
+    TextMessageEndEvent,
+    TextMessageStartEvent,
+)
 from ...protocols.ag_ui_bridge import AGUIBridge
 from ...rate_limit import RateLimiter
 
@@ -55,8 +63,18 @@ async def ag_ui_handler(
     bridge = AGUIBridge(orchestrator)
 
     async def event_generator():
-        async for event in bridge.process_request(copilot_request):
-            yield f"data: {event.model_dump_json()}\n\n"
+        try:
+            async for event in bridge.process_request(copilot_request):
+                yield f"data: {event.model_dump_json()}\n\n"
+        except Exception:
+            # Fallback if bridge fails before emitting error events.
+            error_event = TextDeltaEvent(
+                content="An error occurred while processing your request."
+            )
+            yield f"data: {TextMessageStartEvent().model_dump_json()}\n\n"
+            yield f"data: {error_event.model_dump_json()}\n\n"
+            yield f"data: {TextMessageEndEvent().model_dump_json()}\n\n"
+            yield f"data: {RunFinishedEvent().model_dump_json()}\n\n"
 
     return StreamingResponse(
         event_generator(),

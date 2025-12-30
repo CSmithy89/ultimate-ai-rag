@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from threading import Lock
 from typing import Any
 from uuid import uuid4
 
@@ -56,12 +57,13 @@ class A2ASessionManager:
         max_messages_per_session: int = 1000,
     ) -> None:
         self._sessions: dict[str, A2ASession] = {}
+        self._lock = Lock()
         self._session_ttl_seconds = session_ttl_seconds
         self._max_sessions_per_tenant = max_sessions_per_tenant
         self._max_sessions_total = max_sessions_total
         self._max_messages_per_session = max_messages_per_session
 
-    def _prune_expired(self) -> None:
+    def _prune_expired_locked(self) -> None:
         if self._session_ttl_seconds <= 0:
             return
         now = datetime.now(timezone.utc)
@@ -73,36 +75,43 @@ class A2ASessionManager:
         for session_id in expired_ids:
             self._sessions.pop(session_id, None)
 
-    def _tenant_session_count(self, tenant_id: str) -> int:
+    def _tenant_session_count_locked(self, tenant_id: str) -> int:
         return sum(1 for session in self._sessions.values() if session.tenant_id == tenant_id)
 
     def create_session(self, tenant_id: str) -> A2ASession:
-        self._prune_expired()
-        if self._max_sessions_total and len(self._sessions) >= self._max_sessions_total:
-            raise ValueError("Session limit reached")
-        if (
-            self._max_sessions_per_tenant
-            and self._tenant_session_count(tenant_id) >= self._max_sessions_per_tenant
-        ):
-            raise ValueError("Tenant session limit reached")
+        """Create a new A2A session.
 
-        session_id = str(uuid4())
-        now = datetime.now(timezone.utc)
-        session = A2ASession(
-            session_id=session_id,
-            tenant_id=tenant_id,
-            created_at=now,
-            last_activity=now,
-        )
-        self._sessions[session_id] = session
-        return session
+        Raises:
+            ValueError: If session or tenant limits are exceeded.
+        """
+        with self._lock:
+            self._prune_expired_locked()
+            if self._max_sessions_total and len(self._sessions) >= self._max_sessions_total:
+                raise ValueError("Session limit reached")
+            if (
+                self._max_sessions_per_tenant
+                and self._tenant_session_count_locked(tenant_id) >= self._max_sessions_per_tenant
+            ):
+                raise ValueError("Tenant session limit reached")
+
+            session_id = str(uuid4())
+            now = datetime.now(timezone.utc)
+            session = A2ASession(
+                session_id=session_id,
+                tenant_id=tenant_id,
+                created_at=now,
+                last_activity=now,
+            )
+            self._sessions[session_id] = session
+            return session
 
     def get_session(self, session_id: str) -> A2ASession | None:
-        self._prune_expired()
-        session = self._sessions.get(session_id)
-        if session:
-            session.last_activity = datetime.now(timezone.utc)
-        return session
+        with self._lock:
+            self._prune_expired_locked()
+            session = self._sessions.get(session_id)
+            if session:
+                session.last_activity = datetime.now(timezone.utc)
+            return session
 
     def add_message(
         self,
@@ -112,23 +121,24 @@ class A2ASessionManager:
         content: str,
         metadata: dict[str, Any] | None = None,
     ) -> A2ASession:
-        self._prune_expired()
-        session = self._sessions.get(session_id)
-        if session is None:
-            raise KeyError("session not found")
-        if session.tenant_id != tenant_id:
-            raise PermissionError("tenant mismatch")
-        if (
-            self._max_messages_per_session
-            and len(session.messages) >= self._max_messages_per_session
-        ):
-            raise ValueError("Session message limit reached")
-        message = A2AMessage(
-            sender=sender,
-            content=content,
-            timestamp=datetime.now(timezone.utc),
-            metadata=metadata or {},
-        )
-        session.messages.append(message)
-        session.last_activity = datetime.now(timezone.utc)
-        return session
+        with self._lock:
+            self._prune_expired_locked()
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise KeyError("session not found")
+            if session.tenant_id != tenant_id:
+                raise PermissionError("tenant mismatch")
+            if (
+                self._max_messages_per_session
+                and len(session.messages) >= self._max_messages_per_session
+            ):
+                raise ValueError("Session message limit reached")
+            message = A2AMessage(
+                sender=sender,
+                content=content,
+                timestamp=datetime.now(timezone.utc),
+                metadata=metadata or {},
+            )
+            session.messages.append(message)
+            session.last_activity = datetime.now(timezone.utc)
+            return session
