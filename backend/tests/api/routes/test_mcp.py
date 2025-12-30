@@ -187,3 +187,24 @@ async def test_call_tool_times_out() -> None:
             limiter=AllowLimiter(),
         )
     assert exc_info.value.status_code == 504
+
+
+@pytest.mark.asyncio
+async def test_call_tool_respects_max_timeout() -> None:
+    request = ToolCallRequest(
+        tool="knowledge.query",
+        arguments={"query": "hello", "tenant_id": "tenant-1"},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await call_tool(
+            request_body=request,
+            registry=MCPToolRegistry(
+                orchestrator=SlowOrchestrator(),
+                neo4j=DummyNeo4j(),
+                timeout_seconds=None,
+                max_timeout_seconds=0.001,
+            ),
+            limiter=AllowLimiter(),
+        )
+    assert exc_info.value.status_code == 504

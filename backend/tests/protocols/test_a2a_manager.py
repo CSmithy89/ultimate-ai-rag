@@ -20,6 +20,20 @@ async def test_a2a_prunes_expired_sessions() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a2a_cleanup_task_prunes_expired_sessions() -> None:
+    manager = A2ASessionManager(session_ttl_seconds=1)
+    session = await manager.create_session("tenant-1")
+    manager._sessions[session.session_id].last_activity = datetime.now(timezone.utc) - timedelta(seconds=5)
+
+    await manager.start_cleanup_task(0.01)
+    try:
+        await asyncio.sleep(0.02)
+        assert session.session_id not in manager._sessions
+    finally:
+        await manager.stop_cleanup_task()
+
+
+@pytest.mark.asyncio
 async def test_a2a_concurrent_session_creation() -> None:
     manager = A2ASessionManager()
 
