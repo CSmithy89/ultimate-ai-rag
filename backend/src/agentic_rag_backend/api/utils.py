@@ -8,8 +8,6 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
-RATE_LIMIT_RETRY_AFTER_SECONDS = 60
-
 
 def build_meta() -> dict[str, Any]:
     """Build standard response metadata."""
@@ -19,10 +17,14 @@ def build_meta() -> dict[str, Any]:
     }
 
 
-def rate_limit_exceeded() -> HTTPException:
+def rate_limit_exceeded(retry_after_seconds: int | None = None) -> HTTPException:
     """Create a rate limit exceeded exception with Retry-After header."""
+    if retry_after_seconds is None:
+        from ..config import get_settings
+
+        retry_after_seconds = get_settings().rate_limit_retry_after_seconds
     return HTTPException(
         status_code=429,
         detail="Rate limit exceeded",
-        headers={"Retry-After": str(RATE_LIMIT_RETRY_AFTER_SECONDS)},
+        headers={"Retry-After": str(retry_after_seconds)},
     )

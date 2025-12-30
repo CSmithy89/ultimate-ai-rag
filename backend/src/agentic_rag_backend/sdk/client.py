@@ -89,7 +89,7 @@ class AgenticRagClient:
             except httpx.HTTPStatusError as exc:
                 raise AgenticRagHTTPError(
                     status_code=exc.response.status_code,
-                    message=exc.response.text,
+                    message=f"{exc.response.text} (original: {exc!r})",
                 ) from exc
             return response
 

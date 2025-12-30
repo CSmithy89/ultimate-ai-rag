@@ -25,6 +25,13 @@
 - [x] Add SDK retry/backoff for 429/503 and custom SDK exception types.
 - [x] Add integration tests that cover MCP → orchestrator → response flow.
 - [x] Add AG-UI validation tests for invalid actions payloads.
+- [x] Enforce MCP max timeout fallback to avoid unbounded tool execution.
+- [x] Add periodic A2A cleanup task and shutdown handling.
+- [x] Validate MCP tenant_id format consistently across tools.
+- [x] Return defensive copies of A2A sessions/messages.
+- [x] Make rate-limit Retry-After configurable via settings.
+- [x] Add explicit AG-UI request validation before bridge execution.
+- [x] Add SDK model docstrings for external users.
 
 ## Optional / Future
 - [ ] Add Dependabot for npm + pip updates.

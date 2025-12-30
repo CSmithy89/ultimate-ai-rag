@@ -21,7 +21,7 @@ uv run agentic-rag-backend
 
 Notes:
 - Rate limiting supports `RATE_LIMIT_BACKEND=redis` for multi-worker deployments; the in-memory limiter is per-process.
-- Rate-limited endpoints return `429` with RFC 7807 Problem Details and `Retry-After: 60` (seconds).
+- Rate-limited endpoints return `429` with RFC 7807 Problem Details and `Retry-After`, configurable via `RATE_LIMIT_RETRY_AFTER_SECONDS`.
 
 ### Frontend
 
@@ -58,6 +58,7 @@ async def example() -> None:
 
 - Sessions are stored in memory and cleared on service restart.
 - Sessions expire after `A2A_SESSION_TTL_SECONDS` (default 6 hours).
+- Expired sessions are pruned every `A2A_CLEANUP_INTERVAL_SECONDS` (default 1 hour).
 - Limits are enforced via `A2A_MAX_SESSIONS_PER_TENANT`, `A2A_MAX_SESSIONS_TOTAL`, and `A2A_MAX_MESSAGES_PER_SESSION`.
 
 ## Epic Progress

@@ -177,16 +177,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         max_sessions_total=settings.a2a_max_sessions_total,
         max_messages_per_session=settings.a2a_max_messages_per_session,
     )
+    await app.state.a2a_manager.start_cleanup_task(
+        settings.a2a_cleanup_interval_seconds
+    )
     app.state.mcp_registry = MCPToolRegistry(
         orchestrator=app.state.orchestrator,
         neo4j=getattr(app.state, "neo4j", None),
         timeout_seconds=settings.mcp_tool_timeout_seconds,
         tool_timeouts=settings.mcp_tool_timeout_overrides,
+        max_timeout_seconds=settings.mcp_tool_max_timeout_seconds,
     )
 
     yield
 
     # Shutdown: Close database connections
+    if hasattr(app.state, "a2a_manager") and app.state.a2a_manager:
+        await app.state.a2a_manager.stop_cleanup_task()
     # Epic 5: Graphiti connection
     if hasattr(app.state, "graphiti") and app.state.graphiti:
         await app.state.graphiti.disconnect()

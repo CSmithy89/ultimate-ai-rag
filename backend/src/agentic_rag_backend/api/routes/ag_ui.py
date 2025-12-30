@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 import structlog
 
 from ...agents.orchestrator import OrchestratorAgent
@@ -53,16 +53,20 @@ async def ag_ui_handler(
     if not await limiter.allow(request.tenant_id):
         raise rate_limit_exceeded()
 
-    copilot_request = CopilotRequest(
-        messages=request.messages,
-        config=CopilotConfig(
-            configurable={
-                "tenant_id": request.tenant_id,
-                "session_id": request.session_id,
-            }
-        ),
-        actions=request.actions,
-    )
+    try:
+        copilot_request = CopilotRequest(
+            messages=request.messages,
+            config=CopilotConfig(
+                configurable={
+                    "tenant_id": request.tenant_id,
+                    "session_id": request.session_id,
+                }
+            ),
+            actions=request.actions,
+        )
+    except ValidationError as exc:
+        logger.warning("ag_ui_request_invalid", error=str(exc))
+        raise HTTPException(status_code=422, detail="Invalid AG-UI request") from exc
 
     bridge = AGUIBridge(orchestrator)
 

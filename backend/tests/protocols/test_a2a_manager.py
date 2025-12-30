@@ -12,7 +12,7 @@ from agentic_rag_backend.protocols.a2a import A2ASessionManager
 async def test_a2a_prunes_expired_sessions() -> None:
     manager = A2ASessionManager(session_ttl_seconds=1)
     session = await manager.create_session("tenant-1")
-    session.last_activity = datetime.now(timezone.utc) - timedelta(seconds=5)
+    manager._sessions[session.session_id].last_activity = datetime.now(timezone.utc) - timedelta(seconds=5)
 
     fetched = await manager.get_session(session.session_id)
 

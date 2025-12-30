@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..agents.orchestrator import OrchestratorAgent
 from ..db.neo4j import Neo4jClient
@@ -18,7 +18,13 @@ class MCPToolNotFoundError(KeyError):
 
 
 class GraphStatsRequest(BaseModel):
-    tenant_id: str = Field(..., min_length=1)
+    model_config = ConfigDict(str_strip_whitespace=True)
+    tenant_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        pattern=r"^[A-Za-z0-9._:-]{1,255}$",
+    )
 
 
 @dataclass(frozen=True)
@@ -39,11 +45,13 @@ class MCPToolRegistry:
         neo4j: Neo4jClient | None,
         timeout_seconds: float | None = None,
         tool_timeouts: dict[str, float] | None = None,
+        max_timeout_seconds: float = 300.0,
     ) -> None:
         self._orchestrator = orchestrator
         self._neo4j = neo4j
         self._default_timeout_seconds = timeout_seconds
         self._tool_timeouts = tool_timeouts or {}
+        self._max_timeout_seconds = max_timeout_seconds if max_timeout_seconds > 0 else 300.0
         self._tools = {
             "knowledge.query": MCPTool(
                 name="knowledge.query",
@@ -94,21 +102,16 @@ class MCPToolRegistry:
             if tool.timeout_seconds is not None
             else self._default_timeout_seconds
         )
+        effective_timeout = self._max_timeout_seconds
         if timeout and timeout > 0:
-            return await asyncio.wait_for(tool.handler(arguments), timeout=timeout)
-        return await tool.handler(arguments)
+            effective_timeout = min(timeout, self._max_timeout_seconds)
+        return await asyncio.wait_for(tool.handler(arguments), timeout=effective_timeout)
 
     async def _run_query(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        query = arguments.get("query")
-        tenant_id = arguments.get("tenant_id")
         session_id = arguments.get("session_id")
-        if not isinstance(query, str) or not query.strip():
-            raise ValueError("query is required")
-        if not isinstance(tenant_id, str) or not tenant_id.strip():
-            raise ValueError("tenant_id is required")
         payload = QueryRequest(
-            query=query,
-            tenant_id=tenant_id,
+            query=arguments.get("query"),
+            tenant_id=arguments.get("tenant_id"),
             session_id=session_id if isinstance(session_id, str) else None,
         )
         result = await self._orchestrator.run(

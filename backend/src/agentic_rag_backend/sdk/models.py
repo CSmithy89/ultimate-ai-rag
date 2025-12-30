@@ -8,23 +8,27 @@ from pydantic import BaseModel, Field
 
 
 class MCPToolDescriptor(BaseModel):
+    """Descriptor for an MCP tool."""
     name: str
     description: str
     input_schema: dict[str, Any]
 
 
 class MCPToolList(BaseModel):
+    """Tool discovery response."""
     tools: list[MCPToolDescriptor]
     meta: dict[str, Any] | None = None
 
 
 class MCPToolCallResult(BaseModel):
+    """Tool invocation response."""
     tool: str
     result: dict[str, Any]
     meta: dict[str, Any] | None = None
 
 
 class A2AMessage(BaseModel):
+    """A2A session message."""
     sender: str
     content: str
     timestamp: str
@@ -32,6 +36,7 @@ class A2AMessage(BaseModel):
 
 
 class A2ASession(BaseModel):
+    """A2A session transcript."""
     session_id: str
     tenant_id: str
     created_at: str
@@ -39,5 +44,6 @@ class A2ASession(BaseModel):
 
 
 class A2ASessionEnvelope(BaseModel):
+    """A2A session response envelope."""
     session: A2ASession
     meta: dict[str, Any] | None = None

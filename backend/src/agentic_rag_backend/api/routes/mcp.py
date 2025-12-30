@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -13,6 +14,8 @@ from ...protocols.mcp import MCPToolNotFoundError, MCPToolRegistry
 from ...rate_limit import RateLimiter
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
+
+TENANT_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,255}$")
 
 
 class ToolDescriptor(BaseModel):
@@ -69,7 +72,11 @@ async def call_tool(
 ) -> ToolCallResponse:
     """Invoke a tool by name with arguments."""
     tenant_id = request_body.arguments.get("tenant_id")
-    if not isinstance(tenant_id, str) or not tenant_id.strip():
+    if (
+        not isinstance(tenant_id, str)
+        or not tenant_id.strip()
+        or not TENANT_ID_PATTERN.match(tenant_id)
+    ):
         raise HTTPException(status_code=400, detail="tenant_id is required")
 
     if not await limiter.allow(str(tenant_id)):
