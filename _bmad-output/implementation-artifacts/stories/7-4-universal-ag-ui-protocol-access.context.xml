@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <story-summary>
+    <![CDATA[
+    Story 7-4 adds a universal AG-UI endpoint that accepts a simplified request
+    payload and streams SSE events via the existing AGUIBridge. This decouples
+    AG-UI access from CopilotKit-specific routes.
+    ]]>
+  </story-summary>
+
+  <relevant-files>
+    <![CDATA[
+    - backend/src/agentic_rag_backend/api/routes/copilot.py (SSE streaming pattern)
+    - backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py (AG-UI bridge)
+    - backend/src/agentic_rag_backend/models/copilot.py (message models)
+    ]]>
+  </relevant-files>
+</story-context>

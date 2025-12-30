@@ -98,7 +98,7 @@ development_status:
   7-1-mcp-tool-server-implementation: done
   7-2-a2a-agent-collaboration: done
   7-3-python-extension-sdk: done
-  7-4-universal-ag-ui-protocol-access: backlog
+  7-4-universal-ag-ui-protocol-access: done
   epic-7-retrospective: optional
 
   # Epic 8: Operations & Observability (was Epic 7)
