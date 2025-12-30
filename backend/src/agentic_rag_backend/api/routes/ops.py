@@ -113,7 +113,11 @@ async def upsert_cost_alerts(
         enabled=payload.enabled,
     )
     config = await cost_tracker.get_alert_config(payload.tenant_id)
-    return success_response({"alerts": {key: _decimal_to_float(value) for key, value in config.items()}})
+    if not config:
+        return success_response({"alerts": None})
+    return success_response(
+        {"alerts": {key: _decimal_to_float(value) for key, value in config.items()}}
+    )
 
 
 def _serialize_summary(summary: CostSummary) -> dict[str, Any]:

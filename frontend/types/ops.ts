@@ -40,7 +40,15 @@ export const CostSummarySchema = z.object({
       total_tokens: z.number(),
     })
   ),
-  alerts: z.record(z.string(), z.unknown()),
+  alerts: z.object({
+    enabled: z.boolean(),
+    daily_threshold_usd: z.number().nullable().optional(),
+    monthly_threshold_usd: z.number().nullable().optional(),
+    daily_total_usd: z.number().nullable().optional(),
+    monthly_total_usd: z.number().nullable().optional(),
+    daily_exceeded: z.boolean().optional(),
+    monthly_exceeded: z.boolean().optional(),
+  }),
 });
 
 export type CostSummary = z.infer<typeof CostSummarySchema>;
