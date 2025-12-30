@@ -82,7 +82,7 @@ development_status:
   5-4-temporal-query-capabilities: done
   5-5-legacy-code-removal-migration: done
   5-6-test-suite-adaptation: done
-  epic-5-graphiti-retrospective: optional
+  epic-5-graphiti-retrospective: done
 
   # Epic 6: Interactive Copilot Experience (was Epic 5)
   epic-6: done
