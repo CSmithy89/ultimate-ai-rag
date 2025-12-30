@@ -18,6 +18,7 @@ from fastapi import HTTPException
 
 from agentic_rag_backend.agents.orchestrator import OrchestratorResult
 from agentic_rag_backend.api.routes.mcp import ToolCallRequest, call_tool, list_tools
+from agentic_rag_backend.protocols.mcp import MCPToolRegistry
 from agentic_rag_backend.retrieval_router import RetrievalStrategy
 from agentic_rag_backend.schemas import PlanStep
 
@@ -56,7 +57,8 @@ class DummyNeo4j:
 
 @pytest.mark.asyncio
 async def test_list_tools_includes_defaults() -> None:
-    response = await list_tools(orchestrator=DummyOrchestrator(), neo4j=DummyNeo4j())
+    registry = MCPToolRegistry(orchestrator=DummyOrchestrator(), neo4j=DummyNeo4j())
+    response = await list_tools(registry=registry)
     tool_names = {tool.name for tool in response.tools}
     assert "knowledge.query" in tool_names
     assert "knowledge.graph_stats" in tool_names
@@ -68,9 +70,8 @@ async def test_call_tool_requires_tenant() -> None:
     with pytest.raises(HTTPException) as exc_info:
         await call_tool(
             request_body=request,
-            orchestrator=DummyOrchestrator(),
+            registry=MCPToolRegistry(orchestrator=DummyOrchestrator(), neo4j=DummyNeo4j()),
             limiter=AllowLimiter(),
-            neo4j=DummyNeo4j(),
         )
     assert exc_info.value.status_code == 400
 
@@ -84,9 +85,8 @@ async def test_call_tool_rate_limited() -> None:
     with pytest.raises(HTTPException) as exc_info:
         await call_tool(
             request_body=request,
-            orchestrator=DummyOrchestrator(),
+            registry=MCPToolRegistry(orchestrator=DummyOrchestrator(), neo4j=DummyNeo4j()),
             limiter=DenyLimiter(),
-            neo4j=DummyNeo4j(),
         )
     assert exc_info.value.status_code == 429
 
@@ -100,9 +100,8 @@ async def test_call_tool_unknown_tool() -> None:
     with pytest.raises(HTTPException) as exc_info:
         await call_tool(
             request_body=request,
-            orchestrator=DummyOrchestrator(),
+            registry=MCPToolRegistry(orchestrator=DummyOrchestrator(), neo4j=DummyNeo4j()),
             limiter=AllowLimiter(),
-            neo4j=DummyNeo4j(),
         )
     assert exc_info.value.status_code == 404
 
@@ -115,9 +114,8 @@ async def test_call_tool_query_success() -> None:
     )
     response = await call_tool(
         request_body=request,
-        orchestrator=DummyOrchestrator(),
+        registry=MCPToolRegistry(orchestrator=DummyOrchestrator(), neo4j=DummyNeo4j()),
         limiter=AllowLimiter(),
-        neo4j=DummyNeo4j(),
     )
 
     assert response.tool == "knowledge.query"
@@ -133,11 +131,26 @@ async def test_call_tool_graph_stats_success() -> None:
     )
     response = await call_tool(
         request_body=request,
-        orchestrator=DummyOrchestrator(),
+        registry=MCPToolRegistry(orchestrator=DummyOrchestrator(), neo4j=DummyNeo4j()),
         limiter=AllowLimiter(),
-        neo4j=DummyNeo4j(),
     )
 
     assert response.tool == "knowledge.graph_stats"
     assert response.result["node_count"] == 1
     assert response.result["edge_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_call_tool_graph_stats_requires_neo4j() -> None:
+    request = ToolCallRequest(
+        tool="knowledge.graph_stats",
+        arguments={"tenant_id": "tenant-1"},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await call_tool(
+            request_body=request,
+            registry=MCPToolRegistry(orchestrator=DummyOrchestrator(), neo4j=None),
+            limiter=AllowLimiter(),
+        )
+    assert exc_info.value.status_code == 422

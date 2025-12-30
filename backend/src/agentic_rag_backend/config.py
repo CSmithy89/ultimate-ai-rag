@@ -53,6 +53,13 @@ class Settings:
     retrieval_backend: str  # "graphiti" or "legacy"
     # Epic 6 - Workspace settings
     share_secret: str  # Secret for signing share links (set via SHARE_SECRET env var)
+    # Epic 7 - A2A settings
+    a2a_session_ttl_seconds: int
+    a2a_max_sessions_per_tenant: int
+    a2a_max_sessions_total: int
+    a2a_max_messages_per_session: int
+    # Epic 7 - MCP settings
+    mcp_tool_timeout_seconds: float
 
 
 def load_settings() -> Settings:
@@ -122,6 +129,31 @@ def load_settings() -> Settings:
         entity_similarity_threshold = float(os.getenv("ENTITY_SIMILARITY_THRESHOLD", "0.95"))
     except ValueError:
         entity_similarity_threshold = 0.95
+
+    try:
+        a2a_session_ttl_seconds = int(os.getenv("A2A_SESSION_TTL_SECONDS", "21600"))
+    except ValueError:
+        a2a_session_ttl_seconds = 21600
+
+    try:
+        a2a_max_sessions_per_tenant = int(os.getenv("A2A_MAX_SESSIONS_PER_TENANT", "100"))
+    except ValueError:
+        a2a_max_sessions_per_tenant = 100
+
+    try:
+        a2a_max_sessions_total = int(os.getenv("A2A_MAX_SESSIONS_TOTAL", "1000"))
+    except ValueError:
+        a2a_max_sessions_total = 1000
+
+    try:
+        a2a_max_messages_per_session = int(os.getenv("A2A_MAX_MESSAGES_PER_SESSION", "1000"))
+    except ValueError:
+        a2a_max_messages_per_session = 1000
+
+    try:
+        mcp_tool_timeout_seconds = float(os.getenv("MCP_TOOL_TIMEOUT_SECONDS", "30"))
+    except ValueError:
+        mcp_tool_timeout_seconds = 30.0
 
     # Epic 5 - Validate backend selections
     ingestion_backend = os.getenv("INGESTION_BACKEND", "graphiti")
@@ -197,6 +229,13 @@ def load_settings() -> Settings:
         # Epic 6 - Workspace settings
         # Default generates random secret if not set (for dev), but production should set SHARE_SECRET
         share_secret=os.getenv("SHARE_SECRET", secrets.token_hex(32)),
+        # Epic 7 - A2A settings
+        a2a_session_ttl_seconds=a2a_session_ttl_seconds,
+        a2a_max_sessions_per_tenant=a2a_max_sessions_per_tenant,
+        a2a_max_sessions_total=a2a_max_sessions_total,
+        a2a_max_messages_per_session=a2a_max_messages_per_session,
+        # Epic 7 - MCP settings
+        mcp_tool_timeout_seconds=mcp_tool_timeout_seconds,
     )
 
 

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import asyncio
 from typing import Any
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
@@ -12,6 +11,7 @@ import structlog
 
 from ...agents.orchestrator import OrchestratorAgent
 from ...db.neo4j import Neo4jClient
+from ...api.utils import build_meta
 from ...protocols.mcp import MCPToolNotFoundError, MCPToolRegistry
 from ...rate_limit import RateLimiter
 
@@ -57,51 +57,59 @@ def get_neo4j(request: Request) -> Neo4jClient | None:
     return getattr(request.app.state, "neo4j", None)
 
 
-def _meta() -> dict[str, Any]:
-    return {
-        "requestId": str(uuid4()),
-        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-    }
+def get_mcp_registry(
+    request: Request,
+    orchestrator: OrchestratorAgent = Depends(get_orchestrator),
+    neo4j: Neo4jClient | None = Depends(get_neo4j),
+) -> MCPToolRegistry:
+    """Get or initialize the MCP tool registry."""
+    registry = getattr(request.app.state, "mcp_registry", None)
+    if registry is None:
+        settings = request.app.state.settings
+        registry = MCPToolRegistry(
+            orchestrator=orchestrator,
+            neo4j=neo4j,
+            timeout_seconds=settings.mcp_tool_timeout_seconds,
+        )
+        request.app.state.mcp_registry = registry
+    return registry
 
 
 @router.get("/tools", response_model=ToolListResponse)
 async def list_tools(
-    orchestrator: OrchestratorAgent = Depends(get_orchestrator),
-    neo4j: Neo4jClient | None = Depends(get_neo4j),
+    registry: MCPToolRegistry = Depends(get_mcp_registry),
 ) -> ToolListResponse:
     """List available MCP tools."""
-    registry = MCPToolRegistry(orchestrator=orchestrator, neo4j=neo4j)
     return ToolListResponse(
         tools=[ToolDescriptor(**tool) for tool in registry.list_tools()],
-        meta=_meta(),
+        meta=build_meta(),
     )
 
 
 @router.post("/call", response_model=ToolCallResponse)
 async def call_tool(
     request_body: ToolCallRequest,
-    orchestrator: OrchestratorAgent = Depends(get_orchestrator),
+    registry: MCPToolRegistry = Depends(get_mcp_registry),
     limiter: RateLimiter = Depends(get_rate_limiter),
-    neo4j: Neo4jClient | None = Depends(get_neo4j),
 ) -> ToolCallResponse:
     """Invoke a tool by name with arguments."""
     tenant_id = request_body.arguments.get("tenant_id")
-    if not tenant_id or not str(tenant_id).strip():
+    if not isinstance(tenant_id, str) or not tenant_id.strip():
         raise HTTPException(status_code=400, detail="tenant_id is required")
 
     if not await limiter.allow(str(tenant_id)):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
-    registry = MCPToolRegistry(orchestrator=orchestrator, neo4j=neo4j)
-
     try:
         result = await registry.call_tool(request_body.tool, request_body.arguments)
     except MCPToolNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Tool not found: {exc.args[0]}") from exc
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="Tool execution timed out") from exc
     except (ValueError, ValidationError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover - safeguard
         logger.exception("mcp_tool_call_failed", tool=request_body.tool, error=str(exc))
         raise HTTPException(status_code=500, detail="Tool invocation failed") from exc
 
-    return ToolCallResponse(tool=request_body.tool, result=result, meta=_meta())
+    return ToolCallResponse(tool=request_body.tool, result=result, meta=build_meta())

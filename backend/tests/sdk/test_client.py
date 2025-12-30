@@ -124,3 +124,15 @@ async def test_sdk_a2a_session_flow() -> None:
 
         session = await client.get_a2a_session("session-1", tenant_id="tenant-1")
         assert session.session.session_id == "session-1"
+
+
+@pytest.mark.asyncio
+async def test_sdk_raises_for_error_responses() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"detail": "not found"})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
+        client = AgenticRagClient(base_url="http://test", http_client=http_client)
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.list_tools()

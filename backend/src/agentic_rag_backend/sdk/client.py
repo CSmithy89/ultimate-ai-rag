@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import TracebackType
 from typing import Any
 
 import httpx
@@ -15,19 +16,13 @@ class AgenticRagClient:
     def __init__(
         self,
         base_url: str,
-        api_key: str | None = None,
         timeout: float = 10.0,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
-        headers = {}
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
-
         if http_client is None:
             self._client = httpx.AsyncClient(
                 base_url=base_url,
                 timeout=timeout,
-                headers=headers,
             )
             self._owns_client = True
         else:
@@ -37,7 +32,12 @@ class AgenticRagClient:
     async def __aenter__(self) -> "AgenticRagClient":
         return self
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:  # noqa: ANN001
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         await self.close()
 
     async def close(self) -> None:

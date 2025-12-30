@@ -42,8 +42,8 @@ else:  # pragma: no cover - typing only
     AgnoAgentType = Any
     AgnoOpenAIChatType = Any
 
-AgnoAgentImpl: type[Any] | None
-AgnoOpenAIChatImpl: type[Any] | None
+AgnoAgentImpl: type[Any] | None = None
+AgnoOpenAIChatImpl: type[Any] | None = None
 
 try:  # pragma: no cover - optional dependency at runtime
     from agno.agent import Agent as AgnoAgentImpl

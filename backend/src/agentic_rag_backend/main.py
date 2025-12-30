@@ -29,6 +29,8 @@ from .api.routes import (
 from .api.routes.ingest import limiter as slowapi_limiter
 from .config import Settings, load_settings
 from .core.errors import AppError, app_error_handler
+from .protocols.a2a import A2ASessionManager
+from .protocols.mcp import MCPToolRegistry
 from .rate_limit import InMemoryRateLimiter, RateLimiter, RedisRateLimiter, close_redis
 from .schemas import QueryEnvelope, QueryRequest, QueryResponse, ResponseMeta
 from .trajectory import TrajectoryLogger, close_pool, create_pool
@@ -167,6 +169,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             neo4j=getattr(app.state, "neo4j", None),
             embedding_model=settings.embedding_model,
         )
+
+    app.state.a2a_manager = A2ASessionManager(
+        session_ttl_seconds=settings.a2a_session_ttl_seconds,
+        max_sessions_per_tenant=settings.a2a_max_sessions_per_tenant,
+        max_sessions_total=settings.a2a_max_sessions_total,
+        max_messages_per_session=settings.a2a_max_messages_per_session,
+    )
+    app.state.mcp_registry = MCPToolRegistry(
+        orchestrator=app.state.orchestrator,
+        neo4j=getattr(app.state, "neo4j", None),
+        timeout_seconds=settings.mcp_tool_timeout_seconds,
+    )
 
     yield
 

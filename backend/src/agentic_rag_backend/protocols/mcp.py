@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
+
+from pydantic import BaseModel, Field
 
 from ..agents.orchestrator import OrchestratorAgent
 from ..db.neo4j import Neo4jClient
@@ -12,6 +15,10 @@ from ..schemas import QueryRequest
 
 class MCPToolNotFoundError(KeyError):
     """Raised when a requested tool is not registered."""
+
+
+class GraphStatsRequest(BaseModel):
+    tenant_id: str = Field(..., min_length=1)
 
 
 @dataclass(frozen=True)
@@ -25,9 +32,15 @@ class MCPTool:
 class MCPToolRegistry:
     """Registry for MCP-style tool definitions and execution."""
 
-    def __init__(self, orchestrator: OrchestratorAgent, neo4j: Neo4jClient | None) -> None:
+    def __init__(
+        self,
+        orchestrator: OrchestratorAgent,
+        neo4j: Neo4jClient | None,
+        timeout_seconds: float | None = None,
+    ) -> None:
         self._orchestrator = orchestrator
         self._neo4j = neo4j
+        self._timeout_seconds = timeout_seconds
         self._tools = {
             "knowledge.query": MCPTool(
                 name="knowledge.query",
@@ -86,11 +99,21 @@ class MCPToolRegistry:
             tenant_id=tenant_id,
             session_id=session_id if isinstance(session_id, str) else None,
         )
-        result = await self._orchestrator.run(
-            payload.query,
-            payload.tenant_id,
-            payload.session_id,
-        )
+        if self._timeout_seconds and self._timeout_seconds > 0:
+            result = await asyncio.wait_for(
+                self._orchestrator.run(
+                    payload.query,
+                    payload.tenant_id,
+                    payload.session_id,
+                ),
+                timeout=self._timeout_seconds,
+            )
+        else:
+            result = await self._orchestrator.run(
+                payload.query,
+                payload.tenant_id,
+                payload.session_id,
+            )
         return {
             "answer": result.answer,
             "plan": [step.model_dump() for step in result.plan],
@@ -101,9 +124,8 @@ class MCPToolRegistry:
         }
 
     async def _graph_stats(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        tenant_id = arguments.get("tenant_id")
-        if not tenant_id or not str(tenant_id).strip():
-            raise ValueError("tenant_id is required")
+        payload = GraphStatsRequest(**arguments)
+        tenant_id = payload.tenant_id
         if self._neo4j is None:
             raise ValueError("neo4j client not available")
         return await self._neo4j.get_visualization_stats(tenant_id=str(tenant_id))

@@ -94,3 +94,51 @@ async def test_rate_limit_applies() -> None:
             limiter=DenyLimiter(),
         )
     assert exc_info.value.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_session_limit_enforced() -> None:
+    manager = A2ASessionManager(max_sessions_per_tenant=1, max_sessions_total=1)
+    await create_session(
+        request_body=CreateSessionRequest(tenant_id="tenant-1"),
+        manager=manager,
+        limiter=AllowLimiter(),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_session(
+            request_body=CreateSessionRequest(tenant_id="tenant-1"),
+            manager=manager,
+            limiter=AllowLimiter(),
+        )
+    assert exc_info.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_message_limit_enforced() -> None:
+    manager = A2ASessionManager(max_messages_per_session=1)
+    session = manager.create_session("tenant-1")
+
+    await add_message(
+        session_id=session.session_id,
+        request_body=MessageRequest(
+            tenant_id="tenant-1",
+            sender="agent",
+            content="hello",
+        ),
+        manager=manager,
+        limiter=AllowLimiter(),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await add_message(
+            session_id=session.session_id,
+            request_body=MessageRequest(
+                tenant_id="tenant-1",
+                sender="agent",
+                content="second",
+            ),
+            manager=manager,
+            limiter=AllowLimiter(),
+        )
+    assert exc_info.value.status_code == 409

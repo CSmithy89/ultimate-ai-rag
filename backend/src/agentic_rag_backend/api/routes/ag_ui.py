@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -23,11 +23,11 @@ class AGUIRequest(BaseModel):
     actions: list[dict[str, Any]] = Field(default_factory=list)
 
 
-def get_orchestrator(request):
+def get_orchestrator(request: Request) -> OrchestratorAgent:
     return request.app.state.orchestrator
 
 
-def get_rate_limiter(request):
+def get_rate_limiter(request: Request) -> RateLimiter:
     return request.app.state.rate_limiter
 
 
