@@ -247,9 +247,12 @@ describe("useGenerativeUI", () => {
         )?.[0];
 
         // Render with undefined sources should not throw
-        const result = showSourcesAction.render({
-          status: "complete",
-          args: { sources: undefined, title: "Test" },
+        let result: unknown;
+        act(() => {
+          result = showSourcesAction.render({
+            status: "complete",
+            args: { sources: undefined, title: "Test" },
+          });
         });
 
         // Should render empty or error state, not crash
@@ -264,9 +267,12 @@ describe("useGenerativeUI", () => {
         )?.[0];
 
         // Render with invalid sources should not throw
-        const result = showSourcesAction.render({
-          status: "complete",
-          args: { sources: [{ invalid: true }], title: "Test" },
+        let result: unknown;
+        act(() => {
+          result = showSourcesAction.render({
+            status: "complete",
+            args: { sources: [{ invalid: true }], title: "Test" },
+          });
         });
 
         expect(result).toBeDefined();
@@ -279,9 +285,12 @@ describe("useGenerativeUI", () => {
           (call) => call[0].name === "show_sources"
         )?.[0];
 
-        const result = showSourcesAction.render({
-          status: "complete",
-          args: { sources: [], title: "Test" },
+        let result: unknown;
+        act(() => {
+          result = showSourcesAction.render({
+            status: "complete",
+            args: { sources: [], title: "Test" },
+          });
         });
 
         expect(result).toBeDefined();
@@ -296,9 +305,12 @@ describe("useGenerativeUI", () => {
           (call) => call[0].name === "show_answer"
         )?.[0];
 
-        const result = showAnswerAction.render({
-          status: "complete",
-          args: { answer: "", sources: [] },
+        let result: unknown;
+        act(() => {
+          result = showAnswerAction.render({
+            status: "complete",
+            args: { answer: "", sources: [] },
+          });
         });
 
         expect(result).toBeDefined();
@@ -311,9 +323,12 @@ describe("useGenerativeUI", () => {
           (call) => call[0].name === "show_answer"
         )?.[0];
 
-        const result = showAnswerAction.render({
-          status: "complete",
-          args: { answer: undefined, sources: [] },
+        let result: unknown;
+        act(() => {
+          result = showAnswerAction.render({
+            status: "complete",
+            args: { answer: undefined, sources: [] },
+          });
         });
 
         expect(result).toBeDefined();
@@ -328,12 +343,15 @@ describe("useGenerativeUI", () => {
           (call) => call[0].name === "show_knowledge_graph"
         )?.[0];
 
-        const result = showKGAction.render({
-          status: "complete",
-          args: {
-            nodes: [{ notAnId: "test" }], // Missing required 'id' field
-            edges: [],
-          },
+        let result: unknown;
+        act(() => {
+          result = showKGAction.render({
+            status: "complete",
+            args: {
+              nodes: [{ notAnId: "test" }], // Missing required 'id' field
+              edges: [],
+            },
+          });
         });
 
         expect(result).toBeDefined();
@@ -346,12 +364,15 @@ describe("useGenerativeUI", () => {
           (call) => call[0].name === "show_knowledge_graph"
         )?.[0];
 
-        const result = showKGAction.render({
-          status: "complete",
-          args: {
-            nodes: [{ id: "1", label: "Test" }],
-            edges: [{ invalid: true }], // Missing required fields
-          },
+        let result: unknown;
+        act(() => {
+          result = showKGAction.render({
+            status: "complete",
+            args: {
+              nodes: [{ id: "1", label: "Test" }],
+              edges: [{ invalid: true }], // Missing required fields
+            },
+          });
         });
 
         expect(result).toBeDefined();
@@ -364,9 +385,12 @@ describe("useGenerativeUI", () => {
           (call) => call[0].name === "show_knowledge_graph"
         )?.[0];
 
-        const result = showKGAction.render({
-          status: "complete",
-          args: { nodes: undefined, edges: undefined },
+        let result: unknown;
+        act(() => {
+          result = showKGAction.render({
+            status: "complete",
+            args: { nodes: undefined, edges: undefined },
+          });
         });
 
         expect(result).toBeDefined();
@@ -406,7 +430,10 @@ describe("useGenerativeUI", () => {
       const stateRenderCall = mockUseCoAgentStateRender.mock.calls[0]?.[0];
 
       // Should not throw when generativeUI is missing
-      const result = stateRenderCall.render({ state: {} });
+      let result: unknown;
+      act(() => {
+        result = stateRenderCall.render({ state: {} });
+      });
       expect(result).toBeDefined();
     });
   });

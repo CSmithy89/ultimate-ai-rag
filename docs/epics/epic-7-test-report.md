@@ -1,6 +1,6 @@
 # Epic 7 Test Validation Report
 
-**Date:** 2025-12-30 09:46:39 UTC
+**Date:** 2025-12-30 09:53:14 UTC
 **Branch:** epic/07-protocol-integration-extensibility
 
 ## Test Results
@@ -10,7 +10,7 @@
 - Skipped: 3 ⏭️
 
 Notes:
-- Frontend: 315 tests passed (19 suites). Console warnings about missing `act(...)` wrappers in `use-generative-ui` tests.
+- Frontend: 315 tests passed (19 suites).
 - Backend: 377 tests passed, 3 skipped. Warnings from deprecated APIs in dependencies.
 
 ## Type Check
