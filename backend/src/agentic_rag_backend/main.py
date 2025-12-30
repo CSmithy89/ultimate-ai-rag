@@ -25,6 +25,7 @@ from .api.routes import (
     mcp_router,
     a2a_router,
     ag_ui_router,
+    ops_router,
 )
 from .api.routes.ingest import limiter as slowapi_limiter
 from .api.utils import rate_limit_exceeded
@@ -35,6 +36,7 @@ from .protocols.mcp import MCPToolRegistry
 from .rate_limit import InMemoryRateLimiter, RateLimiter, RedisRateLimiter, close_redis
 from .schemas import QueryEnvelope, QueryRequest, QueryResponse, ResponseMeta
 from .trajectory import TrajectoryLogger, close_pool, create_pool
+from .ops import CostTracker
 
 logger = logging.getLogger(__name__)
 struct_logger = structlog.get_logger(__name__)
@@ -73,6 +75,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.postgres = PostgresClient(settings.database_url)
         await app.state.postgres.connect()
         await app.state.postgres.create_tables()
+        app.state.cost_tracker = CostTracker(
+            app.state.postgres.pool,
+            pricing_json=settings.model_pricing_json,
+        )
 
         # Initialize Neo4j
         app.state.neo4j = Neo4jClient(
@@ -86,6 +92,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         struct_logger.info("database_connections_initialized")
     except Exception as e:
         struct_logger.warning("database_connection_failed", error=str(e))
+        app.state.cost_tracker = None
 
     # Epic 5: Initialize Graphiti temporal knowledge graph
     app.state.graphiti = None
@@ -129,6 +136,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             postgres=getattr(app.state, "postgres", None),
             neo4j=getattr(app.state, "neo4j", None),
             embedding_model=settings.embedding_model,
+            cost_tracker=getattr(app.state, "cost_tracker", None),
         )
     else:
         pool = create_pool(settings.database_url, settings.db_pool_min, settings.db_pool_max)
@@ -169,6 +177,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             postgres=getattr(app.state, "postgres", None),
             neo4j=getattr(app.state, "neo4j", None),
             embedding_model=settings.embedding_model,
+            cost_tracker=getattr(app.state, "cost_tracker", None),
         )
 
     app.state.a2a_manager = A2ASessionManager(
@@ -250,6 +259,7 @@ def create_app() -> FastAPI:
     app.include_router(mcp_router, prefix="/api/v1")  # Epic 7: MCP tools
     app.include_router(a2a_router, prefix="/api/v1")  # Epic 7: A2A collaboration
     app.include_router(ag_ui_router, prefix="/api/v1")  # Epic 7: AG-UI universal
+    app.include_router(ops_router, prefix="/api/v1")  # Epic 8: Ops dashboard
 
     return app
 

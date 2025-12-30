@@ -65,6 +65,8 @@ class Settings:
     mcp_tool_timeout_seconds: float
     mcp_tool_timeout_overrides: dict[str, float]
     mcp_tool_max_timeout_seconds: float
+    # Epic 8 - Ops settings
+    model_pricing_json: str
 
 
 def load_settings() -> Settings:
@@ -280,6 +282,8 @@ def load_settings() -> Settings:
         mcp_tool_timeout_seconds=mcp_tool_timeout_seconds,
         mcp_tool_timeout_overrides=mcp_tool_timeout_overrides,
         mcp_tool_max_timeout_seconds=mcp_tool_max_timeout_seconds,
+        # Epic 8 - Ops settings
+        model_pricing_json=os.getenv("MODEL_PRICING_JSON", ""),
     )
 
 

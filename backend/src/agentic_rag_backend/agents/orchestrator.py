@@ -35,6 +35,7 @@ from ..schemas import (
     VectorCitation,
 )
 from ..trajectory import EventType, TrajectoryLogger
+from ..ops import CostTracker
 
 if TYPE_CHECKING:
     from agno.agent import Agent as AgnoAgentType
@@ -75,6 +76,7 @@ class OrchestratorAgent:
         api_key: str,
         model_id: str = "gpt-4o-mini",
         logger: TrajectoryLogger | None = None,
+        cost_tracker: CostTracker | None = None,
         postgres: PostgresClient | None = None,
         neo4j: Neo4jClient | None = None,
         embedding_model: str = DEFAULT_EMBEDDING_MODEL,
@@ -88,6 +90,8 @@ class OrchestratorAgent:
     ) -> None:
         self._agent = None
         self._logger = logger
+        self._cost_tracker = cost_tracker
+        self._model_id = model_id
         self._vector_search: VectorSearchService | None = None
         self._graph_traversal: GraphTraversalService | None = None
         if AgnoAgentImpl is not None and AgnoOpenAIChatImpl is not None:
@@ -216,6 +220,18 @@ class OrchestratorAgent:
 
         if self._logger and trajectory_id:
             await self._logger.log_events(tenant_id, trajectory_id, events)
+
+        if self._cost_tracker:
+            try:
+                await self._cost_tracker.record_usage(
+                    tenant_id=tenant_id,
+                    model_id=self._model_id,
+                    prompt=prompt,
+                    completion=answer,
+                    trajectory_id=trajectory_id,
+                )
+            except Exception as exc:  # pragma: no cover - non-critical telemetry
+                logger.warning("cost_tracking_failed", error=str(exc))
 
         return OrchestratorResult(
             answer=answer,

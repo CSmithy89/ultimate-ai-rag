@@ -14,6 +14,11 @@ import {
   GraphDataSchema,
   GraphStatsSchema,
 } from '../types/graphs';
+import {
+  CostEventSchema,
+  CostSummarySchema,
+  AlertConfigSchema,
+} from '../types/ops';
 import { z } from 'zod';
 
 // Schema for orphans response validation
@@ -113,10 +118,48 @@ export const knowledge = {
 };
 
 /**
+ * Ops API methods.
+ */
+export const ops = {
+  async getCostSummary(tenantId: string, window: string) {
+    const queryString = buildQueryString({ tenantId, window });
+    const response = await fetchApi('/ops/costs/summary?' + queryString);
+    return CostSummarySchema.parse(response.data);
+  },
+
+  async getCostEvents(tenantId: string, limit = 50, offset = 0) {
+    const queryString = buildQueryString({ tenantId, limit, offset });
+    const response = await fetchApi<{ events: unknown[] }>('/ops/costs/events?' + queryString);
+    const events = z.array(CostEventSchema).parse(response.data.events);
+    return events;
+  },
+
+  async getCostAlerts(tenantId: string) {
+    const queryString = buildQueryString({ tenantId });
+    const response = await fetchApi<{ alerts: unknown }>('/ops/costs/alerts?' + queryString);
+    return AlertConfigSchema.parse(response.data.alerts);
+  },
+
+  async updateCostAlerts(payload: {
+    tenant_id: string;
+    daily_threshold_usd?: number | null;
+    monthly_threshold_usd?: number | null;
+    enabled: boolean;
+  }) {
+    const response = await fetchApi<{ alerts: unknown }>('/ops/costs/alerts', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return AlertConfigSchema.parse(response.data.alerts);
+  },
+};
+
+/**
  * Main API client object.
  */
 export const api = {
   knowledge,
+  ops,
 };
 
 export default api;
