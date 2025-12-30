@@ -258,3 +258,114 @@ export const ValidationResponseSchema = z.object({
   approvedCount: z.number(),
   rejectedCount: z.number(),
 });
+
+// ============================================
+// FRONTEND ACTIONS TYPES - Story 6-5
+// ============================================
+
+/**
+ * Action types supported by the frontend actions system.
+ */
+export type ActionType = "save" | "export" | "share" | "bookmark" | "followUp";
+
+/**
+ * State of an action.
+ */
+export type ActionState = "idle" | "loading" | "success" | "error";
+
+/**
+ * Export format options.
+ */
+export type ExportFormat = "markdown" | "pdf" | "json";
+
+/**
+ * Content that can be actioned upon.
+ */
+export interface ActionableContent {
+  /** Unique ID for this content */
+  id: string;
+  /** The response text/content */
+  content: string;
+  /** Optional title for saved content */
+  title?: string;
+  /** Original query that generated this response */
+  query?: string;
+  /** Sources used in generating the response */
+  sources?: Array<{
+    id: string;
+    title: string;
+    url?: string;
+  }>;
+  /** Timestamp of the response */
+  timestamp?: string;
+  /** Session/conversation ID */
+  sessionId?: string;
+  /** Trajectory ID for this response */
+  trajectoryId?: string;
+}
+
+/**
+ * Action history item for tracking completed actions.
+ */
+export interface ActionHistoryItem {
+  /** Unique ID for this action */
+  id: string;
+  /** Type of action performed */
+  type: ActionType;
+  /** Current status of the action */
+  status: "pending" | "success" | "error";
+  /** When the action was initiated */
+  timestamp: string;
+  /** Human-readable title */
+  title: string;
+  /** Error message if action failed */
+  error?: string;
+  /** Additional data from the action */
+  data?: {
+    shareUrl?: string;
+    filename?: string;
+    [key: string]: unknown;
+  };
+}
+
+// Zod schemas for frontend actions validation
+export const ActionTypeSchema = z.enum(["save", "export", "share", "bookmark", "followUp"]);
+
+export const ActionStateSchema = z.enum(["idle", "loading", "success", "error"]);
+
+export const ExportFormatSchema = z.enum(["markdown", "pdf", "json"]);
+
+export const ActionableContentSchema = z.object({
+  id: z.string(),
+  content: z.string(),
+  title: z.string().optional(),
+  query: z.string().optional(),
+  sources: z
+    .array(
+      z.object({
+        id: z.string(),
+        title: z.string(),
+        url: z.string().optional(),
+      })
+    )
+    .optional(),
+  timestamp: z.string().optional(),
+  sessionId: z.string().optional(),
+  trajectoryId: z.string().optional(),
+});
+
+export const ActionHistoryItemSchema = z.object({
+  id: z.string(),
+  type: ActionTypeSchema,
+  status: z.enum(["pending", "success", "error"]),
+  timestamp: z.string(),
+  title: z.string(),
+  error: z.string().optional(),
+  data: z
+    .object({
+      shareUrl: z.string().optional(),
+      filename: z.string().optional(),
+    })
+    .passthrough()
+    .optional(),
+});
