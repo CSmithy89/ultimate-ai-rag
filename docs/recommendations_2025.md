@@ -1,3 +1,4 @@
+
 # Future Roadmap & Technical Recommendations (2025)
 
 **Date:** 2025-12-31
@@ -21,7 +22,7 @@ To reach "SOTA" status in 2025, the system must evolve from a "Docker Stack" to 
 | **Retrieval** | Hybrid (Vector+Graph) | Reranked Hybrid + Corrective | Missing "Reranker" & "Grader" |
 | **Ingestion** | Text/PDF (Crawl4AI) | Enterprise (Apify/BrightData) | Missing "Ingestion Adapters" |
 | **Installation** | Manual .env editing | Interactive CLI | Missing `rag-install` tool |
-| **Frameworks** | Agno-only | Agnostic (PydanticAI/CrewAI) | Missing "Headless Agent Protocol" |
+| **Frameworks** | Agno-only | Agnostic (PydanticAI/CrewAI/Anthropic) | Missing "Headless Agent Protocol" |
 
 ---
 
@@ -30,10 +31,11 @@ To reach "SOTA" status in 2025, the system must evolve from a "Docker Stack" to 
 ### A. The "Universalization" Refactor (Immediate Priority)
 **Problem:** Hardcoded OpenAI dependency alienates 60% of developers.
 **Solution:** Implement the **"Provider Adapter Pattern"**.
-1.  **OpenRouter Support:** Use generic OpenAI client pointed to `https://openrouter.ai/api/v1`. This gives instant access to Claude 3.5, Gemini Pro, and Llama 3 without separate integrations. **Critical:** Leverage OpenRouter's support for embeddings to avoid needing a separate provider for vectorization.
-2.  **Local LLM Support:** First-class support for **Ollama** (LLM and Embeddings).
-3.  **Refactor:**
-    *   `config.py`: Add `LLM_PROVIDER` (openai, openrouter, ollama, anthropic).
+1.  **Direct Provider Support:** Support **Anthropic** (Claude), **Google Gemini**, and **OpenAI** natively.
+2.  **OpenRouter Support:** Use generic OpenAI client pointed to `https://openrouter.ai/api/v1` for instant access to Llama 3, Mistral, and others. **Critical:** Leverage OpenRouter's support for embeddings.
+3.  **Local LLM Support:** First-class support for **Ollama** (LLM and Embeddings).
+4.  **Refactor:**
+    *   `config.py`: Add `LLM_PROVIDER` with options: `openai`, `anthropic`, `gemini`, `ollama`, `openrouter`.
     *   `orchestrator.py`: Factory pattern to instantiate backend.
     *   `graphiti.py`: Inject generic `LLMClient`.
 
@@ -54,10 +56,10 @@ To reach "SOTA" status in 2025, the system must evolve from a "Docker Stack" to 
 **Problem:** `Crawl4AI` is great but can get blocked. Multimodal is complex.
 **Solution:**
 1.  **Apify & BrightData:** Add support for these services as robust fallbacks for heavy scraping.
-2.  **YouTube "Fast Track":** Instead of full video processing, use `youtube-transcript-api`. It's lightweight, fast, and captures 90% of the value (text).
+2.  **YouTube "Transcript-First":** Explicitly prioritize `youtube-transcript-api` over full video processing. This allows "watching" thousands of videos in seconds by processing only the text, which covers 90% of RAG use cases.
 3.  **Multimodal (Epic 15):** Save full video/image processing for a later phase using `yt-dlp` + `Whisper` + `CLIP`.
 
-### D. Framework Agnosticism (PydanticAI / CrewAI)
+### D. Framework Agnosticism (Major AI Frameworks)
 **Feasibility:** High complexity, High reward.
 **Approach:** **"Headless Agent Protocol"**.
 1.  **Define Interface:**
@@ -66,11 +68,13 @@ To reach "SOTA" status in 2025, the system must evolve from a "Docker Stack" to 
         async def run(self, input: str, history: list) -> AgentResponse: ...
         async def stream(self, input: str) -> AsyncIterator[str]: ...
     ```
-2.  **Adapters:**
-    *   `AgnoAdapter(AgentProtocol)` - *Default*
-    *   `PydanticAIAdapter(AgentProtocol)`
-    *   `CrewAIAdapter(AgentProtocol)`
-3.  **Selection:** User defines `AGENT_FRAMEWORK=pydantic_ai` in `.env`.
+2.  **Adapters for Major Frameworks:**
+    *   **Agno:** *Default*
+    *   **PydanticAI:** For type-safe, validation-heavy agents.
+    *   **CrewAI:** For robust multi-agent orchestration.
+    *   **Anthropic Agent SDK:** For native use of Claude's computer use and agentic capabilities.
+    *   **LangGraph:** For complex stateful graph workflows.
+3.  **Selection:** User defines `AGENT_FRAMEWORK=anthropic` in `.env`.
 
 ### E. MCP Server for External Access
 **Solution:** Expose tools (`search_knowledge_graph`, `ingest_url`) via an MCP Server. Allows usage from Claude Desktop/Cursor.
@@ -81,7 +85,7 @@ To reach "SOTA" status in 2025, the system must evolve from a "Docker Stack" to 
 
 **Epic 11: Code Cleanup & Migration (Current)**
 *   Finish HITL & Workspace Persistence (Stories 11-4, 11-5).
-*   **NEW:** Refactor `config.py` for Multi-Provider (OpenRouter/Local).
+*   **NEW:** Refactor `config.py` for Multi-Provider (OpenRouter/Local/Anthropic/Gemini).
 
 **Epic 12: Advanced Retrieval (The "Archon" Upgrade)**
 *   Implement **Cross-Encoder Reranking** (Cohere/FlashRank).
@@ -103,7 +107,7 @@ To reach "SOTA" status in 2025, the system must evolve from a "Docker Stack" to 
 
 **Epic 16: Framework Agnosticism**
 *   Implement "Headless Agent Protocol".
-*   Add PydanticAI / CrewAI adapters.
+*   Add PydanticAI / CrewAI / Anthropic / LangGraph adapters.
 
 **Epic 17: Deployment & CLI (The Final Polish)**
 *   **Interactive CLI:** `rag-install` tool.
