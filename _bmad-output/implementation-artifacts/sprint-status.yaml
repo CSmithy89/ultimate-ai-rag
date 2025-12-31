@@ -122,7 +122,7 @@ development_status:
   # Epic 10: Testing Infrastructure (Tech Debt)
   epic-10: in-progress
   10-1-integration-test-framework: done
-  10-2-hybrid-retrieval-integration-tests: backlog
+  10-2-hybrid-retrieval-integration-tests: done
   10-3-ingestion-pipeline-integration-tests: backlog
   10-4-graphiti-integration-tests: backlog
   10-5-protocol-integration-tests: backlog
