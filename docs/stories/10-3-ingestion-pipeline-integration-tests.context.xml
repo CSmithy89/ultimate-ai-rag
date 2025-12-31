@@ -1,0 +1,24 @@
+<storyContext>
+  <story id="10.3" title="Ingestion Pipeline Integration Tests" epic="10" />
+
+  <summary>
+    Validate URL crawling, PDF parsing, deduplication, and graph writes
+    against real Postgres and Neo4j services.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>URL ingestion writes documents to Postgres.</acceptanceCriteria>
+    <acceptanceCriteria>PDF parsing produces chunks and embeddings.</acceptanceCriteria>
+    <acceptanceCriteria>Graph nodes created in Neo4j after extraction.</acceptanceCriteria>
+    <acceptanceCriteria>Deduplication prevents duplicate documents.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Tests must use integration fixtures from Story 10.1.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="docs/epics/epic-10-tech-spec.md" section="Story Breakdown" />
+    <reference path="docs/epics/epic-10-testing-infrastructure.md" section="Story 10.3" />
+  </references>
+</storyContext>
