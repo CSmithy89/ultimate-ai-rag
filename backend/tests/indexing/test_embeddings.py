@@ -97,6 +97,37 @@ class TestEmbeddingGenerator:
         assert all(len(r) == EMBEDDING_DIMENSION for r in results)
 
     @pytest.mark.asyncio
+    async def test_generate_embeddings_records_usage(self, mock_openai_client):
+        """Test cost tracking is recorded when enabled."""
+        mock_response = MagicMock()
+        mock_items = []
+        for _ in range(2):
+            item = MagicMock()
+            item.embedding = [0.1] * EMBEDDING_DIMENSION
+            mock_items.append(item)
+        mock_response.data = mock_items
+        mock_openai_client.embeddings.create = AsyncMock(return_value=mock_response)
+
+        cost_tracker = MagicMock()
+        cost_tracker.record_usage = AsyncMock()
+
+        with patch("agentic_rag_backend.embeddings.AsyncOpenAI") as mock_class:
+            mock_class.return_value = mock_openai_client
+            generator = EmbeddingGenerator(
+                api_key="test-key",
+                model="text-embedding-ada-002",
+                cost_tracker=cost_tracker,
+            )
+            generator.client = mock_openai_client
+
+            await generator.generate_embeddings(
+                ["Text one", "Text two"],
+                tenant_id="11111111-1111-1111-1111-111111111111",
+            )
+
+        cost_tracker.record_usage.assert_called()
+
+    @pytest.mark.asyncio
     async def test_empty_text_list(self, generator):
         """Empty text list should return empty result."""
         result = await generator.generate_embeddings([])

@@ -36,6 +36,7 @@ from agentic_rag_backend.models.documents import (
     UnifiedDocument,
 )
 from agentic_rag_backend.models.ingest import JobStatusEnum
+from agentic_rag_backend.ops import CostTracker
 
 logger = structlog.get_logger(__name__)
 
@@ -226,7 +227,10 @@ async def process_index_job(
         )
 
         chunk_texts = [chunk.content for chunk in chunks]
-        embeddings = await embedding_generator.generate_embeddings(chunk_texts)
+        embeddings = await embedding_generator.generate_embeddings(
+            chunk_texts,
+            tenant_id=str(tenant_id),
+        )
 
         for chunk, embedding in zip(chunks, embeddings):
             await postgres.create_chunk(
@@ -366,6 +370,10 @@ async def run_index_worker(
     # Get database clients
     redis = await get_redis_client(settings.redis_url)
     postgres = await get_postgres_client(settings.database_url)
+    cost_tracker = CostTracker(
+        postgres.pool,
+        pricing_json=settings.model_pricing_json,
+    )
 
     graphiti_client: Optional[GraphitiClient] = None
     if GRAPHITI_AVAILABLE:
@@ -388,6 +396,7 @@ async def run_index_worker(
     embedding_generator = EmbeddingGenerator(
         api_key=settings.openai_api_key,
         model=settings.embedding_model,
+        cost_tracker=cost_tracker,
     )
 
     logger.info(

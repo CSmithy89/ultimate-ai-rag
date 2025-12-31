@@ -69,7 +69,10 @@ class VectorSearchService:
 
         try:
             embedding = await self._await_with_timeout(
-                self.embedding_generator.generate_embedding(query),
+                self.embedding_generator.generate_embedding(
+                    query,
+                    tenant_id=tenant_id,
+                ),
                 "vector_search_embedding_timeout",
             )
             rows = await self._await_with_timeout(

@@ -101,6 +101,7 @@ class OrchestratorAgent:
             embedding_generator = EmbeddingGenerator(
                 api_key=api_key,
                 model=embedding_model,
+                cost_tracker=cost_tracker,
             )
             self._vector_search = VectorSearchService(
                 postgres=postgres,

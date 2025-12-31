@@ -1,5 +1,8 @@
 """OpenAI embedding generation with batch processing and retry logic."""
 
+from typing import Optional
+from uuid import UUID
+
 import structlog
 from openai import AsyncOpenAI
 from tenacity import (
@@ -10,6 +13,7 @@ from tenacity import (
 )
 
 from agentic_rag_backend.core.errors import EmbeddingError
+from agentic_rag_backend.ops import CostTracker
 
 logger = structlog.get_logger(__name__)
 
@@ -37,6 +41,7 @@ class EmbeddingGenerator:
         api_key: str,
         model: str = DEFAULT_EMBEDDING_MODEL,
         timeout: float = 30.0,
+        cost_tracker: Optional[CostTracker] = None,
     ) -> None:
         """
         Initialize embedding generator.
@@ -51,7 +56,28 @@ class EmbeddingGenerator:
             timeout=timeout,
         )
         self.model = model
+        self._cost_tracker = cost_tracker
         logger.info("embedding_generator_initialized", model=model, timeout=timeout)
+
+    async def _record_usage(
+        self,
+        tenant_id: Optional[str],
+        texts: list[str],
+        trajectory_id: Optional[UUID],
+    ) -> None:
+        if not self._cost_tracker or not tenant_id or not texts:
+            return
+        try:
+            prompt = "\n".join(texts)
+            await self._cost_tracker.record_usage(
+                tenant_id=tenant_id,
+                model_id=self.model,
+                prompt=prompt,
+                completion="",
+                trajectory_id=trajectory_id,
+            )
+        except Exception as exc:  # pragma: no cover - non-critical telemetry
+            logger.warning("embedding_cost_tracking_failed", error=str(exc))
 
     @retry(
         stop=stop_after_attempt(5),
@@ -89,6 +115,8 @@ class EmbeddingGenerator:
         self,
         texts: list[str],
         batch_size: int = MAX_BATCH_SIZE,
+        tenant_id: Optional[str] = None,
+        trajectory_id: Optional[UUID] = None,
     ) -> list[list[float]]:
         """
         Generate embeddings for multiple texts with batching.
@@ -145,6 +173,7 @@ class EmbeddingGenerator:
             )
 
             batch_embeddings = await self._embed_batch(batch)
+            await self._record_usage(tenant_id, batch, trajectory_id)
             embeddings.extend(batch_embeddings)
 
         # Replace embeddings for empty texts with zero vectors
@@ -159,7 +188,12 @@ class EmbeddingGenerator:
 
         return embeddings
 
-    async def generate_embedding(self, text: str) -> list[float]:
+    async def generate_embedding(
+        self,
+        text: str,
+        tenant_id: Optional[str] = None,
+        trajectory_id: Optional[UUID] = None,
+    ) -> list[float]:
         """
         Generate embedding for a single text.
 
@@ -172,7 +206,11 @@ class EmbeddingGenerator:
         Raises:
             EmbeddingError: If embedding generation fails
         """
-        embeddings = await self.generate_embeddings([text])
+        embeddings = await self.generate_embeddings(
+            [text],
+            tenant_id=tenant_id,
+            trajectory_id=trajectory_id,
+        )
         return embeddings[0]
 
 
