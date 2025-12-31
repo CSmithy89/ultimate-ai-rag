@@ -142,7 +142,7 @@ development_status:
   11-7-configure-neo4j-pooling: done
   11-8-add-llm-token-monitoring: done
   11-9-a2a-session-persistence: done
-  epic-11-retrospective: optional
+  epic-11-retrospective: done
 
   # Epic 12: Documentation & DevOps (Tech Debt)
   epic-12: backlog
