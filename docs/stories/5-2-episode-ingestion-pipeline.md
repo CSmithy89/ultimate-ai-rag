@@ -16,6 +16,15 @@ so that entities and relationships are automatically extracted with temporal tra
 4. Given the ingestion completes, when the knowledge graph is queried, then new entities and relationships are visible.
 5. Given the old ingestion pipeline exists, when a feature flag is set, then documents can be routed to either Graphiti or legacy pipeline.
 
+## Standards Coverage
+
+- [ ] Multi-tenancy / tenant isolation: Planned - enforce tenant_id in Graphiti ingestion queries
+- [ ] Rate limiting / abuse protection: N/A - internal ingestion pipeline
+- [ ] Input validation / schema enforcement: Planned - validate ingestion payloads
+- [ ] Tests (unit/integration): Planned - add ingestion integration tests
+- [ ] Error handling + logging: Planned - standardize ingestion error paths
+- [ ] Documentation updates: Planned - update ingestion pipeline docs
+
 ## Tasks / Subtasks
 
 - [ ] Create episode ingestion service (AC: 1, 2)

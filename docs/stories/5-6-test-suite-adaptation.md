@@ -16,6 +16,15 @@ so that all functionality remains well-tested and regressions are caught.
 4. Given the test suite runs, when coverage is measured, then it is >= 80% for Graphiti-related modules.
 5. Given all tests pass, when CI runs, then the pipeline succeeds in under 5 minutes.
 
+## Standards Coverage
+
+- [ ] Multi-tenancy / tenant isolation: N/A - test suite changes
+- [ ] Rate limiting / abuse protection: N/A - test suite changes
+- [ ] Input validation / schema enforcement: N/A - test suite changes
+- [ ] Tests (unit/integration): Planned - expand Graphiti-related test coverage
+- [ ] Error handling + logging: Planned - verify error cases in tests
+- [ ] Documentation updates: Planned - update README if coverage reporting changes
+
 ## Tasks / Subtasks
 
 - [ ] Update entity extraction tests (AC: 1)

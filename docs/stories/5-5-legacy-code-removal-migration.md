@@ -16,6 +16,15 @@ so that the codebase is simplified and all knowledge benefits from temporal trac
 4. Given the Graphiti backend is validated, when the feature flag is removed, then all ingestion uses Graphiti exclusively.
 5. Given legacy modules are identified, when they are removed, then at least 1,000 lines of code are deleted.
 
+## Standards Coverage
+
+- [ ] Multi-tenancy / tenant isolation: Planned - tenant scoping during migration
+- [ ] Rate limiting / abuse protection: N/A - offline migration script
+- [ ] Input validation / schema enforcement: Planned - validate migration inputs
+- [ ] Tests (unit/integration): Planned - add migration tests
+- [ ] Error handling + logging: Planned - migration reporting and failure handling
+- [ ] Documentation updates: Planned - update stack and migration docs
+
 ## Tasks / Subtasks
 
 - [ ] Create migration script for existing data (AC: 1, 2, 3)
