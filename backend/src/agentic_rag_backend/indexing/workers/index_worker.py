@@ -1,11 +1,12 @@
 """Async index worker for document indexing pipeline.
 
 This worker consumes jobs from the Redis Streams 'index.jobs' queue,
-processes documents through the IndexerAgent, and stores results
-in pgvector (chunks) and Neo4j (entities/relationships).
+stores chunk embeddings in Postgres, and ingests documents into Graphiti
+for knowledge graph extraction.
 """
 
 import asyncio
+import hashlib
 import json
 import time
 from typing import Optional
@@ -13,37 +14,84 @@ from uuid import UUID
 
 import structlog
 
-from agentic_rag_backend.agents.indexer import IndexerAgent
 from agentic_rag_backend.config import get_settings
-from agentic_rag_backend.core.errors import AppError, ExtractionError
-from agentic_rag_backend.db.neo4j import Neo4jClient, get_neo4j_client
+from agentic_rag_backend.core.errors import AppError, ExtractionError, IngestionError
+from agentic_rag_backend.db.graphiti import (
+    GRAPHITI_AVAILABLE,
+    GraphitiClient,
+    create_graphiti_client,
+)
 from agentic_rag_backend.db.postgres import PostgresClient, get_postgres_client
 from agentic_rag_backend.db.redis import (
     INDEX_CONSUMER_GROUP,
     INDEX_JOBS_STREAM,
     get_redis_client,
 )
-from agentic_rag_backend.indexing.embeddings import EmbeddingGenerator
-from agentic_rag_backend.indexing.entity_extractor import EntityExtractor
+from agentic_rag_backend.embeddings import EmbeddingGenerator
+from agentic_rag_backend.indexing.chunker import chunk_document
+from agentic_rag_backend.indexing.graphiti_ingestion import ingest_document_as_episode
+from agentic_rag_backend.models.documents import (
+    DocumentMetadata,
+    SourceType,
+    UnifiedDocument,
+)
 from agentic_rag_backend.models.ingest import JobStatusEnum
 
 logger = structlog.get_logger(__name__)
 
 
+def _parse_metadata(
+    raw_metadata: object,
+    *,
+    content_hash: str,
+    source_type: str,
+    filename: Optional[str],
+) -> DocumentMetadata:
+    """Normalize raw metadata payload into a DocumentMetadata model."""
+    metadata: dict[str, object]
+    if isinstance(raw_metadata, str):
+        try:
+            metadata = json.loads(raw_metadata)
+        except json.JSONDecodeError:
+            metadata = {}
+    elif isinstance(raw_metadata, dict):
+        metadata = dict(raw_metadata)
+    else:
+        metadata = {}
+
+    extra = metadata.get("extra")
+    if not isinstance(extra, dict):
+        extra = {}
+
+    extra.setdefault("content_hash", content_hash)
+    extra.setdefault("source_type", source_type)
+    if filename:
+        extra.setdefault("filename", filename)
+
+    metadata["extra"] = extra
+
+    try:
+        return DocumentMetadata.model_validate(metadata)
+    except Exception:
+        return DocumentMetadata(extra=extra)
+
+
 async def process_index_job(
     job_data: dict,
     postgres: PostgresClient,
-    neo4j: Neo4jClient,
-    indexer_agent: IndexerAgent,
+    embedding_generator: EmbeddingGenerator,
+    graphiti_client: Optional[GraphitiClient],
+    chunk_size: int,
+    chunk_overlap: int,
 ) -> None:
     """
     Process a single indexing job.
 
     This function:
     1. Updates job status to running
-    2. Runs the IndexerAgent to chunk, embed, extract entities
-    3. Updates job status and progress
-    4. Logs trajectory for debugging
+    2. Chunks the document and stores embeddings in Postgres
+    3. Ingests the document as a Graphiti episode
+    4. Updates job status and progress
 
     Args:
         job_data: Job data from Redis Stream containing:
@@ -56,8 +104,10 @@ async def process_index_job(
             - source_type: Source type (url, pdf, text)
             - filename: Original filename (optional)
         postgres: PostgreSQL client for status updates
-        neo4j: Neo4j client for graph operations
-        indexer_agent: IndexerAgent instance
+        embedding_generator: Embedding generator for chunk storage
+        graphiti_client: Connected Graphiti client for graph ingestion
+        chunk_size: Target chunk size in tokens
+        chunk_overlap: Token overlap between chunks
 
     Raises:
         ExtractionError: If indexing fails
@@ -67,17 +117,35 @@ async def process_index_job(
     tenant_id = UUID(job_data["tenant_id"])
     document_id = UUID(job_data["document_id"])
     content = job_data.get("content", "")
-    content_hash = job_data.get("content_hash", "")
+    content_hash = job_data.get("content_hash") or ""
     source_type = job_data.get("source_type", "text")
     filename = job_data.get("filename")
 
-    # Parse metadata if it's a string
-    metadata = job_data.get("metadata", {})
-    if isinstance(metadata, str):
-        try:
-            metadata = json.loads(metadata)
-        except json.JSONDecodeError:
-            metadata = {}
+    if not content_hash:
+        content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    try:
+        source_type_enum = SourceType(source_type)
+    except ValueError:
+        source_type_enum = SourceType.TEXT
+
+    metadata_model = _parse_metadata(
+        job_data.get("metadata", {}),
+        content_hash=content_hash,
+        source_type=source_type,
+        filename=filename,
+    )
+
+    document = UnifiedDocument(
+        id=document_id,
+        tenant_id=tenant_id,
+        source_type=source_type_enum,
+        source_url=metadata_model.source_url,
+        filename=filename,
+        content=content,
+        content_hash=content_hash,
+        metadata=metadata_model,
+    )
 
     logger.info(
         "index_job_started",
@@ -107,24 +175,81 @@ async def process_index_job(
         if not content or not content.strip():
             raise ExtractionError(str(document_id), "Document content is empty")
 
-        # Add source info to metadata
-        enriched_metadata = {
-            **metadata,
-            "source_type": source_type,
-            "content_hash": content_hash,
-        }
-        if filename:
-            enriched_metadata["filename"] = filename
-
-        # Run the indexer agent
-        result = await indexer_agent.index_document(
-            document_id=document_id,
-            tenant_id=tenant_id,
+        chunks = chunk_document(
             content=content,
-            metadata=enriched_metadata,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
         )
 
-        # Calculate total processing time
+        if not chunks:
+            processing_time_ms = int((time.perf_counter() - start_time) * 1000)
+            await postgres.update_job_processing_time(
+                job_id=job_id,
+                tenant_id=tenant_id,
+                processing_time_ms=processing_time_ms,
+            )
+            await postgres.update_document_status(
+                document_id=document_id,
+                tenant_id=tenant_id,
+                status="completed",
+            )
+            await postgres.update_job_status(
+                job_id=job_id,
+                tenant_id=tenant_id,
+                status=JobStatusEnum.COMPLETED,
+                progress={
+                    "chunks_processed": 0,
+                    "total_chunks": 0,
+                    "entities_extracted": 0,
+                    "relationships_extracted": 0,
+                    "processing_time_ms": processing_time_ms,
+                },
+            )
+            logger.info(
+                "index_job_completed_empty",
+                job_id=str(job_id),
+                document_id=str(document_id),
+                processing_time_ms=processing_time_ms,
+            )
+            return
+
+        await postgres.update_job_status(
+            job_id=job_id,
+            tenant_id=tenant_id,
+            status=JobStatusEnum.RUNNING,
+            progress={
+                "chunks_processed": 0,
+                "total_chunks": len(chunks),
+                "entities_extracted": 0,
+                "relationships_extracted": 0,
+            },
+        )
+
+        chunk_texts = [chunk.content for chunk in chunks]
+        embeddings = await embedding_generator.generate_embeddings(chunk_texts)
+
+        for chunk, embedding in zip(chunks, embeddings):
+            await postgres.create_chunk(
+                tenant_id=tenant_id,
+                document_id=document_id,
+                content=chunk.content,
+                chunk_index=chunk.chunk_index,
+                token_count=chunk.token_count,
+                embedding=embedding,
+                metadata={
+                    "start_char": chunk.start_char,
+                    "end_char": chunk.end_char,
+                },
+            )
+
+        if graphiti_client is None or not graphiti_client.is_connected:
+            raise IngestionError(str(document_id), "Graphiti client not available")
+
+        ingestion_result = await ingest_document_as_episode(
+            graphiti_client=graphiti_client,
+            document=document,
+        )
+
         processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 
         # Update job processing time
@@ -147,32 +272,21 @@ async def process_index_job(
             tenant_id=tenant_id,
             status=JobStatusEnum.COMPLETED,
             progress={
-                "chunks_processed": result.chunks_created,
-                "total_chunks": result.chunks_created,
-                "entities_extracted": result.entities_extracted,
-                "relationships_extracted": result.relationships_extracted,
-                "entities_deduplicated": result.entities_deduplicated,
+                "chunks_processed": len(chunks),
+                "total_chunks": len(chunks),
+                "entities_extracted": ingestion_result.entities_extracted,
+                "relationships_extracted": ingestion_result.edges_created,
                 "processing_time_ms": processing_time_ms,
             },
         )
-
-        # Log trajectory info if available
-        trajectory = indexer_agent.get_trajectory()
-        if trajectory:
-            logger.info(
-                "index_job_trajectory",
-                job_id=str(job_id),
-                trajectory_id=trajectory.run_id,
-                entries_count=len(trajectory.entries),
-            )
 
         logger.info(
             "index_job_completed",
             job_id=str(job_id),
             document_id=str(document_id),
-            chunks_created=result.chunks_created,
-            entities_extracted=result.entities_extracted,
-            relationships_extracted=result.relationships_extracted,
+            chunks_created=len(chunks),
+            entities_extracted=ingestion_result.entities_extracted,
+            relationships_extracted=ingestion_result.edges_created,
             processing_time_ms=processing_time_ms,
         )
 
@@ -230,10 +344,10 @@ async def run_index_worker(
     Run the index worker as a long-running async task.
 
     This function:
-    1. Connects to Redis, PostgreSQL, and Neo4j
-    2. Initializes the IndexerAgent with all dependencies
+    1. Connects to Redis and PostgreSQL
+    2. Initializes embedding and Graphiti clients
     3. Continuously consumes jobs from index.jobs stream
-    4. Processes each job through the IndexerAgent
+    4. Processes each job through chunking + Graphiti ingestion
     5. Acknowledges jobs after processing
 
     Args:
@@ -252,32 +366,28 @@ async def run_index_worker(
     # Get database clients
     redis = await get_redis_client(settings.redis_url)
     postgres = await get_postgres_client(settings.database_url)
-    neo4j = await get_neo4j_client(
-        uri=settings.neo4j_uri,
-        user=settings.neo4j_user,
-        password=settings.neo4j_password,
-    )
 
-    # Initialize components for IndexerAgent
+    graphiti_client: Optional[GraphitiClient] = None
+    if GRAPHITI_AVAILABLE:
+        try:
+            graphiti_client = await create_graphiti_client(
+                uri=settings.neo4j_uri,
+                user=settings.neo4j_user,
+                password=settings.neo4j_password,
+                openai_api_key=settings.openai_api_key,
+                embedding_model=settings.graphiti_embedding_model,
+                llm_model=settings.graphiti_llm_model,
+            )
+            logger.info("graphiti_worker_connected")
+        except Exception as e:
+            logger.error("graphiti_worker_connect_failed", error=str(e))
+            graphiti_client = None
+    else:
+        logger.warning("graphiti_not_available_for_worker")
+
     embedding_generator = EmbeddingGenerator(
         api_key=settings.openai_api_key,
         model=settings.embedding_model,
-    )
-
-    entity_extractor = EntityExtractor(
-        api_key=settings.openai_api_key,
-        model=settings.entity_extraction_model,
-    )
-
-    # Create IndexerAgent
-    indexer_agent = IndexerAgent(
-        postgres=postgres,
-        neo4j=neo4j,
-        embedding_generator=embedding_generator,
-        entity_extractor=entity_extractor,
-        chunk_size=settings.chunk_size,
-        chunk_overlap=settings.chunk_overlap,
-        similarity_threshold=settings.entity_similarity_threshold,
     )
 
     logger.info(
@@ -285,7 +395,6 @@ async def run_index_worker(
         consumer_name=consumer_name,
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
-        entity_model=settings.entity_extraction_model,
         embedding_model=settings.embedding_model,
     )
 
@@ -301,8 +410,10 @@ async def run_index_worker(
             await process_index_job(
                 job_data=job_data,
                 postgres=postgres,
-                neo4j=neo4j,
-                indexer_agent=indexer_agent,
+                embedding_generator=embedding_generator,
+                graphiti_client=graphiti_client,
+                chunk_size=settings.chunk_size,
+                chunk_overlap=settings.chunk_overlap,
             )
         except Exception as e:
             # Log but don't crash the worker

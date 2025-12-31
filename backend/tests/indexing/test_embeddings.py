@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from agentic_rag_backend.indexing.embeddings import (
+from agentic_rag_backend.embeddings import (
     EmbeddingGenerator,
     cosine_similarity,
     EMBEDDING_DIMENSION,
@@ -56,7 +56,7 @@ class TestEmbeddingGenerator:
     @pytest.fixture
     def generator(self, mock_openai_client):
         """Create an EmbeddingGenerator with mocked client."""
-        with patch("agentic_rag_backend.indexing.embeddings.AsyncOpenAI") as mock_class:
+        with patch("agentic_rag_backend.embeddings.AsyncOpenAI") as mock_class:
             mock_class.return_value = mock_openai_client
             gen = EmbeddingGenerator(api_key="test-key", model="text-embedding-ada-002")
             gen.client = mock_openai_client

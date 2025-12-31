@@ -12,7 +12,7 @@ import structlog
 from ..retrieval_router import RetrievalStrategy, select_retrieval_strategy
 from ..db.neo4j import Neo4jClient
 from ..db.postgres import PostgresClient
-from ..indexing.embeddings import DEFAULT_EMBEDDING_MODEL, EmbeddingGenerator
+from ..embeddings import DEFAULT_EMBEDDING_MODEL, EmbeddingGenerator
 from ..retrieval import GraphTraversalService, VectorSearchService
 from ..retrieval.constants import (
     DEFAULT_ENTITY_LIMIT,

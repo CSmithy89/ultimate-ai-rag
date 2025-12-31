@@ -1,8 +1,5 @@
 """OpenAI embedding generation with batch processing and retry logic."""
 
-import warnings
-from typing import Optional
-
 import structlog
 from openai import AsyncOpenAI
 from tenacity import (
@@ -13,21 +10,6 @@ from tenacity import (
 )
 
 from agentic_rag_backend.core.errors import EmbeddingError
-
-_DEPRECATION_WARNED = False
-
-
-def _warn_deprecated_once() -> None:
-    global _DEPRECATION_WARNED
-    if _DEPRECATION_WARNED:
-        return
-    warnings.warn(
-        "The embeddings module is deprecated since v1.0.0 and will be removed in v2.0.0. "
-        "Use graphiti_ingestion.ingest_document_as_episode() which handles embeddings automatically.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    _DEPRECATION_WARNED = True
 
 logger = structlog.get_logger(__name__)
 
@@ -56,7 +38,6 @@ class EmbeddingGenerator:
         model: str = DEFAULT_EMBEDDING_MODEL,
         timeout: float = 30.0,
     ) -> None:
-        _warn_deprecated_once()
         """
         Initialize embedding generator.
 
@@ -206,7 +187,6 @@ def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
     Returns:
         Cosine similarity score (0.0-1.0)
     """
-    _warn_deprecated_once()
     if len(vec1) != len(vec2):
         raise ValueError(f"Vector dimensions don't match: {len(vec1)} vs {len(vec2)}")
 
@@ -218,30 +198,3 @@ def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
         return 0.0
 
     return dot_product / (magnitude1 * magnitude2)
-
-
-# Global embedding generator instance
-_embedding_generator: Optional[EmbeddingGenerator] = None
-
-
-async def get_embedding_generator(
-    api_key: Optional[str] = None,
-    model: str = DEFAULT_EMBEDDING_MODEL,
-) -> EmbeddingGenerator:
-    """
-    Get or create the global embedding generator instance.
-
-    Args:
-        api_key: OpenAI API key. Required on first call.
-        model: Embedding model to use
-
-    Returns:
-        EmbeddingGenerator instance
-    """
-    _warn_deprecated_once()
-    global _embedding_generator
-    if _embedding_generator is None:
-        if api_key is None:
-            raise EmbeddingError("API key required for first initialization")
-        _embedding_generator = EmbeddingGenerator(api_key, model)
-    return _embedding_generator

@@ -8,7 +8,7 @@ import structlog
 
 from agentic_rag_backend.core.errors import AppError
 from agentic_rag_backend.db.postgres import PostgresClient
-from agentic_rag_backend.indexing.embeddings import EmbeddingGenerator
+from agentic_rag_backend.embeddings import EmbeddingGenerator
 
 from .cache import TTLCache, hash_cache_key
 from .constants import (
