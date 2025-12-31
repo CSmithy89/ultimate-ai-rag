@@ -30,6 +30,13 @@ def _require_integration_env() -> None:
         pytest.skip(f"Missing env for integration tests: {', '.join(missing)}")
 
 
+def _get_required_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Expected {name} to be set for integration tests")
+    return value
+
+
 async def _check_postgres(client: PostgresClient) -> None:
     await client.connect()
     async with client.pool.acquire() as conn:
@@ -49,7 +56,7 @@ async def _check_redis(client: RedisClient) -> None:
     await client.client.ping()
 
 
-async def _cleanup_postgres(client: PostgresClient, tenant_id: str) -> None:
+async def cleanup_postgres(client: PostgresClient, tenant_id: str) -> None:
     tenant_uuid = UUID(tenant_id)
     statements = [
         "DELETE FROM chunks WHERE tenant_id = $1",
@@ -67,7 +74,7 @@ async def _cleanup_postgres(client: PostgresClient, tenant_id: str) -> None:
                 continue
 
 
-async def _cleanup_neo4j(client: Neo4jClient, tenant_id: str) -> None:
+async def cleanup_neo4j(client: Neo4jClient, tenant_id: str) -> None:
     async with client.driver.session() as session:
         await session.run(
             "MATCH (n {tenant_id: $tenant_id}) DETACH DELETE n",
@@ -75,7 +82,7 @@ async def _cleanup_neo4j(client: Neo4jClient, tenant_id: str) -> None:
         )
 
 
-async def _cleanup_redis(client: RedisClient, tenant_id: str) -> None:
+async def cleanup_redis(client: RedisClient, tenant_id: str) -> None:
     pattern = f"*{tenant_id}*"
     async for key in client.client.scan_iter(match=pattern):
         await client.client.delete(key)
@@ -84,19 +91,19 @@ async def _cleanup_redis(client: RedisClient, tenant_id: str) -> None:
 @pytest_asyncio.fixture(scope="session")
 async def integration_env() -> dict[str, str]:
     _require_integration_env()
-    database_url = os.getenv("DATABASE_URL")
-    neo4j_uri = os.getenv("NEO4J_URI")
-    neo4j_user = os.getenv("NEO4J_USER")
-    neo4j_password = os.getenv("NEO4J_PASSWORD")
-    redis_url = os.getenv("REDIS_URL")
+    database_url = _get_required_env("DATABASE_URL")
+    neo4j_uri = _get_required_env("NEO4J_URI")
+    neo4j_user = _get_required_env("NEO4J_USER")
+    neo4j_password = _get_required_env("NEO4J_PASSWORD")
+    redis_url = _get_required_env("REDIS_URL")
 
-    postgres_client = PostgresClient(database_url)  # type: ignore[arg-type]
+    postgres_client = PostgresClient(database_url)
     neo4j_client = Neo4jClient(
-        neo4j_uri,  # type: ignore[arg-type]
-        neo4j_user,  # type: ignore[arg-type]
-        neo4j_password,  # type: ignore[arg-type]
+        neo4j_uri,
+        neo4j_user,
+        neo4j_password,
     )
-    redis_client = RedisClient(redis_url)  # type: ignore[arg-type]
+    redis_client = RedisClient(redis_url)
 
     try:
         await _check_postgres(postgres_client)
@@ -110,11 +117,11 @@ async def integration_env() -> dict[str, str]:
         await redis_client.disconnect()
 
     return {
-        "database_url": database_url or "",
-        "neo4j_uri": neo4j_uri or "",
-        "neo4j_user": neo4j_user or "",
-        "neo4j_password": neo4j_password or "",
-        "redis_url": redis_url or "",
+        "database_url": database_url,
+        "neo4j_uri": neo4j_uri,
+        "neo4j_user": neo4j_user,
+        "neo4j_password": neo4j_password,
+        "redis_url": redis_url,
     }
 
 
@@ -169,6 +176,6 @@ async def integration_cleanup(
     try:
         yield integration_tenant_id
     finally:
-        await _cleanup_postgres(postgres_client, integration_tenant_id)
-        await _cleanup_neo4j(neo4j_client, integration_tenant_id)
-        await _cleanup_redis(redis_client, integration_tenant_id)
+        await cleanup_postgres(postgres_client, integration_tenant_id)
+        await cleanup_neo4j(neo4j_client, integration_tenant_id)
+        await cleanup_redis(redis_client, integration_tenant_id)

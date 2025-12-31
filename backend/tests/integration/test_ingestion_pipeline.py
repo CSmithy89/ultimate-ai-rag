@@ -39,7 +39,7 @@ class _SimpleHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(self.response_body.encode("utf-8"))
 
-    def log_message(self, format, *args):  # noqa: A003
+    def log_message(self, fmt, *args):
         return
 
 

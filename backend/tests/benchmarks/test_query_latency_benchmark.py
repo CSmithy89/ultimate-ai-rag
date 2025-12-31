@@ -22,6 +22,10 @@ NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 if not (NEO4J_URI and NEO4J_USER and NEO4J_PASSWORD):
     pytest.skip("Neo4j env not configured for benchmarks", allow_module_level=True)
 
+MAX_QUERY_LATENCY_MS = 2000  # NFR3: < 2s query latency
+MAX_SCALABILITY_DURATION_MS = 5000  # NFR5: scalability smoke test
+CONCURRENCY = 10
+
 
 @pytest.mark.asyncio
 async def test_query_latency_benchmark() -> None:
@@ -48,7 +52,7 @@ async def test_query_latency_benchmark() -> None:
             metadata={"nodes": len(result.nodes), "paths": len(result.paths)},
         )
 
-        assert duration_ms < 2000
+        assert duration_ms < MAX_QUERY_LATENCY_MS
     finally:
         async with client.driver.session() as session:
             await session.run(
@@ -75,17 +79,17 @@ async def test_scalability_benchmark() -> None:
         traversal = GraphTraversalService(client, max_hops=1, path_limit=5)
         start = time.perf_counter()
         await asyncio.gather(*[
-            traversal.traverse("ScaleNodeA", tenant_id) for _ in range(10)
+            traversal.traverse("ScaleNodeA", tenant_id) for _ in range(CONCURRENCY)
         ])
         duration_ms = (time.perf_counter() - start) * 1000
 
         record_benchmark(
             name="nfr5_scalability_smoke",
             duration_ms=duration_ms,
-            metadata={"concurrency": 10},
+            metadata={"concurrency": CONCURRENCY},
         )
 
-        assert duration_ms < 5000
+        assert duration_ms < MAX_SCALABILITY_DURATION_MS
     finally:
         async with client.driver.session() as session:
             await session.run(

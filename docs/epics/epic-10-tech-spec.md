@@ -78,7 +78,7 @@ automated regression detection.
 | `backend/tests/benchmarks/` | NFR performance benchmarks |
 | `backend/tests/integration/test_hybrid_retrieval.py` | Hybrid retrieval E2E |
 | `backend/tests/integration/test_ingestion_pipeline.py` | Ingestion E2E |
-| `backend/tests/integration/test_graphiti_integration.py` | Graphiti temporal E2E |
+| `backend/tests/integration/test_graphiti_e2e.py` | Graphiti temporal E2E |
 | `backend/tests/integration/test_mcp_e2e.py` | MCP protocol E2E |
 | `backend/tests/integration/test_a2a_e2e.py` | A2A protocol E2E |
 | `backend/tests/integration/test_agui_streaming.py` | AG-UI streaming E2E |

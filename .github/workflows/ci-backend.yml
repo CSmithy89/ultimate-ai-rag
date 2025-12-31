@@ -48,6 +48,7 @@ jobs:
       postgres:
         image: pgvector/pgvector:pg16
         env:
+          # Test-only credentials for CI service containers.
           POSTGRES_DB: agentic_rag
           POSTGRES_USER: agentic_rag
           POSTGRES_PASSWORD: agentic_rag
@@ -61,6 +62,7 @@ jobs:
       neo4j:
         image: neo4j:5-community
         env:
+          # Test-only credentials for CI service containers.
           NEO4J_AUTH: neo4j/neo4j_password
         ports:
           - 7687:7687
@@ -79,12 +81,14 @@ jobs:
           --health-timeout=5s
           --health-retries=5
     env:
+      # Test-only credentials for CI service containers.
       INTEGRATION_TESTS: "1"
       DATABASE_URL: postgresql://agentic_rag:agentic_rag@localhost:5432/agentic_rag
       NEO4J_URI: bolt://localhost:7687
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: neo4j_password
       REDIS_URL: redis://localhost:6379
+      # Test-only API key placeholder for CI integration runs.
       OPENAI_API_KEY: test
       INGESTION_BACKEND: legacy
       RETRIEVAL_BACKEND: legacy
@@ -118,6 +122,7 @@ jobs:
       neo4j:
         image: neo4j:5-community
         env:
+          # Test-only credentials for CI service containers.
           NEO4J_AUTH: neo4j/neo4j_password
         ports:
           - 7687:7687
@@ -127,6 +132,7 @@ jobs:
           --health-timeout=10s
           --health-retries=10
     env:
+      # Test-only credentials for CI service containers.
       RUN_BENCHMARKS: "1"
       NEO4J_URI: bolt://localhost:7687
       NEO4J_USER: neo4j

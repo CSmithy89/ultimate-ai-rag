@@ -12,8 +12,11 @@ from agentic_rag_backend.db.postgres import PostgresClient
 from agentic_rag_backend.retrieval.graph_traversal import GraphTraversalService
 from agentic_rag_backend.retrieval.hybrid_synthesis import build_hybrid_prompt
 from agentic_rag_backend.retrieval.types import VectorHit
+from tests.integration.conftest import cleanup_neo4j, cleanup_postgres
 
 pytestmark = pytest.mark.integration
+
+EMBEDDING_DIM = 1536
 
 
 def _content_hash(content: str) -> str:
@@ -21,7 +24,7 @@ def _content_hash(content: str) -> str:
 
 
 def _embedding(seed: float = 1.0) -> list[float]:
-    vector = [0.0] * 1536
+    vector = [0.0] * EMBEDDING_DIM
     vector[0] = seed
     return vector
 
@@ -176,13 +179,8 @@ async def test_hybrid_retrieval_is_tenant_scoped(
         traversal = GraphTraversalService(neo4j_client, max_hops=1, path_limit=3)
         graph_a = await traversal.traverse("TenantA", tenant_a)
 
+        assert graph_a.nodes
         assert all(node.id == entity_a for node in graph_a.nodes)
     finally:
-        async with postgres_client.pool.acquire() as conn:
-            await conn.execute("DELETE FROM chunks WHERE tenant_id = $1", tenant_b_uuid)
-            await conn.execute("DELETE FROM documents WHERE tenant_id = $1", tenant_b_uuid)
-        async with neo4j_client.driver.session() as session:
-            await session.run(
-                "MATCH (n {tenant_id: $tenant_id}) DETACH DELETE n",
-                tenant_id=tenant_b,
-            )
+        await cleanup_postgres(postgres_client, tenant_b)
+        await cleanup_neo4j(neo4j_client, tenant_b)
