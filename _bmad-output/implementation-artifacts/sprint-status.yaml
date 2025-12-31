@@ -127,7 +127,7 @@ development_status:
   10-4-graphiti-integration-tests: done
   10-5-protocol-integration-tests: done
   10-6-skipped-test-resolution: done
-  10-7-nfr-benchmark-validation: backlog
+  10-7-nfr-benchmark-validation: done
   epic-10-retrospective: optional
 
   # Epic 11: Code Cleanup & Migration (Tech Debt)
