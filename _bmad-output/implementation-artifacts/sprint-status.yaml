@@ -120,7 +120,7 @@ development_status:
   epic-9-retrospective: optional
 
   # Epic 10: Testing Infrastructure (Tech Debt)
-  epic-10: backlog
+  epic-10: contexted
   10-1-integration-test-framework: backlog
   10-2-hybrid-retrieval-integration-tests: backlog
   10-3-ingestion-pipeline-integration-tests: backlog
