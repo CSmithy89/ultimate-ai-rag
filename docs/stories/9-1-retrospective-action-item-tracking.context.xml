@@ -1,0 +1,24 @@
+<storyContext>
+  <story id="9.1" title="Retrospective Action Item Tracking System" epic="9" />
+
+  <summary>
+    Track retrospective action items in a structured, versioned format,
+    and surface overdue items prior to standup.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Track each action item with owner and due date.</acceptanceCriteria>
+    <acceptanceCriteria>Review previous action items at the start of the next retrospective.</acceptanceCriteria>
+    <acceptanceCriteria>Provide an automated way to surface overdue action items.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Use file-based tracking (no external systems required).</constraint>
+    <constraint>Schema must be simple enough to edit in PRs.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="docs/epics/epic-9-tech-spec.md" section="Story Breakdown" />
+    <reference path="docs/epics/epic-9-process-quality-foundation.md" section="Story 9.1" />
+  </references>
+</storyContext>

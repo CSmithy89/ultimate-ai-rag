@@ -1,0 +1,5 @@
+# Retrospective action items registry.
+# Required fields: id, title, owner, due_date (YYYY-MM-DD), status, success_criteria, source_retro
+# Status values: open | in-progress | done | blocked
+
+action_items: []
