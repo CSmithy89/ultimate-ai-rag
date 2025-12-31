@@ -131,7 +131,7 @@ development_status:
   epic-10-retrospective: done
 
   # Epic 11: Code Cleanup & Migration (Tech Debt)
-  epic-11: backlog
+  epic-11: contexted
   11-1-fix-datetime-deprecation: backlog
   11-2-delete-legacy-modules: backlog
   11-3-complete-graphiti-migration: backlog
