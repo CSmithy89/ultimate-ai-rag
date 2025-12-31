@@ -52,6 +52,7 @@ development_status:
 
   # Epic 2: Agentic Query & Reasoning
   epic-2: done
+  
   2-1-orchestrator-agent-foundation: done
   2-2-multi-step-query-planning: done
   2-3-dynamic-retrieval-method-selection: done
@@ -136,7 +137,7 @@ development_status:
   11-2-delete-legacy-modules: done
   11-3-complete-graphiti-migration: done
   11-4-wire-hitl-validation: done
-  11-5-implement-workspace-persistence: backlog
+  11-5-implement-workspace-persistence: done
   11-6-replace-html-markdown-regex: backlog
   11-7-configure-neo4j-pooling: backlog
   11-8-add-llm-token-monitoring: backlog
