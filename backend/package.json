@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "test": "uv run pytest",
-    "lint": "uv run ruff check .",
+    "lint": "UV_CACHE_DIR=.uv-cache uv run ruff check src tests alembic",
     "type-check": "uv run mypy src"
   }
 }

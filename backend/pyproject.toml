@@ -68,6 +68,14 @@ filterwarnings = [
 
 [tool.ruff]
 line-length = 100
+exclude = [
+  ".mypy_cache",
+  ".pytest_cache",
+  ".ruff_cache",
+  ".turbo",
+  ".uv-cache",
+  ".venv",
+]
 
 [tool.mypy]
 python_version = "3.11"
