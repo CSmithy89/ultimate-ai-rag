@@ -110,7 +110,7 @@ development_status:
   epic-8-retrospective: done
 
   # Epic 9: Process & Quality Foundation (Tech Debt)
-  epic-9: backlog
+  epic-9: contexted
   9-1-retrospective-action-item-tracking: backlog
   9-2-story-template-standards-section: backlog
   9-3-pre-review-quality-checklist: backlog
