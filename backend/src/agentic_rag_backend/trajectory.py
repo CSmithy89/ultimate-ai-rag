@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 import psycopg
 from psycopg_pool import AsyncConnectionPool
 
+from agentic_rag_backend.ops.trace_crypto import TraceCrypto
 
 class EventType(str, Enum):
     THOUGHT = "thought"
@@ -38,15 +39,33 @@ async def close_pool(pool: AsyncConnectionPool) -> None:
 @dataclass
 class TrajectoryLogger:
     pool: AsyncConnectionPool
+    crypto: TraceCrypto | None = None
 
-    async def start_trajectory(self, tenant_id: str, session_id: Optional[str]) -> UUID:
+    def _encrypt_content(self, content: str) -> str:
+        if self.crypto:
+            return self.crypto.encrypt(content)
+        return content
+
+    @staticmethod
+    def _should_flag_error(content: str) -> bool:
+        return "error" in content.lower()
+
+    async def start_trajectory(
+        self,
+        tenant_id: str,
+        session_id: Optional[str],
+        agent_type: Optional[str] = None,
+    ) -> UUID:
         """Create a trajectory row and return its ID."""
         trajectory_id = uuid4()
         async with self.pool.connection() as conn:
             async with conn.cursor() as cursor:
                 await cursor.execute(
-                    "insert into trajectories (id, tenant_id, session_id) values (%s, %s, %s)",
-                    (trajectory_id, tenant_id, session_id),
+                    """
+                    insert into trajectories (id, tenant_id, session_id, agent_type, has_error)
+                    values (%s, %s, %s, %s, %s)
+                    """,
+                    (trajectory_id, tenant_id, session_id, agent_type, False),
                 )
             await conn.commit()
         return trajectory_id
@@ -77,10 +96,25 @@ class TrajectoryLogger:
                     values (%s, %s, %s, %s, %s)
                     """,
                     [
-                        (uuid4(), trajectory_id, tenant_id, event_type.value, content)
+                        (
+                            uuid4(),
+                            trajectory_id,
+                            tenant_id,
+                            event_type.value,
+                            self._encrypt_content(content),
+                        )
                         for event_type, content in events
                     ],
                 )
+                if any(self._should_flag_error(content) for _, content in events):
+                    await cursor.execute(
+                        """
+                        update trajectories
+                        set has_error = true
+                        where id = %s and tenant_id = %s
+                        """,
+                        (trajectory_id, tenant_id),
+                    )
             await conn.commit()
 
     async def _log_event(
@@ -98,6 +132,21 @@ class TrajectoryLogger:
                     insert into trajectory_events (id, trajectory_id, tenant_id, event_type, content)
                     values (%s, %s, %s, %s, %s)
                     """,
-                    (uuid4(), trajectory_id, tenant_id, event_type.value, content),
+                    (
+                        uuid4(),
+                        trajectory_id,
+                        tenant_id,
+                        event_type.value,
+                        self._encrypt_content(content),
+                    ),
                 )
+                if self._should_flag_error(content):
+                    await cursor.execute(
+                        """
+                        update trajectories
+                        set has_error = true
+                        where id = %s and tenant_id = %s
+                        """,
+                        (trajectory_id, tenant_id),
+                    )
             await conn.commit()

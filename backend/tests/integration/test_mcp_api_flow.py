@@ -55,7 +55,7 @@ def test_mcp_call_invokes_orchestrator() -> None:
             "/api/v1/mcp/call",
             json={
                 "tool": "knowledge.query",
-                "arguments": {"query": "hello", "tenant_id": "tenant-1"},
+                "arguments": {"query": "hello", "tenant_id": "11111111-1111-1111-1111-111111111111"},
             },
         )
 
@@ -64,4 +64,4 @@ def test_mcp_call_invokes_orchestrator() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["result"]["answer"] == "ok"
-    assert orchestrator.calls == [("hello", "tenant-1", None)]
+    assert orchestrator.calls == [("hello", "11111111-1111-1111-1111-111111111111", None)]

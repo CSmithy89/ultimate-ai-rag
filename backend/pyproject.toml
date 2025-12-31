@@ -61,6 +61,10 @@ dev-dependencies = [
 markers = [
   "integration: marks integration tests that require external services",
 ]
+filterwarnings = [
+  "ignore:Please use `import python_multipart` instead.:PendingDeprecationWarning",
+  "ignore:Support for class-based `config` is deprecated:DeprecationWarning:graphiti_core",
+]
 
 [tool.ruff]
 line-length = 100

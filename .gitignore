@@ -39,3 +39,4 @@ venv/
 .vscode/
 *.swp
 *.swo
+.serena/

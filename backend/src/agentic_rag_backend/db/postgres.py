@@ -164,6 +164,64 @@ class PostgresClient:
                 # Will be created when sufficient data is available
                 logger.warning("ivfflat_index_skipped", reason="may require data to exist first")
 
+            # Epic 8: LLM cost monitoring tables
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS llm_usage_events (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    tenant_id UUID NOT NULL,
+                    trajectory_id UUID,
+                    model_id TEXT NOT NULL,
+                    prompt_tokens INTEGER NOT NULL,
+                    completion_tokens INTEGER NOT NULL,
+                    total_tokens INTEGER NOT NULL,
+                    input_cost_usd NUMERIC(12, 6) NOT NULL,
+                    output_cost_usd NUMERIC(12, 6) NOT NULL,
+                    total_cost_usd NUMERIC(12, 6) NOT NULL,
+                    complexity TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute("""
+                ALTER TABLE llm_usage_events
+                ADD COLUMN IF NOT EXISTS baseline_model_id TEXT
+            """)
+            await conn.execute("""
+                ALTER TABLE llm_usage_events
+                ADD COLUMN IF NOT EXISTS baseline_total_cost_usd NUMERIC(12, 6)
+            """)
+            await conn.execute("""
+                ALTER TABLE llm_usage_events
+                ADD COLUMN IF NOT EXISTS savings_usd NUMERIC(12, 6)
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_llm_usage_events_tenant_id
+                ON llm_usage_events(tenant_id)
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_llm_usage_events_created_at
+                ON llm_usage_events(created_at)
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_llm_usage_events_model_id
+                ON llm_usage_events(model_id)
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS llm_cost_alerts (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    tenant_id UUID NOT NULL,
+                    daily_threshold_usd NUMERIC(12, 2),
+                    monthly_threshold_usd NUMERIC(12, 2),
+                    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_llm_cost_alerts_tenant_id
+                ON llm_cost_alerts(tenant_id)
+            """)
+
             logger.info("tables_created")
 
     async def create_document(

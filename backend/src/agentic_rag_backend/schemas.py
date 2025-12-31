@@ -3,7 +3,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .validation import TENANT_ID_PATTERN
+from .validation import SESSION_ID_PATTERN, TENANT_ID_PATTERN
 
 
 class QueryRequest(BaseModel):
@@ -18,7 +18,7 @@ class QueryRequest(BaseModel):
     session_id: str | None = Field(
         None,
         max_length=255,
-        pattern=TENANT_ID_PATTERN,
+        pattern=SESSION_ID_PATTERN,
     )
 
     @field_validator("query")

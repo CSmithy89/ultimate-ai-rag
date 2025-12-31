@@ -40,7 +40,7 @@ class TestGraphBuilder:
 
         entity_id, is_new = await builder.find_or_create_entity(
             entity=entity,
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
             source_chunk_id="chunk-1",
         )
 
@@ -56,7 +56,7 @@ class TestGraphBuilder:
 
         entity_id, is_new = await builder.find_or_create_entity(
             entity=entity,
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
         )
 
         assert is_new is False
@@ -70,13 +70,13 @@ class TestGraphBuilder:
         # First call
         entity_id1, is_new1 = await builder.find_or_create_entity(
             entity=entity,
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
         )
 
         # Second call should use cache
         entity_id2, is_new2 = await builder.find_or_create_entity(
             entity=entity,
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
         )
 
         assert entity_id1 == entity_id2
@@ -96,7 +96,7 @@ class TestGraphBuilder:
 
         result = await builder.create_relationship(
             relationship=relationship,
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
             entity_name_to_id=entity_name_to_id,
         )
 
@@ -116,7 +116,7 @@ class TestGraphBuilder:
 
         result = await builder.create_relationship(
             relationship=relationship,
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
             entity_name_to_id=entity_name_to_id,
         )
 
@@ -142,7 +142,7 @@ class TestGraphBuilder:
         result = await builder.build_graph(
             entities=entities,
             relationships=relationships,
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
         )
 
         assert result.entities_created == 2
@@ -162,7 +162,7 @@ class TestGraphBuilder:
         result = await builder.build_graph(
             entities=entities,
             relationships=[],
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
         )
 
         # Should only create 2 unique entities
@@ -206,7 +206,7 @@ async def test_create_graph_from_extractions():
     result = await create_graph_from_extractions(
         neo4j=mock_neo4j,
         extractions=extractions,
-        tenant_id="tenant-1",
+        tenant_id="11111111-1111-1111-1111-111111111111",
     )
 
     # Should create entities from both extractions

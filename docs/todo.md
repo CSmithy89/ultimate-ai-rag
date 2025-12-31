@@ -1,5 +1,28 @@
 # Review Follow-ups
 
+## Epic 8 Review Follow-ups
+- [x] Require a stable `TRACE_ENCRYPTION_KEY` in non-dev environments; fail startup if missing to prevent data loss.
+- [x] Fix keyword matching in `backend/src/agentic_rag_backend/ops/model_router.py` to use proper word-boundary regex (`\b`).
+- [x] Log decryption failures in `TraceCrypto.decrypt` (warn) and include exception class for troubleshooting.
+- [x] Replace trajectory error detection that scans encrypted content with a durable error flag (e.g., `has_error` column or `event_type=error`).
+- [x] Eliminate SQL string interpolation for trajectory/error filtering; use allowlists or safe parameters.
+- [x] Make `RoutingDecision.reason` immutable (tuple) to honor frozen dataclass semantics.
+- [x] Align tenant_id type strategy across ops/trajectory tables; decide on UUID vs TEXT and migrate accordingly.
+- [x] Update story context XML statuses for 8.3 and 8.4 to `done` for consistency.
+
+## Epic 8 Review Follow-ups (Round 2)
+- [x] Add unit tests for ops modules (`cost_tracker`, `model_router`, `trace_crypto`) and ops routes.
+- [x] Remove dynamic SQL concatenation for cost trend buckets; use allowlisted query map.
+- [x] Add rate limiting to `/api/v1/ops/*` endpoints using standard limiter dependency.
+- [x] Add Pydantic response models + docstrings for ops endpoints so OpenAPI docs are complete.
+- [x] Log warning when TRACE_ENCRYPTION_KEY is auto-generated in dev; document key rotation expectations.
+- [x] Consider a healthcheck to verify TRACE_ENCRYPTION_KEY persistence across restarts.
+- [x] Document routing heuristic limitations + future override/feedback path in Epic 8 docs.
+- [ ] Create follow-up story for cost alert delivery (email/webhook) and background alert evaluation.
+- [x] Warn when token estimation uses unknown model_id; document estimation accuracy limits.
+- [x] Fail fast on invalid routing thresholds instead of silently resetting defaults.
+- [x] Review migrations for concurrent index creation or document production-safe rollout steps.
+
 ## Implemented
 - [x] Fix backend app export so `from agentic_rag_backend import app` works.
 - [x] Harden config loading with BACKEND_PORT validation and clearer missing-var errors.

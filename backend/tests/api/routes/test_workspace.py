@@ -62,13 +62,13 @@ class TestSaveContentRequest:
             content="This is test content",
             title="Test Title",
             query="What is test?",
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
         )
 
         assert request.content_id == "test-123"
         assert request.content == "This is test content"
         assert request.title == "Test Title"
-        assert request.tenant_id == "tenant-1"
+        assert request.tenant_id == "11111111-1111-1111-1111-111111111111"
 
     def test_save_request_requires_content_id(self):
         """Test that content_id is required."""
@@ -150,7 +150,7 @@ class TestShareContentRequest:
             content_id="test-123",
             content="Share this content",
             title="Shared Content",
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
         )
 
         assert request.content_id == "test-123"
@@ -180,7 +180,7 @@ class TestBookmarkContentRequest:
             content_id="test-123",
             content="Bookmark this content",
             title="Bookmarked Item",
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
         )
 
         assert request.content_id == "test-123"
@@ -199,7 +199,7 @@ class TestSaveContentEndpoint:
                 "content": "AI response content to save",
                 "title": "Saved Response",
                 "query": "What was the question?",
-                "tenant_id": "tenant-1",
+                "tenant_id": "11111111-1111-1111-1111-111111111111",
             },
         )
 
@@ -216,7 +216,7 @@ class TestSaveContentEndpoint:
             json={
                 "content_id": "content-456",
                 "content": "Response without title",
-                "tenant_id": "tenant-1",
+                "tenant_id": "11111111-1111-1111-1111-111111111111",
             },
         )
 
@@ -251,7 +251,7 @@ class TestExportContentEndpoint:
                 "content": "# Heading\n\nParagraph content",
                 "title": "Markdown Doc",
                 "format": "markdown",
-                "tenant_id": "tenant-1",
+                "tenant_id": "11111111-1111-1111-1111-111111111111",
             },
         )
 
@@ -266,7 +266,7 @@ class TestExportContentEndpoint:
                 "content_id": "content-123",
                 "content": "Plain text content",
                 "format": "json",
-                "tenant_id": "tenant-1",
+                "tenant_id": "11111111-1111-1111-1111-111111111111",
             },
         )
 
@@ -281,7 +281,7 @@ class TestExportContentEndpoint:
                 "content_id": "content-123",
                 "content": "Content for PDF",
                 "format": "pdf",
-                "tenant_id": "tenant-1",
+                "tenant_id": "11111111-1111-1111-1111-111111111111",
             },
         )
 
@@ -314,7 +314,7 @@ class TestShareContentEndpoint:
                 "content_id": "content-123",
                 "content": "Content to share",
                 "title": "Shared Response",
-                "tenant_id": "tenant-1",
+                "tenant_id": "11111111-1111-1111-1111-111111111111",
             },
         )
 
@@ -329,7 +329,7 @@ class TestShareContentEndpoint:
         payload = {
             "content_id": "content-123",
             "content": "Same content",
-            "tenant_id": "tenant-1",
+            "tenant_id": "11111111-1111-1111-1111-111111111111",
         }
 
         result1 = client.post("/api/v1/workspace/share", json=payload)
@@ -344,7 +344,7 @@ class TestShareContentEndpoint:
             json={
                 "content_id": "content-123",
                 "content": "Content to share",
-                "tenant_id": "tenant-1",
+                "tenant_id": "11111111-1111-1111-1111-111111111111",
             },
         )
 
@@ -376,7 +376,7 @@ class TestBookmarkContentEndpoint:
                 "content_id": "content-123",
                 "content": "AI response to bookmark",
                 "title": "Bookmarked Response",
-                "tenant_id": "tenant-1",
+                "tenant_id": "11111111-1111-1111-1111-111111111111",
             },
         )
 
@@ -405,7 +405,7 @@ class TestGetBookmarksEndpoint:
         """Test get bookmarks returns list."""
         response = client.get(
             "/api/v1/workspace/bookmarks",
-            params={"tenant_id": "tenant-1"},
+            params={"tenant_id": "11111111-1111-1111-1111-111111111111"},
         )
 
         assert response.status_code == 200
@@ -417,7 +417,7 @@ class TestGetBookmarksEndpoint:
         """Test get bookmarks returns empty for new tenant."""
         response = client.get(
             "/api/v1/workspace/bookmarks",
-            params={"tenant_id": "new-tenant-xyz"},
+            params={"tenant_id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"},
         )
 
         assert response.status_code == 200
@@ -430,50 +430,50 @@ class TestMultiTenantIsolation:
 
     def test_bookmarks_isolated_between_tenants(self, client):
         """Test bookmarks are isolated between tenants."""
-        # Create bookmark for tenant-1
+        # Create bookmark for 11111111-1111-1111-1111-111111111111
         client.post(
             "/api/v1/workspace/bookmark",
             json={
                 "content_id": "content-123",
                 "content": "Tenant 1 content",
                 "title": "Tenant 1 Bookmark",
-                "tenant_id": "tenant-1",
+                "tenant_id": "11111111-1111-1111-1111-111111111111",
             },
         )
 
-        # Create bookmark for tenant-2
+        # Create bookmark for 22222222-2222-2222-2222-222222222222
         client.post(
             "/api/v1/workspace/bookmark",
             json={
                 "content_id": "content-456",
                 "content": "Tenant 2 content",
                 "title": "Tenant 2 Bookmark",
-                "tenant_id": "tenant-2",
+                "tenant_id": "22222222-2222-2222-2222-222222222222",
             },
         )
 
-        # Get bookmarks for tenant-1
+        # Get bookmarks for 11111111-1111-1111-1111-111111111111
         result1 = client.get(
             "/api/v1/workspace/bookmarks",
-            params={"tenant_id": "tenant-1"},
+            params={"tenant_id": "11111111-1111-1111-1111-111111111111"},
         )
         data1 = result1.json()
         assert len(data1["data"]) == 1
         assert data1["data"][0]["content_id"] == "content-123"
 
-        # Get bookmarks for tenant-2
+        # Get bookmarks for 22222222-2222-2222-2222-222222222222
         result2 = client.get(
             "/api/v1/workspace/bookmarks",
-            params={"tenant_id": "tenant-2"},
+            params={"tenant_id": "22222222-2222-2222-2222-222222222222"},
         )
         data2 = result2.json()
         assert len(data2["data"]) == 1
         assert data2["data"][0]["content_id"] == "content-456"
 
-        # Get bookmarks for tenant-3 (should be empty)
+        # Get bookmarks for 33333333-3333-3333-3333-333333333333 (should be empty)
         result3 = client.get(
             "/api/v1/workspace/bookmarks",
-            params={"tenant_id": "tenant-3"},
+            params={"tenant_id": "33333333-3333-3333-3333-333333333333"},
         )
         data3 = result3.json()
         assert len(data3["data"]) == 0
@@ -490,7 +490,7 @@ class TestContentSizeLimits:
             SaveContentRequest(
                 content_id="content-123",
                 content=oversized_content,
-                tenant_id="tenant-1",
+                tenant_id="11111111-1111-1111-1111-111111111111",
             )
 
     def test_export_content_rejects_oversized_content(self):
@@ -502,7 +502,7 @@ class TestContentSizeLimits:
                 content_id="content-123",
                 content=oversized_content,
                 format="markdown",
-                tenant_id="tenant-1",
+                tenant_id="11111111-1111-1111-1111-111111111111",
             )
 
     def test_share_content_rejects_oversized_content(self):
@@ -513,7 +513,7 @@ class TestContentSizeLimits:
             ShareContentRequest(
                 content_id="content-123",
                 content=oversized_content,
-                tenant_id="tenant-1",
+                tenant_id="11111111-1111-1111-1111-111111111111",
             )
 
     def test_bookmark_content_rejects_oversized_content(self):
@@ -524,7 +524,7 @@ class TestContentSizeLimits:
             BookmarkContentRequest(
                 content_id="content-123",
                 content=oversized_content,
-                tenant_id="tenant-1",
+                tenant_id="11111111-1111-1111-1111-111111111111",
             )
 
     def test_save_content_accepts_max_size_content(self):
@@ -535,7 +535,7 @@ class TestContentSizeLimits:
         request = SaveContentRequest(
             content_id="content-123",
             content=max_content,
-            tenant_id="tenant-1",
+            tenant_id="11111111-1111-1111-1111-111111111111",
         )
         assert len(request.content) == MAX_CONTENT_SIZE
 
@@ -565,5 +565,5 @@ class TestContentSizeLimits:
             SaveContentRequest(
                 content_id="content-123",
                 content=emoji_content,
-                tenant_id="tenant-1",
+                tenant_id="11111111-1111-1111-1111-111111111111",
             )

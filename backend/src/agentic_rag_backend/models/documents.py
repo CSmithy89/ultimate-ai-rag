@@ -1,6 +1,6 @@
 """Pydantic models for documents."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal, Optional
 from uuid import UUID
@@ -82,10 +82,12 @@ class UnifiedDocument(BaseModel):
         default_factory=DocumentMetadata, description="Document metadata"
     )
     created_at: datetime = Field(
-        default_factory=datetime.utcnow, description="Creation timestamp"
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Creation timestamp",
     )
     updated_at: datetime = Field(
-        default_factory=datetime.utcnow, description="Last update timestamp"
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Last update timestamp",
     )
 
     model_config = {"json_schema_extra": {"examples": [
@@ -110,7 +112,8 @@ class CrawledPage(BaseModel):
     content: str = Field(..., description="Page content in markdown format")
     content_hash: str = Field(..., description="SHA-256 hash of content")
     crawl_timestamp: datetime = Field(
-        default_factory=datetime.utcnow, description="When the page was crawled"
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="When the page was crawled",
     )
     depth: int = Field(default=0, ge=0, description="Crawl depth from start URL")
     links: list[str] = Field(
@@ -213,7 +216,8 @@ class ParsedDocument(BaseModel):
         default=0, ge=0, description="Processing time in milliseconds (NFR2 tracking)"
     )
     created_at: datetime = Field(
-        default_factory=datetime.utcnow, description="Creation timestamp"
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Creation timestamp",
     )
 
     model_config = {"json_schema_extra": {"examples": [

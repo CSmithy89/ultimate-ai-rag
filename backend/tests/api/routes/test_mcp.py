@@ -93,7 +93,7 @@ async def test_call_tool_requires_tenant() -> None:
 async def test_call_tool_rate_limited() -> None:
     request = ToolCallRequest(
         tool="knowledge.query",
-        arguments={"query": "hello", "tenant_id": "tenant-1"},
+        arguments={"query": "hello", "tenant_id": "11111111-1111-1111-1111-111111111111"},
     )
     with pytest.raises(HTTPException) as exc_info:
         await call_tool(
@@ -108,7 +108,7 @@ async def test_call_tool_rate_limited() -> None:
 async def test_call_tool_unknown_tool() -> None:
     request = ToolCallRequest(
         tool="unknown.tool",
-        arguments={"tenant_id": "tenant-1"},
+        arguments={"tenant_id": "11111111-1111-1111-1111-111111111111"},
     )
     with pytest.raises(HTTPException) as exc_info:
         await call_tool(
@@ -123,7 +123,7 @@ async def test_call_tool_unknown_tool() -> None:
 async def test_call_tool_query_success() -> None:
     request = ToolCallRequest(
         tool="knowledge.query",
-        arguments={"query": "hello", "tenant_id": "tenant-1"},
+        arguments={"query": "hello", "tenant_id": "11111111-1111-1111-1111-111111111111"},
     )
     response = await call_tool(
         request_body=request,
@@ -140,7 +140,7 @@ async def test_call_tool_query_success() -> None:
 async def test_call_tool_graph_stats_success() -> None:
     request = ToolCallRequest(
         tool="knowledge.graph_stats",
-        arguments={"tenant_id": "tenant-1"},
+        arguments={"tenant_id": "11111111-1111-1111-1111-111111111111"},
     )
     response = await call_tool(
         request_body=request,
@@ -157,7 +157,7 @@ async def test_call_tool_graph_stats_success() -> None:
 async def test_call_tool_graph_stats_requires_neo4j() -> None:
     request = ToolCallRequest(
         tool="knowledge.graph_stats",
-        arguments={"tenant_id": "tenant-1"},
+        arguments={"tenant_id": "11111111-1111-1111-1111-111111111111"},
     )
 
     with pytest.raises(HTTPException) as exc_info:
@@ -173,7 +173,7 @@ async def test_call_tool_graph_stats_requires_neo4j() -> None:
 async def test_call_tool_times_out() -> None:
     request = ToolCallRequest(
         tool="knowledge.query",
-        arguments={"query": "hello", "tenant_id": "tenant-1"},
+        arguments={"query": "hello", "tenant_id": "11111111-1111-1111-1111-111111111111"},
     )
 
     with pytest.raises(HTTPException) as exc_info:
@@ -193,7 +193,7 @@ async def test_call_tool_times_out() -> None:
 async def test_call_tool_respects_max_timeout() -> None:
     request = ToolCallRequest(
         tool="knowledge.query",
-        arguments={"query": "hello", "tenant_id": "tenant-1"},
+        arguments={"query": "hello", "tenant_id": "11111111-1111-1111-1111-111111111111"},
     )
 
     with pytest.raises(HTTPException) as exc_info:

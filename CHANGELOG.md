@@ -1,5 +1,19 @@
 # Changelog
 
+## [Epic 8] - Operations & Observability - 2025-12-31
+
+### Added
+- Ops cost monitoring with `llm_usage_events` tracking and alert thresholds
+- Intelligent model routing with configurable thresholds and model mappings
+- Trajectory debugging endpoints and UI timeline viewer
+- AES-256-GCM encrypted trajectory storage with controlled decryption
+
+### Changed
+- Orchestrator now selects models per request based on routing complexity
+
+### Fixed
+- None
+
 ## [Epic 7] - Protocol Integration & Extensibility - 2025-12-30
 
 ### Added

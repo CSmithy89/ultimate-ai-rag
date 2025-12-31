@@ -49,7 +49,7 @@ class DenyLimiter:
 async def test_query_endpoint_envelope() -> None:
     payload = QueryRequest(
         query="hello",
-        tenant_id="tenant-1",
+        tenant_id="11111111-1111-1111-1111-111111111111",
         session_id="session-1",
     )
     response = await run_query(
@@ -68,7 +68,7 @@ async def test_query_endpoint_envelope() -> None:
 async def test_query_endpoint_rate_limit() -> None:
     payload = QueryRequest(
         query="hello",
-        tenant_id="tenant-1",
+        tenant_id="11111111-1111-1111-1111-111111111111",
         session_id="session-1",
     )
     with pytest.raises(HTTPException) as exc_info:
@@ -84,7 +84,7 @@ async def test_query_endpoint_rate_limit() -> None:
 async def test_query_endpoint_internal_error() -> None:
     payload = QueryRequest(
         query="hello",
-        tenant_id="tenant-1",
+        tenant_id="11111111-1111-1111-1111-111111111111",
         session_id="session-1",
     )
     with pytest.raises(HTTPException) as exc_info:
@@ -100,7 +100,7 @@ async def test_query_endpoint_internal_error() -> None:
 async def test_query_endpoint_db_error() -> None:
     payload = QueryRequest(
         query="hello",
-        tenant_id="tenant-1",
+        tenant_id="11111111-1111-1111-1111-111111111111",
         session_id="session-1",
     )
     with pytest.raises(HTTPException) as exc_info:

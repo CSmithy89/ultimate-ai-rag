@@ -74,7 +74,7 @@ class TestIndexerAgent:
 
     def test_log_thought(self, agent):
         """Test logging a thought."""
-        agent._start_trajectory("doc-1", "tenant-1")
+        agent._start_trajectory("doc-1", "11111111-1111-1111-1111-111111111111")
         agent.log_thought("Test thought", key="value")
 
         trajectory = agent.get_trajectory()
@@ -84,7 +84,7 @@ class TestIndexerAgent:
 
     def test_log_action(self, agent):
         """Test logging an action."""
-        agent._start_trajectory("doc-1", "tenant-1")
+        agent._start_trajectory("doc-1", "11111111-1111-1111-1111-111111111111")
         agent.log_action("test_action", {"param": "value"})
 
         trajectory = agent.get_trajectory()
@@ -94,7 +94,7 @@ class TestIndexerAgent:
 
     def test_log_observation(self, agent):
         """Test logging an observation."""
-        agent._start_trajectory("doc-1", "tenant-1")
+        agent._start_trajectory("doc-1", "11111111-1111-1111-1111-111111111111")
         agent.log_observation("Test observation", result="success")
 
         trajectory = agent.get_trajectory()
@@ -104,10 +104,10 @@ class TestIndexerAgent:
     @pytest.mark.asyncio
     async def test_deduplicate_entity_new(self, agent, mock_neo4j):
         """Test deduplication creates new entity when none exists."""
-        agent._start_trajectory("doc-1", "tenant-1")
+        agent._start_trajectory("doc-1", "11111111-1111-1111-1111-111111111111")
         entity = ExtractedEntity(name="NewEntity", type="Concept")
 
-        entity_id, is_new = await agent._deduplicate_entity(entity, "tenant-1")
+        entity_id, is_new = await agent._deduplicate_entity(entity, "11111111-1111-1111-1111-111111111111")
 
         assert is_new is True
         assert entity_id is not None
@@ -116,10 +116,10 @@ class TestIndexerAgent:
     async def test_deduplicate_entity_existing(self, agent, mock_neo4j):
         """Test deduplication finds existing entity."""
         mock_neo4j.find_similar_entity = AsyncMock(return_value={"id": "existing-id"})
-        agent._start_trajectory("doc-1", "tenant-1")
+        agent._start_trajectory("doc-1", "11111111-1111-1111-1111-111111111111")
         entity = ExtractedEntity(name="ExistingEntity", type="Concept")
 
-        entity_id, is_new = await agent._deduplicate_entity(entity, "tenant-1")
+        entity_id, is_new = await agent._deduplicate_entity(entity, "11111111-1111-1111-1111-111111111111")
 
         assert is_new is False
         assert entity_id == "existing-id"
@@ -127,14 +127,14 @@ class TestIndexerAgent:
     @pytest.mark.asyncio
     async def test_deduplicate_entity_cached(self, agent, mock_neo4j):
         """Test deduplication uses cache for repeated entities."""
-        agent._start_trajectory("doc-1", "tenant-1")
+        agent._start_trajectory("doc-1", "11111111-1111-1111-1111-111111111111")
         entity = ExtractedEntity(name="CachedEntity", type="Concept")
 
         # First call
-        entity_id1, is_new1 = await agent._deduplicate_entity(entity, "tenant-1")
+        entity_id1, is_new1 = await agent._deduplicate_entity(entity, "11111111-1111-1111-1111-111111111111")
 
         # Second call should use cache
-        entity_id2, is_new2 = await agent._deduplicate_entity(entity, "tenant-1")
+        entity_id2, is_new2 = await agent._deduplicate_entity(entity, "11111111-1111-1111-1111-111111111111")
 
         assert entity_id1 == entity_id2
         assert is_new1 is True

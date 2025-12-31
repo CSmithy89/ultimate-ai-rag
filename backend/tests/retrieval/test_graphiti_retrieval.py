@@ -73,7 +73,7 @@ class TestGraphitiRetrieval:
         result = await graphiti_search(
             graphiti_client=mock_graphiti_client,
             query="How does FastAPI handle async?",
-            tenant_id="test-tenant",
+            tenant_id="99999999-9999-9999-9999-999999999999",
         )
 
         assert result is not None
@@ -85,7 +85,7 @@ class TestGraphitiRetrieval:
         """Should use tenant_id as group_ids for multi-tenancy."""
         from agentic_rag_backend.retrieval.graphiti_retrieval import graphiti_search
 
-        tenant_id = "my-tenant-123"
+        tenant_id = "my-11111111-1111-1111-1111-11111111111123"
         await graphiti_search(
             graphiti_client=mock_graphiti_client,
             query="test query",
@@ -103,7 +103,7 @@ class TestGraphitiRetrieval:
         await graphiti_search(
             graphiti_client=mock_graphiti_client,
             query="test query",
-            tenant_id="test-tenant",
+            tenant_id="99999999-9999-9999-9999-999999999999",
             num_results=10,
         )
 
@@ -122,7 +122,7 @@ class TestGraphitiRetrieval:
             await graphiti_search(
                 graphiti_client=disconnected_client,
                 query="test query",
-                tenant_id="test-tenant",
+                tenant_id="99999999-9999-9999-9999-999999999999",
             )
 
     @pytest.mark.asyncio
@@ -133,7 +133,7 @@ class TestGraphitiRetrieval:
         result = await graphiti_search(
             graphiti_client=mock_graphiti_client,
             query="test query",
-            tenant_id="test-tenant",
+            tenant_id="99999999-9999-9999-9999-999999999999",
         )
 
         assert len(result.nodes) == 2
@@ -203,14 +203,14 @@ class TestGraphitiSearchResult:
         )
         result = GraphitiSearchResult(
             query="test query",
-            tenant_id="test-tenant",
+            tenant_id="99999999-9999-9999-9999-999999999999",
             nodes=[node],
             edges=[edge],
             processing_time_ms=150,
         )
 
         assert result.query == "test query"
-        assert result.tenant_id == "test-tenant"
+        assert result.tenant_id == "99999999-9999-9999-9999-999999999999"
         assert len(result.nodes) == 1
         assert len(result.edges) == 1
         assert result.processing_time_ms == 150
@@ -242,7 +242,7 @@ class TestHybridRetrieval:
 
         result = await search_with_backend_routing(
             query="test query",
-            tenant_id="test-tenant",
+            tenant_id="99999999-9999-9999-9999-999999999999",
             graphiti_client=mock_graphiti_client,
             legacy_retriever=None,
             retrieval_backend="graphiti",
@@ -263,7 +263,7 @@ class TestHybridRetrieval:
         with pytest.raises(ValueError, match="Invalid retrieval backend"):
             await search_with_backend_routing(
                 query="test query",
-                tenant_id="test-tenant",
+                tenant_id="99999999-9999-9999-9999-999999999999",
                 graphiti_client=mock_graphiti_client,
                 legacy_retriever=None,
                 retrieval_backend="invalid",
@@ -279,7 +279,7 @@ class TestHybridRetrieval:
         with pytest.raises(Neo4jError, match="Graphiti client not available"):
             await search_with_backend_routing(
                 query="test query",
-                tenant_id="test-tenant",
+                tenant_id="99999999-9999-9999-9999-999999999999",
                 graphiti_client=None,
                 legacy_retriever=None,
                 retrieval_backend="graphiti",
@@ -303,7 +303,7 @@ class TestGraphitiSearchExceptionHandling:
             await graphiti_search(
                 graphiti_client=failing_client,
                 query="test query",
-                tenant_id="test-tenant",
+                tenant_id="99999999-9999-9999-9999-999999999999",
             )
 
 
@@ -333,7 +333,7 @@ class TestLegacyBackendRouting:
 
         result = await search_with_backend_routing(
             query="test query",
-            tenant_id="test-tenant",
+            tenant_id="99999999-9999-9999-9999-999999999999",
             graphiti_client=None,
             legacy_retriever=mock_legacy_retriever,
             retrieval_backend="legacy",
@@ -346,7 +346,7 @@ class TestLegacyBackendRouting:
         assert result.edges[0].name == "RELATED"
         mock_legacy_retriever.search.assert_called_once_with(
             query="test query",
-            tenant_id="test-tenant",
+            tenant_id="99999999-9999-9999-9999-999999999999",
             limit=5,
         )
 
@@ -360,7 +360,7 @@ class TestLegacyBackendRouting:
         with pytest.raises(ValueError, match="Legacy retriever not available"):
             await search_with_backend_routing(
                 query="test query",
-                tenant_id="test-tenant",
+                tenant_id="99999999-9999-9999-9999-999999999999",
                 graphiti_client=None,
                 legacy_retriever=None,
                 retrieval_backend="legacy",
@@ -375,7 +375,7 @@ class TestLegacyBackendRouting:
 
         result = await search_with_backend_routing(
             query="test query",
-            tenant_id="test-tenant",
+            tenant_id="99999999-9999-9999-9999-999999999999",
             graphiti_client=None,
             legacy_retriever=mock_legacy_retriever,
             retrieval_backend="legacy",
@@ -383,7 +383,7 @@ class TestLegacyBackendRouting:
 
         # Verify structure
         assert result.query == "test query"
-        assert result.tenant_id == "test-tenant"
+        assert result.tenant_id == "99999999-9999-9999-9999-999999999999"
         assert result.processing_time_ms >= 0
         
         # Verify node conversion

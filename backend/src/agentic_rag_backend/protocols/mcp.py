@@ -110,9 +110,13 @@ class MCPToolRegistry:
 
     async def _run_query(self, arguments: dict[str, Any]) -> dict[str, Any]:
         session_id = arguments.get("session_id")
+        query = arguments.get("query")
+        tenant_id = arguments.get("tenant_id")
+        if not isinstance(query, str) or not isinstance(tenant_id, str):
+            raise ValueError("query and tenant_id are required strings")
         payload = QueryRequest(
-            query=arguments.get("query"),
-            tenant_id=arguments.get("tenant_id"),
+            query=query,
+            tenant_id=tenant_id,
             session_id=session_id if isinstance(session_id, str) else None,
         )
         result = await self._orchestrator.run(

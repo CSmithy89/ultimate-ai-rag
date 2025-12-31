@@ -22,6 +22,9 @@ uv run agentic-rag-backend
 Notes:
 - Rate limiting supports `RATE_LIMIT_BACKEND=redis` for multi-worker deployments; the in-memory limiter is per-process.
 - Rate-limited endpoints return `429` with RFC 7807 Problem Details and `Retry-After`, configurable via `RATE_LIMIT_RETRY_AFTER_SECONDS`.
+- `TRACE_ENCRYPTION_KEY` is required in non-dev environments; dev/test auto-generates a key per run (existing encrypted traces cannot be decrypted after restart).
+- To rotate `TRACE_ENCRYPTION_KEY`, decrypt existing traces with the old key and re-encrypt with the new key before switching.
+- Cost estimates are token-based and may vary for non-OpenAI models; treat them as directional until reconciled with provider billing.
 
 ### Frontend
 
@@ -49,7 +52,10 @@ async def example() -> None:
         backoff_factor=0.5,
     ) as client:
         tools = await client.list_tools()
-        result = await client.call_tool("knowledge.query", {"tenant_id": "t1", "query": "hello"})
+        result = await client.call_tool(
+            "knowledge.query",
+            {"tenant_id": "11111111-1111-1111-1111-111111111111", "query": "hello"},
+        )
         session = await client.create_a2a_session("t1")
         await client.add_a2a_message(session.session.session_id, "t1", "agent", "hello")
 ```
@@ -135,3 +141,12 @@ async def example() -> None:
   - A2A collaboration sessions with tenant-scoped message exchange
   - Python SDK for MCP and A2A integrations
   - Universal AG-UI endpoint for non-Copilot clients
+
+### Epic 8: Operations & Observability
+- Status: Complete
+- Stories: 4/4 completed
+- Key Features:
+  - LLM cost monitoring with per-request usage events and alert thresholds
+  - Intelligent model routing based on query complexity with configurable settings
+  - Trajectory debugging interface with filters and timeline inspection
+  - AES-256-GCM encrypted trajectory storage with controlled decryption

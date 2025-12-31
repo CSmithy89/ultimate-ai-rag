@@ -1,6 +1,6 @@
 """Pydantic models for graph entities and relationships."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 from uuid import UUID
@@ -88,7 +88,7 @@ class DocumentChunk(BaseModel):
     token_count: int = Field(..., ge=0, description="Number of tokens")
     embedding: Optional[list[float]] = Field(None, description="1536-dim embedding vector")
     metadata: Optional[dict[str, Any]] = Field(default=None, description="Additional chunk metadata")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ChunkData(BaseModel):
