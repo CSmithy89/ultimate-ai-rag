@@ -115,7 +115,7 @@ async def example() -> None:
   - Hybrid retrieval with Graphiti search + vector fallback
   - Temporal query capabilities (point-in-time search, knowledge changes)
   - Custom entity types (TechnicalConcept, CodePattern, APIEndpoint, ConfigurationOption)
-  - Feature flags for backend selection (`INGESTION_BACKEND`, `RETRIEVAL_BACKEND`)
+  - Graphiti-only ingestion and retrieval (legacy backend flags removed)
   - Legacy module deprecation with migration path
   - Comprehensive test suite with 263 tests (86%+ Graphiti module coverage)
 

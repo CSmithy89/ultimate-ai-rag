@@ -236,13 +236,11 @@ class TestGraphitiTestCoverage:
         """Verify ingestion functions are tested."""
         from agentic_rag_backend.indexing import (
             ingest_document_as_episode,
-            ingest_with_backend_routing,
             EpisodeIngestionResult,
             EPISODE_ENTITY_TYPES,
         )
 
         assert callable(ingest_document_as_episode)
-        assert callable(ingest_with_backend_routing)
         assert EpisodeIngestionResult is not None
         assert len(EPISODE_ENTITY_TYPES) == 4
 
@@ -250,7 +248,6 @@ class TestGraphitiTestCoverage:
         """Verify retrieval functions are tested."""
         from agentic_rag_backend.retrieval import (
             graphiti_search,
-            search_with_backend_routing,
             temporal_search,
             get_knowledge_changes,
             GraphitiSearchResult,
@@ -259,7 +256,6 @@ class TestGraphitiTestCoverage:
         )
 
         assert callable(graphiti_search)
-        assert callable(search_with_backend_routing)
         assert callable(temporal_search)
         assert callable(get_knowledge_changes)
         assert GraphitiSearchResult is not None
@@ -285,5 +281,3 @@ class TestGraphitiTestCoverage:
             # Epic 5 settings
             assert hasattr(settings, 'graphiti_embedding_model')
             assert hasattr(settings, 'graphiti_llm_model')
-            assert hasattr(settings, 'ingestion_backend')
-            assert hasattr(settings, 'retrieval_backend')

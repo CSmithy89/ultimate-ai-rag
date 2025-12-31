@@ -1,0 +1,24 @@
+<storyContext>
+  <story id="11.3" title="Complete Graphiti data migration" epic="11" />
+
+  <summary>
+    Migrate all legacy graph data to Graphiti and remove feature flags once
+    validation passes.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Legacy entities migrated to Graphiti.</acceptanceCriteria>
+    <acceptanceCriteria>Validation shows matching entity/relationship counts.</acceptanceCriteria>
+    <acceptanceCriteria>Legacy feature flags removed after cutover.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Preserve tenant isolation during migration.</constraint>
+    <constraint>Back up legacy data before removal.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="docs/epics/epic-11-tech-spec.md" section="Story Breakdown" />
+    <reference path="docs/epics/epic-11-code-cleanup-migration.md" section="Story 11.3" />
+  </references>
+</storyContext>

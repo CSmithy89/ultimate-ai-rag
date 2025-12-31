@@ -4,7 +4,6 @@ from .crawler import CrawlerService, crawl_url
 from .chunker import chunk_document, chunk_sections, count_tokens, estimate_chunks, ChunkData
 from .graphiti_ingestion import (
     ingest_document_as_episode,
-    ingest_with_backend_routing,
     EpisodeIngestionResult,
     EPISODE_ENTITY_TYPES,
 )
@@ -21,7 +20,6 @@ __all__ = [
     "ChunkData",
     # Graphiti ingestion
     "ingest_document_as_episode",
-    "ingest_with_backend_routing",
     "EpisodeIngestionResult",
     "EPISODE_ENTITY_TYPES",
 ]

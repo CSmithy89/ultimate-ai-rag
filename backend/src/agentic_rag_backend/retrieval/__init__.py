@@ -8,7 +8,6 @@ from .vector_search import VectorSearchService
 # Epic 5 - Graphiti Integration
 from .graphiti_retrieval import (
     graphiti_search,
-    search_with_backend_routing,
     GraphitiSearchResult,
     SearchNode,
     SearchEdge,
@@ -34,7 +33,6 @@ __all__ = [
     "VectorSearchService",
     # Epic 5 - Hybrid retrieval
     "graphiti_search",
-    "search_with_backend_routing",
     "GraphitiSearchResult",
     "SearchNode",
     "SearchEdge",

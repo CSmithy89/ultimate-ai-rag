@@ -1,5 +1,16 @@
 # Changelog
 
+## [Epic 11] - Code Cleanup & Migration - 2025-12-31
+
+### Added
+- Graphiti migration script (`backend/scripts/migrate_to_graphiti.py`) with optional backups and validation checks
+
+### Changed
+- Graphiti ingestion and retrieval now run without legacy feature flags
+
+### Fixed
+- None
+
 ## [Epic 10] - Testing Infrastructure - 2025-12-31
 
 ### Added
@@ -111,12 +122,12 @@
 - Edge type mappings for semantic relationship classification
 - `GraphitiClient` wrapper with connection lifecycle management
 - Episode-based document ingestion via `ingest_document_as_episode()`
-- Hybrid retrieval with `graphiti_search()` and `search_with_backend_routing()`
+- Hybrid retrieval with `graphiti_search()`
 - Temporal query capabilities:
   - Point-in-time search with `temporal_search()`
   - Knowledge change tracking with `get_knowledge_changes()`
 - API endpoints for temporal queries (`/knowledge/temporal/search`, `/knowledge/temporal/changes`)
-- Feature flags: `INGESTION_BACKEND` and `RETRIEVAL_BACKEND` (values: "graphiti" or "legacy")
+- Feature flags for backend selection (removed in Epic 11)
 - Integration test suite for end-to-end Graphiti workflow
 - pytest-cov for coverage reporting
 

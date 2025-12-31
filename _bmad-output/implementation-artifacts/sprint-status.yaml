@@ -131,10 +131,10 @@ development_status:
   epic-10-retrospective: done
 
   # Epic 11: Code Cleanup & Migration (Tech Debt)
-  epic-11: contexted
+  epic-11: in-progress
   11-1-fix-datetime-deprecation: done
   11-2-delete-legacy-modules: done
-  11-3-complete-graphiti-migration: backlog
+  11-3-complete-graphiti-migration: done
   11-4-wire-hitl-validation: backlog
   11-5-implement-workspace-persistence: backlog
   11-6-replace-html-markdown-regex: backlog

@@ -55,8 +55,6 @@ class Settings:
     # Epic 5 - Graphiti settings
     graphiti_embedding_model: str
     graphiti_llm_model: str
-    ingestion_backend: str  # "graphiti" or "legacy"
-    retrieval_backend: str  # "graphiti" or "legacy"
     # Epic 6 - Workspace settings
     share_secret: str  # Secret for signing share links (set via SHARE_SECRET env var)
     # Epic 7 - A2A settings
@@ -210,19 +208,6 @@ def load_settings() -> Settings:
                     "MCP_TOOL_TIMEOUT_OVERRIDES values must be numeric."
                 ) from exc
 
-    # Epic 5 - Validate backend selections
-    ingestion_backend = os.getenv("INGESTION_BACKEND", "graphiti")
-    if ingestion_backend not in {"graphiti", "legacy"}:
-        raise ValueError(
-            f"Invalid INGESTION_BACKEND: {ingestion_backend}. "
-            "Must be 'graphiti' or 'legacy'.")
-
-    retrieval_backend = os.getenv("RETRIEVAL_BACKEND", "graphiti")
-    if retrieval_backend not in {"graphiti", "legacy"}:
-        raise ValueError(
-            f"Invalid RETRIEVAL_BACKEND: {retrieval_backend}. "
-            "Must be 'graphiti' or 'legacy'.")
-
     required = [
         "OPENAI_API_KEY",
         "DATABASE_URL",
@@ -328,8 +313,6 @@ def load_settings() -> Settings:
         # Epic 5 - Graphiti settings
         graphiti_embedding_model=os.getenv("GRAPHITI_EMBEDDING_MODEL", "text-embedding-3-small"),
         graphiti_llm_model=os.getenv("GRAPHITI_LLM_MODEL", "gpt-4o-mini"),
-        ingestion_backend=ingestion_backend,
-        retrieval_backend=retrieval_backend,
         # Epic 6 - Workspace settings
         # Default generates random secret if not set (for dev), but production should set SHARE_SECRET
         share_secret=os.getenv("SHARE_SECRET", secrets.token_hex(32)),

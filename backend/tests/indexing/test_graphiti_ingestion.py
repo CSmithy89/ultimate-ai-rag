@@ -2,7 +2,7 @@
 
 import pytest
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 import hashlib
 
@@ -121,42 +121,6 @@ class TestGraphitiIngestion:
                 graphiti_client=disconnected_client,
                 document=sample_document,
             )
-
-
-class TestIngestionBackendRouting:
-    """Tests for ingestion backend feature flag routing."""
-
-    def test_ingestion_backend_default_is_graphiti(self):
-        """Default ingestion backend should be graphiti."""
-        with patch.dict("os.environ", {
-            "OPENAI_API_KEY": "test",
-            "DATABASE_URL": "postgresql://test",
-            "NEO4J_URI": "bolt://localhost",
-            "NEO4J_USER": "neo4j",
-            "NEO4J_PASSWORD": "password",
-            "REDIS_URL": "redis://localhost",
-        }, clear=False):
-            from agentic_rag_backend.config import load_settings
-            # Clear cache
-            load_settings.cache_clear() if hasattr(load_settings, 'cache_clear') else None
-            settings = load_settings()
-            assert settings.ingestion_backend == "graphiti"
-
-    def test_ingestion_backend_can_be_legacy(self):
-        """Ingestion backend should support legacy value."""
-        with patch.dict("os.environ", {
-            "OPENAI_API_KEY": "test",
-            "DATABASE_URL": "postgresql://test",
-            "NEO4J_URI": "bolt://localhost",
-            "NEO4J_USER": "neo4j",
-            "NEO4J_PASSWORD": "password",
-            "REDIS_URL": "redis://localhost",
-            "INGESTION_BACKEND": "legacy",
-        }, clear=False):
-            from agentic_rag_backend.config import load_settings
-            load_settings.cache_clear() if hasattr(load_settings, 'cache_clear') else None
-            settings = load_settings()
-            assert settings.ingestion_backend == "legacy"
 
 
 class TestEpisodeResult:
