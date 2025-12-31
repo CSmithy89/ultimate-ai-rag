@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from agentic_rag_backend.indexing.parser import parse_pdf
-from .utils import record_benchmark
+from tests.benchmarks.utils import record_benchmark
 
 if os.getenv("RUN_BENCHMARKS") != "1":
     pytest.skip("RUN_BENCHMARKS=1 required for benchmark tests", allow_module_level=True)

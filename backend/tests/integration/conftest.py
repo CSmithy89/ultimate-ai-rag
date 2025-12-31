@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 import asyncpg
 import pytest
-import redis.asyncio as redis
+import pytest_asyncio
 
 from agentic_rag_backend.db.neo4j import Neo4jClient
 from agentic_rag_backend.db.postgres import PostgresClient
@@ -81,7 +81,7 @@ async def _cleanup_redis(client: RedisClient, tenant_id: str) -> None:
         await client.client.delete(key)
 
 
-@pytest.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session")
 async def integration_env() -> dict[str, str]:
     _require_integration_env()
     database_url = os.getenv("DATABASE_URL")
@@ -118,7 +118,7 @@ async def integration_env() -> dict[str, str]:
     }
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def postgres_client(integration_env: dict[str, str]) -> PostgresClient:
     client = PostgresClient(integration_env["database_url"])
     await client.connect()
@@ -129,7 +129,7 @@ async def postgres_client(integration_env: dict[str, str]) -> PostgresClient:
         await client.disconnect()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def neo4j_client(integration_env: dict[str, str]) -> Neo4jClient:
     client = Neo4jClient(
         integration_env["neo4j_uri"],
@@ -144,7 +144,7 @@ async def neo4j_client(integration_env: dict[str, str]) -> Neo4jClient:
         await client.disconnect()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def redis_client(integration_env: dict[str, str]) -> RedisClient:
     client = RedisClient(integration_env["redis_url"])
     await client.connect()
@@ -159,7 +159,7 @@ def integration_tenant_id() -> str:
     return str(uuid4())
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def integration_cleanup(
     integration_tenant_id: str,
     postgres_client: PostgresClient,

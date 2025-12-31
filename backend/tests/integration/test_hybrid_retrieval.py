@@ -179,10 +179,10 @@ async def test_hybrid_retrieval_is_tenant_scoped(
         assert all(node.id == entity_a for node in graph_a.nodes)
     finally:
         async with postgres_client.pool.acquire() as conn:
-            await conn.execute(\"DELETE FROM chunks WHERE tenant_id = $1\", tenant_b_uuid)
-            await conn.execute(\"DELETE FROM documents WHERE tenant_id = $1\", tenant_b_uuid)
+            await conn.execute("DELETE FROM chunks WHERE tenant_id = $1", tenant_b_uuid)
+            await conn.execute("DELETE FROM documents WHERE tenant_id = $1", tenant_b_uuid)
         async with neo4j_client.driver.session() as session:
             await session.run(
-                \"MATCH (n {tenant_id: $tenant_id}) DETACH DELETE n\",
+                "MATCH (n {tenant_id: $tenant_id}) DETACH DELETE n",
                 tenant_id=tenant_b,
             )

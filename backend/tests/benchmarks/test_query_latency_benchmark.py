@@ -11,7 +11,7 @@ import pytest
 
 from agentic_rag_backend.db.neo4j import Neo4jClient
 from agentic_rag_backend.retrieval.graph_traversal import GraphTraversalService
-from .utils import record_benchmark
+from tests.benchmarks.utils import record_benchmark
 
 if os.getenv("RUN_BENCHMARKS") != "1":
     pytest.skip("RUN_BENCHMARKS=1 required for benchmark tests", allow_module_level=True)

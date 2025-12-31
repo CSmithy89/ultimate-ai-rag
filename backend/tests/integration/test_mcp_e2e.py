@@ -12,6 +12,8 @@ from agentic_rag_backend.schemas import PlanStep
 
 pytestmark = pytest.mark.integration
 
+TENANT_ID = "00000000-0000-0000-0000-000000000001"
+
 
 class DummyOrchestrator:
     async def run(self, query: str, tenant_id: str, session_id: str | None = None):
@@ -39,7 +41,7 @@ async def test_mcp_tool_invocation_returns_response() -> None:
 
     response = await registry.call_tool(
         "knowledge.query",
-        {"query": "hello", "tenant_id": "t1"},
+        {"query": "hello", "tenant_id": TENANT_ID},
     )
     assert response["answer"] == "ok:hello"
     assert response["retrieval_strategy"] == "vector"
@@ -51,7 +53,7 @@ async def test_mcp_graph_stats_tool() -> None:
 
     response = await registry.call_tool(
         "knowledge.graph_stats",
-        {"tenant_id": "t1"},
+        {"tenant_id": TENANT_ID},
     )
     assert response["nodes"] == 0
 
