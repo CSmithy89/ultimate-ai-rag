@@ -1,0 +1,22 @@
+<storyContext>
+  <story id="11.6" title="Replace HTML-to-Markdown Regex" epic="11" />
+
+  <summary>
+    Replace regex-based HTML conversion with a parser-backed markdown conversion.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>HTML converts to markdown with preserved structure.</acceptanceCriteria>
+    <acceptanceCriteria>Complex HTML (tables, lists) retains structure.</acceptanceCriteria>
+    <acceptanceCriteria>Edge cases pass unit tests.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Prefer parser-based conversion libraries over regex.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="docs/epics/epic-11-tech-spec.md" section="Story Breakdown" />
+    <reference path="docs/epics/epic-11-code-cleanup-migration.md" section="Story 11.6" />
+  </references>
+</storyContext>

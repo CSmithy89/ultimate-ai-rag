@@ -5,7 +5,7 @@ import hashlib
 import re
 import time
 from datetime import datetime, timezone
-from typing import AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Optional
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -125,13 +125,14 @@ def extract_links(html: str, base_url: str) -> list[str]:
     Returns:
         List of normalized absolute URLs
     """
-    # Simple regex-based link extraction
-    # In production, consider using BeautifulSoup for more robust parsing
-    href_pattern = re.compile(r'href=["\']([^"\']+)["\']', re.IGNORECASE)
-    matches = href_pattern.findall(html)
+    from bs4 import BeautifulSoup
 
+    soup = BeautifulSoup(html, "html.parser")
     links = []
-    for href in matches:
+    for anchor in soup.find_all("a", href=True):
+        href = anchor.get("href")
+        if not href:
+            continue
         normalized = normalize_url(href, base_url)
         if normalized and is_same_domain(normalized, base_url):
             links.append(normalized)
@@ -143,8 +144,7 @@ def html_to_markdown(html: str, title: Optional[str] = None) -> str:
     """
     Convert HTML to markdown format.
 
-    This is a simplified implementation. In production, consider using
-    a library like markdownify or html2text for better conversion.
+    Uses BeautifulSoup to parse HTML and convert common elements into markdown.
 
     Args:
         html: HTML content
@@ -153,60 +153,57 @@ def html_to_markdown(html: str, title: Optional[str] = None) -> str:
     Returns:
         Markdown-formatted content
     """
-    import re
+    from bs4 import BeautifulSoup
+    from markdownify import markdownify
 
-    content = html
+    soup = BeautifulSoup(html, "html.parser")
 
-    # Remove script and style elements
-    content = re.sub(r"<script[^>]*>.*?</script>", "", content, flags=re.DOTALL | re.IGNORECASE)
-    content = re.sub(r"<style[^>]*>.*?</style>", "", content, flags=re.DOTALL | re.IGNORECASE)
+    def _table_to_markdown(table: Any) -> str:
+        rows: list[list[str]] = []
+        for row in table.find_all("tr"):
+            cells = [
+                cell.get_text(" ", strip=True)
+                for cell in row.find_all(["th", "td"])
+            ]
+            if cells:
+                rows.append(cells)
 
-    # Convert headers
-    for i in range(6, 0, -1):
-        content = re.sub(
-            rf"<h{i}[^>]*>(.*?)</h{i}>",
-            r"\n" + "#" * i + r" \1\n",
-            content,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
+        if not rows:
+            return ""
 
-    # Convert paragraphs
-    content = re.sub(r"<p[^>]*>(.*?)</p>", r"\n\1\n", content, flags=re.DOTALL | re.IGNORECASE)
+        col_count = max(len(row) for row in rows)
+        normalized = [row + [""] * (col_count - len(row)) for row in rows]
+        header = normalized[0]
+        body = normalized[1:]
 
-    # Convert line breaks
-    content = re.sub(r"<br\s*/?>", "\n", content, flags=re.IGNORECASE)
+        def _format_row(values: list[str]) -> str:
+            return "| " + " | ".join(values) + " |"
 
-    # Convert links
-    content = re.sub(
-        r'<a[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
-        r"[\2](\1)",
-        content,
-        flags=re.DOTALL | re.IGNORECASE,
+        lines = [
+            _format_row(header),
+            "| " + " | ".join(["---"] * col_count) + " |",
+        ]
+        for row in body:
+            lines.append(_format_row(row))
+
+        return "\n".join(lines)
+
+    for element in soup(["script", "style"]):
+        element.decompose()
+
+    for table in soup.find_all("table"):
+        table.replace_with(_table_to_markdown(table))
+
+    content = markdownify(
+        str(soup),
+        heading_style="ATX",
+        bullets="-",
     )
 
-    # Convert bold
-    content = re.sub(r"<(strong|b)[^>]*>(.*?)</\1>", r"**\2**", content, flags=re.DOTALL | re.IGNORECASE)
-
-    # Convert italic
-    content = re.sub(r"<(em|i)[^>]*>(.*?)</\1>", r"*\2*", content, flags=re.DOTALL | re.IGNORECASE)
-
-    # Convert code blocks
-    content = re.sub(r"<pre[^>]*><code[^>]*>(.*?)</code></pre>", r"\n```\n\1\n```\n", content, flags=re.DOTALL | re.IGNORECASE)
-    content = re.sub(r"<code[^>]*>(.*?)</code>", r"`\1`", content, flags=re.DOTALL | re.IGNORECASE)
-
-    # Convert lists
-    content = re.sub(r"<li[^>]*>(.*?)</li>", r"- \1\n", content, flags=re.DOTALL | re.IGNORECASE)
-    content = re.sub(r"</?[uo]l[^>]*>", "", content, flags=re.IGNORECASE)
-
-    # Remove remaining HTML tags
-    content = re.sub(r"<[^>]+>", "", content)
-
-    # Clean up whitespace
     content = re.sub(r"\n{3,}", "\n\n", content)
     content = re.sub(r"[ \t]+", " ", content)
     content = content.strip()
 
-    # Prepend title if provided
     if title:
         content = f"# {title}\n\n{content}"
 
@@ -223,9 +220,11 @@ def extract_title(html: str) -> Optional[str]:
     Returns:
         Title string, or None if not found
     """
-    match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
-    if match:
-        return match.group(1).strip()
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "html.parser")
+    if soup.title and soup.title.string:
+        return soup.title.string.strip()
     return None
 
 
