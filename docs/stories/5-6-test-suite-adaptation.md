@@ -1,6 +1,6 @@
 # Story 5.6: Test Suite Adaptation
 
-Status: backlog
+Status: done
 
 ## Story
 

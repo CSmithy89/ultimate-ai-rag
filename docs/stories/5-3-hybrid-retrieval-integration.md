@@ -1,6 +1,6 @@
 # Story 5.3: Hybrid Retrieval Integration
 
-Status: backlog
+Status: done
 
 ## Story
 

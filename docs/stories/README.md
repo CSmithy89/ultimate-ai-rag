@@ -16,3 +16,14 @@ Reviewers should confirm the standards coverage is filled out before approval.
 
 If a story is still in backlog or drafted status, update it to include the
 Standards Coverage section before implementation begins.
+
+## Status Synchronization
+
+Story status must match `_bmad-output/implementation-artifacts/sprint-status.yaml`.
+When you update a story status, update both files in the same change.
+
+Validate with:
+
+```bash
+python3 scripts/validate-story-status.py
+```

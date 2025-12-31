@@ -1,6 +1,6 @@
 # Story 5.5: Legacy Code Removal and Migration
 
-Status: backlog
+Status: done
 
 ## Story
 

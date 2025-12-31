@@ -1,6 +1,6 @@
 # Story 5.4: Temporal Query Capabilities
 
-Status: backlog
+Status: done
 
 ## Story
 

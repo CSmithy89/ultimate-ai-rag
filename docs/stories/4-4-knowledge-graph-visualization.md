@@ -1,6 +1,6 @@
 # Story 4.4: Knowledge Graph Visualization
 
-Status: drafted
+Status: done
 
 ## Story
 

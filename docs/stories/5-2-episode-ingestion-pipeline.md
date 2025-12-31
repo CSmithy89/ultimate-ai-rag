@@ -1,6 +1,6 @@
 # Story 5.2: Episode Ingestion Pipeline
 
-Status: backlog
+Status: done
 
 ## Story
 
