@@ -101,6 +101,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             settings.neo4j_uri,
             settings.neo4j_user,
             settings.neo4j_password,
+            pool_min_size=settings.neo4j_pool_min,
+            pool_max_size=settings.neo4j_pool_max,
+            pool_acquire_timeout=settings.neo4j_pool_acquire_timeout_seconds,
+            connection_timeout=settings.neo4j_connection_timeout_seconds,
+            max_connection_lifetime=settings.neo4j_max_connection_lifetime_seconds,
         )
         await app.state.neo4j.connect()
         await app.state.neo4j.create_indexes()

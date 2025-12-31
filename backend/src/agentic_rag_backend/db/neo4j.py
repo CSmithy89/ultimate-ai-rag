@@ -1,5 +1,6 @@
 """Neo4j async client for knowledge graph operations."""
 
+import asyncio
 import re
 from typing import Any, Optional
 
@@ -29,7 +30,17 @@ class Neo4jClient:
     Uses MERGE operations for idempotent node and relationship creation.
     """
 
-    def __init__(self, uri: str, user: str, password: str) -> None:
+    def __init__(
+        self,
+        uri: str,
+        user: str,
+        password: str,
+        pool_min_size: int = 1,
+        pool_max_size: int = 50,
+        pool_acquire_timeout: float = 30.0,
+        connection_timeout: float = 30.0,
+        max_connection_lifetime: int = 3600,
+    ) -> None:
         """
         Initialize Neo4j client.
 
@@ -42,6 +53,11 @@ class Neo4jClient:
         self.user = user
         self.password = password
         self._driver: Optional[AsyncDriver] = None
+        self.pool_min_size = pool_min_size
+        self.pool_max_size = pool_max_size
+        self.pool_acquire_timeout = pool_acquire_timeout
+        self.connection_timeout = connection_timeout
+        self.max_connection_lifetime = max_connection_lifetime
 
     async def connect(self) -> None:
         """Establish connection to Neo4j."""
@@ -49,8 +65,33 @@ class Neo4jClient:
             self._driver = AsyncGraphDatabase.driver(
                 self.uri,
                 auth=(self.user, self.password),
+                max_connection_pool_size=self.pool_max_size,
+                connection_acquisition_timeout=self.pool_acquire_timeout,
+                connection_timeout=self.connection_timeout,
+                max_connection_lifetime=self.max_connection_lifetime,
             )
+            logger.info(
+                "neo4j_pool_configured",
+                uri=self.uri,
+                pool_min_size=self.pool_min_size,
+                pool_max_size=self.pool_max_size,
+                pool_acquire_timeout=self.pool_acquire_timeout,
+                connection_timeout=self.connection_timeout,
+                max_connection_lifetime=self.max_connection_lifetime,
+            )
+            if self.pool_min_size > 0:
+                await self._warm_pool(self.pool_min_size)
             logger.info("neo4j_connected", uri=self.uri)
+
+    async def _warm_pool(self, target_size: int) -> None:
+        """Warm the Neo4j pool by opening concurrent sessions."""
+        async def _ping() -> None:
+            async with self.driver.session() as session:
+                result = await session.run("RETURN 1")
+                await result.consume()
+
+        await asyncio.gather(*[_ping() for _ in range(target_size)])
+        logger.info("neo4j_pool_warmed", pool_min_size=target_size)
 
     async def disconnect(self) -> None:
         """Close Neo4j connection."""
@@ -988,6 +1029,11 @@ async def get_neo4j_client(
     uri: Optional[str] = None,
     user: Optional[str] = None,
     password: Optional[str] = None,
+    pool_min_size: Optional[int] = None,
+    pool_max_size: Optional[int] = None,
+    pool_acquire_timeout: Optional[float] = None,
+    connection_timeout: Optional[float] = None,
+    max_connection_lifetime: Optional[int] = None,
 ) -> Neo4jClient:
     """
     Get or create the global Neo4j client instance.
@@ -1007,7 +1053,22 @@ async def get_neo4j_client(
                 "init",
                 "Neo4j URI, user, and password required for first initialization",
             )
-        _neo4j_client = Neo4jClient(uri, user, password)
+        _neo4j_client = Neo4jClient(
+            uri,
+            user,
+            password,
+            pool_min_size=pool_min_size if pool_min_size is not None else 1,
+            pool_max_size=pool_max_size if pool_max_size is not None else 50,
+            pool_acquire_timeout=(
+                pool_acquire_timeout if pool_acquire_timeout is not None else 30.0
+            ),
+            connection_timeout=(
+                connection_timeout if connection_timeout is not None else 30.0
+            ),
+            max_connection_lifetime=(
+                max_connection_lifetime if max_connection_lifetime is not None else 3600
+            ),
+        )
         await _neo4j_client.connect()
         await _neo4j_client.create_indexes()
     return _neo4j_client

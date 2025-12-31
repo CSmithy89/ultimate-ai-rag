@@ -139,7 +139,7 @@ development_status:
   11-4-wire-hitl-validation: done
   11-5-implement-workspace-persistence: done
   11-6-replace-html-markdown-regex: done
-  11-7-configure-neo4j-pooling: backlog
+  11-7-configure-neo4j-pooling: done
   11-8-add-llm-token-monitoring: backlog
   11-9-a2a-session-persistence: backlog
   epic-11-retrospective: optional

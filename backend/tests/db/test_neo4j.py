@@ -43,6 +43,7 @@ class TestNeo4jClient:
                 uri="bolt://localhost:7687",
                 user="neo4j",
                 password="test",
+                pool_min_size=0,
             )
             await client.connect()
 

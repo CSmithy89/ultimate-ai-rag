@@ -35,6 +35,11 @@ class Settings:
     neo4j_uri: str
     neo4j_user: str
     neo4j_password: str
+    neo4j_pool_min: int
+    neo4j_pool_max: int
+    neo4j_pool_acquire_timeout_seconds: float
+    neo4j_connection_timeout_seconds: float
+    neo4j_max_connection_lifetime_seconds: int
     redis_url: str
     backend_host: str
     backend_port: int
@@ -118,6 +123,35 @@ def load_settings() -> Settings:
         )
     if request_max_bytes < 1:
         raise ValueError("REQUEST_MAX_BYTES must be >= 1.")
+
+    try:
+        neo4j_pool_min = int(os.getenv("NEO4J_POOL_MIN", "1"))
+        neo4j_pool_max = int(os.getenv("NEO4J_POOL_MAX", "50"))
+        neo4j_pool_acquire_timeout_seconds = float(
+            os.getenv("NEO4J_POOL_ACQUIRE_TIMEOUT_SECONDS", "30")
+        )
+        neo4j_connection_timeout_seconds = float(
+            os.getenv("NEO4J_CONNECTION_TIMEOUT_SECONDS", "30")
+        )
+        neo4j_max_connection_lifetime_seconds = int(
+            os.getenv("NEO4J_MAX_CONNECTION_LIFETIME_SECONDS", "3600")
+        )
+    except ValueError as exc:
+        raise ValueError(
+            "NEO4J_POOL_MIN, NEO4J_POOL_MAX, and Neo4j timeout settings must be numeric."
+        ) from exc
+    if neo4j_pool_min < 0:
+        raise ValueError("NEO4J_POOL_MIN must be >= 0.")
+    if neo4j_pool_max < max(1, neo4j_pool_min):
+        raise ValueError(
+            "NEO4J_POOL_MAX must be >= max(1, NEO4J_POOL_MIN)."
+        )
+    if neo4j_pool_acquire_timeout_seconds <= 0:
+        raise ValueError("NEO4J_POOL_ACQUIRE_TIMEOUT_SECONDS must be > 0.")
+    if neo4j_connection_timeout_seconds <= 0:
+        raise ValueError("NEO4J_CONNECTION_TIMEOUT_SECONDS must be > 0.")
+    if neo4j_max_connection_lifetime_seconds <= 0:
+        raise ValueError("NEO4J_MAX_CONNECTION_LIFETIME_SECONDS must be > 0.")
     if rate_limit_per_minute < 1:
         raise ValueError("RATE_LIMIT_PER_MINUTE must be >= 1.")
     if rate_limit_retry_after_seconds < 1:
@@ -294,6 +328,11 @@ def load_settings() -> Settings:
         neo4j_uri=neo4j_uri,
         neo4j_user=neo4j_user,
         neo4j_password=neo4j_password,
+        neo4j_pool_min=neo4j_pool_min,
+        neo4j_pool_max=neo4j_pool_max,
+        neo4j_pool_acquire_timeout_seconds=neo4j_pool_acquire_timeout_seconds,
+        neo4j_connection_timeout_seconds=neo4j_connection_timeout_seconds,
+        neo4j_max_connection_lifetime_seconds=neo4j_max_connection_lifetime_seconds,
         redis_url=redis_url,
         backend_host=os.getenv("BACKEND_HOST", "0.0.0.0"),
         backend_port=backend_port,
