@@ -126,7 +126,7 @@ development_status:
   10-3-ingestion-pipeline-integration-tests: done
   10-4-graphiti-integration-tests: done
   10-5-protocol-integration-tests: done
-  10-6-skipped-test-resolution: backlog
+  10-6-skipped-test-resolution: done
   10-7-nfr-benchmark-validation: backlog
   epic-10-retrospective: optional
 
