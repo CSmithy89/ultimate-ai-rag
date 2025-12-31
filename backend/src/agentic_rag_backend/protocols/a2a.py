@@ -105,7 +105,7 @@ class A2ASessionManager:
             )
             return _EPOCH
 
-    def _session_from_payload(self, payload: dict[str, Any]) -> A2ASession:
+    def _session_from_payload(self, payload: dict[str, Any]) -> A2ASession | None:
         messages = []
         session_id = payload.get("session_id", "")
         for message in payload.get("messages", []):
@@ -132,6 +132,12 @@ class A2ASessionManager:
             session_id=session_id,
             field="last_activity",
         )
+        if created_at == _EPOCH or last_activity == _EPOCH:
+            logger.warning(
+                "a2a_session_discarded_invalid_timestamp",
+                session_id=session_id,
+            )
+            return None
         return A2ASession(
             session_id=session_id,
             tenant_id=payload.get("tenant_id", ""),
@@ -254,12 +260,6 @@ class A2ASessionManager:
                 if session:
                     self._sessions[session_id] = session
             if session:
-                if session.created_at == _EPOCH or session.last_activity == _EPOCH:
-                    logger.warning(
-                        "a2a_session_discarded_invalid_timestamp",
-                        session_id=session.session_id,
-                    )
-                    return None
                 session.last_activity = datetime.now(timezone.utc)
                 await self._persist_session(session)
             return self._snapshot_session(session) if session else None

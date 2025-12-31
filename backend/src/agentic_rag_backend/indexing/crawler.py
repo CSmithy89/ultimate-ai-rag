@@ -30,6 +30,7 @@ DEFAULT_TIMEOUT = 30.0  # seconds
 DEFAULT_USER_AGENT = (
     "AgenticRAG-Crawler/1.0 (+https://github.com/example/agentic-rag)"
 )
+HTML_MARKDOWN_THREAD_THRESHOLD = 100_000
 
 
 def compute_content_hash(content: str) -> str:
@@ -190,8 +191,22 @@ def html_to_markdown(html: str, title: Optional[str] = None) -> str:
     for tag in soup.find_all(True):
         if tag.name in drop_tags:
             tag.decompose()
-        elif tag.name not in allowed_tags:
+            continue
+        if tag.name not in allowed_tags:
             tag.unwrap()
+            continue
+        if tag.name == "a":
+            href = tag.get("href")
+            if isinstance(href, str):
+                lowered = href.strip().lower()
+                if lowered.startswith(("javascript:", "data:", "vbscript:")):
+                    tag.attrs = {}
+                else:
+                    tag.attrs = {"href": href}
+            else:
+                tag.attrs = {}
+        else:
+            tag.attrs = {}
 
     content = markdownify(
         str(soup),
@@ -402,7 +417,10 @@ class CrawlerService:
 
             # Extract title and convert to markdown
             title = extract_title(content)
-            markdown = html_to_markdown(content, title)
+            if len(content) > HTML_MARKDOWN_THREAD_THRESHOLD:
+                markdown = await asyncio.to_thread(html_to_markdown, content, title)
+            else:
+                markdown = html_to_markdown(content, title)
             content_hash = compute_content_hash(markdown)
             links = extract_links(content, url)
 

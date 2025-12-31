@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Optional
 from uuid import UUID
 
 import structlog
-import hashlib
 
 from agentic_rag_backend.config import get_settings
 from agentic_rag_backend.db.graphiti import (
@@ -38,6 +38,8 @@ from agentic_rag_backend.models.documents import (
 )
 
 logger = structlog.get_logger(__name__)
+
+CHUNK_BATCH_SIZE = 100
 
 
 async def _fetch_tenant_ids(postgres: PostgresClient) -> list[str]:
@@ -229,65 +231,67 @@ async def migrate(
 
             tenant_migrated = 0
             tenant_skipped = 0
-            document_ids = [doc["id"] for doc in documents]
-            chunks_by_doc = await _fetch_chunks_for_documents(
-                postgres, tenant, document_ids
-            )
-            for doc in documents:
-                document_id = doc["id"]
-                chunk_texts = chunks_by_doc.get(document_id, [])
-                content = "\n\n".join(chunk_texts).strip()
-                if not content:
-                    total_skipped += 1
-                    tenant_skipped += 1
-                    logger.warning(
-                        "migration_skipped_empty",
-                        tenant_id=tenant,
-                        document_id=str(document_id),
+            for start in range(0, len(documents), CHUNK_BATCH_SIZE):
+                batch = documents[start:start + CHUNK_BATCH_SIZE]
+                document_ids = [doc["id"] for doc in batch]
+                chunks_by_doc = await _fetch_chunks_for_documents(
+                    postgres, tenant, document_ids
+                )
+                for doc in batch:
+                    document_id = doc["id"]
+                    chunk_texts = chunks_by_doc.get(document_id, [])
+                    content = "\n\n".join(chunk_texts).strip()
+                    if not content:
+                        total_skipped += 1
+                        tenant_skipped += 1
+                        logger.warning(
+                            "migration_skipped_empty",
+                            tenant_id=tenant,
+                            document_id=str(document_id),
+                        )
+                        continue
+
+                    metadata_model = parse_document_metadata(
+                        doc.get("metadata"),
+                        extra_fields={
+                            "legacy_document_id": str(document_id),
+                            "migration_source": "legacy",
+                        },
+                        log=logger,
+                        log_context={
+                            "tenant_id": tenant,
+                            "legacy_document_id": str(document_id),
+                        },
                     )
-                    continue
 
-                metadata_model = parse_document_metadata(
-                    doc.get("metadata"),
-                    extra_fields={
-                        "legacy_document_id": str(document_id),
-                        "migration_source": "legacy",
-                    },
-                    log=logger,
-                    log_context={
-                        "tenant_id": tenant,
-                        "legacy_document_id": str(document_id),
-                    },
-                )
+                    try:
+                        source_type_enum = SourceType(str(doc.get("source_type")))
+                    except ValueError:
+                        source_type_enum = SourceType.TEXT
 
-                try:
-                    source_type_enum = SourceType(str(doc.get("source_type")))
-                except ValueError:
-                    source_type_enum = SourceType.TEXT
+                    unified_doc = UnifiedDocument(
+                        id=document_id,
+                        tenant_id=UUID(tenant),
+                        source_type=source_type_enum,
+                        source_url=doc.get("source_url"),
+                        filename=doc.get("filename"),
+                        content=content,
+                        content_hash=doc.get("content_hash")
+                        or hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                        metadata=metadata_model,
+                    )
 
-                unified_doc = UnifiedDocument(
-                    id=document_id,
-                    tenant_id=UUID(tenant),
-                    source_type=source_type_enum,
-                    source_url=doc.get("source_url"),
-                    filename=doc.get("filename"),
-                    content=content,
-                    content_hash=doc.get("content_hash")
-                    or hashlib.sha256(content.encode("utf-8")).hexdigest(),
-                    metadata=metadata_model,
-                )
+                    if dry_run:
+                        total_migrated += 1
+                        tenant_migrated += 1
+                        continue
 
-                if dry_run:
+                    await ingest_document_as_episode(
+                        graphiti_client=graphiti_client,
+                        document=unified_doc,
+                    )
                     total_migrated += 1
                     tenant_migrated += 1
-                    continue
-
-                await ingest_document_as_episode(
-                    graphiti_client=graphiti_client,
-                    document=unified_doc,
-                )
-                total_migrated += 1
-                tenant_migrated += 1
 
             logger.info(
                 "migration_tenant_completed",

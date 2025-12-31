@@ -79,6 +79,7 @@ class Neo4jClient:
                 connection_timeout=self.connection_timeout,
                 max_connection_lifetime=self.max_connection_lifetime,
             )
+            # Neo4j driver does not support a min pool size; we warm manually instead.
             if self.pool_min_size > 0:
                 await self._warm_pool(self.pool_min_size)
             logger.info("neo4j_connected", uri=self.uri)

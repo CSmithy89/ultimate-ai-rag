@@ -198,6 +198,12 @@ class TestHtmlToMarkdown:
         assert "| --- | --- |" in result
         assert "| Ada | 36 |" in result
 
+    def test_strips_unsafe_link_attributes(self):
+        """Test javascript: links are stripped."""
+        html = '<a href="javascript:alert(1)">Click</a>'
+        result = html_to_markdown(html)
+        assert "javascript:" not in result
+
 
 class TestExtractTitle:
     """Tests for title extraction."""

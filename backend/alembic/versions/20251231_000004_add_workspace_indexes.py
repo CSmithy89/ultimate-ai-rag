@@ -29,22 +29,8 @@ def upgrade() -> None:
         END $$;
         """
     )
-    op.execute(
-        """
-        DO $$
-        BEGIN
-            IF EXISTS (
-                SELECT 1 FROM information_schema.tables
-                WHERE table_schema = 'public' AND table_name = 'workspace_shares'
-            ) THEN
-                CREATE INDEX IF NOT EXISTS idx_workspace_shares_share_id
-                ON workspace_shares(id);
-            END IF;
-        END $$;
-        """
-    )
+    # workspace_shares already has a primary key on id and an index on tenant_id.
 
 
 def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS idx_workspace_items_tenant_content_id")
-    op.execute("DROP INDEX IF EXISTS idx_workspace_shares_share_id")

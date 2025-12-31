@@ -12,6 +12,16 @@ from agentic_rag_backend.models.ingest import JobProgress, JobStatus, JobStatusE
 
 logger = structlog.get_logger(__name__)
 
+WORKSPACE_MAX_CONTENT_BYTES = 100_000
+
+
+def _validate_workspace_content(content: str) -> None:
+    byte_size = len(content.encode("utf-8"))
+    if byte_size > WORKSPACE_MAX_CONTENT_BYTES:
+        raise ValueError(
+            f"Content size ({byte_size} bytes) exceeds maximum of {WORKSPACE_MAX_CONTENT_BYTES} bytes"
+        )
+
 
 class PostgresClient:
     """
@@ -272,10 +282,6 @@ class PostgresClient:
             await conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_workspace_shares_expires_at
                 ON workspace_shares(expires_at)
-            """)
-            await conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_workspace_shares_share_id
-                ON workspace_shares(id)
             """)
 
             await conn.execute("""
@@ -1008,6 +1014,7 @@ class PostgresClient:
             created_at timestamp
         """
         try:
+            _validate_workspace_content(content)
             async with self.pool.acquire() as conn:
                 row = await conn.fetchrow(
                     """
@@ -1108,6 +1115,7 @@ class PostgresClient:
             created_at timestamp
         """
         try:
+            _validate_workspace_content(content)
             async with self.pool.acquire() as conn:
                 row = await conn.fetchrow(
                     """
@@ -1202,6 +1210,7 @@ class PostgresClient:
             created_at timestamp
         """
         try:
+            _validate_workspace_content(content)
             async with self.pool.acquire() as conn:
                 row = await conn.fetchrow(
                     """

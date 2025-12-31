@@ -377,17 +377,20 @@ async def save_content(
         "workspace_id": str(workspace_uuid),
     })
 
-    created_at = await postgres.create_workspace_item(
-        workspace_id=workspace_uuid,
-        tenant_id=tenant_uuid,
-        content_id=request_body.content_id,
-        content=request_body.content,
-        title=title,
-        query=request_body.query,
-        sources=[s.model_dump() for s in request_body.sources] if request_body.sources else None,
-        session_id=request_body.session_id,
-        trajectory_id=request_body.trajectory_id,
-    )
+    try:
+        created_at = await postgres.create_workspace_item(
+            workspace_id=workspace_uuid,
+            tenant_id=tenant_uuid,
+            content_id=request_body.content_id,
+            content=request_body.content,
+            title=title,
+            query=request_body.query,
+            sources=[s.model_dump() for s in request_body.sources] if request_body.sources else None,
+            session_id=request_body.session_id,
+            trajectory_id=request_body.trajectory_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
 
     return SaveContentResponse(
         data=SavedContentData(
@@ -557,17 +560,20 @@ async def share_content(
         "expires_at": expires_at.isoformat(),
     })
 
-    stored_at = await postgres.create_workspace_share(
-        share_id=share_uuid,
-        tenant_id=tenant_uuid,
-        content_id=request_body.content_id,
-        content=request_body.content,
-        title=request_body.title,
-        query=request_body.query,
-        sources=[s.model_dump() for s in request_body.sources] if request_body.sources else None,
-        token=token,
-        expires_at=expires_at,
-    )
+    try:
+        stored_at = await postgres.create_workspace_share(
+            share_id=share_uuid,
+            tenant_id=tenant_uuid,
+            content_id=request_body.content_id,
+            content=request_body.content,
+            title=request_body.title,
+            query=request_body.query,
+            sources=[s.model_dump() for s in request_body.sources] if request_body.sources else None,
+            token=token,
+            expires_at=expires_at,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
 
     # Generate share URL with signed token
     settings = get_settings()
@@ -654,15 +660,18 @@ async def bookmark_content(
         "bookmark_id": str(bookmark_uuid),
     })
 
-    stored_at = await postgres.create_workspace_bookmark(
-        bookmark_id=bookmark_uuid,
-        tenant_id=tenant_uuid,
-        content_id=request_body.content_id,
-        content=request_body.content,
-        title=request_body.title or "Bookmarked Response",
-        query=request_body.query,
-        session_id=request_body.session_id,
-    )
+    try:
+        stored_at = await postgres.create_workspace_bookmark(
+            bookmark_id=bookmark_uuid,
+            tenant_id=tenant_uuid,
+            content_id=request_body.content_id,
+            content=request_body.content,
+            title=request_body.title or "Bookmarked Response",
+            query=request_body.query,
+            session_id=request_body.session_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
 
     return BookmarkContentResponse(
         data=BookmarkedContentData(
