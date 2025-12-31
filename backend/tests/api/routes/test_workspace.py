@@ -133,7 +133,7 @@ def client(mock_workspace_postgres):
     app.state.settings = load_settings()
     limiter.enabled = False
 
-    async def override_get_postgres(*_args, **_kwargs):
+    async def override_get_postgres():
         return mock_workspace_postgres
 
     app.dependency_overrides[get_postgres] = override_get_postgres

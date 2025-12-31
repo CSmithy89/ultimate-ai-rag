@@ -62,11 +62,11 @@ async def example() -> None:
 
 ### A2A Session Lifecycle
 
-- Sessions are stored in memory and cleared on service restart.
+- Sessions are cached in memory and persisted to Redis when available.
 - Sessions expire after `A2A_SESSION_TTL_SECONDS` (default 6 hours).
 - Expired sessions are pruned every `A2A_CLEANUP_INTERVAL_SECONDS` (default 1 hour).
 - Limits are enforced via `A2A_MAX_SESSIONS_PER_TENANT`, `A2A_MAX_SESSIONS_TOTAL`, and `A2A_MAX_MESSAGES_PER_SESSION`.
-- At defaults, worst-case memory usage can exceed ~10GB; tune limits or use a persistent backend for production.
+- At defaults, worst-case memory usage can exceed ~10GB; tune limits in production.
 
 ## Epic Progress
 
@@ -171,3 +171,14 @@ async def example() -> None:
   - PDF fixtures for ingestion coverage
   - Skipped test inventory and follow-up tracking
   - Benchmarks for ingestion speed and query latency with CI gating
+
+### Epic 11: Code Cleanup & Migration
+- Status: Complete
+- Stories: 9/9 completed
+- Key Features:
+  - Deprecated datetime cleanup and legacy module removal
+  - Graphiti migration finalization with HITL validation wiring
+  - Workspace persistence for save/share/bookmark flows
+  - Parser-based HTML-to-Markdown conversion
+  - Neo4j pooling configuration and A2A session persistence
+  - Embedding token usage tracking for cost monitoring

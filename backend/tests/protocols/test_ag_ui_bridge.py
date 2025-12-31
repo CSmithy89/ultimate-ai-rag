@@ -203,10 +203,11 @@ class TestAGUIBridgeEventTransformation:
         assert AGUIEventType.TOOL_CALL_START in event_types
         assert AGUIEventType.TOOL_CALL_ARGS in event_types
         assert AGUIEventType.TOOL_CALL_END in event_types
-        assert isinstance(state_events[0], StateSnapshotEvent)
-        assert "state" in state_events[0].data
-        assert "currentStep" in state_events[0].data["state"]
-        assert "steps" in state_events[0].data["state"]
+        state_events = [e for e in events if e.event == AGUIEventType.STATE_SNAPSHOT]
+        assert len(state_events) == 2
+        assert any(isinstance(event, StateSnapshotEvent) for event in state_events)
+        assert any("currentStep" in event.data["state"] for event in state_events)
+        assert any("hitl_checkpoint" in event.data["state"] for event in state_events)
 
     @pytest.mark.asyncio
     async def test_process_request_emits_text_message_sequence(

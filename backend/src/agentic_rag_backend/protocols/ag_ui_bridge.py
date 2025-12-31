@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Awaitable, Dict, List, Optional, cast
 
 import structlog
 
@@ -298,9 +298,15 @@ class HITLManager:
         )
         if record_history and checkpoint.tenant_id:
             list_key = self._tenant_key(checkpoint.tenant_id)
-            await self._redis.client.lpush(list_key, checkpoint.checkpoint_id)
-            await self._redis.client.ltrim(list_key, 0, self._history_limit - 1)
-            await self._redis.client.expire(list_key, self._checkpoint_ttl_seconds)
+            await cast(Awaitable[int], self._redis.client.lpush(list_key, checkpoint.checkpoint_id))
+            await cast(
+                Awaitable[int],
+                self._redis.client.ltrim(list_key, 0, self._history_limit - 1),
+            )
+            await cast(
+                Awaitable[int],
+                self._redis.client.expire(list_key, self._checkpoint_ttl_seconds),
+            )
 
     async def fetch_checkpoint(self, checkpoint_id: str) -> Optional[Dict[str, Any]]:
         checkpoint = self._pending_checkpoints.get(checkpoint_id)
@@ -322,7 +328,10 @@ class HITLManager:
         if not self._redis:
             return []
         list_key = self._tenant_key(tenant_id)
-        checkpoint_ids = await self._redis.client.lrange(list_key, 0, max(limit - 1, 0))
+        checkpoint_ids = await cast(
+            Awaitable[List[Any]],
+            self._redis.client.lrange(list_key, 0, max(limit - 1, 0)),
+        )
         results: List[Dict[str, Any]] = []
         for raw_id in checkpoint_ids:
             checkpoint_id = raw_id.decode("utf-8") if isinstance(raw_id, bytes) else str(raw_id)

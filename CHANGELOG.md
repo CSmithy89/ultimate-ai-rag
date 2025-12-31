@@ -4,12 +4,19 @@
 
 ### Added
 - Graphiti migration script (`backend/scripts/migrate_to_graphiti.py`) with optional backups and validation checks
+- Redis-backed HITL validation checkpoints with query endpoints
+- Workspace persistence for save/share/bookmark with load and share retrieval endpoints
+- Neo4j connection pool configuration via environment settings
+- A2A session persistence to Redis with on-demand recovery
+- Parser-based HTML-to-Markdown conversion for crawler content
+- Embedding token usage tracking for cost monitoring
 
 ### Changed
 - Graphiti ingestion and retrieval now run without legacy feature flags
+- Legacy ingestion modules removed in favor of Graphiti-only pipeline
 
 ### Fixed
-- None
+- Datetime deprecation cleanup across backend utilities
 
 ## [Epic 10] - Testing Infrastructure - 2025-12-31
 

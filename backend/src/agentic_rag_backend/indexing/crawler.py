@@ -131,7 +131,7 @@ def extract_links(html: str, base_url: str) -> list[str]:
     links = []
     for anchor in soup.find_all("a", href=True):
         href = anchor.get("href")
-        if not href:
+        if not href or not isinstance(href, str):
             continue
         normalized = normalize_url(href, base_url)
         if normalized and is_same_domain(normalized, base_url):
