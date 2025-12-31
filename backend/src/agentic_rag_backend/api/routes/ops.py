@@ -29,6 +29,10 @@ def success_response(data: Any) -> dict[str, Any]:
     }
 
 
+def _meta_response() -> MetaResponse:
+    return MetaResponse(**build_meta())
+
+
 async def get_cost_tracker(request: Request) -> CostTracker:
     tracker = getattr(request.app.state, "cost_tracker", None)
     if tracker is None:
@@ -223,7 +227,10 @@ async def get_cost_summary(
     if not await limiter.allow(tenant_id):
         raise rate_limit_exceeded()
     summary = await cost_tracker.get_summary(tenant_id, window)
-    return success_response(_serialize_summary(summary))
+    return CostSummaryResponse(
+        data=CostSummaryDataResponse(**_serialize_summary(summary)),
+        meta=_meta_response(),
+    )
 
 
 @router.get("/costs/events", response_model=CostEventsResponse)
@@ -237,9 +244,9 @@ async def list_cost_events(
     """List recent cost usage events for a tenant."""
     if not await limiter.allow(tenant_id):
         raise rate_limit_exceeded()
-    events = await cost_tracker.list_events(tenant_id, limit=limit, offset=offset)
+    events_raw = await cost_tracker.list_events(tenant_id, limit=limit, offset=offset)
     serialized = []
-    for event in events:
+    for event in events_raw:
         row = {key: _decimal_to_float(value) for key, value in event.items()}
         baseline = event.get("baseline_total_cost_usd") or Decimal("0")
         total = event.get("total_cost_usd") or Decimal("0")
@@ -248,7 +255,11 @@ async def list_cost_events(
             premium = total - baseline if total > baseline else Decimal("0")
         row["routing_premium_usd"] = _decimal_to_float(premium)
         serialized.append(row)
-    return success_response({"events": serialized})
+    events_response = [CostEventResponse(**row) for row in serialized]
+    return CostEventsResponse(
+        data=CostEventsDataResponse(events=events_response),
+        meta=_meta_response(),
+    )
 
 
 @router.get("/costs/alerts", response_model=AlertsResponse)
@@ -262,9 +273,15 @@ async def get_cost_alerts(
         raise rate_limit_exceeded()
     config = await cost_tracker.get_alert_config(tenant_id)
     if not config:
-        return success_response({"alerts": None})
+        return AlertsResponse(
+            data=AlertsDataResponse(alerts=None),
+            meta=_meta_response(),
+        )
     config = {key: _decimal_to_float(value) for key, value in config.items()}
-    return success_response({"alerts": config})
+    return AlertsResponse(
+        data=AlertsDataResponse(alerts=AlertConfigResponse(**config)),
+        meta=_meta_response(),
+    )
 
 
 @router.post("/costs/alerts", response_model=AlertsResponse)
@@ -291,9 +308,17 @@ async def upsert_cost_alerts(
     )
     config = await cost_tracker.get_alert_config(payload.tenant_id)
     if not config:
-        return success_response({"alerts": None})
-    return success_response(
-        {"alerts": {key: _decimal_to_float(value) for key, value in config.items()}}
+        return AlertsResponse(
+            data=AlertsDataResponse(alerts=None),
+            meta=_meta_response(),
+        )
+    return AlertsResponse(
+        data=AlertsDataResponse(
+            alerts=AlertConfigResponse(
+                **{key: _decimal_to_float(value) for key, value in config.items()}
+            )
+        ),
+        meta=_meta_response(),
     )
 
 
@@ -307,11 +332,12 @@ async def get_crypto_health(
         raise rate_limit_exceeded()
     fingerprint = getattr(request.app.state, "trace_key_fingerprint", "")
     source = getattr(request.app.state, "trace_key_source", "unknown")
-    return success_response(
-        {
-            "key_fingerprint": fingerprint,
-            "key_source": source,
-        }
+    return TraceCryptoHealthResponse(
+        data=TraceCryptoHealthDataResponse(
+            key_fingerprint=fingerprint,
+            key_source=source,
+        ),
+        meta=_meta_response(),
     )
 
 
@@ -387,7 +413,11 @@ async def list_trajectories(
             await cursor.execute(query, params)
             rows = await cursor.fetchall()
 
-    return success_response({"trajectories": rows})
+    trajectories = [TrajectorySummaryResponse(**row) for row in rows]
+    return TrajectoryListResponse(
+        data=TrajectoryListDataResponse(trajectories=trajectories),
+        meta=_meta_response(),
+    )
 
 
 @router.get("/trajectories/{trajectory_id}", response_model=TrajectoryDetailEnvelopeResponse)
@@ -436,10 +466,13 @@ async def get_trajectory_detail(
         if start and end:
             duration_ms = int((end - start).total_seconds() * 1000)
 
-    return success_response(
-        {
-            "trajectory": trajectory,
-            "events": events,
-            "duration_ms": duration_ms,
-        }
+    trajectory_info = TrajectoryInfoResponse(**trajectory)
+    event_rows = [TrajectoryEventResponse(**event) for event in events]
+    return TrajectoryDetailEnvelopeResponse(
+        data=TrajectoryDetailDataResponse(
+            trajectory=trajectory_info,
+            events=event_rows,
+            duration_ms=duration_ms,
+        ),
+        meta=_meta_response(),
     )

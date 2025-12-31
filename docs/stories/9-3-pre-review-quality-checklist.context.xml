@@ -1,0 +1,24 @@
+<storyContext>
+  <story id="9.3" title="Pre-Review Quality Checklist" epic="9" />
+
+  <summary>
+    Add a PR template with a concise quality checklist and document
+    the expected pre-review workflow.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Checklist is embedded in PR template.</acceptanceCriteria>
+    <acceptanceCriteria>Developers confirm checklist items before review.</acceptanceCriteria>
+    <acceptanceCriteria>Reviewers use checklist to reduce review rounds.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Checklist should be short and practical.</constraint>
+    <constraint>Protocol compliance section required for API changes.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="docs/epics/epic-9-tech-spec.md" section="Story Breakdown" />
+    <reference path="docs/epics/epic-9-process-quality-foundation.md" section="Story 9.3" />
+  </references>
+</storyContext>

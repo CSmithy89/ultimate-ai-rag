@@ -150,3 +150,14 @@ async def example() -> None:
   - Intelligent model routing based on query complexity with configurable settings
   - Trajectory debugging interface with filters and timeline inspection
   - AES-256-GCM encrypted trajectory storage with controlled decryption
+
+### Epic 9: Process & Quality Foundation
+- Status: Complete
+- Stories: 6/6 completed
+- Key Features:
+  - Retrospective action item tracking with template + overdue check script
+  - Story template standards coverage section and authoring guide
+  - PR pre-review checklist with protocol compliance prompts
+  - Protocol compliance checklist for API routes
+  - Story status validation script with CI enforcement
+  - Mandatory dev notes, test outcomes, and challenges for story completion

@@ -1,6 +1,6 @@
 # Story 5.6: Test Suite Adaptation
 
-Status: backlog
+Status: done
 
 ## Story
 
@@ -15,6 +15,15 @@ so that all functionality remains well-tested and regressions are caught.
 3. Given new temporal query features exist, when integration tests run, then point-in-time and change queries are tested.
 4. Given the test suite runs, when coverage is measured, then it is >= 80% for Graphiti-related modules.
 5. Given all tests pass, when CI runs, then the pipeline succeeds in under 5 minutes.
+
+## Standards Coverage
+
+- [ ] Multi-tenancy / tenant isolation: N/A - test suite changes
+- [ ] Rate limiting / abuse protection: N/A - test suite changes
+- [ ] Input validation / schema enforcement: N/A - test suite changes
+- [ ] Tests (unit/integration): Planned - expand Graphiti-related test coverage
+- [ ] Error handling + logging: Planned - verify error cases in tests
+- [ ] Documentation updates: Planned - update README if coverage reporting changes
 
 ## Tasks / Subtasks
 

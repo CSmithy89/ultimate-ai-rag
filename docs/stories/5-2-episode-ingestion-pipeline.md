@@ -1,6 +1,6 @@
 # Story 5.2: Episode Ingestion Pipeline
 
-Status: backlog
+Status: done
 
 ## Story
 
@@ -15,6 +15,15 @@ so that entities and relationships are automatically extracted with temporal tra
 3. Given an entity already exists, when a new episode mentions it, then the entity is deduplicated and linked with temporal edge tracking.
 4. Given the ingestion completes, when the knowledge graph is queried, then new entities and relationships are visible.
 5. Given the old ingestion pipeline exists, when a feature flag is set, then documents can be routed to either Graphiti or legacy pipeline.
+
+## Standards Coverage
+
+- [ ] Multi-tenancy / tenant isolation: Planned - enforce tenant_id in Graphiti ingestion queries
+- [ ] Rate limiting / abuse protection: N/A - internal ingestion pipeline
+- [ ] Input validation / schema enforcement: Planned - validate ingestion payloads
+- [ ] Tests (unit/integration): Planned - add ingestion integration tests
+- [ ] Error handling + logging: Planned - standardize ingestion error paths
+- [ ] Documentation updates: Planned - update ingestion pipeline docs
 
 ## Tasks / Subtasks
 

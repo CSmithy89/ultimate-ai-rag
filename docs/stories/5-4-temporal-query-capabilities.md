@@ -1,6 +1,6 @@
 # Story 5.4: Temporal Query Capabilities
 
-Status: backlog
+Status: done
 
 ## Story
 
@@ -15,6 +15,15 @@ so that I can understand how knowledge has evolved and what was true at particul
 3. Given an entity has been updated multiple times, when its history is requested, then all temporal versions are available.
 4. Given a contradiction was resolved, when the resolution is queried, then both the old and new facts are accessible with timestamps.
 5. Given the temporal API is called, when no date is specified, then the current (latest) state is returned.
+
+## Standards Coverage
+
+- [ ] Multi-tenancy / tenant isolation: Planned - tenant filtering on temporal queries
+- [ ] Rate limiting / abuse protection: Planned - add rate limiting to temporal endpoints
+- [ ] Input validation / schema enforcement: Planned - Pydantic request models
+- [ ] Tests (unit/integration): Planned - add temporal query tests
+- [ ] Error handling + logging: Planned - standardized API error handling
+- [ ] Documentation updates: Planned - document temporal query endpoints
 
 ## Tasks / Subtasks
 

@@ -6,7 +6,7 @@ Provides point-in-time queries and change tracking for knowledge graph data.
 import hashlib
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Any
 
 import structlog
@@ -333,6 +333,16 @@ async def get_knowledge_changes(
             group_ids=[tenant_id],
         )
 
+        # Treat a date-only end_date (00:00:00) as inclusive of the full day.
+        effective_end_date = end_date
+        if (
+            end_date.hour == 0
+            and end_date.minute == 0
+            and end_date.second == 0
+            and end_date.microsecond == 0
+        ):
+            effective_end_date = end_date + timedelta(days=1) - timedelta(microseconds=1)
+
         # Filter and transform episodes with tenant validation
         episodes = []
         total_entities = 0
@@ -356,7 +366,7 @@ async def get_knowledge_changes(
             
             # Filter by date range
             if created_at:
-                if created_at < start_date or created_at > end_date:
+                if created_at < start_date or created_at > effective_end_date:
                     continue
 
             entity_refs = getattr(ep, "entity_references", [])

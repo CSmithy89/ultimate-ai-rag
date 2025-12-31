@@ -1,0 +1,23 @@
+<storyContext>
+  <story id="9.6" title="Story Completion Dev Notes Requirement" epic="9" />
+
+  <summary>
+    Extend the story template with Dev Notes, Test Outcomes, and Challenges sections,
+    and make them mandatory for completion.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Dev Notes section completed on story completion.</acceptanceCriteria>
+    <acceptanceCriteria>Test outcomes documented for completed stories.</acceptanceCriteria>
+    <acceptanceCriteria>Challenges captured when encountered.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Align with existing story file patterns.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="docs/epics/epic-9-tech-spec.md" section="Story Breakdown" />
+    <reference path="docs/epics/epic-9-process-quality-foundation.md" section="Story 9.6" />
+  </references>
+</storyContext>

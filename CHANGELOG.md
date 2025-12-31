@@ -1,5 +1,21 @@
 # Changelog
 
+## [Epic 9] - Process & Quality Foundation - 2025-12-31
+
+### Added
+- Retrospective action item tracking registry and template with overdue check script
+- Story template standards coverage section and authoring guide
+- Pre-review PR checklist with protocol compliance prompts
+- Protocol compliance checklist for API routes
+- Story status validation script with CI enforcement
+- Dev notes, test outcomes, and challenges requirements for story completion
+
+### Changed
+- Backend lint command now uses a repo-local UV cache for consistent runs
+
+### Fixed
+- None
+
 ## [Epic 8] - Operations & Observability - 2025-12-31
 
 ### Added

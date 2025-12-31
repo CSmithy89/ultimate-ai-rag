@@ -128,9 +128,9 @@ async def test_get_cost_summary_serializes_values() -> None:
         limiter=AllowLimiter(),
     )
 
-    assert response["data"]["total_cost_usd"] == 1.0
-    assert response["data"]["baseline_cost_usd"] == 1.5
-    assert response["data"]["total_savings_usd"] == 0.5
+    assert response.data.total_cost_usd == 1.0
+    assert response.data.baseline_cost_usd == 1.5
+    assert response.data.total_savings_usd == 0.5
 
 
 @pytest.mark.asyncio
@@ -161,7 +161,7 @@ async def test_list_trajectories_applies_error_filter() -> None:
 
     query, _ = cursor.queries[0]
     assert "t.has_error = true" in query
-    assert response["data"]["trajectories"][0]["has_error"] is True
+    assert response.data.trajectories[0].has_error is True
 
 
 @pytest.mark.asyncio

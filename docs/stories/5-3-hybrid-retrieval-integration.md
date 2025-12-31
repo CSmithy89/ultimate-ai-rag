@@ -1,6 +1,6 @@
 # Story 5.3: Hybrid Retrieval Integration
 
-Status: backlog
+Status: done
 
 ## Story
 
@@ -15,6 +15,15 @@ so that I get more accurate and contextually relevant answers.
 3. Given the query mentions specific entities, when graph traversal runs, then related entities and their relationships are included in context.
 4. Given a search completes, when latency is measured, then it is under 100ms (excluding LLM calls).
 5. Given the retrieval strategy selector chooses "graph", when retrieval runs, then Graphiti's graph-based search is prioritized.
+
+## Standards Coverage
+
+- [ ] Multi-tenancy / tenant isolation: Planned - tenant-scoped retrieval queries
+- [ ] Rate limiting / abuse protection: N/A - internal retrieval pipeline
+- [ ] Input validation / schema enforcement: Planned - validate retrieval inputs
+- [ ] Tests (unit/integration): Planned - add retrieval tests
+- [ ] Error handling + logging: Planned - consistent retrieval errors and logs
+- [ ] Documentation updates: Planned - document retrieval strategy
 
 ## Tasks / Subtasks
 

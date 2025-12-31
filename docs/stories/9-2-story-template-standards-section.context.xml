@@ -1,0 +1,24 @@
+<storyContext>
+  <story id="9.2" title="Story Template Standards Section" epic="9" />
+
+  <summary>
+    Add a standards coverage checklist to the story template and document
+    how to use it for development and review.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Template includes a Standards Coverage section.</acceptanceCriteria>
+    <acceptanceCriteria>Standards checklist is addressed or marked N/A during implementation.</acceptanceCriteria>
+    <acceptanceCriteria>Reviewers verify standards completion.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Template must be simple to copy for new stories.</constraint>
+    <constraint>Checklist must cover core standards without duplication.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="docs/epics/epic-9-tech-spec.md" section="Story Breakdown" />
+    <reference path="docs/epics/epic-9-process-quality-foundation.md" section="Story 9.2" />
+  </references>
+</storyContext>
