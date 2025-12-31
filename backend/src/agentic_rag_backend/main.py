@@ -229,6 +229,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         max_sessions_per_tenant=settings.a2a_max_sessions_per_tenant,
         max_sessions_total=settings.a2a_max_sessions_total,
         max_messages_per_session=settings.a2a_max_messages_per_session,
+        redis_client=getattr(app.state, "redis_client", None),
     )
     await app.state.a2a_manager.start_cleanup_task(
         settings.a2a_cleanup_interval_seconds

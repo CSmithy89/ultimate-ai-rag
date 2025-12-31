@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -66,3 +67,28 @@ async def test_a2a_concurrent_message_add() -> None:
     fetched = await manager.get_session(session["session_id"])
     assert fetched is not None
     assert len(fetched["messages"]) == 5
+
+
+@pytest.mark.asyncio
+async def test_a2a_persists_sessions_to_redis() -> None:
+    class FakeRedis:
+        def __init__(self) -> None:
+            self.store: dict[str, str] = {}
+
+        async def set(self, key: str, value: str, ex: int | None = None) -> None:
+            self.store[key] = value
+
+        async def get(self, key: str) -> str | None:
+            return self.store.get(key)
+
+    redis_wrapper = MagicMock()
+    redis_wrapper.client = FakeRedis()
+
+    manager = A2ASessionManager(redis_client=redis_wrapper)
+    session = await manager.create_session("11111111-1111-1111-1111-111111111111")
+
+    manager = A2ASessionManager(redis_client=redis_wrapper)
+    fetched = await manager.get_session(session["session_id"])
+
+    assert fetched is not None
+    assert fetched["session_id"] == session["session_id"]

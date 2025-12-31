@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import suppress
 import time
 from dataclasses import dataclass, field
 from asyncio import Lock
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 from uuid import uuid4
 
+import structlog
+
+from agentic_rag_backend.db.redis import RedisClient
+
+logger = structlog.get_logger(__name__)
 
 @dataclass
 class A2AMessage:
@@ -49,7 +55,7 @@ class A2ASession:
 class A2ASessionManager:
     """In-memory session manager for agent-to-agent collaboration.
 
-    Sessions are ephemeral and cleared on service restart.
+    Sessions are persisted to Redis when available for restart recovery.
     """
 
     def __init__(
@@ -58,6 +64,8 @@ class A2ASessionManager:
         max_sessions_per_tenant: int = 100,
         max_sessions_total: int = 1000,
         max_messages_per_session: int = 1000,
+        redis_client: Optional[RedisClient] = None,
+        redis_prefix: str = "a2a:sessions",
     ) -> None:
         # Defaults align with .env.example; override via settings in production.
         self._sessions: dict[str, A2ASession] = {}
@@ -69,6 +77,70 @@ class A2ASessionManager:
         self._cleanup_task: asyncio.Task[None] | None = None
         self._last_prune = 0.0
         self._prune_interval_seconds = 60.0
+        self._redis = redis_client.client if redis_client else None
+        self._redis_prefix = redis_prefix
+
+    def _session_key(self, session_id: str) -> str:
+        return f"{self._redis_prefix}:{session_id}"
+
+    def _parse_timestamp(self, value: str) -> datetime:
+        if not value:
+            return datetime.now(timezone.utc)
+        if value.endswith("Z"):
+            value = value.replace("Z", "+00:00")
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return datetime.now(timezone.utc)
+
+    def _session_from_payload(self, payload: dict[str, Any]) -> A2ASession:
+        messages = []
+        for message in payload.get("messages", []):
+            timestamp = self._parse_timestamp(message.get("timestamp", ""))
+            messages.append(
+                A2AMessage(
+                    sender=message.get("sender", ""),
+                    content=message.get("content", ""),
+                    timestamp=timestamp,
+                    metadata=message.get("metadata") or {},
+                )
+            )
+        created_at = self._parse_timestamp(payload.get("created_at", ""))
+        last_activity = self._parse_timestamp(payload.get("last_activity", ""))
+        return A2ASession(
+            session_id=payload.get("session_id", ""),
+            tenant_id=payload.get("tenant_id", ""),
+            created_at=created_at,
+            last_activity=last_activity,
+            messages=messages,
+        )
+
+    async def _persist_session(self, session: A2ASession) -> None:
+        if not self._redis:
+            return
+        try:
+            payload = json.dumps(session.to_dict())
+            key = self._session_key(session.session_id)
+            if self._session_ttl_seconds > 0:
+                await self._redis.set(key, payload, ex=self._session_ttl_seconds)
+            else:
+                await self._redis.set(key, payload)
+        except Exception as exc:  # pragma: no cover - non-critical persistence
+            logger.warning("a2a_session_persist_failed", error=str(exc))
+
+    async def _load_session(self, session_id: str) -> A2ASession | None:
+        if not self._redis:
+            return None
+        try:
+            payload = await self._redis.get(self._session_key(session_id))
+            if not payload:
+                return None
+            raw = payload.decode("utf-8") if isinstance(payload, (bytes, bytearray)) else payload
+            data = json.loads(raw)
+            return self._session_from_payload(data)
+        except Exception as exc:  # pragma: no cover - non-critical persistence
+            logger.warning("a2a_session_load_failed", error=str(exc))
+            return None
 
     def _prune_expired_locked(self) -> None:
         if self._session_ttl_seconds <= 0:
@@ -145,14 +217,20 @@ class A2ASessionManager:
                 last_activity=now,
             )
             self._sessions[session_id] = session
+            await self._persist_session(session)
             return self._snapshot_session(session)
 
     async def get_session(self, session_id: str) -> dict[str, Any] | None:
         async with self._lock:
             self._maybe_prune_locked()
             session = self._sessions.get(session_id)
+            if session is None:
+                session = await self._load_session(session_id)
+                if session:
+                    self._sessions[session_id] = session
             if session:
                 session.last_activity = datetime.now(timezone.utc)
+                await self._persist_session(session)
             return self._snapshot_session(session) if session else None
 
     async def add_message(
@@ -184,4 +262,5 @@ class A2ASessionManager:
             )
             session.messages.append(message)
             session.last_activity = datetime.now(timezone.utc)
+            await self._persist_session(session)
             return self._snapshot_session(session)
