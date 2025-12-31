@@ -1,0 +1,22 @@
+<storyContext>
+  <story id="10.4" title="Graphiti Integration Tests" epic="10" />
+
+  <summary>
+    Add optional Graphiti end-to-end tests that validate episode ingestion and
+    temporal query behavior when Graphiti is configured.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Graphiti episodes can be created and queried.</acceptanceCriteria>
+    <acceptanceCriteria>Temporal queries return expected results.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Tests must be gated on Graphiti availability and API keys.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="docs/epics/epic-10-tech-spec.md" section="Story Breakdown" />
+    <reference path="docs/epics/epic-10-testing-infrastructure.md" section="Story 10.4" />
+  </references>
+</storyContext>
