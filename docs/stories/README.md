@@ -27,3 +27,12 @@ Validate with:
 ```bash
 python3 scripts/validate-story-status.py
 ```
+
+## Completion Requirements
+
+When marking a story as done, fill out:
+
+- Dev Notes
+- Dev Agent Record (Agent Model, Debug Log, Completion Notes, File List)
+- Test Outcomes
+- Challenges Encountered (or explicitly note none)

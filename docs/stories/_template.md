@@ -59,6 +59,16 @@ Mark each standard as Addressed, N/A, or Planned, with a brief note.
 
 - [path]
 
+## Test Outcomes
+
+- Tests run: [list]
+- Coverage: [percentage or N/A]
+- Failures: [none | details]
+
+## Challenges Encountered
+
+- [Challenge and resolution]
+
 ## Senior Developer Review
 
 Outcome: [APPROVE | Changes Requested | Blocked]
