@@ -30,22 +30,25 @@ To reach "SOTA" status in 2025, the system must evolve from a "Docker Stack" to 
 ### A. The "Universalization" Refactor (Immediate Priority)
 **Problem:** Hardcoded OpenAI dependency alienates 60% of developers.
 **Solution:** Implement the **"Provider Adapter Pattern"**.
-1.  **OpenRouter Support:** Use `openrouter-py` or generic OpenAI client pointed to `https://openrouter.ai/api/v1`. This gives instant access to Claude 3.5, Gemini Pro, and Llama 3 without separate integrations.
-2.  **Local LLM Support:** First-class support for **Ollama**.
+1.  **OpenRouter Support:** Use generic OpenAI client pointed to `https://openrouter.ai/api/v1`. This gives instant access to Claude 3.5, Gemini Pro, and Llama 3 without separate integrations. **Critical:** Leverage OpenRouter's support for embeddings to avoid needing a separate provider for vectorization.
+2.  **Local LLM Support:** First-class support for **Ollama** (LLM and Embeddings).
 3.  **Refactor:**
     *   `config.py`: Add `LLM_PROVIDER` (openai, openrouter, ollama, anthropic).
     *   `orchestrator.py`: Factory pattern to instantiate backend.
     *   `graphiti.py`: Inject generic `LLMClient`.
 
 ### B. RAG Optimization (The "Archon" Pattern)
-**Problem:** We retrieve documents but don't *rank* them. SOTA systems use a Cross-Encoder or Reranker.
+**Problem:** We retrieve documents but don't *rank* them. SOTA systems use a Cross-Encoder.
 **Solution:**
 1.  **Add Reranking:** Integrate `Cohere Rerank` (API) or `FlashRank` (Local/Python).
-    *   *Flow:* Retrieve 50 docs -> Rerank Top 10 -> Send to LLM.
-2.  **Corrective RAG (CRAG):**
+    *   *Method:* **Cross-Encoder Reranking**. Unlike bi-encoders (standard embeddings), cross-encoders score the specific query-document pair for much higher precision.
+    *   *Flow:* Retrieve 50 docs -> Rerank Top 10 using Cross-Encoder -> Send to LLM.
+2.  **Contextual Embeddings (Anthropic Style):**
+    *   *Concept:* Standard chunks lose context. "It costs $5" is meaningless without knowing "It" refers to "Pro Plan".
+    *   *Upgrade:* Implement **Contextual Retrieval**. Prepend the document title and a generated summary to *every* chunk before embedding.
+    *   *Impact:* Increases retrieval accuracy by ~30% for specific fact lookups.
+3.  **Corrective RAG (CRAG):**
     *   *Concept:* Lightweight "Grader Agent" rates relevance. If low, trigger web search fallback.
-3.  **Adaptive Retrieval:**
-    *   *Concept:* `RouterAgent` classifies query complexity (Low/High) to skip Graph traversal for simple questions.
 
 ### C. Enterprise Ingestion Pipeline
 **Problem:** `Crawl4AI` is great but can get blocked. Multimodal is complex.
@@ -81,9 +84,9 @@ To reach "SOTA" status in 2025, the system must evolve from a "Docker Stack" to 
 *   **NEW:** Refactor `config.py` for Multi-Provider (OpenRouter/Local).
 
 **Epic 12: Advanced Retrieval (The "Archon" Upgrade)**
-*   Implement **Reranking** (Cohere/FlashRank).
+*   Implement **Cross-Encoder Reranking** (Cohere/FlashRank).
+*   Implement **Contextual Retrieval** (Chunk Enrichment).
 *   Implement **Corrective RAG** (Grader Agent).
-*   Implement **Adaptive Routing** (Router Agent).
 
 **Epic 13: Enterprise Ingestion**
 *   Add **Apify / BrightData** support.
