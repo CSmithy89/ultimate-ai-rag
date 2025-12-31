@@ -120,7 +120,7 @@ development_status:
   epic-9-retrospective: optional
 
   # Epic 10: Testing Infrastructure (Tech Debt)
-  epic-10: in-progress
+  epic-10: done
   10-1-integration-test-framework: done
   10-2-hybrid-retrieval-integration-tests: done
   10-3-ingestion-pipeline-integration-tests: done
