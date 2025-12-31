@@ -108,3 +108,50 @@ development_status:
   8-3-trajectory-debugging-interface: done
   8-4-encrypted-trace-storage: done
   epic-8-retrospective: done
+
+  # Epic 9: Process & Quality Foundation (Tech Debt)
+  epic-9: backlog
+  9-1-retrospective-action-item-tracking: backlog
+  9-2-story-template-standards-section: backlog
+  9-3-pre-review-quality-checklist: backlog
+  9-4-protocol-compliance-checklist: backlog
+  9-5-story-file-status-synchronization: backlog
+  9-6-story-completion-dev-notes: backlog
+  epic-9-retrospective: optional
+
+  # Epic 10: Testing Infrastructure (Tech Debt)
+  epic-10: backlog
+  10-1-integration-test-framework: backlog
+  10-2-hybrid-retrieval-integration-tests: backlog
+  10-3-ingestion-pipeline-integration-tests: backlog
+  10-4-graphiti-integration-tests: backlog
+  10-5-protocol-integration-tests: backlog
+  10-6-skipped-test-resolution: backlog
+  10-7-nfr-benchmark-validation: backlog
+  epic-10-retrospective: optional
+
+  # Epic 11: Code Cleanup & Migration (Tech Debt)
+  epic-11: backlog
+  11-1-fix-datetime-deprecation: backlog
+  11-2-delete-legacy-modules: backlog
+  11-3-complete-graphiti-migration: backlog
+  11-4-wire-hitl-validation: backlog
+  11-5-implement-workspace-persistence: backlog
+  11-6-replace-html-markdown-regex: backlog
+  11-7-configure-neo4j-pooling: backlog
+  11-8-add-llm-token-monitoring: backlog
+  11-9-a2a-session-persistence: backlog
+  epic-11-retrospective: optional
+
+  # Epic 12: Documentation & DevOps (Tech Debt)
+  epic-12: backlog
+  12-1-document-retrieval-configuration: backlog
+  12-2-document-observability-metrics: backlog
+  12-3-create-sdk-usage-guide: backlog
+  12-4-document-agui-protocol: backlog
+  12-5-document-hitl-flow: backlog
+  12-6-backfill-epic8-stories: backlog
+  12-7-add-troubleshooting-guides: backlog
+  12-8-configure-dependabot: backlog
+  12-9-configure-codeql: backlog
+  epic-12-retrospective: optional
