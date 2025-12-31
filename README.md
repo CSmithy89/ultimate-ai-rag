@@ -161,3 +161,13 @@ async def example() -> None:
   - Protocol compliance checklist for API routes
   - Story status validation script with CI enforcement
   - Mandatory dev notes, test outcomes, and challenges for story completion
+
+### Epic 10: Testing Infrastructure
+- Status: Complete
+- Stories: 7/7 completed
+- Key Features:
+  - Integration test framework with real Postgres/Neo4j/Redis services
+  - Hybrid retrieval, ingestion, Graphiti, and protocol integration tests
+  - PDF fixtures for ingestion coverage
+  - Skipped test inventory and follow-up tracking
+  - Benchmarks for ingestion speed and query latency with CI gating

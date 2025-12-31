@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: ["main"]
+  workflow_dispatch:
 
 jobs:
   backend:
@@ -40,3 +41,121 @@ jobs:
 
       - name: Validate story status
         run: python3 scripts/validate-story-status.py
+
+  backend-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          # Test-only credentials for CI service containers.
+          POSTGRES_DB: agentic_rag
+          POSTGRES_USER: agentic_rag
+          POSTGRES_PASSWORD: agentic_rag
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U agentic_rag -d agentic_rag"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+      neo4j:
+        image: neo4j:5-community
+        env:
+          # Test-only credentials for CI service containers.
+          NEO4J_AUTH: neo4j/neo4j_password
+        ports:
+          - 7687:7687
+        options: >-
+          --health-cmd="cypher-shell -a bolt://localhost:7687 -u neo4j -p neo4j_password \"RETURN 1\""
+          --health-interval=15s
+          --health-timeout=10s
+          --health-retries=10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      # Test-only credentials for CI service containers.
+      INTEGRATION_TESTS: "1"
+      DATABASE_URL: postgresql://agentic_rag:agentic_rag@localhost:5432/agentic_rag
+      NEO4J_URI: bolt://localhost:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: neo4j_password
+      REDIS_URL: redis://localhost:6379
+      # Test-only API key placeholder for CI integration runs.
+      OPENAI_API_KEY: test
+      INGESTION_BACKEND: legacy
+      RETRIEVAL_BACKEND: legacy
+      SKIP_GRAPHITI: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync
+
+      - name: Run integration tests
+        working-directory: backend
+        run: uv run pytest -m integration
+
+  backend-benchmarks:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    services:
+      neo4j:
+        image: neo4j:5-community
+        env:
+          # Test-only credentials for CI service containers.
+          NEO4J_AUTH: neo4j/neo4j_password
+        ports:
+          - 7687:7687
+        options: >-
+          --health-cmd="cypher-shell -a bolt://localhost:7687 -u neo4j -p neo4j_password \"RETURN 1\""
+          --health-interval=15s
+          --health-timeout=10s
+          --health-retries=10
+    env:
+      # Test-only credentials for CI service containers.
+      RUN_BENCHMARKS: "1"
+      NEO4J_URI: bolt://localhost:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: neo4j_password
+      BENCHMARK_PDF_PATH: backend/tests/fixtures/sample_complex.pdf
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync
+
+      - name: Run benchmarks
+        working-directory: backend
+        run: uv run pytest tests/benchmarks

@@ -120,15 +120,15 @@ development_status:
   epic-9-retrospective: optional
 
   # Epic 10: Testing Infrastructure (Tech Debt)
-  epic-10: backlog
-  10-1-integration-test-framework: backlog
-  10-2-hybrid-retrieval-integration-tests: backlog
-  10-3-ingestion-pipeline-integration-tests: backlog
-  10-4-graphiti-integration-tests: backlog
-  10-5-protocol-integration-tests: backlog
-  10-6-skipped-test-resolution: backlog
-  10-7-nfr-benchmark-validation: backlog
-  epic-10-retrospective: optional
+  epic-10: done
+  10-1-integration-test-framework: done
+  10-2-hybrid-retrieval-integration-tests: done
+  10-3-ingestion-pipeline-integration-tests: done
+  10-4-graphiti-integration-tests: done
+  10-5-protocol-integration-tests: done
+  10-6-skipped-test-resolution: done
+  10-7-nfr-benchmark-validation: done
+  epic-10-retrospective: done
 
   # Epic 11: Code Cleanup & Migration (Tech Debt)
   epic-11: backlog

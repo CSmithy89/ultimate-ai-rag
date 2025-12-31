@@ -1,5 +1,23 @@
 # Changelog
 
+## [Epic 10] - Testing Infrastructure - 2025-12-31
+
+### Added
+- Integration test framework with real Postgres, Neo4j, and Redis fixtures gated by `INTEGRATION_TESTS=1`
+- Hybrid retrieval integration coverage (vector + graph) with tenant isolation checks
+- PDF fixture set plus ingestion pipeline integration tests for URL ingest, parsing, entity extraction, and deduplication
+- Optional Graphiti end-to-end integration test gated by `GRAPHITI_E2E=1`
+- Protocol integration tests for MCP tool registry, A2A flows, and AG-UI streaming
+- Benchmark suite for ingestion throughput and query latency with JSONL reporting
+- Testing documentation for integration tests, benchmarks, and skipped test inventory
+- CI updates for backend integration and benchmark jobs
+
+### Changed
+- None
+
+### Fixed
+- None
+
 ## [Epic 9] - Process & Quality Foundation - 2025-12-31
 
 ### Added

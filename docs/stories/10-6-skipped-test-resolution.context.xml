@@ -1,0 +1,22 @@
+<storyContext>
+  <story id="10.6" title="Skipped Test Resolution" epic="10" />
+
+  <summary>
+    Audit skipped tests, document skip reasons, and capture follow-up items
+    for infrastructure gaps.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Skip reasons documented and descriptive.</acceptanceCriteria>
+    <acceptanceCriteria>Skipped test count tracked.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Documentation should live under docs/testing.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="docs/epics/epic-10-tech-spec.md" section="Story Breakdown" />
+    <reference path="docs/epics/epic-10-testing-infrastructure.md" section="Story 10.6" />
+  </references>
+</storyContext>

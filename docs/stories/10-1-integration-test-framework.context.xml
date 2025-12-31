@@ -1,0 +1,23 @@
+<storyContext>
+  <story id="10.1" title="Integration Test Framework Setup" epic="10" />
+
+  <summary>
+    Provide real-service integration testing fixtures for Postgres, Neo4j, and Redis,
+    plus CI wiring and documentation.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Integration tests connect to real services.</acceptanceCriteria>
+    <acceptanceCriteria>Tenant-scoped isolation and cleanup per test.</acceptanceCriteria>
+    <acceptanceCriteria>CI runs integration tests in a separate job.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Integration tests must be gated to avoid local failures.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="docs/epics/epic-10-tech-spec.md" section="Story Breakdown" />
+    <reference path="docs/epics/epic-10-testing-infrastructure.md" section="Story 10.1" />
+  </references>
+</storyContext>
