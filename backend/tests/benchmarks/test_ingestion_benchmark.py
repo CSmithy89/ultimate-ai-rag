@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -30,7 +31,11 @@ async def test_ingestion_pdf_benchmark() -> None:
         pytest.skip("Benchmark PDF not available")
 
     start = time.perf_counter()
-    parsed = parse_pdf(pdf_path)
+    parsed = parse_pdf(
+        pdf_path,
+        document_id=uuid4(),
+        tenant_id=uuid4(),
+    )
     duration_ms = (time.perf_counter() - start) * 1000
 
     record_benchmark(

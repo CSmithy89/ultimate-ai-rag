@@ -100,7 +100,11 @@ async def test_pdf_parsing_creates_chunks(
     tenant_uuid = UUID(tenant_id)
 
     sample_pdf = FIXTURES_DIR / "sample_simple.pdf"
-    parsed = parse_pdf(sample_pdf)
+    parsed = parse_pdf(
+        sample_pdf,
+        document_id=uuid4(),
+        tenant_id=tenant_uuid,
+    )
     assert parsed.page_count >= 1
 
     doc_id = await postgres_client.create_document(

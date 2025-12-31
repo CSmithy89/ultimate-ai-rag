@@ -27,14 +27,26 @@ MAX_SCALABILITY_DURATION_MS = 5000  # NFR5: scalability smoke test
 CONCURRENCY = 10
 
 
+async def _cleanup_tenant(client: Neo4jClient, tenant_id: str) -> None:
+    try:
+        async with client.driver.session() as session:
+            await session.run(
+                "MATCH (n {tenant_id: $tenant_id}) DETACH DELETE n",
+                tenant_id=tenant_id,
+            )
+    except Exception:
+        return
+
+
 @pytest.mark.asyncio
 async def test_query_latency_benchmark() -> None:
     tenant_id = str(uuid4())
     client = Neo4jClient(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
-    await client.connect()
-    await client.create_indexes()
 
     try:
+        await client.connect()
+        await client.create_indexes()
+
         entity_a = str(uuid4())
         entity_b = str(uuid4())
         await client.create_entity(entity_a, tenant_id, "LatencyNodeA", "Concept")
@@ -54,11 +66,7 @@ async def test_query_latency_benchmark() -> None:
 
         assert duration_ms < MAX_QUERY_LATENCY_MS
     finally:
-        async with client.driver.session() as session:
-            await session.run(
-                "MATCH (n {tenant_id: $tenant_id}) DETACH DELETE n",
-                tenant_id=tenant_id,
-            )
+        await _cleanup_tenant(client, tenant_id)
         await client.disconnect()
 
 
@@ -66,10 +74,11 @@ async def test_query_latency_benchmark() -> None:
 async def test_scalability_benchmark() -> None:
     tenant_id = str(uuid4())
     client = Neo4jClient(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
-    await client.connect()
-    await client.create_indexes()
 
     try:
+        await client.connect()
+        await client.create_indexes()
+
         entity_a = str(uuid4())
         entity_b = str(uuid4())
         await client.create_entity(entity_a, tenant_id, "ScaleNodeA", "Concept")
@@ -91,9 +100,5 @@ async def test_scalability_benchmark() -> None:
 
         assert duration_ms < MAX_SCALABILITY_DURATION_MS
     finally:
-        async with client.driver.session() as session:
-            await session.run(
-                "MATCH (n {tenant_id: $tenant_id}) DETACH DELETE n",
-                tenant_id=tenant_id,
-            )
+        await _cleanup_tenant(client, tenant_id)
         await client.disconnect()
