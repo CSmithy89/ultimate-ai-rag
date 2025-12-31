@@ -53,7 +53,7 @@ Added a Graphiti migration script that rebuilds documents from stored chunks, su
 
 ### Agent Model Used
 
-gpt-5
+gpt-4o
 
 ### Debug Log References
 

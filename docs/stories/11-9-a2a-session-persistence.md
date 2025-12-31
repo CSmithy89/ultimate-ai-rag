@@ -19,7 +19,7 @@ So that sessions are not lost on restart.
 - [x] Multi-tenancy / tenant isolation: Addressed - tenant stored with session payload
 - [x] Rate limiting / abuse protection: N/A
 - [x] Input validation / schema enforcement: N/A
-- [ ] Tests (unit/integration): Addressed - unit tests updated (not run)
+- [x] Tests (unit/integration): Addressed - unit tests updated and run
 - [x] Error handling + logging: Addressed - persistence failures are non-blocking
 - [ ] Documentation updates: Planned - add A2A persistence note to protocol docs
 
@@ -38,19 +38,19 @@ for fast access. Redis TTL aligns with session TTL.
 ## Definition of Done
 
 - [x] Redis persistence implemented
-- [ ] Tests run and documented
+- [x] Tests run and documented
 - [ ] Documentation updated
 
 ## Dev Notes
 
 A2A session manager now persists sessions to Redis and reloads on demand.
-Sessions are still cached in memory for fast access.
+Sessions are still cached in memory for fast access. Tests executed locally.
 
 ## Dev Agent Record
 
 ### Agent Model Used
 
-gpt-5
+gpt-4o
 
 ### Debug Log References
 

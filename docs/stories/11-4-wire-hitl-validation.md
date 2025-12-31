@@ -20,7 +20,7 @@ So that human-in-the-loop source validation works in production.
 - [x] Multi-tenancy / tenant isolation: Addressed - tenant-scoped checkpoints + header checks
 - [ ] Rate limiting / abuse protection: N/A - existing copilot rate limiting
 - [x] Input validation / schema enforcement: Addressed - UUID validation and tenant checks
-- [ ] Tests (unit/integration): Addressed - tests added (not run)
+- [x] Tests (unit/integration): Addressed - tests added and run
 - [x] Error handling + logging: Addressed - timeout fallback + persistence logging
 - [ ] Documentation updates: Planned - endpoint documentation updates
 
@@ -42,17 +42,17 @@ Prefer Redis-based persistence to avoid blocking the AG-UI stream. Ensure checkp
 - [x] HITL checkpoints persisted and retrievable
 - [x] AG-UI stream emits validation events and honors responses
 - [x] Timeout fallback applied
-- [ ] Tests run and documented
+- [x] Tests run and documented
 
 ## Dev Notes
 
-Connected AG-UI streaming to HITL checkpoints with Redis-backed persistence, added checkpoint query endpoints, and updated AG-UI bridge to emit validation events and wait for responses with timeout fallback. Added protocol and API tests to cover HITL flow (not executed locally).
+Connected AG-UI streaming to HITL checkpoints with Redis-backed persistence, added checkpoint query endpoints, and updated AG-UI bridge to emit validation events and wait for responses with timeout fallback. Added protocol and API tests to cover HITL flow and executed the suite locally.
 
 ## Dev Agent Record
 
 ### Agent Model Used
 
-gpt-5
+gpt-4o
 
 ### Debug Log References
 

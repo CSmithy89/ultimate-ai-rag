@@ -365,7 +365,6 @@ async def save_content(
         TenantRequiredError: If no tenant ID is provided
     """
     tenant_id = _get_tenant_id(request_body.tenant_id, x_tenant_id)
-    _parse_tenant_uuid(tenant_id)
     tenant_uuid = _parse_tenant_uuid(tenant_id)
     workspace_uuid = uuid4()
     saved_at = datetime.now(timezone.utc)
@@ -599,18 +598,32 @@ async def get_shared_content(
     postgres: PostgresClient = Depends(get_postgres),
 ) -> SharedContentRetrieveResponse:
     """Retrieve shared content with token validation."""
+    def _problem(status: int, title: str, detail: str, type_suffix: str) -> JSONResponse:
+        return JSONResponse(
+            status_code=status,
+            content={
+                "type": f"https://api.example.com/errors/{type_suffix}",
+                "title": title,
+                "status": status,
+                "detail": detail,
+                "instance": request.url.path,
+            },
+        )
+
     row = await postgres.get_workspace_share(share_id)
     if not row:
-        raise HTTPException(status_code=404, detail="Shared content not found")
+        return _problem(404, "Not Found", "Shared content not found", "not-found")
 
     expires_at = row.get("expires_at")
     if expires_at and expires_at < datetime.now(timezone.utc):
-        raise HTTPException(status_code=410, detail="Share link has expired")
+        return _problem(410, "Gone", "Share link has expired", "share-expired")
 
-    if row.get("token") and not hmac.compare_digest(row["token"], token):
-        raise HTTPException(status_code=403, detail="Invalid share token")
-    if expires_at and not _verify_share_token(str(share_id), expires_at, token):
-        raise HTTPException(status_code=403, detail="Invalid share token")
+    stored_token = row.get("token")
+    if stored_token:
+        if not hmac.compare_digest(stored_token, token):
+            return _problem(403, "Forbidden", "Invalid share token", "invalid-token")
+    elif expires_at and not _verify_share_token(str(share_id), expires_at, token):
+        return _problem(403, "Forbidden", "Invalid share token", "invalid-token")
 
     created_at = row["created_at"].isoformat() if row.get("created_at") else None
     expires_at_str = expires_at.isoformat() if expires_at else None

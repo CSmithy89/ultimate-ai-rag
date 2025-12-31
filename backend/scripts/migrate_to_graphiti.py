@@ -157,7 +157,7 @@ async def _count_legacy_relationships(neo4j: Neo4jClient, tenant_id: str) -> int
 async def _count_graphiti_nodes(neo4j: Neo4jClient, tenant_id: str) -> int:
     async with neo4j.driver.session() as session:
         result = await session.run(
-            "MATCH (n) WHERE n.group_id = $tenant_id RETURN count(n) AS count",
+            "MATCH (n:Entity {group_id: $tenant_id}) RETURN count(n) AS count",
             tenant_id=tenant_id,
         )
         record = await result.single()
@@ -167,7 +167,10 @@ async def _count_graphiti_nodes(neo4j: Neo4jClient, tenant_id: str) -> int:
 async def _count_graphiti_relationships(neo4j: Neo4jClient, tenant_id: str) -> int:
     async with neo4j.driver.session() as session:
         result = await session.run(
-            "MATCH ()-[r]->() WHERE r.group_id = $tenant_id RETURN count(r) AS count",
+            """
+            MATCH (a:Entity {group_id: $tenant_id})-[r]->(b:Entity {group_id: $tenant_id})
+            RETURN count(r) AS count
+            """,
             tenant_id=tenant_id,
         )
         record = await result.single()

@@ -28,7 +28,7 @@ So that the codebase is smaller and easier to maintain.
 - [x] Remove deprecated indexing modules (embeddings, entity_extractor, graph_builder)
 - [x] Update imports and references to the new implementations
 - [x] Remove or update tests tied to deprecated modules
-- [ ] Verify test suite passes
+- [x] Verify test suite passes
 
 ## Technical Notes
 
@@ -37,7 +37,7 @@ Ensure removal does not break ingestion or retrieval flows; replace any required
 ## Definition of Done
 
 - [x] Deprecated modules removed
-- [ ] Tests pass
+- [x] Tests pass
 - [x] Story status set to done
 
 ## Dev Notes
@@ -48,7 +48,7 @@ Removed legacy indexing modules and rewired the index worker to use chunking + e
 
 ### Agent Model Used
 
-gpt-5
+gpt-4o
 
 ### Debug Log References
 

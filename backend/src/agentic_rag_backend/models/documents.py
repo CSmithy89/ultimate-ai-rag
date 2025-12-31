@@ -88,13 +88,64 @@ def parse_document_metadata(
         return DocumentMetadata.model_validate(metadata)
     except Exception as exc:
         logger_to_use = log or logger
+        fallback: dict[str, Any] = {"extra": extra}
+        kept_fields: list[str] = []
+        dropped_fields: list[str] = []
+
+        def _keep(field: str, value: Any) -> None:
+            fallback[field] = value
+            kept_fields.append(field)
+
+        def _drop(field: str) -> None:
+            dropped_fields.append(field)
+
+        def _maybe_keep_str(field: str) -> None:
+            value = metadata.get(field)
+            if value is None:
+                return
+            if isinstance(value, str):
+                _keep(field, value)
+            else:
+                _drop(field)
+
+        def _maybe_keep_int(field: str) -> None:
+            value = metadata.get(field)
+            if value is None:
+                return
+            if isinstance(value, int) and value >= 0:
+                _keep(field, value)
+            else:
+                _drop(field)
+
+        _maybe_keep_str("title")
+        _maybe_keep_str("author")
+        _maybe_keep_str("description")
+        _maybe_keep_str("language")
+        _maybe_keep_str("source_url")
+        _maybe_keep_int("page_count")
+        _maybe_keep_int("word_count")
+
+        crawl_timestamp = metadata.get("crawl_timestamp")
+        if crawl_timestamp is not None:
+            if isinstance(crawl_timestamp, datetime):
+                _keep("crawl_timestamp", crawl_timestamp)
+            elif isinstance(crawl_timestamp, str):
+                try:
+                    _keep("crawl_timestamp", datetime.fromisoformat(crawl_timestamp))
+                except ValueError:
+                    _drop("crawl_timestamp")
+            else:
+                _drop("crawl_timestamp")
+
         if logger_to_use:
             logger_to_use.warning(
                 "metadata_parsing_failed",
                 error=str(exc),
+                dropped_fields=dropped_fields,
+                kept_fields=kept_fields,
                 **(log_context or {}),
             )
-        return DocumentMetadata(extra=extra)
+        return DocumentMetadata(**fallback)
 
 
 class UnifiedDocument(BaseModel):

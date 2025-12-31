@@ -76,7 +76,7 @@ async def test_validation_fails_on_relationship_mismatch(monkeypatch) -> None:
         return 0
 
     monkeypatch.setattr(migrate_to_graphiti, "GRAPHITI_AVAILABLE", True)
-    monkeypatch.setattr(migrate_to_graphiti, "get_settings", lambda: _FakeSettings)
+    monkeypatch.setattr(migrate_to_graphiti, "get_settings", lambda: _FakeSettings())
     monkeypatch.setattr(migrate_to_graphiti, "create_graphiti_client", fake_create_graphiti_client)
     monkeypatch.setattr(migrate_to_graphiti, "get_postgres_client", fake_get_postgres_client)
     monkeypatch.setattr(migrate_to_graphiti, "get_neo4j_client", fake_get_neo4j_client)
