@@ -22,6 +22,8 @@ from pydantic import ValidationError
 from agentic_rag_backend.agents.orchestrator import OrchestratorResult, RetrievalStrategy
 from agentic_rag_backend.api.routes.copilot import (
     copilot_handler,
+    get_hitl_checkpoint,
+    list_hitl_checkpoints,
     receive_validation_response,
     ValidationResponseRequest,
 )
@@ -111,6 +113,7 @@ class TestCopilotEndpointDirect:
         
         response = await copilot_handler(
             request=request,
+                http_request=MockRequest(),
             orchestrator=DummyOrchestrator(),
             limiter=AllowLimiter(),
         )
@@ -128,6 +131,7 @@ class TestCopilotEndpointDirect:
         
         response = await copilot_handler(
             request=request,
+                http_request=MockRequest(),
             orchestrator=DummyOrchestrator(),
             limiter=AllowLimiter(),
         )
@@ -155,6 +159,7 @@ class TestCopilotEndpointDirect:
         
         response = await copilot_handler(
             request=request,
+                http_request=MockRequest(),
             orchestrator=orchestrator,
             limiter=AllowLimiter(),
         )
@@ -179,6 +184,7 @@ class TestCopilotEndpointDirect:
         
         response = await copilot_handler(
             request=request,
+                http_request=MockRequest(),
             orchestrator=orchestrator,
             limiter=AllowLimiter(),
         )
@@ -203,6 +209,7 @@ class TestCopilotMultiTenancy:
         
         response = await copilot_handler(
             request=request,
+                http_request=MockRequest(),
             orchestrator=DummyOrchestrator(),
             limiter=AllowLimiter(),
         )
@@ -234,6 +241,7 @@ class TestCopilotRateLimiting:
         with pytest.raises(HTTPException) as exc_info:
             await copilot_handler(
                 request=request,
+                http_request=MockRequest(),
                 orchestrator=DummyOrchestrator(),
                 limiter=DenyLimiter(),
             )
@@ -255,6 +263,7 @@ class TestCopilotSSEFormat:
         
         response = await copilot_handler(
             request=request,
+                http_request=MockRequest(),
             orchestrator=DummyOrchestrator(),
             limiter=AllowLimiter(),
         )
@@ -276,6 +285,7 @@ class TestCopilotSSEFormat:
         
         response = await copilot_handler(
             request=request,
+                http_request=MockRequest(),
             orchestrator=DummyOrchestrator(answer="RAG is Retrieval Augmented Generation"),
             limiter=AllowLimiter(),
         )
@@ -305,6 +315,7 @@ class TestCopilotErrorHandling:
         
         response = await copilot_handler(
             request=request,
+                http_request=MockRequest(),
             orchestrator=ErrorOrchestrator(),
             limiter=AllowLimiter(),
         )
@@ -334,6 +345,7 @@ class TestCopilotErrorHandling:
         orchestrator = DummyOrchestrator()
         response = await copilot_handler(
             request=request,
+                http_request=MockRequest(),
             orchestrator=orchestrator,
             limiter=AllowLimiter(),
         )
@@ -358,6 +370,7 @@ class TestCopilotErrorHandling:
         orchestrator = DummyOrchestrator()
         response = await copilot_handler(
             request=request,
+                http_request=MockRequest(),
             orchestrator=orchestrator,
             limiter=AllowLimiter(),
         )
@@ -423,6 +436,20 @@ class MockRequest:
     
     def __init__(self, hitl_manager=None):
         self.app = type("App", (), {"state": type("State", (), {"hitl_manager": hitl_manager})()})()
+
+
+class MockHitlManager:
+    """Mock HITL manager for checkpoint queries."""
+
+    def __init__(self, fetch_result=None, list_result=None):
+        self._fetch_result = fetch_result
+        self._list_result = list_result or []
+
+    async def fetch_checkpoint(self, checkpoint_id):
+        return self._fetch_result
+
+    async def list_checkpoints(self, tenant_id, limit=20):
+        return list(self._list_result)[:limit]
 
 
 class TestValidationResponseHandler:
@@ -519,3 +546,100 @@ class TestValidationResponseHandler:
         assert result.status == "approved"
         assert result.approved_count == 1
         assert result.rejected_count == 1
+
+
+class TestHitlCheckpointEndpoints:
+    """Tests for HITL checkpoint query endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_get_hitl_checkpoint_requires_manager(self):
+        mock_request = MockRequest(hitl_manager=None)
+        with pytest.raises(HTTPException) as exc_info:
+            await get_hitl_checkpoint(
+                checkpoint_id=str(uuid4()),
+                request=mock_request,
+                tenant_id=None,
+            )
+        assert exc_info.value.status_code == 503
+
+    @pytest.mark.asyncio
+    async def test_get_hitl_checkpoint_tenant_mismatch(self):
+        record = {
+            "checkpoint_id": str(uuid4()),
+            "status": "approved",
+            "query": "test query",
+            "tenant_id": "tenant-a",
+            "sources": [],
+            "approved_source_ids": [],
+            "rejected_source_ids": [],
+        }
+        mock_request = MockRequest(hitl_manager=MockHitlManager(fetch_result=record))
+        with pytest.raises(HTTPException) as exc_info:
+            await get_hitl_checkpoint(
+                checkpoint_id=record["checkpoint_id"],
+                request=mock_request,
+                tenant_id="tenant-b",
+            )
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_get_hitl_checkpoint_success(self):
+        record = {
+            "checkpoint_id": str(uuid4()),
+            "status": "approved",
+            "query": "test query",
+            "tenant_id": "tenant-a",
+            "sources": [{"id": "source-1"}],
+            "approved_source_ids": ["source-1"],
+            "rejected_source_ids": [],
+        }
+        mock_request = MockRequest(hitl_manager=MockHitlManager(fetch_result=record))
+        result = await get_hitl_checkpoint(
+            checkpoint_id=record["checkpoint_id"],
+            request=mock_request,
+            tenant_id="tenant-a",
+        )
+        assert result.checkpoint_id == record["checkpoint_id"]
+        assert result.status == "approved"
+
+    @pytest.mark.asyncio
+    async def test_list_hitl_checkpoints_requires_tenant(self):
+        mock_request = MockRequest(hitl_manager=MockHitlManager())
+        with pytest.raises(HTTPException) as exc_info:
+            await list_hitl_checkpoints(
+                request=mock_request,
+                tenant_id=None,
+                limit=10,
+            )
+        assert exc_info.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_list_hitl_checkpoints_returns_records(self):
+        records = [
+            {
+                "checkpoint_id": str(uuid4()),
+                "status": "approved",
+                "query": "query one",
+                "tenant_id": "tenant-a",
+                "sources": [],
+                "approved_source_ids": [],
+                "rejected_source_ids": [],
+            },
+            {
+                "checkpoint_id": str(uuid4()),
+                "status": "rejected",
+                "query": "query two",
+                "tenant_id": "tenant-a",
+                "sources": [],
+                "approved_source_ids": [],
+                "rejected_source_ids": [],
+            },
+        ]
+        mock_request = MockRequest(hitl_manager=MockHitlManager(list_result=records))
+        result = await list_hitl_checkpoints(
+            request=mock_request,
+            tenant_id="tenant-a",
+            limit=10,
+        )
+        assert len(result) == 2
+        assert result[0].checkpoint_id == records[0]["checkpoint_id"]

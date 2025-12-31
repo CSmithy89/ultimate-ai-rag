@@ -1,6 +1,7 @@
 """AG-UI Protocol Bridge for CopilotKit integration."""
 
 import asyncio
+import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -10,6 +11,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 import structlog
 
 from ..agents.orchestrator import OrchestratorAgent
+from ..db.redis import RedisClient
 from ..models.copilot import (
     AGUIEvent,
     CopilotRequest,
@@ -23,18 +25,26 @@ from ..models.copilot import (
     ToolCallArgsEvent,
     ToolCallEndEvent,
 )
+from ..schemas import VectorCitation
 
 logger = structlog.get_logger(__name__)
 
 # Generic error message to avoid leaking internal details
 GENERIC_ERROR_MESSAGE = "An error occurred while processing your request. Please try again."
+HITL_CHECKPOINT_PREFIX = "hitl:checkpoint"
+HITL_TENANT_PREFIX = "hitl:tenant"
 
 
 class AGUIBridge:
     """Bridge between Agno agent responses and AG-UI protocol events."""
 
-    def __init__(self, orchestrator: OrchestratorAgent) -> None:
+    def __init__(
+        self,
+        orchestrator: OrchestratorAgent,
+        hitl_manager: Optional["HITLManager"] = None,
+    ) -> None:
         self._orchestrator = orchestrator
+        self._hitl_manager = hitl_manager
 
     def _format_thought_steps(self, thoughts: list[Any]) -> list[dict[str, Any]]:
         """
@@ -78,6 +88,23 @@ class AGUIBridge:
                 }
             steps.append(step_data)
         return steps
+
+    def _build_hitl_sources(
+        self, citations: list[VectorCitation]
+    ) -> List[Dict[str, Any]]:
+        sources: List[Dict[str, Any]] = []
+        for citation in citations:
+            sources.append(
+                {
+                    "id": citation.chunk_id,
+                    "document_id": citation.document_id,
+                    "source": citation.source,
+                    "content_preview": citation.content_preview,
+                    "similarity": citation.similarity,
+                    "metadata": citation.metadata or {},
+                }
+            )
+        return sources
 
     async def process_request(
         self, request: CopilotRequest
@@ -145,6 +172,22 @@ class AGUIBridge:
                     "trajectoryId": str(result.trajectory_id) if result.trajectory_id else None,
                 }
             )
+
+            if self._hitl_manager and result.evidence and result.evidence.vector:
+                sources = self._build_hitl_sources(result.evidence.vector)
+                if sources:
+                    checkpoint = await self._hitl_manager.create_checkpoint(
+                        sources=sources,
+                        query=user_message,
+                        tenant_id=tenant_id,
+                    )
+                    for event in self._hitl_manager.get_checkpoint_events(checkpoint):
+                        yield event
+                    checkpoint = await self._hitl_manager.wait_for_validation(
+                        checkpoint_id=checkpoint.checkpoint_id,
+                    )
+                    for event in self._hitl_manager.get_completion_events(checkpoint):
+                        yield event
 
             # Stream the answer as text with proper envelope events
             yield TextMessageStartEvent()
@@ -214,7 +257,13 @@ class HITLManager:
     - Resuming generation with approved sources only
     """
 
-    def __init__(self, timeout: float = 300.0):
+    def __init__(
+        self,
+        timeout: float = 300.0,
+        redis_client: Optional[RedisClient] = None,
+        checkpoint_ttl_seconds: int = 3600,
+        history_limit: int = 100,
+    ):
         """
         Initialize HITL manager.
 
@@ -223,7 +272,64 @@ class HITLManager:
         """
         self._pending_checkpoints: Dict[str, HITLCheckpoint] = {}
         self._hitl_timeout = timeout
+        self._redis = redis_client
+        self._checkpoint_ttl_seconds = checkpoint_ttl_seconds
+        self._history_limit = history_limit
         self._logger = logger.bind(component="hitl_manager")
+
+    def _checkpoint_key(self, checkpoint_id: str) -> str:
+        return f"{HITL_CHECKPOINT_PREFIX}:{checkpoint_id}"
+
+    def _tenant_key(self, tenant_id: str) -> str:
+        return f"{HITL_TENANT_PREFIX}:{tenant_id}"
+
+    async def _persist_checkpoint(
+        self,
+        checkpoint: HITLCheckpoint,
+        record_history: bool = False,
+    ) -> None:
+        if not self._redis:
+            return
+        payload = json.dumps(checkpoint.to_dict())
+        await self._redis.client.set(
+            self._checkpoint_key(checkpoint.checkpoint_id),
+            payload,
+            ex=self._checkpoint_ttl_seconds,
+        )
+        if record_history and checkpoint.tenant_id:
+            list_key = self._tenant_key(checkpoint.tenant_id)
+            await self._redis.client.lpush(list_key, checkpoint.checkpoint_id)
+            await self._redis.client.ltrim(list_key, 0, self._history_limit - 1)
+            await self._redis.client.expire(list_key, self._checkpoint_ttl_seconds)
+
+    async def fetch_checkpoint(self, checkpoint_id: str) -> Optional[Dict[str, Any]]:
+        checkpoint = self._pending_checkpoints.get(checkpoint_id)
+        if checkpoint:
+            return checkpoint.to_dict()
+        if not self._redis:
+            return None
+        raw = await self._redis.client.get(self._checkpoint_key(checkpoint_id))
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+
+    async def list_checkpoints(
+        self, tenant_id: str, limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        if not self._redis:
+            return []
+        list_key = self._tenant_key(tenant_id)
+        checkpoint_ids = await self._redis.client.lrange(list_key, 0, max(limit - 1, 0))
+        results: List[Dict[str, Any]] = []
+        for raw_id in checkpoint_ids:
+            checkpoint_id = raw_id.decode("utf-8") if isinstance(raw_id, bytes) else str(raw_id)
+            record = await self.fetch_checkpoint(checkpoint_id)
+            if record:
+                results.append(record)
+        return results
 
     async def create_checkpoint(
         self,
@@ -260,6 +366,8 @@ class HITLManager:
             source_count=len(sources),
             tenant_id=tenant_id,
         )
+
+        await self._persist_checkpoint(checkpoint, record_history=True)
 
         return checkpoint
 
@@ -350,12 +458,13 @@ class HITLManager:
             checkpoint.status = HITLStatus.SKIPPED
             checkpoint.approved_source_ids = [s["id"] for s in checkpoint.sources]
         finally:
+            await self._persist_checkpoint(checkpoint)
             # Issue 3 Fix: Always cleanup checkpoint on completion or timeout
             self.cleanup_checkpoint(checkpoint_id)
 
         return checkpoint
 
-    def receive_validation_response(
+    async def receive_validation_response(
         self,
         checkpoint_id: str,
         approved_source_ids: List[str],
@@ -397,6 +506,8 @@ class HITLManager:
 
         # Signal waiting coroutine
         checkpoint.response_event.set()
+
+        await self._persist_checkpoint(checkpoint)
 
         return checkpoint
 

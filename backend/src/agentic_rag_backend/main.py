@@ -33,6 +33,7 @@ from .api.utils import rate_limit_exceeded
 from .config import Settings, load_settings
 from .core.errors import AppError, app_error_handler, http_exception_handler
 from .protocols.a2a import A2ASessionManager
+from .protocols.ag_ui_bridge import HITLManager
 from .protocols.mcp import MCPToolRegistry
 from .rate_limit import InMemoryRateLimiter, RateLimiter, RedisRateLimiter, close_redis
 from .schemas import QueryEnvelope, QueryRequest, QueryResponse, ResponseMeta
@@ -116,6 +117,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             simple_max_score=settings.routing_simple_max_score,
             complex_min_score=settings.routing_complex_min_score,
         )
+
+    redis_client = getattr(app.state, "redis_client", None)
+    app.state.hitl_manager = HITLManager(
+        timeout=300.0,
+        redis_client=redis_client,
+    )
+    struct_logger.info(
+        "hitl_manager_initialized",
+        storage="redis" if redis_client else "memory",
+    )
 
     # Epic 5: Initialize Graphiti temporal knowledge graph
     app.state.graphiti = None

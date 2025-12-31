@@ -44,6 +44,10 @@ def get_rate_limiter(request: Request) -> RateLimiter:
     return request.app.state.rate_limiter
 
 
+def get_hitl_manager(request: Request):
+    return getattr(request.app.state, "hitl_manager", None)
+
+
 @router.post("")
 async def ag_ui_handler(
     request: AGUIRequest,
@@ -69,7 +73,7 @@ async def ag_ui_handler(
         logger.warning("ag_ui_request_invalid", error=str(exc))
         raise HTTPException(status_code=422, detail="Invalid AG-UI request") from exc
 
-    bridge = AGUIBridge(orchestrator)
+    bridge = AGUIBridge(orchestrator, hitl_manager=get_hitl_manager(request))
 
     async def event_generator():
         try:

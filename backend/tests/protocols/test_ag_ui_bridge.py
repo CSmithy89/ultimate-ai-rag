@@ -27,9 +27,17 @@ from agentic_rag_backend.models.copilot import (
     TextDeltaEvent,
     TextMessageStartEvent,
     TextMessageEndEvent,
+    ToolCallArgsEvent,
+    ToolCallEndEvent,
+    ToolCallStartEvent,
 )
-from agentic_rag_backend.protocols.ag_ui_bridge import AGUIBridge
+from agentic_rag_backend.protocols.ag_ui_bridge import (
+    AGUIBridge,
+    HITLCheckpoint,
+    HITLStatus,
+)
 from agentic_rag_backend.agents.orchestrator import RetrievalStrategy
+from agentic_rag_backend.schemas import RetrievalEvidence, VectorCitation
 
 
 class MockOrchestratorResult:
@@ -41,11 +49,13 @@ class MockOrchestratorResult:
         thoughts: list[str] | None = None,
         retrieval_strategy: RetrievalStrategy = RetrievalStrategy.HYBRID,
         trajectory_id: str | None = None,
+        evidence: RetrievalEvidence | None = None,
     ):
         self.answer = answer
         self.thoughts = thoughts or ["Analyzed query", "Retrieved context"]
         self.retrieval_strategy = retrieval_strategy
         self.trajectory_id = trajectory_id
+        self.evidence = evidence
 
 
 @pytest.fixture
@@ -70,6 +80,54 @@ def sample_copilot_request():
             }
         ),
     )
+
+
+class StubHitlManager:
+    """Stub HITL manager that auto-approves sources."""
+
+    def __init__(self):
+        self._checkpoint: HITLCheckpoint | None = None
+
+    async def create_checkpoint(self, sources, query, checkpoint_id=None, tenant_id=None):
+        checkpoint = HITLCheckpoint(
+            checkpoint_id=checkpoint_id or str(uuid4()),
+            sources=sources,
+            query=query,
+            tenant_id=tenant_id,
+        )
+        self._checkpoint = checkpoint
+        return checkpoint
+
+    def get_checkpoint_events(self, checkpoint):
+        return [
+            ToolCallStartEvent(tool_call_id=checkpoint.checkpoint_id, tool_name="validate_sources"),
+            ToolCallArgsEvent(
+                tool_call_id=checkpoint.checkpoint_id,
+                args={
+                    "sources": checkpoint.sources,
+                    "query": checkpoint.query,
+                    "checkpoint_id": checkpoint.checkpoint_id,
+                },
+            ),
+        ]
+
+    async def wait_for_validation(self, checkpoint_id, timeout=None):
+        checkpoint = self._checkpoint
+        assert checkpoint is not None
+        checkpoint.approved_source_ids = [source["id"] for source in checkpoint.sources]
+        checkpoint.status = HITLStatus.APPROVED
+        return checkpoint
+
+    def get_completion_events(self, checkpoint):
+        return [
+            ToolCallEndEvent(tool_call_id=checkpoint.checkpoint_id),
+            StateSnapshotEvent(
+                state={
+                    "hitl_checkpoint": checkpoint.to_dict(),
+                    "approved_sources": checkpoint.sources,
+                }
+            ),
+        ]
 
 
 class TestAGUIBridgeEventTransformation:
@@ -118,6 +176,33 @@ class TestAGUIBridgeEventTransformation:
 
         state_events = [e for e in events if e.event == AGUIEventType.STATE_SNAPSHOT]
         assert len(state_events) == 1
+
+    @pytest.mark.asyncio
+    async def test_process_request_emits_hitl_events(self, sample_copilot_request):
+        """Test that HITL events are emitted when evidence is available."""
+        orchestrator = MagicMock()
+        citations = [
+            VectorCitation(
+                chunk_id="chunk-1",
+                document_id="doc-1",
+                similarity=0.9,
+                source="doc-1",
+                content_preview="preview",
+                metadata=None,
+            )
+        ]
+        evidence = RetrievalEvidence(vector=citations)
+        orchestrator.run = AsyncMock(return_value=MockOrchestratorResult(evidence=evidence))
+
+        bridge = AGUIBridge(orchestrator, hitl_manager=StubHitlManager())
+        events = []
+        async for event in bridge.process_request(sample_copilot_request):
+            events.append(event)
+
+        event_types = [event.event for event in events]
+        assert AGUIEventType.TOOL_CALL_START in event_types
+        assert AGUIEventType.TOOL_CALL_ARGS in event_types
+        assert AGUIEventType.TOOL_CALL_END in event_types
         assert isinstance(state_events[0], StateSnapshotEvent)
         assert "state" in state_events[0].data
         assert "currentStep" in state_events[0].data["state"]
