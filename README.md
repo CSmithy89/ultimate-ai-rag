@@ -68,6 +68,11 @@ async def example() -> None:
 - Limits are enforced via `A2A_MAX_SESSIONS_PER_TENANT`, `A2A_MAX_SESSIONS_TOTAL`, and `A2A_MAX_MESSAGES_PER_SESSION`.
 - At defaults, worst-case memory usage can exceed ~10GB; tune limits in production.
 
+### Runbooks
+
+- Graphiti migration: `docs/runbooks/graphiti-migration.md`
+- Persistence + usage: `docs/runbooks/persistence-and-usage.md`
+
 ## Epic Progress
 
 ### Epic 1: Foundation & Developer Quick Start

@@ -246,6 +246,10 @@ class PostgresClient:
                 CREATE INDEX IF NOT EXISTS idx_workspace_items_content_id
                 ON workspace_items(content_id)
             """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_workspace_items_tenant_content_id
+                ON workspace_items(tenant_id, content_id)
+            """)
 
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS workspace_shares (
@@ -268,6 +272,10 @@ class PostgresClient:
             await conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_workspace_shares_expires_at
                 ON workspace_shares(expires_at)
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_workspace_shares_share_id
+                ON workspace_shares(id)
             """)
 
             await conn.execute("""

@@ -2,10 +2,14 @@
 
 from datetime import datetime, timezone
 from enum import Enum
+import json
 from typing import Any, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 class SourceType(str, Enum):
@@ -49,6 +53,48 @@ class DocumentMetadata(BaseModel):
     extra: dict[str, Any] = Field(
         default_factory=dict, description="Additional metadata"
     )
+
+
+def parse_document_metadata(
+    raw: Any,
+    *,
+    extra_fields: Optional[dict[str, Any]] = None,
+    log: Optional[Any] = None,
+    log_context: Optional[dict[str, Any]] = None,
+) -> DocumentMetadata:
+    """Normalize raw metadata into a DocumentMetadata model."""
+    metadata: dict[str, Any]
+    if isinstance(raw, str):
+        try:
+            metadata = json.loads(raw)
+        except json.JSONDecodeError:
+            metadata = {}
+    elif isinstance(raw, dict):
+        metadata = dict(raw)
+    else:
+        metadata = {}
+
+    extra = metadata.get("extra")
+    if not isinstance(extra, dict):
+        extra = {}
+
+    if extra_fields:
+        for key, value in extra_fields.items():
+            extra.setdefault(key, value)
+
+    metadata["extra"] = extra
+
+    try:
+        return DocumentMetadata.model_validate(metadata)
+    except Exception as exc:
+        logger_to_use = log or logger
+        if logger_to_use:
+            logger_to_use.warning(
+                "metadata_parsing_failed",
+                error=str(exc),
+                **(log_context or {}),
+            )
+        return DocumentMetadata(extra=extra)
 
 
 class UnifiedDocument(BaseModel):

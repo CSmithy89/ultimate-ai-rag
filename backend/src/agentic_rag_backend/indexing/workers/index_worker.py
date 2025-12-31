@@ -7,7 +7,6 @@ for knowledge graph extraction.
 
 import asyncio
 import hashlib
-import json
 import time
 from typing import Optional
 from uuid import UUID
@@ -31,50 +30,14 @@ from agentic_rag_backend.embeddings import EmbeddingGenerator
 from agentic_rag_backend.indexing.chunker import chunk_document
 from agentic_rag_backend.indexing.graphiti_ingestion import ingest_document_as_episode
 from agentic_rag_backend.models.documents import (
-    DocumentMetadata,
     SourceType,
     UnifiedDocument,
+    parse_document_metadata,
 )
 from agentic_rag_backend.models.ingest import JobStatusEnum
 from agentic_rag_backend.ops import CostTracker
 
 logger = structlog.get_logger(__name__)
-
-
-def _parse_metadata(
-    raw_metadata: object,
-    *,
-    content_hash: str,
-    source_type: str,
-    filename: Optional[str],
-) -> DocumentMetadata:
-    """Normalize raw metadata payload into a DocumentMetadata model."""
-    metadata: dict[str, object]
-    if isinstance(raw_metadata, str):
-        try:
-            metadata = json.loads(raw_metadata)
-        except json.JSONDecodeError:
-            metadata = {}
-    elif isinstance(raw_metadata, dict):
-        metadata = dict(raw_metadata)
-    else:
-        metadata = {}
-
-    extra = metadata.get("extra")
-    if not isinstance(extra, dict):
-        extra = {}
-
-    extra.setdefault("content_hash", content_hash)
-    extra.setdefault("source_type", source_type)
-    if filename:
-        extra.setdefault("filename", filename)
-
-    metadata["extra"] = extra
-
-    try:
-        return DocumentMetadata.model_validate(metadata)
-    except Exception:
-        return DocumentMetadata(extra=extra)
 
 
 async def process_index_job(
@@ -130,11 +93,21 @@ async def process_index_job(
     except ValueError:
         source_type_enum = SourceType.TEXT
 
-    metadata_model = _parse_metadata(
+    extra_fields = {
+        "content_hash": content_hash,
+        "source_type": source_type,
+    }
+    if filename:
+        extra_fields["filename"] = filename
+
+    metadata_model = parse_document_metadata(
         job_data.get("metadata", {}),
-        content_hash=content_hash,
-        source_type=source_type,
-        filename=filename,
+        extra_fields=extra_fields,
+        log=logger,
+        log_context={
+            "job_id": str(job_id),
+            "document_id": str(document_id),
+        },
     )
 
     document = UnifiedDocument(

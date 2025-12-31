@@ -17,6 +17,7 @@ import structlog
 from agentic_rag_backend.db.redis import RedisClient
 
 logger = structlog.get_logger(__name__)
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 @dataclass
 class A2AMessage:
@@ -83,20 +84,36 @@ class A2ASessionManager:
     def _session_key(self, session_id: str) -> str:
         return f"{self._redis_prefix}:{session_id}"
 
-    def _parse_timestamp(self, value: str) -> datetime:
+    def _parse_timestamp(self, value: str, *, session_id: str, field: str) -> datetime:
         if not value:
-            return datetime.now(timezone.utc)
+            logger.warning(
+                "a2a_timestamp_missing",
+                session_id=session_id,
+                field=field,
+            )
+            return _EPOCH
         if value.endswith("Z"):
             value = value.replace("Z", "+00:00")
         try:
             return datetime.fromisoformat(value)
         except ValueError:
-            return datetime.now(timezone.utc)
+            logger.warning(
+                "a2a_timestamp_invalid",
+                session_id=session_id,
+                field=field,
+                value=value,
+            )
+            return _EPOCH
 
     def _session_from_payload(self, payload: dict[str, Any]) -> A2ASession:
         messages = []
+        session_id = payload.get("session_id", "")
         for message in payload.get("messages", []):
-            timestamp = self._parse_timestamp(message.get("timestamp", ""))
+            timestamp = self._parse_timestamp(
+                message.get("timestamp", ""),
+                session_id=session_id,
+                field="message_timestamp",
+            )
             messages.append(
                 A2AMessage(
                     sender=message.get("sender", ""),
@@ -105,10 +122,18 @@ class A2ASessionManager:
                     metadata=message.get("metadata") or {},
                 )
             )
-        created_at = self._parse_timestamp(payload.get("created_at", ""))
-        last_activity = self._parse_timestamp(payload.get("last_activity", ""))
+        created_at = self._parse_timestamp(
+            payload.get("created_at", ""),
+            session_id=session_id,
+            field="created_at",
+        )
+        last_activity = self._parse_timestamp(
+            payload.get("last_activity", ""),
+            session_id=session_id,
+            field="last_activity",
+        )
         return A2ASession(
-            session_id=payload.get("session_id", ""),
+            session_id=session_id,
             tenant_id=payload.get("tenant_id", ""),
             created_at=created_at,
             last_activity=last_activity,
@@ -229,6 +254,12 @@ class A2ASessionManager:
                 if session:
                     self._sessions[session_id] = session
             if session:
+                if session.created_at == _EPOCH or session.last_activity == _EPOCH:
+                    logger.warning(
+                        "a2a_session_discarded_invalid_timestamp",
+                        session_id=session.session_id,
+                    )
+                    return None
                 session.last_activity = datetime.now(timezone.utc)
                 await self._persist_session(session)
             return self._snapshot_session(session) if session else None

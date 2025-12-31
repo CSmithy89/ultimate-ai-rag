@@ -5,7 +5,7 @@ import hashlib
 import re
 import time
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -158,46 +158,46 @@ def html_to_markdown(html: str, title: Optional[str] = None) -> str:
 
     soup = BeautifulSoup(html, "html.parser")
 
-    def _table_to_markdown(table: Any) -> str:
-        rows: list[list[str]] = []
-        for row in table.find_all("tr"):
-            cells = [
-                cell.get_text(" ", strip=True)
-                for cell in row.find_all(["th", "td"])
-            ]
-            if cells:
-                rows.append(cells)
+    allowed_tags = {
+        "a",
+        "blockquote",
+        "br",
+        "code",
+        "div",
+        "em",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "li",
+        "ol",
+        "p",
+        "pre",
+        "span",
+        "strong",
+        "table",
+        "tbody",
+        "td",
+        "th",
+        "thead",
+        "tr",
+        "ul",
+    }
+    drop_tags = {"embed", "form", "iframe", "input", "object", "script", "style"}
 
-        if not rows:
-            return ""
-
-        col_count = max(len(row) for row in rows)
-        normalized = [row + [""] * (col_count - len(row)) for row in rows]
-        header = normalized[0]
-        body = normalized[1:]
-
-        def _format_row(values: list[str]) -> str:
-            return "| " + " | ".join(values) + " |"
-
-        lines = [
-            _format_row(header),
-            "| " + " | ".join(["---"] * col_count) + " |",
-        ]
-        for row in body:
-            lines.append(_format_row(row))
-
-        return "\n".join(lines)
-
-    for element in soup(["script", "style"]):
-        element.decompose()
-
-    for table in soup.find_all("table"):
-        table.replace_with(_table_to_markdown(table))
+    for tag in soup.find_all(True):
+        if tag.name in drop_tags:
+            tag.decompose()
+        elif tag.name not in allowed_tags:
+            tag.unwrap()
 
     content = markdownify(
         str(soup),
         heading_style="ATX",
         bullets="-",
+        strip=["script", "style"],
     )
 
     content = re.sub(r"\n{3,}", "\n\n", content)

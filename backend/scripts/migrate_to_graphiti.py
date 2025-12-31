@@ -19,7 +19,11 @@ import structlog
 import hashlib
 
 from agentic_rag_backend.config import get_settings
-from agentic_rag_backend.db.graphiti import GRAPHITI_AVAILABLE, create_graphiti_client
+from agentic_rag_backend.db.graphiti import (
+    GRAPHITI_AVAILABLE,
+    GraphitiClient,
+    create_graphiti_client,
+)
 from agentic_rag_backend.db.neo4j import Neo4jClient, get_neo4j_client, close_neo4j_client
 from agentic_rag_backend.db.postgres import (
     PostgresClient,
@@ -27,35 +31,13 @@ from agentic_rag_backend.db.postgres import (
     close_postgres_client,
 )
 from agentic_rag_backend.indexing.graphiti_ingestion import ingest_document_as_episode
-from agentic_rag_backend.models.documents import DocumentMetadata, SourceType, UnifiedDocument
+from agentic_rag_backend.models.documents import (
+    SourceType,
+    UnifiedDocument,
+    parse_document_metadata,
+)
 
 logger = structlog.get_logger(__name__)
-
-
-def _parse_metadata(raw: Any, *, legacy_document_id: str) -> DocumentMetadata:
-    metadata: dict[str, Any]
-    if isinstance(raw, str):
-        try:
-            metadata = json.loads(raw)
-        except json.JSONDecodeError:
-            metadata = {}
-    elif isinstance(raw, dict):
-        metadata = dict(raw)
-    else:
-        metadata = {}
-
-    extra = metadata.get("extra")
-    if not isinstance(extra, dict):
-        extra = {}
-
-    extra.setdefault("legacy_document_id", legacy_document_id)
-    extra.setdefault("migration_source", "legacy")
-    metadata["extra"] = extra
-
-    try:
-        return DocumentMetadata.model_validate(metadata)
-    except Exception:
-        return DocumentMetadata(extra=extra)
 
 
 async def _fetch_tenant_ids(postgres: PostgresClient) -> list[str]:
@@ -75,30 +57,35 @@ async def _fetch_documents(
     )
     params: list[Any] = [UUID(tenant_id)]
     if limit is not None:
-        query = query + " LIMIT $2"
+        query = f"{query} LIMIT $2"
         params.append(limit)
     async with postgres.pool.acquire() as conn:
         rows = await conn.fetch(query, *params)
     return [dict(row) for row in rows]
 
 
-async def _fetch_chunks(
+async def _fetch_chunks_for_documents(
     postgres: PostgresClient,
     tenant_id: str,
-    document_id: UUID,
-) -> list[str]:
+    document_ids: list[UUID],
+) -> dict[UUID, list[str]]:
+    if not document_ids:
+        return {}
     async with postgres.pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT content
+            SELECT document_id, content
             FROM chunks
-            WHERE tenant_id = $1 AND document_id = $2
-            ORDER BY chunk_index
+            WHERE tenant_id = $1 AND document_id = ANY($2)
+            ORDER BY document_id, chunk_index
             """,
             UUID(tenant_id),
-            document_id,
+            document_ids,
         )
-    return [row["content"] for row in rows]
+    chunks_by_doc: dict[UUID, list[str]] = {}
+    for row in rows:
+        chunks_by_doc.setdefault(row["document_id"], []).append(row["content"])
+    return chunks_by_doc
 
 
 async def _export_legacy_graph(
@@ -242,9 +229,13 @@ async def migrate(
 
             tenant_migrated = 0
             tenant_skipped = 0
+            document_ids = [doc["id"] for doc in documents]
+            chunks_by_doc = await _fetch_chunks_for_documents(
+                postgres, tenant, document_ids
+            )
             for doc in documents:
                 document_id = doc["id"]
-                chunk_texts = await _fetch_chunks(postgres, tenant, document_id)
+                chunk_texts = chunks_by_doc.get(document_id, [])
                 content = "\n\n".join(chunk_texts).strip()
                 if not content:
                     total_skipped += 1
@@ -256,9 +247,17 @@ async def migrate(
                     )
                     continue
 
-                metadata_model = _parse_metadata(
+                metadata_model = parse_document_metadata(
                     doc.get("metadata"),
-                    legacy_document_id=str(document_id),
+                    extra_fields={
+                        "legacy_document_id": str(document_id),
+                        "migration_source": "legacy",
+                    },
+                    log=logger,
+                    log_context={
+                        "tenant_id": tenant,
+                        "legacy_document_id": str(document_id),
+                    },
                 )
 
                 try:
@@ -312,12 +311,26 @@ async def migrate(
                     graphiti_relationships=graphiti_relationships,
                 )
 
+                validation_failed = False
                 if legacy_entities != graphiti_nodes:
                     logger.error(
                         "migration_validation_failed",
                         tenant_id=tenant,
                         reason="entity_count_mismatch",
+                        legacy_entities=legacy_entities,
+                        graphiti_nodes=graphiti_nodes,
                     )
+                    validation_failed = True
+                if legacy_relationships != graphiti_relationships:
+                    logger.error(
+                        "migration_validation_failed",
+                        tenant_id=tenant,
+                        reason="relationship_count_mismatch",
+                        legacy_relationships=legacy_relationships,
+                        graphiti_relationships=graphiti_relationships,
+                    )
+                    validation_failed = True
+                if validation_failed:
                     return 2
 
         logger.info(
