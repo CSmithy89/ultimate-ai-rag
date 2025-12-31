@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import math
 import json
 from typing import Any
 from uuid import UUID
@@ -52,6 +53,7 @@ DEFAULT_PRICING: dict[str, Pricing] = {
 }
 
 TOKENIZER_MODEL_IDS = {"gpt-4o-mini", "gpt-4o", "gpt-4"}
+FALLBACK_TOKENS_PER_WORD = 1.3
 
 TREND_QUERIES: dict[str, str] = {
     "hour": """
@@ -111,9 +113,14 @@ class CostTracker:
         self._pricing = _load_pricing(pricing_json)
         self._encoding = tiktoken.get_encoding("cl100k_base")
 
-    def _estimate_tokens(self, text: str) -> int:
+    def _estimate_tokens(self, text: str, model_id: str | None = None) -> int:
         if not text:
             return 0
+        if model_id and model_id not in TOKENIZER_MODEL_IDS:
+            words = text.split()
+            if not words:
+                return 0
+            return math.ceil(len(words) * FALLBACK_TOKENS_PER_WORD)
         return len(self._encoding.encode(text))
 
     def _calculate_costs(
@@ -141,8 +148,8 @@ class CostTracker:
     ) -> None:
         if model_id not in TOKENIZER_MODEL_IDS:
             logger.warning("cost_tokenizer_unknown_model", model_id=model_id)
-        prompt_tokens = self._estimate_tokens(prompt)
-        completion_tokens = self._estimate_tokens(completion)
+        prompt_tokens = self._estimate_tokens(prompt, model_id=model_id)
+        completion_tokens = self._estimate_tokens(completion, model_id=model_id)
         total_tokens = prompt_tokens + completion_tokens
         input_cost, output_cost, total_cost = self._calculate_costs(
             model_id, prompt_tokens, completion_tokens

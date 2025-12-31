@@ -41,4 +41,11 @@ def test_token_estimation_matches_tiktoken() -> None:
     text = "Quick brown fox jumps."
     expected = len(tiktoken.get_encoding("cl100k_base").encode(text))
 
-    assert tracker._estimate_tokens(text) == expected
+    assert tracker._estimate_tokens(text, model_id="gpt-4o-mini") == expected
+
+
+def test_token_estimation_fallback_for_unknown_model() -> None:
+    tracker = CostTracker(pool=DummyPool())
+    text = "one two three four"
+
+    assert tracker._estimate_tokens(text, model_id="claude-3") == 6

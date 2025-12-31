@@ -32,7 +32,8 @@ class DummyCursor:
         self.queries: list[tuple[str, object]] = []
 
     async def execute(self, query: str, params=None) -> None:
-        self.queries.append((query, params))
+        text = query if isinstance(query, str) else str(query)
+        self.queries.append((text, params))
 
     async def fetchone(self):
         if self._fetchone_results:

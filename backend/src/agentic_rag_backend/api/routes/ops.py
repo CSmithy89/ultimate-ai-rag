@@ -14,6 +14,7 @@ from agentic_rag_backend.api.utils import build_meta, rate_limit_exceeded
 from agentic_rag_backend.ops import CostTracker, CostSummary, TraceCrypto
 from agentic_rag_backend.rate_limit import RateLimiter
 from agentic_rag_backend.validation import TENANT_ID_PATTERN
+from psycopg import sql
 from psycopg_pool import AsyncConnectionPool
 from psycopg.rows import dict_row
 
@@ -363,9 +364,8 @@ async def list_trajectories(
     elif status == "ok":
         conditions.append("t.has_error = false")
 
-    # Conditions are allowlisted literals; do not interpolate user input here.
-    where_sql = " AND ".join(conditions)
-    query = (
+    where_sql = sql.SQL(" AND ").join(sql.SQL(condition) for condition in conditions)
+    query = sql.SQL(
         "SELECT t.id, "
         "t.session_id, "
         "t.agent_type, "
@@ -376,10 +376,10 @@ async def list_trajectories(
         "(SELECT MAX(created_at) FROM trajectory_events e "
         "WHERE e.trajectory_id = t.id AND e.tenant_id = t.tenant_id) AS last_event_at "
         "FROM trajectories t "
-        "WHERE " + where_sql + " "
+        "WHERE {} "
         "ORDER BY t.created_at DESC "
         "LIMIT %s OFFSET %s"
-    )
+    ).format(where_sql)
     params.extend([limit, offset])
 
     async with pool.connection() as conn:
