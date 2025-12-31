@@ -596,7 +596,7 @@ async def get_shared_content(
     share_id: UUID,
     token: str = Query(..., description="Share token"),
     postgres: PostgresClient = Depends(get_postgres),
-) -> SharedContentRetrieveResponse:
+) -> SharedContentRetrieveResponse | Response:
     """Retrieve shared content with token validation."""
     def _problem(status: int, title: str, detail: str, type_suffix: str) -> JSONResponse:
         return JSONResponse(
