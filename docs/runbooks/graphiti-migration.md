@@ -36,6 +36,15 @@ This runbook covers migrating legacy graph data to Graphiti using `backend/scrip
      --validate
    ```
 
+4. Tune chunk batch size for large tenants (defaults to 100 documents per batch):
+   ```bash
+   uv run python scripts/migrate_to_graphiti.py \
+     --tenant-id <tenant-uuid> \
+     --chunk-batch-size 500 \
+     --backup-path ./backups/graphiti \
+     --validate
+   ```
+
 ## Validation
 - The script logs entity + relationship counts for legacy vs Graphiti.
 - A non-zero exit code indicates validation failure.
@@ -48,5 +57,6 @@ This runbook covers migrating legacy graph data to Graphiti using `backend/scrip
 
 ## Troubleshooting
 - If validation fails, capture logs and compare entity/relationship counts by tenant.
-- If migration is slow, use tenant-scoped runs and confirm batch chunk fetching is enabled.
+- If migration is slow, use tenant-scoped runs and increase `--chunk-batch-size` while monitoring memory.
+- Large tenants (10k+ documents) may take longer; expect higher memory usage if batch sizes are increased.
 - If Graphiti errors occur, verify model credentials and Neo4j connectivity.

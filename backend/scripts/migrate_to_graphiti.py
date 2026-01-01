@@ -218,6 +218,7 @@ async def migrate(
     dry_run: bool,
     backup_path: Optional[Path],
     validate: bool,
+    chunk_batch_size: int = CHUNK_BATCH_SIZE,
 ) -> int:
     settings = get_settings()
 
@@ -250,8 +251,15 @@ async def migrate(
         total_migrated = 0
         total_skipped = 0
 
+        if chunk_batch_size <= 0:
+            raise ValueError("chunk_batch_size must be >= 1")
+
         for tenant in tenant_ids:
-            logger.info("migration_tenant_start", tenant_id=tenant)
+            logger.info(
+                "migration_tenant_start",
+                tenant_id=tenant,
+                chunk_batch_size=chunk_batch_size,
+            )
 
             if backup_path:
                 tenant_backup = backup_path / f"legacy-graph-{tenant}.jsonl"
@@ -269,8 +277,8 @@ async def migrate(
 
             tenant_migrated = 0
             tenant_skipped = 0
-            for start in range(0, len(documents), CHUNK_BATCH_SIZE):
-                batch = documents[start:start + CHUNK_BATCH_SIZE]
+            for start in range(0, len(documents), chunk_batch_size):
+                batch = documents[start:start + chunk_batch_size]
                 document_ids = [doc["id"] for doc in batch]
                 chunks_by_doc = await _fetch_chunks_for_documents(
                     postgres, tenant, document_ids
@@ -408,6 +416,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, help="Limit number of documents per tenant")
     parser.add_argument("--dry-run", action="store_true", help="Validate inputs without ingesting")
     parser.add_argument(
+        "--chunk-batch-size",
+        type=int,
+        default=CHUNK_BATCH_SIZE,
+        help=f"Number of documents to fetch chunks for per batch (default: {CHUNK_BATCH_SIZE})",
+    )
+    parser.add_argument(
         "--backup-path",
         type=Path,
         help="Write legacy graph backup JSONL per tenant",
@@ -429,6 +443,7 @@ def main() -> None:
             dry_run=args.dry_run,
             backup_path=args.backup_path,
             validate=args.validate,
+            chunk_batch_size=args.chunk_batch_size,
         )
     )
     raise SystemExit(exit_code)

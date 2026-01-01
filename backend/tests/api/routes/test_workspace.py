@@ -528,6 +528,38 @@ class TestShareContentEndpoint:
         )
 
         assert get_response.status_code == 403
+        payload = get_response.json()
+        assert payload["status"] == 403
+        assert payload["title"] == "Forbidden"
+        assert payload["type"].endswith("/invalid-token")
+
+    def test_share_content_retrieval_rejects_tampered_token(self, client):
+        """Test retrieving shared content rejects tampered token."""
+        response = client.post(
+            "/api/v1/workspace/share",
+            json={
+                "content_id": "content-123",
+                "content": "Content to share",
+                "tenant_id": "11111111-1111-1111-1111-111111111111",
+            },
+        )
+
+        share_url = response.json()["data"]["share_url"]
+        parsed_url = urlparse(share_url)
+        share_id = parsed_url.path.rstrip("/").split("/")[-1]
+        token = parse_qs(parsed_url.query)["token"][0]
+        tampered = token[:-1] + ("0" if token[-1] != "0" else "1")
+
+        get_response = client.get(
+            f"/api/v1/workspace/share/{share_id}",
+            params={"token": tampered},
+        )
+
+        assert get_response.status_code == 403
+        payload = get_response.json()
+        assert payload["status"] == 403
+        assert payload["title"] == "Forbidden"
+        assert payload["type"].endswith("/invalid-token")
 
     def test_share_requires_tenant_id(self, client):
         """Test share fails without tenant_id."""

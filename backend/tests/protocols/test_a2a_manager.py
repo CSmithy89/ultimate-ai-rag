@@ -237,3 +237,31 @@ async def test_a2a_invalid_timestamps_are_discarded() -> None:
     fetched = await manager.get_session(session_id)
 
     assert fetched is None
+
+
+@pytest.mark.asyncio
+async def test_a2a_invalid_message_timestamp_discards_session() -> None:
+    class FakeRedis:
+        def __init__(self) -> None:
+            self.store: dict[str, str] = {}
+
+        async def set(self, key: str, value: str, ex: int | None = None) -> None:
+            self.store[key] = value
+
+        async def get(self, key: str) -> str | None:
+            return self.store.get(key)
+
+    redis_wrapper = MagicMock()
+    redis_wrapper.client = FakeRedis()
+
+    manager = A2ASessionManager(redis_client=redis_wrapper)
+    session_id = "invalid-message-ts"
+    key = manager._session_key(session_id)
+    redis_wrapper.client.store[key] = (
+        '{"session_id":"invalid-message-ts","tenant_id":"t1","created_at":"2024-01-01T00:00:00Z",'
+        '"last_activity":"2024-01-01T00:00:00Z","messages":[{"sender":"agent","content":"hi","timestamp":"bad"}]}'
+    )
+
+    fetched = await manager.get_session(session_id)
+
+    assert fetched is None

@@ -237,6 +237,134 @@ async def test_dry_run_skips_ingest(monkeypatch) -> None:
     assert result == 0
 
 
+@pytest.mark.asyncio
+async def test_migration_skips_empty_documents(monkeypatch) -> None:
+    tenant_id = "11111111-1111-1111-1111-111111111111"
+    document_id = UUID("22222222-2222-2222-2222-222222222222")
+
+    async def fake_create_graphiti_client(**kwargs):
+        return _FakeGraphiti()
+
+    async def fake_get_postgres_client(url):
+        return object()
+
+    async def fake_get_neo4j_client(**kwargs):
+        return object()
+
+    async def fake_fetch_tenant_ids(postgres):
+        return [tenant_id]
+
+    async def fake_fetch_documents(postgres, tenant, limit):
+        return [
+            {
+                "id": document_id,
+                "tenant_id": tenant_id,
+                "source_type": "text",
+                "source_url": None,
+                "filename": None,
+                "content_hash": None,
+                "metadata": {},
+            }
+        ]
+
+    async def fake_fetch_chunks_for_documents(postgres, tenant, document_ids):
+        return {document_id: []}
+
+    async def fail_ingest(**kwargs):
+        raise AssertionError("ingest should not run for empty documents")
+
+    monkeypatch.setattr(migrate_to_graphiti, "GRAPHITI_AVAILABLE", True)
+    monkeypatch.setattr(migrate_to_graphiti, "get_settings", lambda: _FakeSettings())
+    monkeypatch.setattr(migrate_to_graphiti, "create_graphiti_client", fake_create_graphiti_client)
+    monkeypatch.setattr(migrate_to_graphiti, "get_postgres_client", fake_get_postgres_client)
+    monkeypatch.setattr(migrate_to_graphiti, "get_neo4j_client", fake_get_neo4j_client)
+    monkeypatch.setattr(migrate_to_graphiti, "close_postgres_client", _async_noop)
+    monkeypatch.setattr(migrate_to_graphiti, "close_neo4j_client", _async_noop)
+    monkeypatch.setattr(migrate_to_graphiti, "_fetch_tenant_ids", fake_fetch_tenant_ids)
+    monkeypatch.setattr(migrate_to_graphiti, "_fetch_documents", fake_fetch_documents)
+    monkeypatch.setattr(
+        migrate_to_graphiti,
+        "_fetch_chunks_for_documents",
+        fake_fetch_chunks_for_documents,
+    )
+    monkeypatch.setattr(migrate_to_graphiti, "ingest_document_as_episode", fail_ingest)
+
+    result = await migrate_to_graphiti.migrate(
+        tenant_id=None,
+        limit=None,
+        dry_run=False,
+        backup_path=None,
+        validate=False,
+    )
+
+    assert result == 0
+
+
+@pytest.mark.asyncio
+async def test_migration_handles_invalid_metadata(monkeypatch) -> None:
+    tenant_id = "11111111-1111-1111-1111-111111111111"
+    document_id = UUID("22222222-2222-2222-2222-222222222222")
+    captured_extra = {}
+
+    async def fake_create_graphiti_client(**kwargs):
+        return _FakeGraphiti()
+
+    async def fake_get_postgres_client(url):
+        return object()
+
+    async def fake_get_neo4j_client(**kwargs):
+        return object()
+
+    async def fake_fetch_tenant_ids(postgres):
+        return [tenant_id]
+
+    async def fake_fetch_documents(postgres, tenant, limit):
+        return [
+            {
+                "id": document_id,
+                "tenant_id": tenant_id,
+                "source_type": "text",
+                "source_url": None,
+                "filename": None,
+                "content_hash": None,
+                "metadata": "{not-json}",
+            }
+        ]
+
+    async def fake_fetch_chunks_for_documents(postgres, tenant, document_ids):
+        return {document_id: ["content"]}
+
+    async def capture_ingest(*, document, **kwargs):
+        captured_extra.update(document.metadata.extra)
+
+    monkeypatch.setattr(migrate_to_graphiti, "GRAPHITI_AVAILABLE", True)
+    monkeypatch.setattr(migrate_to_graphiti, "get_settings", lambda: _FakeSettings())
+    monkeypatch.setattr(migrate_to_graphiti, "create_graphiti_client", fake_create_graphiti_client)
+    monkeypatch.setattr(migrate_to_graphiti, "get_postgres_client", fake_get_postgres_client)
+    monkeypatch.setattr(migrate_to_graphiti, "get_neo4j_client", fake_get_neo4j_client)
+    monkeypatch.setattr(migrate_to_graphiti, "close_postgres_client", _async_noop)
+    monkeypatch.setattr(migrate_to_graphiti, "close_neo4j_client", _async_noop)
+    monkeypatch.setattr(migrate_to_graphiti, "_fetch_tenant_ids", fake_fetch_tenant_ids)
+    monkeypatch.setattr(migrate_to_graphiti, "_fetch_documents", fake_fetch_documents)
+    monkeypatch.setattr(
+        migrate_to_graphiti,
+        "_fetch_chunks_for_documents",
+        fake_fetch_chunks_for_documents,
+    )
+    monkeypatch.setattr(migrate_to_graphiti, "ingest_document_as_episode", capture_ingest)
+
+    result = await migrate_to_graphiti.migrate(
+        tenant_id=None,
+        limit=None,
+        dry_run=False,
+        backup_path=None,
+        validate=False,
+    )
+
+    assert result == 0
+    assert captured_extra["legacy_document_id"] == str(document_id)
+
+
 def test_parse_document_metadata_logs_on_invalid() -> None:
     class FakeLogger:
         def __init__(self) -> None:

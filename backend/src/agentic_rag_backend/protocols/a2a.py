@@ -126,12 +126,12 @@ class A2ASessionManager:
             )
             if timestamp is None:
                 logger.warning(
-                    "a2a_message_timestamp_fallback",
+                    "a2a_message_timestamp_invalid",
                     session_id=session_id,
                     field="message_timestamp",
                     corrupted_data=True,
                 )
-                timestamp = datetime.now(timezone.utc)
+                return None
             messages.append(
                 A2AMessage(
                     sender=message.get("sender", ""),
