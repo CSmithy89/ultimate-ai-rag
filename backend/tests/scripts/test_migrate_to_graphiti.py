@@ -75,6 +75,12 @@ async def test_validation_fails_on_relationship_mismatch(monkeypatch) -> None:
     async def fake_count_graphiti_relationships(neo4j, tenant):
         return 0
 
+    async def fake_count_legacy_relationship_types(neo4j, tenant):
+        return {"MENTIONS": 2}
+
+    async def fake_count_graphiti_relationship_types(neo4j, tenant):
+        return {}
+
     monkeypatch.setattr(migrate_to_graphiti, "GRAPHITI_AVAILABLE", True)
     monkeypatch.setattr(migrate_to_graphiti, "get_settings", lambda: _FakeSettings())
     monkeypatch.setattr(migrate_to_graphiti, "create_graphiti_client", fake_create_graphiti_client)
@@ -100,6 +106,16 @@ async def test_validation_fails_on_relationship_mismatch(monkeypatch) -> None:
         migrate_to_graphiti,
         "_count_graphiti_relationships",
         fake_count_graphiti_relationships,
+    )
+    monkeypatch.setattr(
+        migrate_to_graphiti,
+        "_count_legacy_relationship_types",
+        fake_count_legacy_relationship_types,
+    )
+    monkeypatch.setattr(
+        migrate_to_graphiti,
+        "_count_graphiti_relationship_types",
+        fake_count_graphiti_relationship_types,
     )
 
     result = await migrate_to_graphiti.migrate(
@@ -136,7 +152,7 @@ async def test_backup_path_triggers_export(monkeypatch, tmp_path: Path) -> None:
         export_calls.append((tenant_id, output_path))
 
     monkeypatch.setattr(migrate_to_graphiti, "GRAPHITI_AVAILABLE", True)
-    monkeypatch.setattr(migrate_to_graphiti, "get_settings", lambda: _FakeSettings)
+    monkeypatch.setattr(migrate_to_graphiti, "get_settings", lambda: _FakeSettings())
     monkeypatch.setattr(migrate_to_graphiti, "create_graphiti_client", fake_create_graphiti_client)
     monkeypatch.setattr(migrate_to_graphiti, "get_postgres_client", fake_get_postgres_client)
     monkeypatch.setattr(migrate_to_graphiti, "get_neo4j_client", fake_get_neo4j_client)
@@ -195,7 +211,7 @@ async def test_dry_run_skips_ingest(monkeypatch) -> None:
         raise AssertionError("ingest should not run during dry run")
 
     monkeypatch.setattr(migrate_to_graphiti, "GRAPHITI_AVAILABLE", True)
-    monkeypatch.setattr(migrate_to_graphiti, "get_settings", lambda: _FakeSettings)
+    monkeypatch.setattr(migrate_to_graphiti, "get_settings", lambda: _FakeSettings())
     monkeypatch.setattr(migrate_to_graphiti, "create_graphiti_client", fake_create_graphiti_client)
     monkeypatch.setattr(migrate_to_graphiti, "get_postgres_client", fake_get_postgres_client)
     monkeypatch.setattr(migrate_to_graphiti, "get_neo4j_client", fake_get_neo4j_client)

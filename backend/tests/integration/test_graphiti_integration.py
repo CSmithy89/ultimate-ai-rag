@@ -6,7 +6,7 @@ knowledge graph pipeline.
 """
 
 import pytest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 import hashlib
@@ -164,8 +164,8 @@ class TestGraphitiEndToEndFlow:
         changes_result = await get_knowledge_changes(
             graphiti_client=mock_graphiti_client,
             tenant_id=str(sample_document.tenant_id),
-            start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-            end_date=datetime(2025, 12, 31, tzinfo=timezone.utc),
+            start_date=as_of_date - timedelta(days=1),
+            end_date=as_of_date + timedelta(days=1),
         )
 
         assert changes_result is not None

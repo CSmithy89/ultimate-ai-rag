@@ -17,7 +17,6 @@ import structlog
 from agentic_rag_backend.db.redis import RedisClient
 
 logger = structlog.get_logger(__name__)
-_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 @dataclass
 class A2AMessage:
@@ -78,20 +77,21 @@ class A2ASessionManager:
         self._cleanup_task: asyncio.Task[None] | None = None
         self._last_prune = 0.0
         self._prune_interval_seconds = 60.0
-        self._redis = redis_client.client if redis_client else None
+        self._redis_client = redis_client
         self._redis_prefix = redis_prefix
 
     def _session_key(self, session_id: str) -> str:
         return f"{self._redis_prefix}:{session_id}"
 
-    def _parse_timestamp(self, value: str, *, session_id: str, field: str) -> datetime:
+    def _parse_timestamp(self, value: str, *, session_id: str, field: str) -> datetime | None:
         if not value:
             logger.warning(
                 "a2a_timestamp_missing",
                 session_id=session_id,
                 field=field,
+                corrupted_data=True,
             )
-            return _EPOCH
+            return None
         if value.endswith("Z"):
             value = value.replace("Z", "+00:00")
         try:
@@ -102,8 +102,18 @@ class A2ASessionManager:
                 session_id=session_id,
                 field=field,
                 value=value,
+                corrupted_data=True,
             )
-            return _EPOCH
+            return None
+
+    def _get_redis(self) -> Any | None:
+        if not self._redis_client:
+            return None
+        try:
+            return self._redis_client.client
+        except Exception as exc:
+            logger.warning("a2a_redis_unavailable", error=str(exc))
+            return None
 
     def _session_from_payload(self, payload: dict[str, Any]) -> A2ASession | None:
         messages = []
@@ -114,6 +124,14 @@ class A2ASessionManager:
                 session_id=session_id,
                 field="message_timestamp",
             )
+            if timestamp is None:
+                logger.warning(
+                    "a2a_message_timestamp_fallback",
+                    session_id=session_id,
+                    field="message_timestamp",
+                    corrupted_data=True,
+                )
+                timestamp = datetime.now(timezone.utc)
             messages.append(
                 A2AMessage(
                     sender=message.get("sender", ""),
@@ -132,10 +150,11 @@ class A2ASessionManager:
             session_id=session_id,
             field="last_activity",
         )
-        if created_at == _EPOCH or last_activity == _EPOCH:
+        if created_at is None or last_activity is None:
             logger.warning(
                 "a2a_session_discarded_invalid_timestamp",
                 session_id=session_id,
+                corrupted_data=True,
             )
             return None
         return A2ASession(
@@ -147,23 +166,25 @@ class A2ASessionManager:
         )
 
     async def _persist_session(self, session: A2ASession) -> None:
-        if not self._redis:
+        redis = self._get_redis()
+        if not redis:
             return
         try:
             payload = json.dumps(session.to_dict())
             key = self._session_key(session.session_id)
             if self._session_ttl_seconds > 0:
-                await self._redis.set(key, payload, ex=self._session_ttl_seconds)
+                await redis.set(key, payload, ex=self._session_ttl_seconds)
             else:
-                await self._redis.set(key, payload)
+                await redis.set(key, payload)
         except Exception as exc:  # pragma: no cover - non-critical persistence
             logger.warning("a2a_session_persist_failed", error=str(exc))
 
     async def _load_session(self, session_id: str) -> A2ASession | None:
-        if not self._redis:
+        redis = self._get_redis()
+        if not redis:
             return None
         try:
-            payload = await self._redis.get(self._session_key(session_id))
+            payload = await redis.get(self._session_key(session_id))
             if not payload:
                 return None
             raw = payload.decode("utf-8") if isinstance(payload, (bytes, bytearray)) else payload

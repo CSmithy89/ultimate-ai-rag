@@ -22,7 +22,7 @@ So that human-in-the-loop source validation works in production.
 - [x] Input validation / schema enforcement: Addressed - UUID validation and tenant checks
 - [x] Tests (unit/integration): Addressed - tests added and run
 - [x] Error handling + logging: Addressed - timeout fallback + persistence logging
-- [ ] Documentation updates: Planned - endpoint documentation updates
+- [x] Documentation updates: Addressed - persistence runbook updated
 
 ## Tasks / Subtasks
 
@@ -79,4 +79,4 @@ Outcome: APPROVE
 
 Notes:
 - HITL flow now persists checkpoints and emits AG-UI validation events.
-- Validation history endpoints added; tests added but not run.
+- Validation history endpoints added; tests added and run.

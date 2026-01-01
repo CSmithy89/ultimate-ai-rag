@@ -140,8 +140,8 @@ def load_settings() -> Settings:
         raise ValueError(
             "NEO4J_POOL_MIN, NEO4J_POOL_MAX, and Neo4j timeout settings must be numeric."
         ) from exc
-    if neo4j_pool_min < 0:
-        raise ValueError("NEO4J_POOL_MIN must be >= 0.")
+    if neo4j_pool_min < 1:
+        raise ValueError("NEO4J_POOL_MIN must be >= 1.")
     if neo4j_pool_max < max(1, neo4j_pool_min):
         raise ValueError(
             "NEO4J_POOL_MAX must be >= max(1, NEO4J_POOL_MIN)."

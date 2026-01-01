@@ -4,6 +4,11 @@
 This script reconstructs document content from stored chunks and ingests each
 as a Graphiti episode. It supports tenant-scoped migrations, optional backups,
 and validation checks for legacy vs Graphiti counts.
+
+Exit codes:
+- 0: Migration completed successfully.
+- 1: Preflight failure (e.g., Graphiti unavailable).
+- 2: Validation mismatch detected.
 """
 
 from __future__ import annotations
@@ -154,6 +159,21 @@ async def _count_legacy_relationships(neo4j: Neo4jClient, tenant_id: str) -> int
         return int(record["count"]) if record else 0
 
 
+async def _count_legacy_relationship_types(
+    neo4j: Neo4jClient, tenant_id: str
+) -> dict[str, int]:
+    async with neo4j.driver.session() as session:
+        result = await session.run(
+            """
+            MATCH (a:Entity {tenant_id: $tenant_id})-[r]->(b:Entity {tenant_id: $tenant_id})
+            RETURN type(r) AS rel_type, count(r) AS count
+            """,
+            tenant_id=tenant_id,
+        )
+        rows = await result.data()
+    return {row["rel_type"]: int(row["count"]) for row in rows if row.get("rel_type")}
+
+
 async def _count_graphiti_nodes(neo4j: Neo4jClient, tenant_id: str) -> int:
     async with neo4j.driver.session() as session:
         result = await session.run(
@@ -175,6 +195,21 @@ async def _count_graphiti_relationships(neo4j: Neo4jClient, tenant_id: str) -> i
         )
         record = await result.single()
         return int(record["count"]) if record else 0
+
+
+async def _count_graphiti_relationship_types(
+    neo4j: Neo4jClient, tenant_id: str
+) -> dict[str, int]:
+    async with neo4j.driver.session() as session:
+        result = await session.run(
+            """
+            MATCH (a:Entity {group_id: $tenant_id})-[r]->(b:Entity {group_id: $tenant_id})
+            RETURN type(r) AS rel_type, count(r) AS count
+            """,
+            tenant_id=tenant_id,
+        )
+        rows = await result.data()
+    return {row["rel_type"]: int(row["count"]) for row in rows if row.get("rel_type")}
 
 
 async def migrate(
@@ -306,8 +341,10 @@ async def migrate(
             if validate:
                 legacy_entities = await _count_legacy_entities(neo4j, tenant)
                 legacy_relationships = await _count_legacy_relationships(neo4j, tenant)
+                legacy_relationship_types = await _count_legacy_relationship_types(neo4j, tenant)
                 graphiti_nodes = await _count_graphiti_nodes(neo4j, tenant)
                 graphiti_relationships = await _count_graphiti_relationships(neo4j, tenant)
+                graphiti_relationship_types = await _count_graphiti_relationship_types(neo4j, tenant)
 
                 logger.info(
                     "migration_validation",
@@ -316,6 +353,8 @@ async def migrate(
                     legacy_relationships=legacy_relationships,
                     graphiti_nodes=graphiti_nodes,
                     graphiti_relationships=graphiti_relationships,
+                    legacy_relationship_types=legacy_relationship_types,
+                    graphiti_relationship_types=graphiti_relationship_types,
                 )
 
                 validation_failed = False
@@ -335,6 +374,15 @@ async def migrate(
                         reason="relationship_count_mismatch",
                         legacy_relationships=legacy_relationships,
                         graphiti_relationships=graphiti_relationships,
+                    )
+                    validation_failed = True
+                if legacy_relationship_types != graphiti_relationship_types:
+                    logger.error(
+                        "migration_validation_failed",
+                        tenant_id=tenant,
+                        reason="relationship_type_mismatch",
+                        legacy_relationship_types=legacy_relationship_types,
+                        graphiti_relationship_types=graphiti_relationship_types,
                     )
                     validation_failed = True
                 if validation_failed:
@@ -367,7 +415,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--validate",
         action="store_true",
-        help="Validate entity/relationship counts after migration",
+        help="Validate entity/relationship counts and relationship types after migration",
     )
     return parser.parse_args()
 

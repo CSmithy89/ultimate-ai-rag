@@ -20,7 +20,7 @@ import logging
 from typing import Any, Literal, Optional
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 from slowapi import Limiter
@@ -276,14 +276,27 @@ def _get_tenant_id(body_tenant_id: Optional[str], header_tenant_id: Optional[str
 
 
 def _parse_tenant_uuid(tenant_id: str) -> UUID:
-    """Parse tenant UUID or raise a 400 error."""
-    try:
-        return UUID(tenant_id)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail="tenant_id must be a valid UUID",
-        ) from exc
+    """Parse tenant UUID or raise a ValueError."""
+    return UUID(tenant_id)
+
+
+def _problem_response(
+    request: Request,
+    status: int,
+    title: str,
+    detail: str,
+    type_suffix: str,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status,
+        content={
+            "type": f"https://api.example.com/errors/{type_suffix}",
+            "title": title,
+            "status": status,
+            "detail": detail,
+            "instance": request.url.path,
+        },
+    )
 
 
 def _generate_share_token(share_id: str, expires_at: datetime) -> str:
@@ -351,7 +364,7 @@ async def save_content(
     request_body: SaveContentRequest,
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
     postgres: PostgresClient = Depends(get_postgres),
-) -> SaveContentResponse:
+) -> SaveContentResponse | Response:
     """Save content to the user's workspace.
 
     Args:
@@ -365,7 +378,16 @@ async def save_content(
         TenantRequiredError: If no tenant ID is provided
     """
     tenant_id = _get_tenant_id(request_body.tenant_id, x_tenant_id)
-    tenant_uuid = _parse_tenant_uuid(tenant_id)
+    try:
+        tenant_uuid = _parse_tenant_uuid(tenant_id)
+    except ValueError:
+        return _problem_response(
+            request,
+            400,
+            "Bad Request",
+            "tenant_id must be a valid UUID",
+            "invalid-tenant-id",
+        )
     workspace_uuid = uuid4()
     saved_at = datetime.now(timezone.utc)
     title = request_body.title or f"Response - {saved_at.isoformat()[:10]}"
@@ -389,7 +411,13 @@ async def save_content(
             trajectory_id=request_body.trajectory_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=413, detail=str(exc)) from exc
+        return _problem_response(
+            request,
+            413,
+            "Payload Too Large",
+            str(exc),
+            "payload-too-large",
+        )
 
     return SaveContentResponse(
         data=SavedContentData(
@@ -529,7 +557,7 @@ async def share_content(
     request_body: ShareContentRequest,
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
     postgres: PostgresClient = Depends(get_postgres),
-) -> ShareContentResponse:
+) -> ShareContentResponse | Response:
     """Generate a shareable link for content.
 
     Args:
@@ -543,7 +571,16 @@ async def share_content(
         TenantRequiredError: If no tenant ID is provided
     """
     tenant_id = _get_tenant_id(request_body.tenant_id, x_tenant_id)
-    tenant_uuid = _parse_tenant_uuid(tenant_id)
+    try:
+        tenant_uuid = _parse_tenant_uuid(tenant_id)
+    except ValueError:
+        return _problem_response(
+            request,
+            400,
+            "Bad Request",
+            "tenant_id must be a valid UUID",
+            "invalid-tenant-id",
+        )
     share_uuid = uuid4()
     share_id = str(share_uuid)
     created_at = datetime.now(timezone.utc)
@@ -572,7 +609,13 @@ async def share_content(
             expires_at=expires_at,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=413, detail=str(exc)) from exc
+        return _problem_response(
+            request,
+            413,
+            "Payload Too Large",
+            str(exc),
+            "payload-too-large",
+        )
 
     # Generate share URL with signed token
     settings = get_settings()
@@ -598,32 +641,20 @@ async def get_shared_content(
     postgres: PostgresClient = Depends(get_postgres),
 ) -> SharedContentRetrieveResponse | Response:
     """Retrieve shared content with token validation."""
-    def _problem(status: int, title: str, detail: str, type_suffix: str) -> JSONResponse:
-        return JSONResponse(
-            status_code=status,
-            content={
-                "type": f"https://api.example.com/errors/{type_suffix}",
-                "title": title,
-                "status": status,
-                "detail": detail,
-                "instance": request.url.path,
-            },
-        )
-
     row = await postgres.get_workspace_share(share_id)
     if not row:
-        return _problem(404, "Not Found", "Shared content not found", "not-found")
+        return _problem_response(request, 404, "Not Found", "Shared content not found", "not-found")
 
     expires_at = row.get("expires_at")
     if expires_at and expires_at < datetime.now(timezone.utc):
-        return _problem(410, "Gone", "Share link has expired", "share-expired")
+        return _problem_response(request, 410, "Gone", "Share link has expired", "share-expired")
 
     stored_token = row.get("token")
     if stored_token:
         if not hmac.compare_digest(stored_token, token):
-            return _problem(403, "Forbidden", "Invalid share token", "invalid-token")
+            return _problem_response(request, 403, "Forbidden", "Invalid share token", "invalid-token")
     elif expires_at and not _verify_share_token(str(share_id), expires_at, token):
-        return _problem(403, "Forbidden", "Invalid share token", "invalid-token")
+        return _problem_response(request, 403, "Forbidden", "Invalid share token", "invalid-token")
 
     created_at = row["created_at"].isoformat() if row.get("created_at") else None
     expires_at_str = expires_at.isoformat() if expires_at else None
@@ -650,7 +681,7 @@ async def bookmark_content(
     request_body: BookmarkContentRequest,
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
     postgres: PostgresClient = Depends(get_postgres),
-) -> BookmarkContentResponse:
+) -> BookmarkContentResponse | Response:
     """Bookmark content for quick access later.
 
     Args:
@@ -664,7 +695,16 @@ async def bookmark_content(
         TenantRequiredError: If no tenant ID is provided
     """
     tenant_id = _get_tenant_id(request_body.tenant_id, x_tenant_id)
-    tenant_uuid = _parse_tenant_uuid(tenant_id)
+    try:
+        tenant_uuid = _parse_tenant_uuid(tenant_id)
+    except ValueError:
+        return _problem_response(
+            request,
+            400,
+            "Bad Request",
+            "tenant_id must be a valid UUID",
+            "invalid-tenant-id",
+        )
     bookmark_uuid = uuid4()
 
     logger.info("Creating bookmark", extra={
@@ -684,7 +724,13 @@ async def bookmark_content(
             session_id=request_body.session_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=413, detail=str(exc)) from exc
+        return _problem_response(
+            request,
+            413,
+            "Payload Too Large",
+            str(exc),
+            "payload-too-large",
+        )
 
     return BookmarkContentResponse(
         data=BookmarkedContentData(
@@ -704,7 +750,7 @@ async def get_bookmarks(
     limit: int = Query(50, ge=1, le=100, description="Maximum bookmarks to return"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     postgres: PostgresClient = Depends(get_postgres),
-) -> BookmarksListResponse:
+) -> BookmarksListResponse | Response:
     """List bookmarks for a tenant.
 
     Args:
@@ -716,7 +762,16 @@ async def get_bookmarks(
         BookmarksListResponse with list of bookmarks
     """
     tenant_value = _get_tenant_id(tenant_id, x_tenant_id)
-    tenant_uuid = _parse_tenant_uuid(tenant_value)
+    try:
+        tenant_uuid = _parse_tenant_uuid(tenant_value)
+    except ValueError:
+        return _problem_response(
+            request,
+            400,
+            "Bad Request",
+            "tenant_id must be a valid UUID",
+            "invalid-tenant-id",
+        )
 
     logger.info("Listing bookmarks", extra={
         "tenant_id": tenant_value,
@@ -761,17 +816,32 @@ async def load_workspace_content(
     tenant_id: Optional[str] = Query(None, description="Tenant ID"),
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
     postgres: PostgresClient = Depends(get_postgres),
-) -> WorkspaceContentResponse:
+) -> WorkspaceContentResponse | Response:
     """Load saved workspace content by workspace ID."""
     tenant_value = _get_tenant_id(tenant_id, x_tenant_id)
-    tenant_uuid = _parse_tenant_uuid(tenant_value)
+    try:
+        tenant_uuid = _parse_tenant_uuid(tenant_value)
+    except ValueError:
+        return _problem_response(
+            request,
+            400,
+            "Bad Request",
+            "tenant_id must be a valid UUID",
+            "invalid-tenant-id",
+        )
 
     row = await postgres.get_workspace_item(
         tenant_id=tenant_uuid,
         workspace_id=workspace_id,
     )
     if not row:
-        raise HTTPException(status_code=404, detail="Workspace item not found")
+        return _problem_response(
+            request,
+            404,
+            "Not Found",
+            "Workspace item not found",
+            "workspace-item-not-found",
+        )
 
     saved_at = row["created_at"].isoformat() if row.get("created_at") else None
 

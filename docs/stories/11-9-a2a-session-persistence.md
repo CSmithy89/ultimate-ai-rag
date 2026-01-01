@@ -21,7 +21,7 @@ So that sessions are not lost on restart.
 - [x] Input validation / schema enforcement: N/A
 - [x] Tests (unit/integration): Addressed - unit tests updated and run
 - [x] Error handling + logging: Addressed - persistence failures are non-blocking
-- [ ] Documentation updates: Planned - add A2A persistence note to protocol docs
+- [x] Documentation updates: Addressed - persistence runbook updated
 
 ## Tasks / Subtasks
 
@@ -39,7 +39,7 @@ for fast access. Redis TTL aligns with session TTL.
 
 - [x] Redis persistence implemented
 - [x] Tests run and documented
-- [ ] Documentation updated
+- [x] Documentation updated
 
 ## Dev Notes
 
@@ -75,4 +75,4 @@ Outcome: APPROVE
 
 Notes:
 - Redis persistence closes restart gaps while keeping in-memory performance.
-- Tests updated but not executed locally.
+- Tests updated and executed locally; runbook updated for persistence behavior.

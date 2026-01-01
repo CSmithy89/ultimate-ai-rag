@@ -25,6 +25,8 @@ def upgrade() -> None:
             ) THEN
                 CREATE INDEX IF NOT EXISTS idx_workspace_items_tenant_content_id
                 ON workspace_items(tenant_id, content_id);
+                CREATE INDEX IF NOT EXISTS idx_workspace_items_tenant_workspace_id
+                ON workspace_items(tenant_id, id);
             END IF;
         END $$;
         """
@@ -34,3 +36,4 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS idx_workspace_items_tenant_content_id")
+    op.execute("DROP INDEX IF EXISTS idx_workspace_items_tenant_workspace_id")
