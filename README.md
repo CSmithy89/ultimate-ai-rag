@@ -8,7 +8,19 @@
 cp .env.example .env
 ```
 
-Edit `.env` and set at least `OPENAI_API_KEY` and database credentials.
+Edit `.env` and set at least `LLM_PROVIDER` (defaults to `openai`), the matching
+provider API key, and database credentials.
+
+Provider keys:
+- `openai`: `OPENAI_API_KEY`
+- `openrouter`: `OPENROUTER_API_KEY`
+- `ollama`: `OLLAMA_BASE_URL` (no API key by default)
+- `anthropic`: `ANTHROPIC_API_KEY`
+- `gemini`: `GEMINI_API_KEY`
+
+Use `LLM_MODEL_ID` to set the primary model (defaults to `OPENAI_MODEL_ID`).
+OpenAI-compatible providers can override base URLs via `OPENAI_BASE_URL`,
+`OPENROUTER_BASE_URL`, or `OLLAMA_BASE_URL`.
 
 ### Backend
 

@@ -14,6 +14,9 @@ import structlog
 # Search configuration constants
 DEFAULT_SEARCH_RESULTS = 5
 MAX_SEARCH_RESULTS = 100
+LLM_PROVIDERS = {"openai", "openrouter", "ollama", "anthropic", "gemini"}
+DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 
 logger = structlog.get_logger(__name__)
 
@@ -22,8 +25,18 @@ class Settings:
     """Application settings loaded from environment variables."""
 
     app_env: str
+    llm_provider: str
+    llm_api_key: Optional[str]
+    llm_base_url: Optional[str]
+    llm_model_id: str
     openai_api_key: str
     openai_model_id: str
+    openai_base_url: Optional[str]
+    openrouter_api_key: Optional[str]
+    openrouter_base_url: str
+    ollama_base_url: str
+    anthropic_api_key: Optional[str]
+    gemini_api_key: Optional[str]
     database_url: str
     db_pool_min: int
     db_pool_max: int
@@ -96,6 +109,21 @@ def load_settings() -> Settings:
     load_dotenv()
 
     app_env = os.getenv("APP_ENV", "development").strip().lower()
+    llm_provider = os.getenv("LLM_PROVIDER", "openai").strip().lower()
+    if llm_provider not in LLM_PROVIDERS:
+        raise ValueError(
+            "LLM_PROVIDER must be one of: openai, openrouter, ollama, anthropic, gemini."
+        )
+    llm_model_id = os.getenv("LLM_MODEL_ID")
+    openai_model_id = os.getenv("OPENAI_MODEL_ID")
+    if not llm_model_id and not openai_model_id:
+        openai_model_id = "gpt-4o-mini"
+        llm_model_id = openai_model_id
+    else:
+        if not llm_model_id:
+            llm_model_id = openai_model_id
+        if not openai_model_id:
+            openai_model_id = llm_model_id
 
     min_pool_size = 1
     try:
@@ -243,13 +271,21 @@ def load_settings() -> Settings:
                 ) from exc
 
     required = [
-        "OPENAI_API_KEY",
         "DATABASE_URL",
         "NEO4J_URI",
         "NEO4J_USER",
         "NEO4J_PASSWORD",
         "REDIS_URL",
     ]
+    provider_required_keys = {
+        "openai": "OPENAI_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+    }
+    provider_key = provider_required_keys.get(llm_provider)
+    if provider_key:
+        required.append(provider_key)
     values = {key: os.getenv(key) for key in required}
     missing = [key for key, value in values.items() if not value]
     if missing:
@@ -259,7 +295,30 @@ def load_settings() -> Settings:
             f"{missing_list}. Copy .env.example to .env and fill values."
         )
 
-    openai_api_key = cast(str, values["OPENAI_API_KEY"])
+    openai_api_key = os.getenv("OPENAI_API_KEY", "")
+    openai_base_url = os.getenv("OPENAI_BASE_URL")
+    openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+    openrouter_base_url = os.getenv(
+        "OPENROUTER_BASE_URL", DEFAULT_OPENROUTER_BASE_URL
+    )
+    ollama_base_url = os.getenv("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
+    anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    if llm_provider == "openai":
+        llm_api_key = openai_api_key
+        llm_base_url = openai_base_url or None
+    elif llm_provider == "openrouter":
+        llm_api_key = openrouter_api_key
+        llm_base_url = openrouter_base_url
+    elif llm_provider == "ollama":
+        llm_api_key = os.getenv("OLLAMA_API_KEY") or None
+        llm_base_url = ollama_base_url
+    elif llm_provider == "anthropic":
+        llm_api_key = anthropic_api_key
+        llm_base_url = None
+    else:
+        llm_api_key = gemini_api_key
+        llm_base_url = None
     database_url = cast(str, values["DATABASE_URL"])
     neo4j_uri = cast(str, values["NEO4J_URI"])
     neo4j_user = cast(str, values["NEO4J_USER"])
@@ -315,8 +374,18 @@ def load_settings() -> Settings:
 
     return Settings(
         app_env=app_env,
+        llm_provider=llm_provider,
+        llm_api_key=llm_api_key,
+        llm_base_url=llm_base_url,
+        llm_model_id=llm_model_id,
         openai_api_key=openai_api_key,
-        openai_model_id=os.getenv("OPENAI_MODEL_ID", "gpt-4o-mini"),
+        openai_model_id=openai_model_id,
+        openai_base_url=openai_base_url,
+        openrouter_api_key=openrouter_api_key,
+        openrouter_base_url=openrouter_base_url,
+        ollama_base_url=ollama_base_url,
+        anthropic_api_key=anthropic_api_key,
+        gemini_api_key=gemini_api_key,
         database_url=database_url,
         db_pool_min=db_pool_min,
         db_pool_max=db_pool_max,
