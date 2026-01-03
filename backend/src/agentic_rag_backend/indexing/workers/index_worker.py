@@ -28,11 +28,7 @@ from agentic_rag_backend.db.redis import (
     get_redis_client,
 )
 from agentic_rag_backend.embeddings import EmbeddingGenerator
-from agentic_rag_backend.llm.providers import (
-    EmbeddingProviderAdapter,
-    EmbeddingProviderType,
-    get_embedding_adapter,
-)
+from agentic_rag_backend.llm.providers import get_embedding_adapter
 from agentic_rag_backend.indexing.chunker import chunk_document
 from agentic_rag_backend.indexing.graphiti_ingestion import ingest_document_as_episode
 from agentic_rag_backend.llm import UnsupportedLLMProviderError, get_llm_adapter

@@ -323,6 +323,12 @@ def load_settings() -> Settings:
     else:
         # Anthropic doesn't have native embeddings, default to openai
         embedding_provider = "openai"
+        logger.warning(
+            "embedding_provider_fallback",
+            llm_provider=llm_provider,
+            embedding_provider=embedding_provider,
+            hint="Set EMBEDDING_PROVIDER explicitly. Consider 'voyage' for Anthropic (recommended by Anthropic docs).",
+        )
 
     if embedding_provider not in EMBEDDING_PROVIDERS:
         raise ValueError(
@@ -387,7 +393,14 @@ def load_settings() -> Settings:
     model_pricing_json = os.getenv("MODEL_PRICING_JSON", "")
     if model_pricing_json:
         try:
-            json.loads(model_pricing_json)
+            pricing_data = json.loads(model_pricing_json)
+            if not isinstance(pricing_data, dict):
+                raise ValueError("MODEL_PRICING_JSON must be a JSON object (dict).")
+            for model_name, model_pricing in pricing_data.items():
+                if not isinstance(model_name, str):
+                    raise ValueError(f"MODEL_PRICING_JSON keys must be strings, got {type(model_name).__name__}.")
+                if not isinstance(model_pricing, dict):
+                    raise ValueError(f"MODEL_PRICING_JSON['{model_name}'] must be a dict with pricing info.")
         except json.JSONDecodeError as exc:
             raise ValueError("MODEL_PRICING_JSON must be valid JSON.") from exc
 

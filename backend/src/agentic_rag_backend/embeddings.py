@@ -8,6 +8,7 @@ Supports:
 - Voyage AI (voyage-3, voyage-3-lite, voyage-code-3)
 """
 
+import asyncio
 from abc import ABC, abstractmethod
 from typing import Optional
 from uuid import UUID
@@ -145,12 +146,17 @@ class GeminiEmbeddingClient(EmbeddingClient):
         ),
     )
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        """Embed batch using Gemini API."""
+        """Embed batch using Gemini API.
+
+        Uses asyncio.to_thread() to avoid blocking the event loop since
+        the Google Genai SDK uses synchronous HTTP calls.
+        """
         try:
-            # Gemini's embed_content supports batch embedding
+            # Run synchronous Gemini API calls in thread pool to avoid blocking
             embeddings = []
             for text in texts:
-                result = self._client.models.embed_content(
+                result = await asyncio.to_thread(
+                    self._client.models.embed_content,
                     model=self.model,
                     contents=text,
                 )
@@ -399,11 +405,12 @@ class EmbeddingGenerator:
                 # Truncate very long texts (rough character limit based on token estimates)
                 # Using 4 chars per token as rough estimate
                 max_chars = MAX_TOKENS_PER_REQUEST * 4
-                if len(text) > max_chars:
+                original_length = len(text)
+                if original_length > max_chars:
                     text = text[:max_chars]
                     logger.warning(
                         "text_truncated",
-                        original_length=len(texts[i]),
+                        original_length=original_length,
                         truncated_to=max_chars,
                     )
                 processed_texts.append(text)

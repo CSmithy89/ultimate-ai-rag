@@ -96,14 +96,14 @@ The current `crawler.py` uses httpx which:
 
 1. **Replace CrawlerService with AsyncWebCrawler**
 ```python
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
-from crawl4ai import MemoryAdaptiveDispatcher, CacheMode
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
+from crawl4ai.async_dispatcher import MemoryAdaptiveDispatcher
 
 browser_config = BrowserConfig(
     headless=True,
     viewport_width=1280,
     viewport_height=720,
-    java_script_enabled=True,
+    # JavaScript is enabled by default in Playwright
 )
 
 run_config = CrawlerRunConfig(
@@ -114,8 +114,9 @@ run_config = CrawlerRunConfig(
 )
 
 dispatcher = MemoryAdaptiveDispatcher(
-    max_session_permit=10,  # Concurrent sessions
-    max_session_permit_percent=0.8,  # Memory threshold
+    max_session_permit=10,           # Max concurrent sessions
+    memory_threshold_percent=80.0,   # Auto-throttle at 80% memory
+    check_interval=0.5,              # Check memory every 0.5 seconds
 )
 
 async with AsyncWebCrawler(config=browser_config) as crawler:
