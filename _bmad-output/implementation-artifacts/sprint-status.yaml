@@ -161,6 +161,7 @@ development_status:
   # DECISION: Reranker complements Graphiti (Stage 1 + Stage 2 retrieval)
   # DECISION: All features are CONFIGURABLE via environment flags
   # See: docs/guides/advanced-retrieval-configuration.md
+  # TECH DEBT (2026-01-04): Complete native Anthropic/Gemini adapter wiring per Epic 11 retro
   epic-12: backlog
   12-1-implement-cross-encoder-reranking: backlog
   # Config: RERANKER_ENABLED, RERANKER_PROVIDER (cohere|flashrank), RERANKER_TOP_K
@@ -250,4 +251,6 @@ development_status:
   # NOTE: 18-7 extends existing docs/guides/mcp-wrapper-architecture.md
   18-7-update-mcp-server-usage-guide: backlog
   18-8-create-cli-installation-manual: backlog
+  # TECH DEBT (2026-01-04): Audit workspace endpoints for RFC 7807 error format compliance
+  18-9-audit-rfc7807-error-compliance: backlog
   epic-18-retrospective: optional

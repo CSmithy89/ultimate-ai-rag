@@ -1720,3 +1720,19 @@ So that **users can onboard without assistance**.
   - Port in use
   - Out of memory
 **And** examples for interactive and non-interactive usage are provided
+
+### Story 18.9: Audit RFC 7807 Error Compliance
+
+As a **developer**,
+I want **all API endpoints to use RFC 7807 error format**,
+So that **error responses are consistent and machine-readable**.
+
+> **TECH DEBT (2026-01-04):** Added from code review - workspace endpoints need audit.
+
+**Acceptance Criteria:**
+
+**Given** an API error occurs
+**When** the error response is returned
+**Then** it follows RFC 7807 format with: type, title, status, detail, instance
+**And** workspace endpoints (/workspace/*) are audited for compliance
+**And** any non-compliant endpoints are updated
