@@ -112,6 +112,12 @@ class Settings:
     contextual_model: str
     contextual_prompt_caching: bool
     contextual_reindex_batch_size: int
+    # Epic 12 - Advanced Retrieval (Corrective RAG Grader)
+    grader_enabled: bool
+    grader_threshold: float
+    grader_fallback_enabled: bool
+    grader_fallback_strategy: str
+    tavily_api_key: Optional[str]
 
 
 def load_settings() -> Settings:
@@ -497,6 +503,21 @@ def load_settings() -> Settings:
     except ValueError:
         contextual_reindex_batch_size = 100
 
+    # Epic 12 - Corrective RAG Grader settings
+    grader_enabled_raw = os.getenv("GRADER_ENABLED", "false").strip().lower()
+    grader_enabled = grader_enabled_raw in {"true", "1", "yes"}
+    try:
+        grader_threshold = float(os.getenv("GRADER_THRESHOLD", "0.5"))
+        grader_threshold = max(0.0, min(1.0, grader_threshold))  # Clamp to 0.0-1.0
+    except ValueError:
+        grader_threshold = 0.5
+    grader_fallback_enabled_raw = os.getenv("GRADER_FALLBACK_ENABLED", "true").strip().lower()
+    grader_fallback_enabled = grader_fallback_enabled_raw in {"true", "1", "yes"}
+    grader_fallback_strategy = os.getenv("GRADER_FALLBACK_STRATEGY", "web_search")
+    if grader_fallback_strategy not in {"web_search", "expanded_query", "alternate_index"}:
+        grader_fallback_strategy = "web_search"
+    tavily_api_key = os.getenv("TAVILY_API_KEY")
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -583,6 +604,12 @@ def load_settings() -> Settings:
         contextual_model=contextual_model,
         contextual_prompt_caching=contextual_prompt_caching,
         contextual_reindex_batch_size=contextual_reindex_batch_size,
+        # Epic 12 - Corrective RAG Grader settings
+        grader_enabled=grader_enabled,
+        grader_threshold=grader_threshold,
+        grader_fallback_enabled=grader_fallback_enabled,
+        grader_fallback_strategy=grader_fallback_strategy,
+        tavily_api_key=tavily_api_key,
     )
 
 
