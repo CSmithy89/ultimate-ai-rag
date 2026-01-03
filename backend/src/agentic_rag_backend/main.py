@@ -18,6 +18,7 @@ from starlette.responses import JSONResponse, Response
 import structlog
 
 from .agents.orchestrator import OrchestratorAgent
+from .retrieval import create_reranker_client, get_reranker_adapter
 from .api.routes import (
     ingest_router,
     knowledge_router,
@@ -183,6 +184,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             window_seconds=60,
         )
         app.state.redis = None
+        # Create reranker if enabled
+        reranker = None
+        if settings.reranker_enabled:
+            try:
+                reranker_adapter = get_reranker_adapter(settings)
+                reranker = create_reranker_client(reranker_adapter)
+                struct_logger.info(
+                    "reranker_enabled",
+                    provider=settings.reranker_provider,
+                    model=settings.reranker_model,
+                )
+            except Exception as e:
+                struct_logger.warning("reranker_init_failed", error=str(e))
+
         app.state.orchestrator = OrchestratorAgent(
             api_key=llm_adapter.api_key or "",
             provider=llm_adapter.provider,
@@ -197,6 +212,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             embedding_model=settings.embedding_model,
             cost_tracker=getattr(app.state, "cost_tracker", None),
             model_router=getattr(app.state, "model_router", None),
+            reranker=reranker,
+            reranker_top_k=settings.reranker_top_k,
         )
     else:
         pool = create_pool(settings.database_url, settings.db_pool_min, settings.db_pool_max)
@@ -233,6 +250,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 max_requests=settings.rate_limit_per_minute,
                 window_seconds=60,
             )
+
+        # Create reranker if enabled
+        reranker = None
+        if settings.reranker_enabled:
+            try:
+                reranker_adapter = get_reranker_adapter(settings)
+                reranker = create_reranker_client(reranker_adapter)
+                struct_logger.info(
+                    "reranker_enabled",
+                    provider=settings.reranker_provider,
+                    model=settings.reranker_model,
+                )
+            except Exception as e:
+                struct_logger.warning("reranker_init_failed", error=str(e))
+
         app.state.orchestrator = OrchestratorAgent(
             api_key=llm_adapter.api_key or "",
             provider=llm_adapter.provider,
@@ -247,6 +279,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             embedding_model=settings.embedding_model,
             cost_tracker=getattr(app.state, "cost_tracker", None),
             model_router=getattr(app.state, "model_router", None),
+            reranker=reranker,
+            reranker_top_k=settings.reranker_top_k,
         )
 
     app.state.a2a_manager = A2ASessionManager(

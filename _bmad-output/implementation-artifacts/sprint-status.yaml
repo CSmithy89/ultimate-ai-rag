@@ -162,8 +162,8 @@ development_status:
   # DECISION: All features are CONFIGURABLE via environment flags
   # See: docs/guides/advanced-retrieval-configuration.md
   # TECH DEBT (2026-01-04): Complete native Anthropic/Gemini adapter wiring per Epic 11 retro
-  epic-12: backlog
-  12-1-implement-cross-encoder-reranking: backlog
+  epic-12: in-progress
+  12-1-implement-cross-encoder-reranking: done
   # Config: RERANKER_ENABLED, RERANKER_PROVIDER (cohere|flashrank), RERANKER_TOP_K
   12-2-implement-contextual-retrieval-chunking: backlog
   # Config: CONTEXTUAL_RETRIEVAL_ENABLED, uses prompt caching + cost-effective model

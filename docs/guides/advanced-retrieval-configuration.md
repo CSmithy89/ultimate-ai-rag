@@ -51,21 +51,21 @@ Add these to your `.env` file to enable/configure advanced retrieval:
 RERANKER_ENABLED=true
 
 # Reranker provider selection
-# Options: cohere | flashrank | none
-# - cohere: High accuracy, API-based, 100+ languages, 32K context (Rerank 4)
+# Options: cohere | flashrank
+# - cohere: High accuracy, API-based, 100+ languages, 32K context (Rerank v3.5)
 # - flashrank: CPU-optimized, local, no API cost, good for cost-sensitive deployments
 RERANKER_PROVIDER=flashrank
 
 # Number of top results after reranking (default: 10)
 RERANKER_TOP_K=10
 
-# Cohere-specific settings (only if RERANKER_PROVIDER=cohere)
-COHERE_API_KEY=your-cohere-api-key
-COHERE_RERANK_MODEL=rerank-v3.5  # or rerank-v4-pro, rerank-v4-fast
+# Model override (optional, uses provider defaults)
+# Cohere default: rerank-v3.5
+# FlashRank default: ms-marco-MiniLM-L-12-v2
+RERANKER_MODEL=rerank-v3.5
 
-# FlashRank-specific settings (only if RERANKER_PROVIDER=flashrank)
-FLASHRANK_MODEL=ms-marco-MiniLM-L-12-v2  # Default model
-FLASHRANK_CACHE_DIR=/tmp/flashrank_cache
+# Cohere API key (required only if RERANKER_PROVIDER=cohere)
+COHERE_API_KEY=your-cohere-api-key
 
 # ============================================
 # CONTEXTUAL RETRIEVAL (Story 12-2)
@@ -136,28 +136,34 @@ Cross-encoders score the **query + document pair together**, providing higher pr
 #### Code Integration Point
 
 ```python
-# backend/src/agentic_rag_backend/retrieval/reranker.py
+# backend/src/agentic_rag_backend/retrieval/reranking.py
 
-from agentic_rag_backend.config import settings
+from agentic_rag_backend.retrieval import (
+    create_reranker_client,
+    get_reranker_adapter,
+    RerankerProviderType,
+)
+from agentic_rag_backend.config import get_settings
 
-class RerankerFactory:
-    @staticmethod
-    def create() -> Optional[Reranker]:
-        if not settings.RERANKER_ENABLED:
-            return None
+settings = get_settings()
 
-        if settings.RERANKER_PROVIDER == "cohere":
-            return CohereReranker(
-                api_key=settings.COHERE_API_KEY,
-                model=settings.COHERE_RERANK_MODEL,
-                top_k=settings.RERANKER_TOP_K
-            )
-        elif settings.RERANKER_PROVIDER == "flashrank":
-            return FlashRankReranker(
-                model=settings.FLASHRANK_MODEL,
-                top_k=settings.RERANKER_TOP_K
-            )
-        return None
+# Create reranker if enabled
+reranker = None
+if settings.reranker_enabled:
+    adapter = get_reranker_adapter(settings)
+    reranker = create_reranker_client(adapter)
+
+# Use in retrieval pipeline
+if reranker:
+    reranked = await reranker.rerank(
+        query=query,
+        hits=vector_hits,
+        top_k=settings.reranker_top_k,
+    )
+    # reranked contains RerankedHit objects with:
+    # - hit: the original VectorHit
+    # - rerank_score: cross-encoder score (0.0-1.0)
+    # - original_rank: position before reranking
 ```
 
 ---
