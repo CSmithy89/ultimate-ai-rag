@@ -14,6 +14,7 @@ from ..retrieval_router import RetrievalStrategy, select_retrieval_strategy
 from ..db.neo4j import Neo4jClient
 from ..db.postgres import PostgresClient
 from ..embeddings import DEFAULT_EMBEDDING_MODEL, EmbeddingGenerator
+from ..llm.providers import EmbeddingProviderAdapter, EmbeddingProviderType
 from ..retrieval import GraphTraversalService, VectorSearchService
 from ..retrieval.constants import (
     DEFAULT_ENTITY_LIMIT,
@@ -40,20 +41,33 @@ from ..ops import CostTracker, ModelRouter
 
 if TYPE_CHECKING:
     from agno.agent import Agent as AgnoAgentType
-    from agno.models.openai import OpenAIChat as AgnoOpenAIChatType
 else:  # pragma: no cover - typing only
     AgnoAgentType = Any
-    AgnoOpenAIChatType = Any
 
 AgnoAgentImpl: type[Any] | None = None
 AgnoOpenAIChatImpl: type[Any] | None = None
+AgnoClaudeImpl: type[Any] | None = None
+AgnoGeminiImpl: type[Any] | None = None
 
 try:  # pragma: no cover - optional dependency at runtime
     from agno.agent import Agent as AgnoAgentImpl
-    from agno.models.openai import OpenAIChat as AgnoOpenAIChatImpl
 except ImportError:  # pragma: no cover - optional dependency at runtime
     AgnoAgentImpl = None
+
+try:  # pragma: no cover - optional dependency at runtime
+    from agno.models.openai import OpenAIChat as AgnoOpenAIChatImpl
+except ImportError:  # pragma: no cover - optional dependency at runtime
     AgnoOpenAIChatImpl = None
+
+try:  # pragma: no cover - optional dependency at runtime
+    from agno.models.anthropic import Claude as AgnoClaudeImpl
+except ImportError:  # pragma: no cover - optional dependency at runtime
+    AgnoClaudeImpl = None
+
+try:  # pragma: no cover - optional dependency at runtime
+    from agno.models.google import Gemini as AgnoGeminiImpl
+except ImportError:  # pragma: no cover - optional dependency at runtime
+    AgnoGeminiImpl = None
 
 logger = structlog.get_logger(__name__)
 
@@ -75,8 +89,12 @@ class OrchestratorAgent:
     def __init__(
         self,
         api_key: str,
+        provider: str = "openai",
         model_id: str = "gpt-4o-mini",
         base_url: str | None = None,
+        embedding_provider: str = "openai",
+        embedding_api_key: str | None = None,
+        embedding_base_url: str | None = None,
         logger: TrajectoryLogger | None = None,
         cost_tracker: CostTracker | None = None,
         model_router: ModelRouter | None = None,
@@ -92,19 +110,28 @@ class OrchestratorAgent:
         retrieval_cache_ttl_seconds: float | None = None,
     ) -> None:
         self._api_key = api_key
+        self._provider = provider
         self._logger = logger
         self._cost_tracker = cost_tracker
         self._model_router = model_router
         self._model_id = model_id
         self._base_url = base_url
+        self._embedding_provider = embedding_provider
+        self._embedding_api_key = embedding_api_key or api_key
+        self._embedding_base_url = embedding_base_url or base_url
         self._agents: dict[str, Any] = {}
         self._vector_search: VectorSearchService | None = None
         self._graph_traversal: GraphTraversalService | None = None
         if postgres:
-            embedding_generator = EmbeddingGenerator(
-                api_key=api_key,
+            # Create embedding generator using provider adapter
+            embedding_adapter = EmbeddingProviderAdapter(
+                provider=EmbeddingProviderType(embedding_provider),
+                api_key=self._embedding_api_key,
+                base_url=self._embedding_base_url,
                 model=embedding_model,
-                base_url=base_url,
+            )
+            embedding_generator = EmbeddingGenerator.from_adapter(
+                adapter=embedding_adapter,
                 cost_tracker=cost_tracker,
             )
             self._vector_search = VectorSearchService(
@@ -153,26 +180,60 @@ class OrchestratorAgent:
                 ),
             )
 
-    def _build_chat_model(self, model_id: str) -> AgnoOpenAIChatType:
-        kwargs: dict[str, Any] = {"api_key": self._api_key, "id": model_id}
-        if self._base_url:
-            try:
-                params = inspect.signature(AgnoOpenAIChatImpl).parameters
-            except (TypeError, ValueError):  # pragma: no cover - fallback path
-                params = {}
-            if "base_url" in params:
+    def _build_chat_model(self, model_id: str) -> Any:
+        if self._provider in {"openai", "openrouter", "ollama"}:
+            model_cls = AgnoOpenAIChatImpl
+        elif self._provider == "anthropic":
+            model_cls = AgnoClaudeImpl
+        elif self._provider == "gemini":
+            model_cls = AgnoGeminiImpl
+        else:
+            raise RuntimeError(f"Unsupported LLM provider: {self._provider}")
+
+        if model_cls is None:
+            raise RuntimeError(
+                f"Provider {self._provider!r} requires optional agno dependencies."
+            )
+
+        try:
+            params = inspect.signature(model_cls).parameters
+        except (TypeError, ValueError):  # pragma: no cover - fallback path
+            params = {}
+
+        accepts_kwargs = any(
+            param.kind == inspect.Parameter.VAR_KEYWORD for param in params.values()
+        )
+        kwargs: dict[str, Any] = {}
+        if "api_key" in params or accepts_kwargs:
+            kwargs["api_key"] = self._api_key
+        if "id" in params:
+            kwargs["id"] = model_id
+        elif "model" in params:
+            kwargs["model"] = model_id
+        elif "model_id" in params:
+            kwargs["model_id"] = model_id
+        else:
+            kwargs["id"] = model_id
+
+        if self._provider in {"openai", "openrouter", "ollama"} and self._base_url:
+            if "base_url" in params or accepts_kwargs:
                 kwargs["base_url"] = self._base_url
-            elif "api_base" in params:
+            elif "api_base" in params or accepts_kwargs:
                 kwargs["api_base"] = self._base_url
-        return AgnoOpenAIChatImpl(**kwargs)
+
+        return model_cls(**kwargs)
 
     def _get_agent(self, model_id: str) -> AgnoAgentType | None:
-        if AgnoAgentImpl is None or AgnoOpenAIChatImpl is None:
+        if AgnoAgentImpl is None:
             return None
         cached = self._agents.get(model_id)
         if cached:
             return cached
-        agent = AgnoAgentImpl(model=self._build_chat_model(model_id))
+        try:
+            agent = AgnoAgentImpl(model=self._build_chat_model(model_id))
+        except RuntimeError as exc:
+            logger.warning("agno_agent_unavailable", error=str(exc))
+            return None
         self._agents[model_id] = agent
         return agent
 

@@ -58,8 +58,13 @@ class TestEmbeddingGenerator:
         """Create an EmbeddingGenerator with mocked client."""
         with patch("agentic_rag_backend.embeddings.AsyncOpenAI") as mock_class:
             mock_class.return_value = mock_openai_client
-            gen = EmbeddingGenerator(api_key="test-key", model="text-embedding-ada-002")
-            gen.client = mock_openai_client
+            # Use the backward-compatible class method
+            gen = EmbeddingGenerator.from_openai_config(
+                api_key="test-key",
+                model="text-embedding-ada-002",
+            )
+            # Replace the client with our mock
+            gen._client.client = mock_openai_client
             return gen
 
     @pytest.mark.asyncio
@@ -113,12 +118,12 @@ class TestEmbeddingGenerator:
 
         with patch("agentic_rag_backend.embeddings.AsyncOpenAI") as mock_class:
             mock_class.return_value = mock_openai_client
-            generator = EmbeddingGenerator(
+            generator = EmbeddingGenerator.from_openai_config(
                 api_key="test-key",
                 model="text-embedding-ada-002",
                 cost_tracker=cost_tracker,
             )
-            generator.client = mock_openai_client
+            generator._client.client = mock_openai_client
 
             await generator.generate_embeddings(
                 ["Text one", "Text two"],

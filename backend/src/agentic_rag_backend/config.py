@@ -15,6 +15,7 @@ import structlog
 DEFAULT_SEARCH_RESULTS = 5
 MAX_SEARCH_RESULTS = 100
 LLM_PROVIDERS = {"openai", "openrouter", "ollama", "anthropic", "gemini"}
+EMBEDDING_PROVIDERS = {"openai", "openrouter", "ollama", "gemini", "voyage"}
 DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 
@@ -37,6 +38,11 @@ class Settings:
     ollama_base_url: str
     anthropic_api_key: Optional[str]
     gemini_api_key: Optional[str]
+    voyage_api_key: Optional[str]
+    # Embedding provider settings (separate from LLM provider)
+    embedding_provider: str
+    embedding_api_key: Optional[str]
+    embedding_base_url: Optional[str]
     database_url: str
     db_pool_min: int
     db_pool_max: int
@@ -304,6 +310,25 @@ def load_settings() -> Settings:
     ollama_base_url = os.getenv("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
     anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
     gemini_api_key = os.getenv("GEMINI_API_KEY")
+    voyage_api_key = os.getenv("VOYAGE_API_KEY")
+
+    # Embedding provider configuration
+    # Default to LLM_PROVIDER if it supports embeddings, otherwise openai
+    embedding_provider_env = os.getenv("EMBEDDING_PROVIDER", "").strip().lower()
+    if embedding_provider_env:
+        embedding_provider = embedding_provider_env
+    elif llm_provider in EMBEDDING_PROVIDERS:
+        # Use LLM provider for embeddings if it supports them
+        embedding_provider = llm_provider
+    else:
+        # Anthropic doesn't have native embeddings, default to openai
+        embedding_provider = "openai"
+
+    if embedding_provider not in EMBEDDING_PROVIDERS:
+        raise ValueError(
+            "EMBEDDING_PROVIDER must be one of: openai, openrouter, ollama, gemini, voyage."
+        )
+
     if llm_provider == "openai":
         llm_api_key = openai_api_key
         llm_base_url = openai_base_url or None
@@ -319,6 +344,41 @@ def load_settings() -> Settings:
     else:
         llm_api_key = gemini_api_key
         llm_base_url = None
+
+    # Derive embedding API credentials based on embedding_provider
+    if embedding_provider == "openai":
+        embedding_api_key = openai_api_key
+        embedding_base_url = openai_base_url or None
+    elif embedding_provider == "openrouter":
+        embedding_api_key = openrouter_api_key
+        embedding_base_url = openrouter_base_url
+    elif embedding_provider == "ollama":
+        embedding_api_key = os.getenv("OLLAMA_API_KEY") or None
+        embedding_base_url = ollama_base_url
+    elif embedding_provider == "gemini":
+        embedding_api_key = gemini_api_key
+        embedding_base_url = None  # Gemini uses its own client
+    elif embedding_provider == "voyage":
+        embedding_api_key = voyage_api_key
+        embedding_base_url = None  # Voyage uses its own client
+    else:
+        embedding_api_key = openai_api_key  # Fallback to OpenAI
+        embedding_base_url = openai_base_url or None
+
+    # Validate embedding provider API key is set
+    embedding_provider_keys = {
+        "openai": ("OPENAI_API_KEY", openai_api_key),
+        "openrouter": ("OPENROUTER_API_KEY", openrouter_api_key),
+        "gemini": ("GEMINI_API_KEY", gemini_api_key),
+        "voyage": ("VOYAGE_API_KEY", voyage_api_key),
+    }
+    if embedding_provider in embedding_provider_keys:
+        key_name, key_value = embedding_provider_keys[embedding_provider]
+        if not key_value:
+            raise ValueError(
+                f"{key_name} is required when EMBEDDING_PROVIDER={embedding_provider}."
+            )
+
     database_url = cast(str, values["DATABASE_URL"])
     neo4j_uri = cast(str, values["NEO4J_URI"])
     neo4j_user = cast(str, values["NEO4J_USER"])
@@ -386,6 +446,10 @@ def load_settings() -> Settings:
         ollama_base_url=ollama_base_url,
         anthropic_api_key=anthropic_api_key,
         gemini_api_key=gemini_api_key,
+        voyage_api_key=voyage_api_key,
+        embedding_provider=embedding_provider,
+        embedding_api_key=embedding_api_key,
+        embedding_base_url=embedding_base_url,
         database_url=database_url,
         db_pool_min=db_pool_min,
         db_pool_max=db_pool_max,

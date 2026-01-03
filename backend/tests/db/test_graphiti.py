@@ -187,7 +187,9 @@ class TestGraphitiClient:
             uri="bolt://localhost:7687",
             user="neo4j",
             password="password",
-            openai_api_key="sk-test",
+            llm_provider="openai",
+            llm_api_key="sk-test",
+            embedding_api_key="sk-test",
         )
         assert client.uri == "bolt://localhost:7687"
         assert client.user == "neo4j"
@@ -202,7 +204,9 @@ class TestGraphitiClient:
             uri="bolt://localhost:7687",
             user="neo4j",
             password="password",
-            openai_api_key="sk-test",
+            llm_provider="openai",
+            llm_api_key="sk-test",
+            embedding_api_key="sk-test",
         )
         with pytest.raises(RuntimeError, match="not connected"):
             _ = client.client
@@ -222,7 +226,9 @@ class TestGraphitiClient:
                 uri="bolt://localhost:7687",
                 user="neo4j",
                 password="password",
-                openai_api_key="sk-test",
+                llm_provider="openai",
+                llm_api_key="sk-test",
+                embedding_api_key="sk-test",
             )
             await client.connect()
 
@@ -247,7 +253,9 @@ class TestGraphitiClient:
                 uri="bolt://localhost:7687",
                 user="neo4j",
                 password="password",
-                openai_api_key="sk-test",
+                llm_provider="openai",
+                llm_api_key="sk-test",
+                embedding_api_key="sk-test",
             )
             await client.connect()
             await client.disconnect()
@@ -271,7 +279,9 @@ class TestGraphitiClient:
                 uri="bolt://localhost:7687",
                 user="neo4j",
                 password="password",
-                openai_api_key="sk-test",
+                llm_provider="openai",
+                llm_api_key="sk-test",
+                embedding_api_key="sk-test",
             )
             await client.connect()
             await client.build_indices()
@@ -286,7 +296,9 @@ class TestGraphitiClient:
             uri="bolt://localhost:7687",
             user="neo4j",
             password="password",
-            openai_api_key="sk-test",
+            llm_provider="openai",
+            llm_api_key="sk-test",
+            embedding_api_key="sk-test",
         )
         entity_types = client.get_entity_types()
 
@@ -301,7 +313,9 @@ class TestGraphitiClient:
             uri="bolt://localhost:7687",
             user="neo4j",
             password="password",
-            openai_api_key="sk-test",
+            llm_provider="openai",
+            llm_api_key="sk-test",
+            embedding_api_key="sk-test",
         )
         mappings = client.get_edge_type_mappings()
 

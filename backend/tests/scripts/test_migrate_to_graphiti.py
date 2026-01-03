@@ -17,6 +17,18 @@ class _FakeSettings:
     neo4j_user = "neo4j"
     neo4j_password = "test"
     openai_api_key = "test"
+    openai_base_url = None
+    anthropic_api_key = None
+    gemini_api_key = None
+    voyage_api_key = None
+    llm_provider = "openai"
+    llm_api_key = "test"
+    llm_base_url = None
+    # Multi-provider embedding support
+    embedding_provider = "openai"
+    embedding_api_key = "test"
+    embedding_base_url = None
+    embedding_model = "text-embedding-ada-002"
     graphiti_embedding_model = "text-embedding-3-small"
     graphiti_llm_model = "gpt-4o-mini"
 

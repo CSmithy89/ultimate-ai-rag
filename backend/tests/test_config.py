@@ -5,18 +5,11 @@ from __future__ import annotations
 import pytest
 
 from agentic_rag_backend.config import load_settings
-
-
-def _set_core_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://test:test@localhost/test")
-    monkeypatch.setenv("NEO4J_URI", "bolt://localhost:7687")
-    monkeypatch.setenv("NEO4J_USER", "neo4j")
-    monkeypatch.setenv("NEO4J_PASSWORD", "neo4j_password")
-    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+from tests.test_utils import set_core_env
 
 
 def test_load_settings_defaults_to_openai(monkeypatch: pytest.MonkeyPatch) -> None:
-    _set_core_env(monkeypatch)
+    set_core_env(monkeypatch)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
 
@@ -29,7 +22,7 @@ def test_load_settings_defaults_to_openai(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_load_settings_openrouter(monkeypatch: pytest.MonkeyPatch) -> None:
-    _set_core_env(monkeypatch)
+    set_core_env(monkeypatch)
     monkeypatch.setenv("LLM_PROVIDER", "openrouter")
     monkeypatch.setenv("OPENROUTER_API_KEY", "router-key")
     monkeypatch.setenv("OPENAI_API_KEY", "")
@@ -42,7 +35,7 @@ def test_load_settings_openrouter(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_load_settings_requires_anthropic_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    _set_core_env(monkeypatch)
+    set_core_env(monkeypatch)
     monkeypatch.setenv("LLM_PROVIDER", "anthropic")
     monkeypatch.setenv("OPENAI_API_KEY", "")
 
@@ -53,7 +46,7 @@ def test_load_settings_requires_anthropic_key(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_llm_model_id_overrides_openai_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    _set_core_env(monkeypatch)
+    set_core_env(monkeypatch)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("OPENAI_MODEL_ID", "gpt-4o-mini")
     monkeypatch.setenv("LLM_MODEL_ID", "gpt-4o")

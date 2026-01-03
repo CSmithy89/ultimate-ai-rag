@@ -154,8 +154,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     uri=settings.neo4j_uri,
                     user=settings.neo4j_user,
                     password=settings.neo4j_password,
-                    openai_api_key=llm_adapter.api_key or "",
-                    openai_base_url=llm_adapter.base_url,
+                    llm_provider=llm_adapter.provider,
+                    llm_api_key=llm_adapter.api_key,
+                    llm_base_url=llm_adapter.base_url,
+                    embedding_provider=settings.embedding_provider,
+                    embedding_api_key=settings.embedding_api_key,
+                    embedding_base_url=settings.embedding_base_url,
                     embedding_model=settings.graphiti_embedding_model,
                     llm_model=settings.graphiti_llm_model,
                 )
@@ -181,8 +185,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.redis = None
         app.state.orchestrator = OrchestratorAgent(
             api_key=llm_adapter.api_key or "",
+            provider=llm_adapter.provider,
             model_id=settings.llm_model_id,
             base_url=llm_adapter.base_url,
+            embedding_provider=settings.embedding_provider,
+            embedding_api_key=settings.embedding_api_key,
+            embedding_base_url=settings.embedding_base_url,
             logger=None,
             postgres=getattr(app.state, "postgres", None),
             neo4j=getattr(app.state, "neo4j", None),
@@ -227,8 +235,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             )
         app.state.orchestrator = OrchestratorAgent(
             api_key=llm_adapter.api_key or "",
+            provider=llm_adapter.provider,
             model_id=settings.llm_model_id,
             base_url=llm_adapter.base_url,
+            embedding_provider=settings.embedding_provider,
+            embedding_api_key=settings.embedding_api_key,
+            embedding_base_url=settings.embedding_base_url,
             logger=app.state.trajectory_logger,
             postgres=getattr(app.state, "postgres", None),
             neo4j=getattr(app.state, "neo4j", None),

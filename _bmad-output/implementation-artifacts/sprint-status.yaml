@@ -149,6 +149,7 @@ development_status:
   # NEW: Universalization Refactor
   11-10-refactor-config-multiprovider: done
   11-11-implement-provider-adapter-pattern: done
+  11-12-implement-multi-provider-embeddings: done
   epic-11-retrospective: done
 
   # Epic 12: Advanced Retrieval (The "Archon" Upgrade)

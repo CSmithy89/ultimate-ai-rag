@@ -7,6 +7,7 @@ for knowledge graph extraction.
 
 import asyncio
 import hashlib
+import os
 import time
 from typing import Optional
 from uuid import UUID
@@ -27,6 +28,11 @@ from agentic_rag_backend.db.redis import (
     get_redis_client,
 )
 from agentic_rag_backend.embeddings import EmbeddingGenerator
+from agentic_rag_backend.llm.providers import (
+    EmbeddingProviderAdapter,
+    EmbeddingProviderType,
+    get_embedding_adapter,
+)
 from agentic_rag_backend.indexing.chunker import chunk_document
 from agentic_rag_backend.indexing.graphiti_ingestion import ingest_document_as_episode
 from agentic_rag_backend.llm import UnsupportedLLMProviderError, get_llm_adapter
@@ -46,6 +52,7 @@ async def process_index_job(
     postgres: PostgresClient,
     embedding_generator: EmbeddingGenerator,
     graphiti_client: Optional[GraphitiClient],
+    skip_graphiti_ingestion: bool,
     chunk_size: int,
     chunk_overlap: int,
 ) -> None:
@@ -71,6 +78,7 @@ async def process_index_job(
         postgres: PostgreSQL client for status updates
         embedding_generator: Embedding generator for chunk storage
         graphiti_client: Connected Graphiti client for graph ingestion
+        skip_graphiti_ingestion: Skip Graphiti ingestion when disabled
         chunk_size: Target chunk size in tokens
         chunk_overlap: Token overlap between chunks
 
@@ -220,13 +228,21 @@ async def process_index_job(
                 },
             )
 
+        ingestion_result = None
         if graphiti_client is None or not graphiti_client.is_connected:
-            raise IngestionError(str(document_id), "Graphiti client not available")
-
-        ingestion_result = await ingest_document_as_episode(
-            graphiti_client=graphiti_client,
-            document=document,
-        )
+            if skip_graphiti_ingestion:
+                logger.warning(
+                    "graphiti_ingestion_skipped",
+                    document_id=str(document_id),
+                    tenant_id=str(tenant_id),
+                )
+            else:
+                raise IngestionError(str(document_id), "Graphiti client not available")
+        else:
+            ingestion_result = await ingest_document_as_episode(
+                graphiti_client=graphiti_client,
+                document=document,
+            )
 
         processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 
@@ -245,6 +261,12 @@ async def process_index_job(
         )
 
         # Update job status to completed
+        entities_extracted = 0
+        relationships_extracted = 0
+        if ingestion_result is not None:
+            entities_extracted = ingestion_result.entities_extracted
+            relationships_extracted = ingestion_result.edges_created
+
         await postgres.update_job_status(
             job_id=job_id,
             tenant_id=tenant_id,
@@ -252,8 +274,8 @@ async def process_index_job(
             progress={
                 "chunks_processed": len(chunks),
                 "total_chunks": len(chunks),
-                "entities_extracted": ingestion_result.entities_extracted,
-                "relationships_extracted": ingestion_result.edges_created,
+                "entities_extracted": entities_extracted,
+                "relationships_extracted": relationships_extracted,
                 "processing_time_ms": processing_time_ms,
             },
         )
@@ -263,8 +285,8 @@ async def process_index_job(
             job_id=str(job_id),
             document_id=str(document_id),
             chunks_created=len(chunks),
-            entities_extracted=ingestion_result.entities_extracted,
-            relationships_extracted=ingestion_result.edges_created,
+            entities_extracted=entities_extracted,
+            relationships_extracted=relationships_extracted,
             processing_time_ms=processing_time_ms,
         )
 
@@ -358,29 +380,38 @@ async def run_index_worker(
         pricing_json=settings.model_pricing_json,
     )
 
+    # Get embedding adapter for multi-provider support
+    embedding_adapter = get_embedding_adapter(settings)
+
+    skip_graphiti_ingestion = os.getenv("SKIP_GRAPHITI") == "1"
     graphiti_client: Optional[GraphitiClient] = None
-    if GRAPHITI_AVAILABLE:
+    if skip_graphiti_ingestion:
+        logger.warning("graphiti_ingestion_disabled")
+    elif GRAPHITI_AVAILABLE:
         try:
             graphiti_client = await create_graphiti_client(
                 uri=settings.neo4j_uri,
                 user=settings.neo4j_user,
                 password=settings.neo4j_password,
-                openai_api_key=llm_adapter.api_key or "",
-                openai_base_url=llm_adapter.base_url,
+                llm_provider=llm_adapter.provider,
+                llm_api_key=llm_adapter.api_key,
+                llm_base_url=llm_adapter.base_url,
+                embedding_provider=settings.embedding_provider,
+                embedding_api_key=settings.embedding_api_key,
+                embedding_base_url=settings.embedding_base_url,
                 embedding_model=settings.graphiti_embedding_model,
                 llm_model=settings.graphiti_llm_model,
             )
             logger.info("graphiti_worker_connected")
         except Exception as e:
             logger.error("graphiti_worker_connect_failed", error=str(e))
-            graphiti_client = None
+            raise RuntimeError("Graphiti unavailable for index worker") from e
     else:
-        logger.warning("graphiti_not_available_for_worker")
+        raise RuntimeError("graphiti-core is not installed for index worker")
 
-    embedding_generator = EmbeddingGenerator(
-        api_key=llm_adapter.api_key,
-        model=settings.embedding_model,
-        base_url=llm_adapter.base_url,
+    # Create embedding generator using the multi-provider adapter
+    embedding_generator = EmbeddingGenerator.from_adapter(
+        adapter=embedding_adapter,
         cost_tracker=cost_tracker,
     )
 
@@ -406,6 +437,7 @@ async def run_index_worker(
                 postgres=postgres,
                 embedding_generator=embedding_generator,
                 graphiti_client=graphiti_client,
+                skip_graphiti_ingestion=skip_graphiti_ingestion,
                 chunk_size=settings.chunk_size,
                 chunk_overlap=settings.chunk_overlap,
             )

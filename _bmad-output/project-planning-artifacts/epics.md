@@ -180,6 +180,66 @@ Ops engineers can monitor real-time LLM costs, configure intelligent model routi
 **FRs covered:** FR23, FR24, FR25
 **NFRs addressed:** NFR3 (multi-tenant isolation), NFR4 (encrypted traces)
 
+### Epic 9: Process & Quality Foundation (Tech Debt)
+Strengthen planning and review rigor with templates, checklists, and status synchronization.
+
+**FRs covered:** (roadmap enhancements; no new FRs)
+**NFRs addressed:** (quality gates and process reliability)
+
+### Epic 10: Testing Infrastructure (Tech Debt)
+Establish integration test coverage across retrieval, ingestion, and protocol compliance.
+
+**FRs covered:** (roadmap enhancements; no new FRs)
+**NFRs addressed:** (quality and reliability validation)
+
+### Epic 11: Code Cleanup & Migration (Revised)
+Complete Graphiti migration and harden platform fundamentals including HITL, persistence, and multi-provider support.
+
+**FRs covered:** (roadmap enhancements; no new FRs)
+**NFRs addressed:** NFR3 (isolation), NFR4 (trace security), NFR8 (recovery)
+
+### Epic 12: Advanced Retrieval (Archon Upgrade)
+Improve retrieval quality with reranking, contextual embeddings, and corrective grading.
+
+**FRs covered:** (roadmap enhancements; no new FRs)
+**NFRs addressed:** NFR1 (response quality), NFR2 (retrieval precision)
+
+### Epic 13: Enterprise Ingestion
+Add resilient ingestion adapters and transcript-first YouTube processing.
+
+**FRs covered:** (roadmap enhancements; no new FRs)
+**NFRs addressed:** NFR2 (ingestion performance)
+
+### Epic 14: Connectivity
+Expose tools via MCP server and strengthen A2A collaboration.
+
+**FRs covered:** (roadmap enhancements; no new FRs)
+**NFRs addressed:** NFR7 (protocol compliance)
+
+### Epic 15: Multimodal & Codebase
+Add video and image ingestion plus hallucination detection.
+
+**FRs covered:** (roadmap enhancements; no new FRs)
+**NFRs addressed:** NFR1 (response quality)
+
+### Epic 16: Framework Agnosticism
+Define headless agent protocol and framework adapters.
+
+**FRs covered:** (roadmap enhancements; no new FRs)
+**NFRs addressed:** NFR7 (interoperability)
+
+### Epic 17: Deployment & CLI (Final Polish)
+Deliver an interactive CLI install flow with hardware detection and startup verification.
+
+**FRs covered:** (roadmap enhancements; no new FRs)
+**NFRs addressed:** (installation reliability)
+
+### Epic 18: Enhanced Documentation & DevOps (Manual)
+Add documentation and DevOps automation for long-term maintainability.
+
+**FRs covered:** (roadmap enhancements; no new FRs)
+**NFRs addressed:** (security and maintainability)
+
 ---
 
 ## Epic 1: Foundation & Developer Quick Start
@@ -768,3 +828,746 @@ So that **sensitive query content is protected from unauthorized access**.
 **And** decryption only occurs for authorized access
 **And** multi-tenant data remains isolated (NFR3)
 **And** encryption does not significantly impact query latency
+
+---
+
+## Epic 9: Process & Quality Foundation (Tech Debt)
+
+Improve delivery quality with shared standards, checklists, and consistent status tracking.
+
+### Story 9.1: Retrospective Action Item Tracking
+
+As a **scrum master**,
+I want **to track retrospective action items with owners and due dates**,
+So that **continuous improvement items are implemented**.
+
+**Acceptance Criteria:**
+
+**Given** a retrospective is completed
+**When** action items are recorded
+**Then** each item includes owner, due date, and status
+**And** items are visible in sprint tracking
+
+### Story 9.2: Story Template Standards Section
+
+As a **scrum master**,
+I want **story templates to include standards and expectations**,
+So that **teams apply consistent quality criteria**.
+
+**Acceptance Criteria:**
+
+**Given** a new story is created
+**When** the template is applied
+**Then** a standards section is included
+**And** reviewers use it during story review
+
+### Story 9.3: Pre-Review Quality Checklist
+
+As a **developer**,
+I want **a pre-review checklist**,
+So that **code meets quality expectations before review**.
+
+**Acceptance Criteria:**
+
+**Given** a story is ready for review
+**When** the developer completes the checklist
+**Then** required items are validated and recorded
+**And** missing items block review submission
+
+### Story 9.4: Protocol Compliance Checklist
+
+As a **developer**,
+I want **a protocol compliance checklist**,
+So that **MCP, A2A, and AG-UI requirements are not missed**.
+
+**Acceptance Criteria:**
+
+**Given** a protocol-related story is completed
+**When** compliance is reviewed
+**Then** checklist items confirm spec adherence
+**And** non-compliance is logged for remediation
+
+### Story 9.5: Story File Status Synchronization
+
+As a **scrum master**,
+I want **story file status to stay in sync with sprint status**,
+So that **tracking is accurate across artifacts**.
+
+**Acceptance Criteria:**
+
+**Given** a story status changes
+**When** the change is recorded
+**Then** sprint-status.yaml and the story file match
+**And** discrepancies are reported
+
+### Story 9.6: Story Completion Dev Notes
+
+As a **developer**,
+I want **to capture completion notes**,
+So that **future work has context and decisions are recorded**.
+
+**Acceptance Criteria:**
+
+**Given** a story is completed
+**When** it is marked done
+**Then** dev notes include decisions and tradeoffs
+**And** notes are stored in the story file
+
+---
+
+## Epic 10: Testing Infrastructure (Tech Debt)
+
+Establish integration and benchmark testing coverage across core workflows.
+
+### Story 10.1: Integration Test Framework
+
+As a **test engineer**,
+I want **an integration test framework**,
+So that **cross-service workflows are validated in CI**.
+
+**Acceptance Criteria:**
+
+**Given** the test suite runs in CI
+**When** integration tests execute
+**Then** required services are provisioned
+**And** tests report deterministic results
+
+### Story 10.2: Hybrid Retrieval Integration Tests
+
+As a **test engineer**,
+I want **hybrid retrieval integration tests**,
+So that **vector and graph retrieval work together correctly**.
+
+**Acceptance Criteria:**
+
+**Given** seeded data exists
+**When** a hybrid query executes
+**Then** results include vector and graph sources
+**And** synthesis output is validated
+
+### Story 10.3: Ingestion Pipeline Integration Tests
+
+As a **test engineer**,
+I want **ingestion pipeline integration tests**,
+So that **document ingestion is reliable across formats**.
+
+**Acceptance Criteria:**
+
+**Given** a URL or PDF input
+**When** ingestion runs
+**Then** chunks are stored with metadata
+**And** errors are captured with actionable logs
+
+### Story 10.4: Graphiti Integration Tests
+
+As a **test engineer**,
+I want **Graphiti integration tests**,
+So that **episode ingestion and temporal queries are validated**.
+
+**Acceptance Criteria:**
+
+**Given** Graphiti is configured
+**When** ingestion and queries run
+**Then** temporal results match expected ranges
+**And** migrations are validated
+
+### Story 10.5: Protocol Integration Tests
+
+As a **test engineer**,
+I want **protocol integration tests**,
+So that **MCP, A2A, and AG-UI endpoints are compliant**.
+
+**Acceptance Criteria:**
+
+**Given** protocol endpoints are available
+**When** compliance tests run
+**Then** JSON-RPC and streaming formats are validated
+**And** failures report spec gaps
+
+### Story 10.6: Skipped Test Resolution
+
+As a **test engineer**,
+I want **skipped tests resolved**,
+So that **coverage reflects actual quality**.
+
+**Acceptance Criteria:**
+
+**Given** skipped tests exist
+**When** the suite runs
+**Then** skips are removed or justified in docs
+**And** CI enforces the policy
+
+### Story 10.7: NFR Benchmark Validation
+
+As a **test engineer**,
+I want **NFR benchmarks**,
+So that **performance and scale targets are validated**.
+
+**Acceptance Criteria:**
+
+**Given** benchmark inputs are defined
+**When** benchmarks execute
+**Then** results are recorded against NFR targets
+**And** regressions are flagged
+
+---
+
+## Epic 11: Code Cleanup & Migration (Revised)
+
+Complete Graphiti migration and harden platform fundamentals.
+
+### Story 11.1: Fix Datetime Deprecation
+
+As a **developer**,
+I want **to replace deprecated datetime usage**,
+So that **runtime warnings are eliminated**.
+
+**Acceptance Criteria:**
+
+**Given** runtime warnings exist
+**When** deprecated APIs are replaced
+**Then** warnings are removed
+**And** tests pass
+
+### Story 11.2: Delete Legacy Modules
+
+As a **developer**,
+I want **to remove legacy modules**,
+So that **the codebase is simplified**.
+
+**Acceptance Criteria:**
+
+**Given** legacy modules are identified
+**When** removal is complete
+**Then** no references remain
+**And** documentation is updated
+
+### Story 11.3: Complete Graphiti Migration
+
+As a **developer**,
+I want **Graphiti to be the default graph pipeline**,
+So that **legacy ingestion is fully retired**.
+
+**Acceptance Criteria:**
+
+**Given** Graphiti is configured
+**When** ingestion and retrieval run
+**Then** Graphiti handles graph operations
+**And** legacy pipelines are removed
+
+### Story 11.4: Wire HITL Validation
+
+As a **developer**,
+I want **HITL validation wired end-to-end**,
+So that **users can approve sources before synthesis**.
+
+**Acceptance Criteria:**
+
+**Given** sources are retrieved
+**When** HITL is triggered
+**Then** UI approval flows operate
+**And** decisions are logged
+
+### Story 11.5: Implement Workspace Persistence
+
+As a **developer**,
+I want **workspace persistence**,
+So that **agent state survives restarts**.
+
+**Acceptance Criteria:**
+
+**Given** a session is active
+**When** the service restarts
+**Then** workspace state is restored
+**And** tenant isolation is preserved
+
+### Story 11.6: Replace HTML/Markdown Regex
+
+As a **developer**,
+I want **structured parsing instead of brittle regex**,
+So that **content extraction is more reliable**.
+
+**Acceptance Criteria:**
+
+**Given** HTML/Markdown inputs exist
+**When** parsing runs
+**Then** structured parsing is used
+**And** extraction accuracy is improved
+
+### Story 11.7: Configure Neo4j Pooling
+
+As a **developer**,
+I want **Neo4j connection pooling configured**,
+So that **high concurrency is supported**.
+
+**Acceptance Criteria:**
+
+**Given** production traffic
+**When** the pool is configured
+**Then** connections are reused efficiently
+**And** pool metrics are monitored
+
+### Story 11.8: Add LLM Token Monitoring
+
+As an **ops engineer**,
+I want **LLM token monitoring**,
+So that **cost and usage are observable**.
+
+**Acceptance Criteria:**
+
+**Given** LLM calls execute
+**When** usage is tracked
+**Then** token metrics are logged
+**And** costs are computed per request
+
+### Story 11.9: A2A Session Persistence
+
+As a **developer**,
+I want **A2A sessions persisted**,
+So that **agent handoffs survive interruptions**.
+
+**Acceptance Criteria:**
+
+**Given** agents collaborate
+**When** a session is resumed
+**Then** context is preserved
+**And** timeouts are handled cleanly
+
+### Story 11.10: Refactor Config for Multi-Provider
+
+As a **developer**,
+I want **configuration support for multiple LLM providers**,
+So that **the system is not locked to a single vendor**.
+
+**Acceptance Criteria:**
+
+**Given** provider settings are configured
+**When** the app starts
+**Then** provider selection is validated
+**And** defaults are documented
+
+### Story 11.11: Implement Provider Adapter Pattern
+
+As a **developer**,
+I want **a provider adapter pattern**,
+So that **new LLM providers can be added consistently**.
+
+**Acceptance Criteria:**
+
+**Given** adapters are implemented
+**When** providers are selected
+**Then** calls route through the adapter interface
+**And** providers include OpenAI, Anthropic, Gemini, Ollama, and OpenRouter
+
+### Story 11.12: Implement Multi-Provider Embeddings
+
+As a **developer**,
+I want **multi-provider embedding support**,
+So that **embeddings can use Gemini, Voyage AI, or OpenAI based on configuration**.
+
+**Acceptance Criteria:**
+
+**Given** embedding provider is configured
+**When** embeddings are generated
+**Then** the configured provider is used for both Graphiti and pgvector
+**And** supported providers include OpenAI, Gemini, Voyage AI, OpenRouter, and Ollama
+**And** smart defaults match embedding provider to LLM provider when supported
+
+---
+
+## Epic 12: Advanced Retrieval (Archon Upgrade)
+
+Improve retrieval quality with reranking, contextual embeddings, and corrective grading.
+
+### Story 12.1: Implement Cross-Encoder Reranking
+
+As a **developer**,
+I want **cross-encoder reranking**,
+So that **top results are more relevant**.
+
+**Acceptance Criteria:**
+
+**Given** retrieval returns candidates
+**When** reranking is enabled
+**Then** results are rescored and reordered
+**And** reranker selection is configurable
+
+### Story 12.2: Implement Contextual Retrieval Chunking
+
+As a **developer**,
+I want **contextual chunk enrichment**,
+So that **embeddings include title and summary context**.
+
+**Acceptance Criteria:**
+
+**Given** a document is ingested
+**When** chunks are embedded
+**Then** title and summary context are prepended
+**And** reindexing is supported for existing content
+
+### Story 12.3: Implement Corrective RAG Grader Agent
+
+As a **developer**,
+I want **a grader that triggers fallback retrieval**,
+So that **low-quality retrieval can be corrected**.
+
+**Acceptance Criteria:**
+
+**Given** retrieval results are scored
+**When** scores fall below threshold
+**Then** fallback retrieval is triggered
+**And** decisions are logged in the trajectory
+
+---
+
+## Epic 13: Enterprise Ingestion
+
+Add resilient ingestion adapters and transcript-first YouTube processing.
+
+### Story 13.1: Integrate Apify BrightData Fallback
+
+As a **developer**,
+I want **Apify and BrightData fallbacks**,
+So that **ingestion succeeds when Crawl4AI is blocked**.
+
+**Acceptance Criteria:**
+
+**Given** a crawl fails
+**When** fallback providers are configured
+**Then** ingestion routes to Apify or BrightData
+**And** provider selection is logged
+
+### Story 13.2: Implement YouTube Transcript API Ingestion
+
+As a **developer**,
+I want **transcript-first YouTube ingestion**,
+So that **videos can be processed quickly**.
+
+**Acceptance Criteria:**
+
+**Given** a YouTube URL
+**When** ingestion runs
+**Then** transcripts are fetched and chunked
+**And** missing transcripts are reported clearly
+
+### Story 13.3: Optimize Crawl4AI Configuration
+
+As a **developer**,
+I want **optimized Crawl4AI configuration**,
+So that **crawl reliability and throughput improve**.
+
+**Acceptance Criteria:**
+
+**Given** crawl settings are configured
+**When** ingestion runs
+**Then** rate limits and retries are respected
+**And** crawl performance is recorded
+
+---
+
+## Epic 14: Connectivity
+
+Expose tools via MCP server and strengthen A2A collaboration.
+
+### Story 14.1: Expose RAG Engine via MCP Server
+
+As a **developer**,
+I want **an MCP server for core tools**,
+So that **external clients can use the RAG engine**.
+
+**Acceptance Criteria:**
+
+**Given** the MCP server is running
+**When** tools are requested
+**Then** JSON-RPC tool schemas are returned
+**And** core tools include search and ingestion
+
+### Story 14.2: Implement Robust A2A Protocol
+
+As a **developer**,
+I want **a robust A2A protocol**,
+So that **agent collaboration is reliable**.
+
+**Acceptance Criteria:**
+
+**Given** A2A requests are sent
+**When** failures occur
+**Then** errors use RFC 7807 format
+**And** retries and timeouts are supported
+
+---
+
+## Epic 15: Multimodal & Codebase
+
+Add multimodal ingestion and codebase hallucination detection.
+
+### Story 15.1: Implement Full Video Ingestion (CLIP + Whisper)
+
+As a **developer**,
+I want **video ingestion with transcription and embeddings**,
+So that **video content becomes searchable**.
+
+**Acceptance Criteria:**
+
+**Given** a video URL
+**When** ingestion runs
+**Then** audio is transcribed and frames embedded
+**And** outputs are stored with metadata
+
+### Story 15.2: Implement Image Ingestion
+
+As a **developer**,
+I want **image ingestion**,
+So that **visual content can be retrieved**.
+
+**Acceptance Criteria:**
+
+**Given** image inputs
+**When** ingestion runs
+**Then** embeddings and metadata are stored
+**And** images are retrievable by query
+
+### Story 15.3: Implement Codebase Hallucination Detector
+
+As a **developer**,
+I want **a hallucination detector**,
+So that **responses referencing non-existent symbols are flagged**.
+
+**Acceptance Criteria:**
+
+**Given** an LLM response references code
+**When** validation runs
+**Then** unknown symbols are detected
+**And** warnings are recorded or surfaced
+
+---
+
+## Epic 16: Framework Agnosticism
+
+Define a headless agent protocol and framework adapters.
+
+### Story 16.1: Define Headless Agent Protocol Interface
+
+As a **developer**,
+I want **a headless agent protocol**,
+So that **frameworks can plug in consistently**.
+
+**Acceptance Criteria:**
+
+**Given** the protocol definition
+**When** the orchestrator uses it
+**Then** run and stream behaviors are standardized
+**And** the interface is documented
+
+### Story 16.2: Implement Pydantic AI Adapter
+
+As a **developer**,
+I want **a PydanticAI adapter**,
+So that **the system can run on PydanticAI**.
+
+**Acceptance Criteria:**
+
+**Given** AGENT_FRAMEWORK is set to pydanticai
+**When** a request is processed
+**Then** the adapter handles execution and streaming
+**And** tests cover basic flows
+
+### Story 16.3: Implement CrewAI Adapter
+
+As a **developer**,
+I want **a CrewAI adapter**,
+So that **multi-agent orchestration is supported**.
+
+**Acceptance Criteria:**
+
+**Given** AGENT_FRAMEWORK is set to crewai
+**When** a request is processed
+**Then** the adapter executes a crew workflow
+**And** errors use RFC 7807 format
+
+### Story 16.4: Implement Anthropic Agent Adapter
+
+As a **developer**,
+I want **an Anthropic agent adapter**,
+So that **Claude-native workflows are supported**.
+
+**Acceptance Criteria:**
+
+**Given** AGENT_FRAMEWORK is set to anthropic
+**When** requests stream responses
+**Then** outputs match existing front-end expectations
+**And** model selection is configurable
+
+### Story 16.5: Implement LangGraph Adapter
+
+As a **developer**,
+I want **a LangGraph adapter**,
+So that **graph-based workflows are supported**.
+
+**Acceptance Criteria:**
+
+**Given** AGENT_FRAMEWORK is set to langgraph
+**When** a request is processed
+**Then** state transitions are logged
+**And** integration tests cover basic flows
+
+---
+
+## Epic 17: Deployment & CLI (Final Polish)
+
+Deliver an interactive CLI install flow with hardware detection and startup verification.
+
+### Story 17.1: Create rag-install CLI Tool
+
+As a **developer**,
+I want **an interactive rag-install CLI**,
+So that **setup is guided and repeatable**.
+
+**Acceptance Criteria:**
+
+**Given** rag-install is executed
+**When** prompts are completed
+**Then** a valid configuration is produced
+**And** next steps are displayed
+
+### Story 17.2: Implement Auto Hardware Detection
+
+As a **developer**,
+I want **automatic hardware detection**,
+So that **defaults match the local machine**.
+
+**Acceptance Criteria:**
+
+**Given** the CLI runs
+**When** hardware is detected
+**Then** CPU/GPU/RAM info is recorded
+**And** defaults are adjusted accordingly
+
+### Story 17.3: Implement Env Generation Logic
+
+As a **developer**,
+I want **.env generation and validation**,
+So that **configuration is correct on first run**.
+
+**Acceptance Criteria:**
+
+**Given** user selections
+**When** the CLI writes .env
+**Then** required values are populated
+**And** an existing file is backed up
+
+### Story 17.4: Verify Docker Compose Startup
+
+As a **developer**,
+I want **startup verification**,
+So that **the stack boots successfully**.
+
+**Acceptance Criteria:**
+
+**Given** docker compose is invoked
+**When** services start
+**Then** health checks are validated
+**And** failures provide actionable errors
+
+---
+
+## Epic 18: Enhanced Documentation & DevOps (Manual)
+
+Add documentation and DevOps automation for long-term maintainability.
+
+### Story 18.1: Document Observability Metrics
+
+As a **technical writer**,
+I want **observability documentation**,
+So that **operators know what to monitor**.
+
+**Acceptance Criteria:**
+
+**Given** observability features exist
+**When** documentation is published
+**Then** metrics, dashboards, and alert thresholds are described
+
+### Story 18.2: Configure Dependabot Security Updates
+
+As a **devops engineer**,
+I want **Dependabot configured**,
+So that **dependency updates are automated**.
+
+**Acceptance Criteria:**
+
+**Given** repository automation is enabled
+**When** Dependabot runs
+**Then** update PRs are created on schedule
+**And** labels and scopes are defined
+
+### Story 18.3: Configure CodeQL Analysis
+
+As a **devops engineer**,
+I want **CodeQL analysis**,
+So that **security issues are detected in CI**.
+
+**Acceptance Criteria:**
+
+**Given** the CodeQL workflow is configured
+**When** PRs are opened
+**Then** CodeQL scans run and report findings
+
+### Story 18.4: Document Provider Configuration Guide
+
+As a **technical writer**,
+I want **a provider configuration guide**,
+So that **users can configure OpenAI, Anthropic, Gemini, OpenRouter, and Ollama**.
+
+**Acceptance Criteria:**
+
+**Given** provider setup is supported
+**When** the guide is published
+**Then** .env examples and pitfalls are covered
+
+### Story 18.5: Create Advanced Retrieval Tuning Guide
+
+As a **technical writer**,
+I want **an advanced retrieval tuning guide**,
+So that **teams can optimize reranking and grading**.
+
+**Acceptance Criteria:**
+
+**Given** retrieval features exist
+**When** documentation is published
+**Then** tuning knobs and benchmarking tips are described
+
+### Story 18.6: Document Headless Agent Protocol
+
+As a **technical writer**,
+I want **headless agent protocol documentation**,
+So that **framework adapters are consistent**.
+
+**Acceptance Criteria:**
+
+**Given** the protocol interface is defined
+**When** documentation is published
+**Then** interface and usage examples are included
+
+### Story 18.7: Create MCP Server Usage Guide
+
+As a **technical writer**,
+I want **an MCP server usage guide**,
+So that **external clients can integrate quickly**.
+
+**Acceptance Criteria:**
+
+**Given** MCP tools are available
+**When** the guide is published
+**Then** tool lists and examples are provided
+
+### Story 18.8: Create CLI Installation Manual
+
+As a **technical writer**,
+I want **a CLI installation manual**,
+So that **users can onboard without assistance**.
+
+**Acceptance Criteria:**
+
+**Given** the CLI exists
+**When** the manual is published
+**Then** setup and troubleshooting steps are included
