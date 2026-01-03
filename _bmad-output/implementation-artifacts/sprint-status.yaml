@@ -152,11 +152,22 @@ development_status:
   11-12-implement-multi-provider-embeddings: done
   epic-11-retrospective: done
 
+  # ==========================================
+  # REFINED ROADMAP 2025 (Party Mode Analysis 2026-01-03)
+  # See: docs/roadmap-decisions-2026-01-03.md
+  # ==========================================
+
   # Epic 12: Advanced Retrieval (The "Archon" Upgrade)
+  # DECISION: Reranker complements Graphiti (Stage 1 + Stage 2 retrieval)
+  # DECISION: All features are CONFIGURABLE via environment flags
+  # See: docs/guides/advanced-retrieval-configuration.md
   epic-12: backlog
   12-1-implement-cross-encoder-reranking: backlog
+  # Config: RERANKER_ENABLED, RERANKER_PROVIDER (cohere|flashrank), RERANKER_TOP_K
   12-2-implement-contextual-retrieval-chunking: backlog
+  # Config: CONTEXTUAL_RETRIEVAL_ENABLED, uses prompt caching + cost-effective model
   12-3-implement-corrective-rag-grader-agent: backlog
+  # Config: GRADER_THRESHOLD, GRADER_FALLBACK_ENABLED
   epic-12-retrospective: optional
 
   # Epic 13: Enterprise Ingestion
@@ -166,34 +177,54 @@ development_status:
   13-3-optimize-crawl4ai-configuration: backlog
   epic-13-retrospective: optional
 
-  # Epic 14: Connectivity
+  # Epic 14: Connectivity (MCP Wrapper Architecture)
+  # DECISION: WRAP Graphiti MCP, don't duplicate - extend with RAG-specific tools
+  # See: docs/guides/mcp-wrapper-architecture.md
   epic-14: backlog
   14-1-expose-rag-engine-via-mcp-server: backlog
+  # Wraps Graphiti MCP + adds: vector_search, ingest_url, ingest_pdf, ingest_youtube, query_with_reranking
   14-2-implement-robust-a2a-protocol: backlog
   epic-14-retrospective: optional
 
-  # Epic 15: Multimodal & Codebase
+  # Epic 15: Codebase Intelligence (RENAMED - was Multimodal & Codebase)
+  # DECISION: REMOVED video/image processing (YouTube transcript covers 90%+ of RAG needs)
+  # DECISION: FOCUS on codebase intelligence as developer platform differentiator
   epic-15: backlog
-  15-1-implement-full-video-ingestion-clip-whisper: backlog
-  15-2-implement-image-ingestion: backlog
-  15-3-implement-codebase-hallucination-detector: backlog
+  # REMOVED: 15-1-implement-full-video-ingestion-clip-whisper
+  # REMOVED: 15-2-implement-image-ingestion
+  15-1-implement-codebase-hallucination-detector: backlog
+  # AST-based symbol validation, file path verification, API endpoint matching
+  15-2-implement-codebase-rag-context: backlog
+  # Index repository as knowledge, symbol extraction for context (NEW)
   epic-15-retrospective: optional
 
-  # Epic 16: Framework Agnosticism
+  # Epic 16: Framework Agnosticism (Developer Extension Points)
+  # DECISION: This enables developers to BUILD ON their preferred framework
+  # DECISION: Story 16-4 includes Agent Skills integration (open standard)
   epic-16: backlog
   16-1-define-headless-agent-protocol-interface: backlog
   16-2-implement-pydantic-ai-adapter: backlog
+  # PydanticAI already supports A2A and MCP protocols natively
   16-3-implement-crewai-adapter: backlog
+  # CrewAI supports hierarchical process mode for multi-agent
   16-4-implement-anthropic-agent-adapter: backlog
+  # INCLUDES: Agent Skills integration (open standard adopted by Microsoft/VS Code)
   16-5-implement-langgraph-adapter: backlog
+  # LangGraph offers checkpointing and persistence out of the box
   epic-16-retrospective: optional
 
-  # Epic 17: Deployment & CLI (The Final Polish)
+  # Epic 17: Deployment & CLI (The Final Polish - INTENTIONALLY LAST)
+  # DECISION: Must be LAST to know all options before offering them in CLI
+  # DECISION: CLI is the capstone UX for the developer platform
   epic-17: backlog
   17-1-create-rag-install-cli-tool: backlog
+  # Guided setup: LLM provider, database, agent framework, features
   17-2-implement-auto-hardware-detection: backlog
+  # GPU for local LLM/Whisper, RAM for model selection
   17-3-implement-env-generation-logic: backlog
+  # Generate complete .env, validate all combinations
   17-4-verify-docker-compose-startup: backlog
+  # Health checks for selected stack
   epic-17-retrospective: optional
 
   # Epic 18: Enhanced Documentation & DevOps (The Manual)

@@ -113,3 +113,77 @@ To reach "SOTA" status in 2025, the system must evolve from a "Docker Stack" to 
 *   **Interactive CLI:** `rag-install` tool.
 *   *Why Last?* Needs to know all available options (Providers, Frameworks, Ingestion) to offer them during install.
 *   **Features:** Auto-detect hardware, generate `.env`, `docker compose up`.
+
+---
+
+## 4. Implementation Decisions (2026-01-03)
+
+The following decisions were made during Party Mode analysis to refine the roadmap:
+
+### Decision Summary
+
+| Topic | Decision | Rationale |
+|-------|----------|-----------|
+| **Reranker vs Graphiti** | COMPLEMENTARY | Stage 1 (Graphiti: fast, broad) + Stage 2 (Reranker: precise scoring) |
+| **Advanced Retrieval** | OPT-IN CONFIG | All features disabled by default, enabled via flags |
+| **MCP Architecture** | WRAP GRAPHITI | Wrap existing Graphiti MCP, extend with RAG tools |
+| **Epic 15 Scope** | CODEBASE ONLY | Removed multimodal (YouTube transcript covers 90%+ needs) |
+| **Framework Adapters** | EXTENSION POINTS | CLI configures project for chosen framework, not runtime switching |
+| **CLI Timing** | LAST | Must know all options before offering them |
+
+### Detailed Documentation
+
+- **Advanced Retrieval Configuration:** `docs/guides/advanced-retrieval-configuration.md`
+  - Reranker configuration (Cohere vs FlashRank)
+  - Contextual retrieval with prompt caching
+  - CRAG grader configuration
+
+- **MCP Wrapper Architecture:** `docs/guides/mcp-wrapper-architecture.md`
+  - Graphiti MCP wrapping strategy
+  - RAG extension tools
+  - Security considerations
+
+- **Decision Rationale:** `docs/roadmap-decisions-2026-01-03.md`
+  - Full Party Mode analysis results
+  - Research validation
+  - Vision clarification
+
+### Updated Artifacts
+
+- `_bmad-output/project-planning-artifacts/epics.md` - Updated with decision annotations
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` - Updated with decision comments
+- `_bmad-output/implementation-artifacts/epic-*-tech-spec.md` - Individual epic tech specs
+
+### Epic 15 Scope Change
+
+**REMOVED:**
+- ~~Story 15-1: Full Video Ingestion (CLIP + Whisper)~~ - High complexity, low ROI
+- ~~Story 15-2: Image Ingestion~~ - YouTube transcript covers 90%+ of video RAG needs
+
+**ADDED:**
+- Story 15-1: Codebase Hallucination Detector - Unique differentiator for developer platform
+- Story 15-2: Codebase RAG Context - Index repositories as knowledge sources
+
+### Configuration Flags
+
+All advanced features are opt-in. Key flags:
+
+```bash
+# Epic 12: Advanced Retrieval
+RERANKER_ENABLED=true|false
+RERANKER_PROVIDER=cohere|flashrank
+CONTEXTUAL_RETRIEVAL_ENABLED=true|false
+GRADER_ENABLED=true|false
+
+# Epic 15: Codebase Intelligence
+HALLUCINATION_DETECTOR_ENABLED=true|false
+HALLUCINATION_DETECTOR_MODE=warn|block
+```
+
+### Research Validation
+
+Decisions were validated against current documentation:
+- [Graphiti Documentation](https://deepwiki.com/getzep/graphiti) - Confirmed MCP server approach
+- [Cohere Rerank](https://context7.com/cohere/cohere-python) - Validated Stage 2 reranking
+- [Anthropic Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval) - Confirmed prompt caching requirements
+- [Anthropic Agent Skills](https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills) - Validated for Epic 16

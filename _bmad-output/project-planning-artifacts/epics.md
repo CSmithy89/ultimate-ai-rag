@@ -201,6 +201,8 @@ Complete Graphiti migration and harden platform fundamentals including HITL, per
 ### Epic 12: Advanced Retrieval (Archon Upgrade)
 Improve retrieval quality with reranking, contextual embeddings, and corrective grading.
 
+**Key Decision (2026-01-03):** Reranker + Graphiti are COMPLEMENTARY (Stage 1 + Stage 2 retrieval). All features are OPT-IN via configuration flags. See `docs/guides/advanced-retrieval-configuration.md`.
+
 **FRs covered:** (roadmap enhancements; no new FRs)
 **NFRs addressed:** NFR1 (response quality), NFR2 (retrieval precision)
 
@@ -210,20 +212,26 @@ Add resilient ingestion adapters and transcript-first YouTube processing.
 **FRs covered:** (roadmap enhancements; no new FRs)
 **NFRs addressed:** NFR2 (ingestion performance)
 
-### Epic 14: Connectivity
-Expose tools via MCP server and strengthen A2A collaboration.
+### Epic 14: Connectivity (MCP Wrapper Architecture)
+Expose tools via MCP server by wrapping Graphiti MCP and extending with RAG-specific tools. Strengthen A2A collaboration.
+
+**Key Decision (2026-01-03):** WRAP Graphiti MCP, don't duplicate. Extend with RAG tools (vector_search, ingest_*, query_with_reranking). See `docs/guides/mcp-wrapper-architecture.md`.
 
 **FRs covered:** (roadmap enhancements; no new FRs)
 **NFRs addressed:** NFR7 (protocol compliance)
 
-### Epic 15: Multimodal & Codebase
-Add video and image ingestion plus hallucination detection.
+### Epic 15: Codebase Intelligence
+Focus on codebase-specific features that differentiate a developer-focused RAG platform.
+
+**Key Decision (2026-01-03):** REMOVED multimodal video/image processing (YouTube transcript covers 90%+ of RAG needs). FOCUSED on codebase hallucination detection as unique differentiator.
 
 **FRs covered:** (roadmap enhancements; no new FRs)
 **NFRs addressed:** NFR1 (response quality)
 
-### Epic 16: Framework Agnosticism
-Define headless agent protocol and framework adapters.
+### Epic 16: Framework Agnosticism (Developer Extension Points)
+Define headless agent protocol and framework adapters for developers to build on.
+
+**Key Decision (2026-01-03):** These are DEVELOPER EXTENSION POINTS, not runtime switching. CLI asks "Which framework?" and configures the project. Includes Agent Skills integration for Anthropic adapter.
 
 **FRs covered:** (roadmap enhancements; no new FRs)
 **NFRs addressed:** NFR7 (interoperability)
@@ -1265,22 +1273,26 @@ So that **crawl reliability and throughput improve**.
 
 ---
 
-## Epic 14: Connectivity
+## Epic 14: Connectivity (MCP Wrapper Architecture)
 
-Expose tools via MCP server and strengthen A2A collaboration.
+Expose tools via MCP server by wrapping Graphiti MCP and extending with RAG-specific tools.
+
+**Decision:** WRAP Graphiti MCP, don't duplicate. See `docs/guides/mcp-wrapper-architecture.md`.
 
 ### Story 14.1: Expose RAG Engine via MCP Server
 
 As a **developer**,
-I want **an MCP server for core tools**,
-So that **external clients can use the RAG engine**.
+I want **an MCP server that wraps Graphiti MCP and extends with RAG tools**,
+So that **external clients get both graph and vector capabilities**.
 
 **Acceptance Criteria:**
 
 **Given** the MCP server is running
 **When** tools are requested
-**Then** JSON-RPC tool schemas are returned
-**And** core tools include search and ingestion
+**Then** Graphiti tools (add_memory, search_nodes, search_facts) are proxied
+**And** RAG extension tools (vector_search, hybrid_retrieve, ingest_url, ingest_pdf, ingest_youtube, query_with_reranking, explain_answer) are available
+**And** all tools enforce tenant isolation
+**And** authentication and rate limiting are configurable
 
 ### Story 14.2: Implement Robust A2A Protocol
 
@@ -1297,54 +1309,58 @@ So that **agent collaboration is reliable**.
 
 ---
 
-## Epic 15: Multimodal & Codebase
+## Epic 15: Codebase Intelligence
 
-Add multimodal ingestion and codebase hallucination detection.
+Focus on codebase-specific features that differentiate a developer-focused RAG platform.
 
-### Story 15.1: Implement Full Video Ingestion (CLIP + Whisper)
+**Decision (2026-01-03):** REMOVED multimodal video/image processing (YouTube transcript covers 90%+ of RAG needs). See `docs/roadmap-decisions-2026-01-03.md`.
+
+### Story 15.1: Implement Codebase Hallucination Detector
 
 As a **developer**,
-I want **video ingestion with transcription and embeddings**,
-So that **video content becomes searchable**.
+I want **a hallucination detector that validates LLM responses against actual codebase symbols**,
+So that **responses referencing non-existent code are flagged before users see them**.
+
+**Why This Matters:** LLMs frequently hallucinate non-existent functions, classes, file paths, and API endpoints. For a developer platform, catching these is critical for trust.
 
 **Acceptance Criteria:**
 
-**Given** a video URL
-**When** ingestion runs
-**Then** audio is transcribed and frames embedded
-**And** outputs are stored with metadata
-
-### Story 15.2: Implement Image Ingestion
-
-As a **developer**,
-I want **image ingestion**,
-So that **visual content can be retrieved**.
-
-**Acceptance Criteria:**
-
-**Given** image inputs
-**When** ingestion runs
-**Then** embeddings and metadata are stored
-**And** images are retrievable by query
-
-### Story 15.3: Implement Codebase Hallucination Detector
-
-As a **developer**,
-I want **a hallucination detector**,
-So that **responses referencing non-existent symbols are flagged**.
-
-**Acceptance Criteria:**
-
-**Given** an LLM response references code
+**Given** an LLM response references code elements
 **When** validation runs
-**Then** unknown symbols are detected
-**And** warnings are recorded or surfaced
+**Then** AST parsing detects unknown classes, functions, and files
+**And** warnings are recorded with a list of missing symbols
+**And** detection is configurable (warn or block mode)
+**And** Python, TypeScript, and JavaScript are supported initially
+**And** feature is opt-in via `HALLUCINATION_DETECTOR_ENABLED` flag
+
+### Story 15.2: Implement Codebase RAG Context
+
+As a **developer**,
+I want **to index a code repository as a knowledge source for RAG queries**,
+So that **users can ask questions about the codebase and get accurate answers**.
+
+**Use Cases:**
+- "How does authentication work in this codebase?"
+- "What functions call the UserService?"
+- "Explain the data flow from API to database"
+
+**Acceptance Criteria:**
+
+**Given** a code repository
+**When** indexing runs
+**Then** symbols are extracted (functions, classes, methods) with AST parsing
+**And** symbol relationships are captured in the knowledge graph (e.g., "function A calls function B")
+**And** queries about the codebase return relevant code context
+**And** indexing respects .gitignore and configurable exclusion patterns
+**And** incremental indexing is supported for changed files
 
 ---
 
-## Epic 16: Framework Agnosticism
+## Epic 16: Framework Agnosticism (Developer Extension Points)
 
-Define a headless agent protocol and framework adapters.
+Define a headless agent protocol and framework adapters for developers to build on.
+
+**Decision (2026-01-03):** These are DEVELOPER EXTENSION POINTS, not runtime switching. CLI asks "Which framework?" and configures the project.
 
 ### Story 16.1: Define Headless Agent Protocol Interface
 
@@ -1388,8 +1404,10 @@ So that **multi-agent orchestration is supported**.
 ### Story 16.4: Implement Anthropic Agent Adapter
 
 As a **developer**,
-I want **an Anthropic agent adapter**,
-So that **Claude-native workflows are supported**.
+I want **an Anthropic agent adapter with Agent Skills integration**,
+So that **Claude-native workflows and skills are supported**.
+
+**Agent Skills Integration (2026-01-03):** Agent Skills is an [open standard adopted by Microsoft/VS Code, Cursor, and others](https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills). Skills provide organized folders of instructions that agents can discover.
 
 **Acceptance Criteria:**
 
@@ -1397,6 +1415,8 @@ So that **Claude-native workflows are supported**.
 **When** requests stream responses
 **Then** outputs match existing front-end expectations
 **And** model selection is configurable
+**And** Agent Skills are exposed for RAG capabilities (search, ingest, explain)
+**And** Skills work with Claude.ai, Claude Code, and API
 
 ### Story 16.5: Implement LangGraph Adapter
 
