@@ -39,6 +39,9 @@ dependencies = [
   # Epic 11 - HTML parsing for markdown conversion
   "beautifulsoup4>=4.14.3",
   "markdownify>=1.2.2",
+  # Epic 12 - Advanced Retrieval (Reranking)
+  "cohere>=5.0",
+  "FlashRank>=0.2.0",
 ]
 
 [project.scripts]

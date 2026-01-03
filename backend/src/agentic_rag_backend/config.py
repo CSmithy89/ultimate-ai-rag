@@ -16,6 +16,7 @@ DEFAULT_SEARCH_RESULTS = 5
 MAX_SEARCH_RESULTS = 100
 LLM_PROVIDERS = {"openai", "openrouter", "ollama", "anthropic", "gemini"}
 EMBEDDING_PROVIDERS = {"openai", "openrouter", "ollama", "gemini", "voyage"}
+RERANKER_PROVIDERS = {"cohere", "flashrank"}
 DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 
@@ -100,6 +101,12 @@ class Settings:
     routing_simple_max_score: int
     routing_complex_min_score: int
     trace_encryption_key: str
+    # Epic 12 - Advanced Retrieval (Reranking)
+    reranker_enabled: bool
+    reranker_provider: str
+    reranker_model: str
+    reranker_top_k: int
+    cohere_api_key: Optional[str]
 
 
 def load_settings() -> Settings:
@@ -426,6 +433,35 @@ def load_settings() -> Settings:
             f"than ROUTING_SIMPLE_MAX_SCORE ({routing_simple_max_score})."
         )
 
+    # Epic 12 - Reranker configuration
+    reranker_enabled_raw = os.getenv("RERANKER_ENABLED", "false").strip().lower()
+    reranker_enabled = reranker_enabled_raw in {"true", "1", "yes"}
+    reranker_provider = os.getenv("RERANKER_PROVIDER", "flashrank").strip().lower()
+    if reranker_enabled and reranker_provider not in RERANKER_PROVIDERS:
+        raise ValueError(
+            f"RERANKER_PROVIDER must be one of: {', '.join(sorted(RERANKER_PROVIDERS))}. "
+            f"Got {reranker_provider!r}."
+        )
+    # Default models per provider
+    default_reranker_models = {
+        "cohere": "rerank-v3.5",
+        "flashrank": "ms-marco-MiniLM-L-12-v2",
+    }
+    reranker_model = os.getenv(
+        "RERANKER_MODEL", default_reranker_models.get(reranker_provider, "")
+    )
+    try:
+        reranker_top_k = int(os.getenv("RERANKER_TOP_K", "10"))
+    except ValueError:
+        reranker_top_k = 10
+    if reranker_top_k < 1:
+        raise ValueError("RERANKER_TOP_K must be >= 1.")
+    cohere_api_key = os.getenv("COHERE_API_KEY")
+    if reranker_enabled and reranker_provider == "cohere" and not cohere_api_key:
+        raise ValueError(
+            "COHERE_API_KEY is required when RERANKER_ENABLED=true and RERANKER_PROVIDER=cohere."
+        )
+
     trace_key = os.getenv("TRACE_ENCRYPTION_KEY")
     if trace_key:
         try:
@@ -520,6 +556,12 @@ def load_settings() -> Settings:
         routing_simple_max_score=routing_simple_max_score,
         routing_complex_min_score=routing_complex_min_score,
         trace_encryption_key=trace_encryption_key,
+        # Epic 12 - Reranker settings
+        reranker_enabled=reranker_enabled,
+        reranker_provider=reranker_provider,
+        reranker_model=reranker_model,
+        reranker_top_k=reranker_top_k,
+        cohere_api_key=cohere_api_key,
     )
 
 
