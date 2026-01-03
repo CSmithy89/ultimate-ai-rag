@@ -207,7 +207,9 @@ Improve retrieval quality with reranking, contextual embeddings, and corrective 
 **NFRs addressed:** NFR1 (response quality), NFR2 (retrieval precision)
 
 ### Epic 13: Enterprise Ingestion
-Add resilient ingestion adapters and transcript-first YouTube processing.
+Add resilient ingestion adapters, transcript-first YouTube processing, and **migrate to actual Crawl4AI library**.
+
+**Key Decision (2026-01-04):** Current `crawler.py` does NOT use the installed Crawl4AI library. Must migrate from custom httpx crawler to AsyncWebCrawler for JS rendering, parallel crawling, and 10x throughput. See `epic-13-tech-spec.md`.
 
 **FRs covered:** (roadmap enhancements; no new FRs)
 **NFRs addressed:** NFR2 (ingestion performance)
@@ -1230,7 +1232,9 @@ So that **low-quality retrieval can be corrected**.
 
 ## Epic 13: Enterprise Ingestion
 
-Add resilient ingestion adapters and transcript-first YouTube processing.
+Add resilient ingestion adapters, transcript-first YouTube processing, and migrate to actual Crawl4AI library.
+
+**Decision (2026-01-04):** Current `crawler.py` uses httpx, NOT the installed Crawl4AI library. Must migrate. See `epic-13-tech-spec.md`.
 
 ### Story 13.1: Integrate Apify BrightData Fallback
 
@@ -1240,36 +1244,63 @@ So that **ingestion succeeds when Crawl4AI is blocked**.
 
 **Acceptance Criteria:**
 
-**Given** a crawl fails
+**Given** a crawl fails or is blocked
 **When** fallback providers are configured
 **Then** ingestion routes to Apify or BrightData
-**And** provider selection is logged
+**And** provider selection and fallback reason are logged
+**And** credentials are configured via environment variables
 
 ### Story 13.2: Implement YouTube Transcript API Ingestion
 
 As a **developer**,
 I want **transcript-first YouTube ingestion**,
-So that **videos can be processed quickly**.
+So that **videos can be processed quickly without full video download**.
 
 **Acceptance Criteria:**
 
 **Given** a YouTube URL
 **When** ingestion runs
-**Then** transcripts are fetched and chunked
-**And** missing transcripts are reported clearly
+**Then** transcripts are fetched using youtube-transcript-api
+**And** missing transcripts are reported with clear error
+**And** transcript chunks include source metadata
+**And** ingestion completes in under 30 seconds for typical videos
 
-### Story 13.3: Optimize Crawl4AI Configuration
+### Story 13.3: Migrate to Crawl4AI Library
 
 As a **developer**,
-I want **optimized Crawl4AI configuration**,
-So that **crawl reliability and throughput improve**.
+I want **to migrate from custom httpx crawler to actual Crawl4AI library**,
+So that **JavaScript-rendered content is captured and crawling is parallelized**.
+
+**Why This Matters:** Current `crawler.py` uses httpx which cannot render JavaScript, crawls sequentially, has no caching, and has no proxy support.
 
 **Acceptance Criteria:**
 
-**Given** crawl settings are configured
-**When** ingestion runs
-**Then** rate limits and retries are respected
-**And** crawl performance is recorded
+**Given** a crawl request
+**When** using Crawl4AI AsyncWebCrawler
+**Then** JavaScript-rendered content is captured (SPAs, React sites work)
+**And** multiple URLs crawl in parallel via `arun_many()` with MemoryAdaptiveDispatcher
+**And** caching is enabled (unchanged pages not re-fetched)
+**And** proxy support is configurable for blocked sites
+**And** throughput improves 10x (50 pages in <30 seconds)
+**And** legacy httpx implementation is deprecated/removed
+
+### Story 13.4: Implement Crawl Configuration Profiles
+
+As a **developer**,
+I want **pre-configured crawl profiles for common use cases**,
+So that **I can optimize crawl settings without manual tuning**.
+
+**Profiles:**
+- `fast`: Documentation sites (headless, high concurrency)
+- `thorough`: Complex SPAs (JS wait, screenshots, lower concurrency)
+- `stealth`: Bot-protected sites (proxy, random delays, fingerprint evasion)
+
+**Acceptance Criteria:**
+
+**Given** a profile name (fast/thorough/stealth)
+**When** crawl is triggered
+**Then** appropriate settings are applied automatically
+**And** profiles are selectable via `CRAWL4AI_PROFILE` or API parameter
 
 ---
 
