@@ -2,11 +2,12 @@
 stepsCompleted: [1, 2, 3, 4, 6, 7, 8, 9, 10]
 inputDocuments:
   - '_bmad-output/project-planning-artifacts/research/technical-Agentic-RAG-and-GraphRAG-System-research-2025-12-24.md'
+  - 'docs/recommendations_2025.md'
 documentCounts:
   briefs: 0
   research: 1
   brainstorming: 0
-  projectDocs: 0
+  projectDocs: 1
 workflowType: 'prd'
 lastStep: 11
 project_name: 'Agentic Rag and Graphrag with copilot'
@@ -237,6 +238,19 @@ export default function App() {
 **Phase 3 (Expansion):**
 *   **Self-Healing Knowledge:** Agents that autonomously identify missing documentation and initiate their own crawling/indexing tasks.
 *   **Natural Language Infrastructure:** A CLI that allows developers to configure the entire RAG stack using plain English.
+
+### Revised Roadmap 2025 (Recommendations)
+
+Aligned to `docs/recommendations_2025.md` and reflected in Epics 11-18.
+
+*   **Epic 11: Code Cleanup & Migration** - Multi-provider config, adapter pattern, persistence hardening.
+*   **Epic 12: Advanced Retrieval** - Cross-encoder reranking, contextual chunking, corrective grading.
+*   **Epic 13: Enterprise Ingestion** - Apify/BrightData adapters, YouTube transcript ingestion, Crawl4AI tuning.
+*   **Epic 14: Connectivity** - MCP server exposure and robust A2A protocol.
+*   **Epic 15: Multimodal & Codebase** - Video/image ingestion and hallucination detection.
+*   **Epic 16: Framework Agnosticism** - Headless agent protocol and adapters.
+*   **Epic 17: Deployment & CLI** - Interactive install CLI, hardware detection, startup validation.
+*   **Epic 18: Documentation & DevOps** - Provider guides, retrieval tuning, MCP usage, security automation.
 
 ### Risk Mitigation Strategy
 
