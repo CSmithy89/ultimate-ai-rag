@@ -1,8 +1,9 @@
-"""Tests for workspace API routes.
+"""Tests for workspace API routes."""
 
-Story 6-5: Frontend Actions
-Code Review Fixes: Security and validation improvements
-"""
+from datetime import datetime, timezone
+from urllib.parse import parse_qs, urlparse
+from unittest.mock import AsyncMock, MagicMock
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,45 +12,137 @@ from pydantic import ValidationError
 from agentic_rag_backend.main import app
 from agentic_rag_backend.config import load_settings
 from agentic_rag_backend.api.routes.workspace import (
-    SaveContentRequest,
-    ExportContentRequest,
-    ShareContentRequest,
     BookmarkContentRequest,
-    SourceInfo,
+    ExportContentRequest,
     MAX_CONTENT_SIZE,
-    _bookmarks_storage,
-    _workspace_storage,
-    _shares_storage,
+    SaveContentRequest,
+    ShareContentRequest,
+    SourceInfo,
+    get_postgres,
     limiter,
 )
+from agentic_rag_backend.db.postgres import PostgresClient
 
 
 @pytest.fixture
-def client():
-    """Create test client with proper app state setup."""
-    # Set up app.state.settings required by middleware
-    app.state.settings = load_settings()
+def mock_workspace_postgres():
+    """Provide a PostgresClient mock with in-memory workspace storage."""
+    workspace_store: dict[UUID, dict[str, object]] = {}
+    share_store: dict[UUID, dict[str, object]] = {}
+    bookmark_store: dict[UUID, list[dict[str, object]]] = {}
 
-    # Disable rate limiting for tests
+    async def create_workspace_item(
+        workspace_id: UUID,
+        tenant_id: UUID,
+        content_id: str,
+        content: str,
+        title: str | None,
+        query: str | None,
+        sources: list[dict[str, object]] | None,
+        session_id: str | None,
+        trajectory_id: str | None,
+    ) -> datetime:
+        created_at = datetime.now(timezone.utc)
+        workspace_store[workspace_id] = {
+            "id": workspace_id,
+            "tenant_id": tenant_id,
+            "content_id": content_id,
+            "content": content,
+            "title": title,
+            "query": query,
+            "sources": sources,
+            "session_id": session_id,
+            "trajectory_id": trajectory_id,
+            "created_at": created_at,
+        }
+        return created_at
+
+    async def get_workspace_item(tenant_id: UUID, workspace_id: UUID):
+        row = workspace_store.get(workspace_id)
+        if not row or row["tenant_id"] != tenant_id:
+            return None
+        return row
+
+    async def create_workspace_share(
+        share_id: UUID,
+        tenant_id: UUID,
+        content_id: str,
+        content: str,
+        title: str | None,
+        query: str | None,
+        sources: list[dict[str, object]] | None,
+        token: str,
+        expires_at: datetime | None,
+    ) -> datetime:
+        created_at = datetime.now(timezone.utc)
+        share_store[share_id] = {
+            "id": share_id,
+            "tenant_id": tenant_id,
+            "content_id": content_id,
+            "content": content,
+            "title": title,
+            "query": query,
+            "sources": sources,
+            "token": token,
+            "created_at": created_at,
+            "expires_at": expires_at,
+        }
+        return created_at
+
+    async def get_workspace_share(share_id: UUID):
+        return share_store.get(share_id)
+
+    async def create_workspace_bookmark(
+        bookmark_id: UUID,
+        tenant_id: UUID,
+        content_id: str,
+        content: str,
+        title: str | None,
+        query: str | None,
+        session_id: str | None,
+    ) -> datetime:
+        created_at = datetime.now(timezone.utc)
+        bookmark_store.setdefault(tenant_id, []).append({
+            "id": bookmark_id,
+            "content_id": content_id,
+            "content": content,
+            "title": title,
+            "query": query,
+            "session_id": session_id,
+            "created_at": created_at,
+        })
+        return created_at
+
+    async def list_workspace_bookmarks(tenant_id: UUID, limit: int, offset: int):
+        rows = bookmark_store.get(tenant_id, [])
+        return rows[offset:offset + limit], len(rows)
+
+    client = MagicMock(spec=PostgresClient)
+    client.create_workspace_item = AsyncMock(side_effect=create_workspace_item)
+    client.get_workspace_item = AsyncMock(side_effect=get_workspace_item)
+    client.create_workspace_share = AsyncMock(side_effect=create_workspace_share)
+    client.get_workspace_share = AsyncMock(side_effect=get_workspace_share)
+    client.create_workspace_bookmark = AsyncMock(side_effect=create_workspace_bookmark)
+    client.list_workspace_bookmarks = AsyncMock(side_effect=list_workspace_bookmarks)
+    return client
+
+
+@pytest.fixture
+def client(mock_workspace_postgres):
+    """Create test client with mocked Postgres dependency."""
+    app.state.settings = load_settings()
     limiter.enabled = False
+
+    async def override_get_postgres():
+        return mock_workspace_postgres
+
+    app.dependency_overrides[get_postgres] = override_get_postgres
 
     with TestClient(app) as test_client:
         yield test_client
 
-    # Re-enable rate limiting after tests
     limiter.enabled = True
-
-
-@pytest.fixture(autouse=True)
-def clear_storage():
-    """Clear storage before each test for isolation."""
-    _bookmarks_storage.clear()
-    _workspace_storage.clear()
-    _shares_storage.clear()
-    yield
-    _bookmarks_storage.clear()
-    _workspace_storage.clear()
-    _shares_storage.clear()
+    app.dependency_overrides.clear()
 
 
 class TestSaveContentRequest:
@@ -239,6 +332,41 @@ class TestSaveContentEndpoint:
         assert data["title"] == "Tenant Required"
 
 
+class TestLoadWorkspaceEndpoint:
+    """Tests for load_workspace_content endpoint."""
+
+    def test_load_workspace_success(self, client):
+        """Test loading saved workspace content."""
+        save_response = client.post(
+            "/api/v1/workspace/save",
+            json={
+                "content_id": "content-123",
+                "content": "Saved content",
+                "title": "Saved Item",
+                "tenant_id": "11111111-1111-1111-1111-111111111111",
+            },
+        )
+        workspace_id = save_response.json()["data"]["workspace_id"]
+
+        response = client.get(
+            f"/api/v1/workspace/{workspace_id}",
+            params={"tenant_id": "11111111-1111-1111-1111-111111111111"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["data"]["workspace_id"] == workspace_id
+        assert data["data"]["content"] == "Saved content"
+
+    def test_load_requires_tenant_id(self, client):
+        """Test load fails without tenant_id."""
+        response = client.get(
+            "/api/v1/workspace/11111111-1111-1111-1111-111111111111",
+        )
+
+        assert response.status_code == 400
+
+
 class TestExportContentEndpoint:
     """Tests for export_content endpoint."""
 
@@ -351,6 +479,87 @@ class TestShareContentEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert "token=" in data["data"]["share_url"]
+
+    def test_share_content_retrieval(self, client):
+        """Test retrieving shared content with token."""
+        response = client.post(
+            "/api/v1/workspace/share",
+            json={
+                "content_id": "content-123",
+                "content": "Content to share",
+                "title": "Shared Response",
+                "tenant_id": "11111111-1111-1111-1111-111111111111",
+            },
+        )
+
+        share_url = response.json()["data"]["share_url"]
+        parsed_url = urlparse(share_url)
+        share_id = parsed_url.path.rstrip("/").split("/")[-1]
+        token = parse_qs(parsed_url.query)["token"][0]
+
+        get_response = client.get(
+            f"/api/v1/workspace/share/{share_id}",
+            params={"token": token},
+        )
+
+        assert get_response.status_code == 200
+        data = get_response.json()
+        assert data["data"]["content_id"] == "content-123"
+        assert data["data"]["content"] == "Content to share"
+
+    def test_share_content_retrieval_rejects_invalid_token(self, client):
+        """Test retrieving shared content rejects invalid token."""
+        response = client.post(
+            "/api/v1/workspace/share",
+            json={
+                "content_id": "content-123",
+                "content": "Content to share",
+                "tenant_id": "11111111-1111-1111-1111-111111111111",
+            },
+        )
+
+        share_url = response.json()["data"]["share_url"]
+        parsed_url = urlparse(share_url)
+        share_id = parsed_url.path.rstrip("/").split("/")[-1]
+
+        get_response = client.get(
+            f"/api/v1/workspace/share/{share_id}",
+            params={"token": "invalid-token"},
+        )
+
+        assert get_response.status_code == 403
+        payload = get_response.json()
+        assert payload["status"] == 403
+        assert payload["title"] == "Forbidden"
+        assert payload["type"].endswith("/invalid-token")
+
+    def test_share_content_retrieval_rejects_tampered_token(self, client):
+        """Test retrieving shared content rejects tampered token."""
+        response = client.post(
+            "/api/v1/workspace/share",
+            json={
+                "content_id": "content-123",
+                "content": "Content to share",
+                "tenant_id": "11111111-1111-1111-1111-111111111111",
+            },
+        )
+
+        share_url = response.json()["data"]["share_url"]
+        parsed_url = urlparse(share_url)
+        share_id = parsed_url.path.rstrip("/").split("/")[-1]
+        token = parse_qs(parsed_url.query)["token"][0]
+        tampered = token[:-1] + ("0" if token[-1] != "0" else "1")
+
+        get_response = client.get(
+            f"/api/v1/workspace/share/{share_id}",
+            params={"token": tampered},
+        )
+
+        assert get_response.status_code == 403
+        payload = get_response.json()
+        assert payload["status"] == 403
+        assert payload["title"] == "Forbidden"
+        assert payload["type"].endswith("/invalid-token")
 
     def test_share_requires_tenant_id(self, client):
         """Test share fails without tenant_id."""

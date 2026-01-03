@@ -31,8 +31,10 @@ from .api.routes import (
 from .api.routes.ingest import limiter as slowapi_limiter
 from .api.utils import rate_limit_exceeded
 from .config import Settings, load_settings
+from .llm import UnsupportedLLMProviderError, get_llm_adapter
 from .core.errors import AppError, app_error_handler, http_exception_handler
 from .protocols.a2a import A2ASessionManager
+from .protocols.ag_ui_bridge import HITLManager
 from .protocols.mcp import MCPToolRegistry
 from .rate_limit import InMemoryRateLimiter, RateLimiter, RedisRateLimiter, close_redis
 from .schemas import QueryEnvelope, QueryRequest, QueryResponse, ResponseMeta
@@ -61,6 +63,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     settings = load_settings()
     app.state.settings = settings
+    try:
+        llm_adapter = get_llm_adapter(settings)
+    except UnsupportedLLMProviderError as exc:
+        struct_logger.error(
+            "llm_provider_unsupported",
+            provider=settings.llm_provider,
+            error=str(exc),
+        )
+        raise RuntimeError(str(exc)) from exc
     key_bytes = bytes.fromhex(settings.trace_encryption_key)
     app.state.trace_key_fingerprint = hashlib.sha256(key_bytes).hexdigest()
     app.state.trace_key_source = (
@@ -100,6 +111,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             settings.neo4j_uri,
             settings.neo4j_user,
             settings.neo4j_password,
+            pool_min_size=settings.neo4j_pool_min,
+            pool_max_size=settings.neo4j_pool_max,
+            pool_acquire_timeout=settings.neo4j_pool_acquire_timeout_seconds,
+            connection_timeout=settings.neo4j_connection_timeout_seconds,
+            max_connection_lifetime=settings.neo4j_max_connection_lifetime_seconds,
         )
         await app.state.neo4j.connect()
         await app.state.neo4j.create_indexes()
@@ -117,6 +133,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             complex_min_score=settings.routing_complex_min_score,
         )
 
+    redis_client = getattr(app.state, "redis_client", None)
+    app.state.hitl_manager = HITLManager(
+        timeout=300.0,
+        redis_client=redis_client,
+    )
+    struct_logger.info(
+        "hitl_manager_initialized",
+        storage="redis" if redis_client else "memory",
+    )
+
     # Epic 5: Initialize Graphiti temporal knowledge graph
     app.state.graphiti = None
     if not _should_skip_graphiti():
@@ -128,7 +154,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     uri=settings.neo4j_uri,
                     user=settings.neo4j_user,
                     password=settings.neo4j_password,
-                    openai_api_key=settings.openai_api_key,
+                    llm_provider=llm_adapter.provider,
+                    llm_api_key=llm_adapter.api_key,
+                    llm_base_url=llm_adapter.base_url,
+                    embedding_provider=settings.embedding_provider,
+                    embedding_api_key=settings.embedding_api_key,
+                    embedding_base_url=settings.embedding_base_url,
                     embedding_model=settings.graphiti_embedding_model,
                     llm_model=settings.graphiti_llm_model,
                 )
@@ -153,8 +184,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
         app.state.redis = None
         app.state.orchestrator = OrchestratorAgent(
-            api_key=settings.openai_api_key,
-            model_id=settings.openai_model_id,
+            api_key=llm_adapter.api_key or "",
+            provider=llm_adapter.provider,
+            model_id=settings.llm_model_id,
+            base_url=llm_adapter.base_url,
+            embedding_provider=settings.embedding_provider,
+            embedding_api_key=settings.embedding_api_key,
+            embedding_base_url=settings.embedding_base_url,
             logger=None,
             postgres=getattr(app.state, "postgres", None),
             neo4j=getattr(app.state, "neo4j", None),
@@ -198,8 +234,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 window_seconds=60,
             )
         app.state.orchestrator = OrchestratorAgent(
-            api_key=settings.openai_api_key,
-            model_id=settings.openai_model_id,
+            api_key=llm_adapter.api_key or "",
+            provider=llm_adapter.provider,
+            model_id=settings.llm_model_id,
+            base_url=llm_adapter.base_url,
+            embedding_provider=settings.embedding_provider,
+            embedding_api_key=settings.embedding_api_key,
+            embedding_base_url=settings.embedding_base_url,
             logger=app.state.trajectory_logger,
             postgres=getattr(app.state, "postgres", None),
             neo4j=getattr(app.state, "neo4j", None),
@@ -213,6 +254,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         max_sessions_per_tenant=settings.a2a_max_sessions_per_tenant,
         max_sessions_total=settings.a2a_max_sessions_total,
         max_messages_per_session=settings.a2a_max_messages_per_session,
+        redis_client=getattr(app.state, "redis_client", None),
     )
     await app.state.a2a_manager.start_cleanup_task(
         settings.a2a_cleanup_interval_seconds

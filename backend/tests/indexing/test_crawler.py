@@ -185,6 +185,25 @@ class TestHtmlToMarkdown:
         result = html_to_markdown(html, title="Page Title")
         assert result.startswith("# Page Title")
 
+    def test_convert_tables(self):
+        """Test table conversion preserves structure."""
+        html = (
+            "<table>"
+            "<tr><th>Name</th><th>Age</th></tr>"
+            "<tr><td>Ada</td><td>36</td></tr>"
+            "</table>"
+        )
+        result = html_to_markdown(html)
+        assert "| Name | Age |" in result
+        assert "| --- | --- |" in result
+        assert "| Ada | 36 |" in result
+
+    def test_strips_unsafe_link_attributes(self):
+        """Test javascript: links are stripped."""
+        html = '<a href="javascript:alert(1)">Click</a>'
+        result = html_to_markdown(html)
+        assert "javascript:" not in result
+
 
 class TestExtractTitle:
     """Tests for title extraction."""

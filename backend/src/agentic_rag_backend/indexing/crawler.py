@@ -30,6 +30,7 @@ DEFAULT_TIMEOUT = 30.0  # seconds
 DEFAULT_USER_AGENT = (
     "AgenticRAG-Crawler/1.0 (+https://github.com/example/agentic-rag)"
 )
+HTML_MARKDOWN_THREAD_THRESHOLD = 100_000
 
 
 def compute_content_hash(content: str) -> str:
@@ -125,13 +126,14 @@ def extract_links(html: str, base_url: str) -> list[str]:
     Returns:
         List of normalized absolute URLs
     """
-    # Simple regex-based link extraction
-    # In production, consider using BeautifulSoup for more robust parsing
-    href_pattern = re.compile(r'href=["\']([^"\']+)["\']', re.IGNORECASE)
-    matches = href_pattern.findall(html)
+    from bs4 import BeautifulSoup
 
+    soup = BeautifulSoup(html, "html.parser")
     links = []
-    for href in matches:
+    for anchor in soup.find_all("a", href=True):
+        href = anchor.get("href")
+        if not href or not isinstance(href, str):
+            continue
         normalized = normalize_url(href, base_url)
         if normalized and is_same_domain(normalized, base_url):
             links.append(normalized)
@@ -143,8 +145,7 @@ def html_to_markdown(html: str, title: Optional[str] = None) -> str:
     """
     Convert HTML to markdown format.
 
-    This is a simplified implementation. In production, consider using
-    a library like markdownify or html2text for better conversion.
+    Uses BeautifulSoup to parse HTML and convert common elements into markdown.
 
     Args:
         html: HTML content
@@ -153,60 +154,71 @@ def html_to_markdown(html: str, title: Optional[str] = None) -> str:
     Returns:
         Markdown-formatted content
     """
-    import re
+    from bs4 import BeautifulSoup
+    from markdownify import markdownify
 
-    content = html
+    soup = BeautifulSoup(html, "html.parser")
 
-    # Remove script and style elements
-    content = re.sub(r"<script[^>]*>.*?</script>", "", content, flags=re.DOTALL | re.IGNORECASE)
-    content = re.sub(r"<style[^>]*>.*?</style>", "", content, flags=re.DOTALL | re.IGNORECASE)
+    allowed_tags = {
+        "a",
+        "blockquote",
+        "br",
+        "code",
+        "div",
+        "em",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "li",
+        "ol",
+        "p",
+        "pre",
+        "span",
+        "strong",
+        "table",
+        "tbody",
+        "td",
+        "th",
+        "thead",
+        "tr",
+        "ul",
+    }
+    drop_tags = {"embed", "form", "iframe", "input", "object", "script", "style"}
 
-    # Convert headers
-    for i in range(6, 0, -1):
-        content = re.sub(
-            rf"<h{i}[^>]*>(.*?)</h{i}>",
-            r"\n" + "#" * i + r" \1\n",
-            content,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
+    for tag in soup.find_all(True):
+        if tag.name in drop_tags:
+            tag.decompose()
+            continue
+        if tag.name not in allowed_tags:
+            tag.unwrap()
+            continue
+        if tag.name == "a":
+            href = tag.get("href")
+            if isinstance(href, str):
+                lowered = href.strip().lower()
+                if lowered.startswith(("javascript:", "data:", "vbscript:")):
+                    tag.attrs = {}
+                else:
+                    tag.attrs = {"href": href}
+            else:
+                tag.attrs = {}
+        else:
+            tag.attrs = {}
 
-    # Convert paragraphs
-    content = re.sub(r"<p[^>]*>(.*?)</p>", r"\n\1\n", content, flags=re.DOTALL | re.IGNORECASE)
-
-    # Convert line breaks
-    content = re.sub(r"<br\s*/?>", "\n", content, flags=re.IGNORECASE)
-
-    # Convert links
-    content = re.sub(
-        r'<a[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
-        r"[\2](\1)",
-        content,
-        flags=re.DOTALL | re.IGNORECASE,
+    content = markdownify(
+        str(soup),
+        heading_style="ATX",
+        bullets="-",
+        strip=["script", "style"],
     )
 
-    # Convert bold
-    content = re.sub(r"<(strong|b)[^>]*>(.*?)</\1>", r"**\2**", content, flags=re.DOTALL | re.IGNORECASE)
-
-    # Convert italic
-    content = re.sub(r"<(em|i)[^>]*>(.*?)</\1>", r"*\2*", content, flags=re.DOTALL | re.IGNORECASE)
-
-    # Convert code blocks
-    content = re.sub(r"<pre[^>]*><code[^>]*>(.*?)</code></pre>", r"\n```\n\1\n```\n", content, flags=re.DOTALL | re.IGNORECASE)
-    content = re.sub(r"<code[^>]*>(.*?)</code>", r"`\1`", content, flags=re.DOTALL | re.IGNORECASE)
-
-    # Convert lists
-    content = re.sub(r"<li[^>]*>(.*?)</li>", r"- \1\n", content, flags=re.DOTALL | re.IGNORECASE)
-    content = re.sub(r"</?[uo]l[^>]*>", "", content, flags=re.IGNORECASE)
-
-    # Remove remaining HTML tags
-    content = re.sub(r"<[^>]+>", "", content)
-
-    # Clean up whitespace
     content = re.sub(r"\n{3,}", "\n\n", content)
     content = re.sub(r"[ \t]+", " ", content)
     content = content.strip()
 
-    # Prepend title if provided
     if title:
         content = f"# {title}\n\n{content}"
 
@@ -223,9 +235,11 @@ def extract_title(html: str) -> Optional[str]:
     Returns:
         Title string, or None if not found
     """
-    match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
-    if match:
-        return match.group(1).strip()
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "html.parser")
+    if soup.title and soup.title.string:
+        return soup.title.string.strip()
     return None
 
 
@@ -403,7 +417,10 @@ class CrawlerService:
 
             # Extract title and convert to markdown
             title = extract_title(content)
-            markdown = html_to_markdown(content, title)
+            if len(content) > HTML_MARKDOWN_THREAD_THRESHOLD:
+                markdown = await asyncio.to_thread(html_to_markdown, content, title)
+            else:
+                markdown = html_to_markdown(content, title)
             content_hash = compute_content_hash(markdown)
             links = extract_links(content, url)
 

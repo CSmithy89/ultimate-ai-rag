@@ -1,4 +1,4 @@
-# generated: 2025-12-29
+# generated: 2026-01-03
 # project: Agentic Rag and Graphrag with copilot
 # project_key: agentic-rag-graphrag-copilot
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - SM typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
-generated: 2025-12-29
+generated: 2026-01-03
 project: Agentic Rag and Graphrag with copilot
 project_key: agentic-rag-graphrag-copilot
 tracking_system: file-system
@@ -52,6 +52,7 @@ development_status:
 
   # Epic 2: Agentic Query & Reasoning
   epic-2: done
+  
   2-1-orchestrator-agent-foundation: done
   2-2-multi-step-query-planning: done
   2-3-dynamic-retrieval-method-selection: done
@@ -130,28 +131,126 @@ development_status:
   10-7-nfr-benchmark-validation: done
   epic-10-retrospective: done
 
-  # Epic 11: Code Cleanup & Migration (Tech Debt)
-  epic-11: backlog
-  11-1-fix-datetime-deprecation: backlog
-  11-2-delete-legacy-modules: backlog
-  11-3-complete-graphiti-migration: backlog
-  11-4-wire-hitl-validation: backlog
-  11-5-implement-workspace-persistence: backlog
-  11-6-replace-html-markdown-regex: backlog
-  11-7-configure-neo4j-pooling: backlog
-  11-8-add-llm-token-monitoring: backlog
-  11-9-a2a-session-persistence: backlog
-  epic-11-retrospective: optional
+  # ==========================================
+  # REVISED ROADMAP 2025 (From Recommendations)
+  # ==========================================
 
-  # Epic 12: Documentation & DevOps (Tech Debt)
+  # Epic 11: Code Cleanup & Migration (Revised)
+  epic-11: done
+  11-1-fix-datetime-deprecation: done
+  11-2-delete-legacy-modules: done
+  11-3-complete-graphiti-migration: done
+  11-4-wire-hitl-validation: done
+  11-5-implement-workspace-persistence: done
+  11-6-replace-html-markdown-regex: done
+  11-7-configure-neo4j-pooling: done
+  11-8-add-llm-token-monitoring: done
+  11-9-a2a-session-persistence: done
+  # NEW: Universalization Refactor
+  11-10-refactor-config-multiprovider: done
+  11-11-implement-provider-adapter-pattern: done
+  11-12-implement-multi-provider-embeddings: done
+  epic-11-retrospective: done
+
+  # ==========================================
+  # REFINED ROADMAP 2025 (Party Mode Analysis 2026-01-03)
+  # See: docs/roadmap-decisions-2026-01-03.md
+  # ==========================================
+
+  # Epic 12: Advanced Retrieval (The "Archon" Upgrade)
+  # DECISION: Reranker complements Graphiti (Stage 1 + Stage 2 retrieval)
+  # DECISION: All features are CONFIGURABLE via environment flags
+  # See: docs/guides/advanced-retrieval-configuration.md
+  # TECH DEBT (2026-01-04): Complete native Anthropic/Gemini adapter wiring per Epic 11 retro
   epic-12: backlog
-  12-1-document-retrieval-configuration: backlog
-  12-2-document-observability-metrics: backlog
-  12-3-create-sdk-usage-guide: backlog
-  12-4-document-agui-protocol: backlog
-  12-5-document-hitl-flow: backlog
-  12-6-backfill-epic8-stories: backlog
-  12-7-add-troubleshooting-guides: backlog
-  12-8-configure-dependabot: backlog
-  12-9-configure-codeql: backlog
+  12-1-implement-cross-encoder-reranking: backlog
+  # Config: RERANKER_ENABLED, RERANKER_PROVIDER (cohere|flashrank), RERANKER_TOP_K
+  12-2-implement-contextual-retrieval-chunking: backlog
+  # Config: CONTEXTUAL_RETRIEVAL_ENABLED, uses prompt caching + cost-effective model
+  12-3-implement-corrective-rag-grader-agent: backlog
+  # Config: GRADER_THRESHOLD, GRADER_FALLBACK_ENABLED
   epic-12-retrospective: optional
+
+  # Epic 13: Enterprise Ingestion
+  # DECISION (2026-01-04): Current crawler.py does NOT use installed Crawl4AI library!
+  # Must migrate from custom httpx to AsyncWebCrawler for JS rendering + parallel crawling
+  # See: epic-13-tech-spec.md
+  epic-13: backlog
+  13-1-integrate-apify-brightdata-fallback: backlog
+  13-2-implement-youtube-transcript-api-ingestion: backlog
+  # RENAMED: Was "optimize" - now full migration to Crawl4AI library
+  13-3-migrate-to-crawl4ai-library: backlog
+  # NEW: Crawl profiles (fast/thorough/stealth)
+  13-4-implement-crawl-configuration-profiles: backlog
+  epic-13-retrospective: optional
+
+  # Epic 14: Connectivity (MCP Wrapper Architecture)
+  # DECISION: WRAP Graphiti MCP, don't duplicate - extend with RAG-specific tools
+  # See: docs/guides/mcp-wrapper-architecture.md
+  epic-14: backlog
+  14-1-expose-rag-engine-via-mcp-server: backlog
+  # Wraps Graphiti MCP + adds: vector_search, ingest_url, ingest_pdf, ingest_youtube, query_with_reranking
+  14-2-implement-robust-a2a-protocol: backlog
+  epic-14-retrospective: optional
+
+  # Epic 15: Codebase Intelligence (RENAMED - was Multimodal & Codebase)
+  # DECISION: REMOVED video/image processing (YouTube transcript covers 90%+ of RAG needs)
+  # DECISION: FOCUS on codebase intelligence as developer platform differentiator
+  epic-15: backlog
+  # REMOVED: 15-1-implement-full-video-ingestion-clip-whisper
+  # REMOVED: 15-2-implement-image-ingestion
+  15-1-implement-codebase-hallucination-detector: backlog
+  # AST-based symbol validation, file path verification, API endpoint matching
+  15-2-implement-codebase-rag-context: backlog
+  # Index repository as knowledge, symbol extraction for context (NEW)
+  epic-15-retrospective: optional
+
+  # Epic 16: Framework Agnosticism (Developer Extension Points)
+  # DECISION: This enables developers to BUILD ON their preferred framework
+  # DECISION: Story 16-4 includes Agent Skills integration (open standard)
+  epic-16: backlog
+  16-1-define-headless-agent-protocol-interface: backlog
+  16-2-implement-pydantic-ai-adapter: backlog
+  # PydanticAI already supports A2A and MCP protocols natively
+  16-3-implement-crewai-adapter: backlog
+  # CrewAI supports hierarchical process mode for multi-agent
+  16-4-implement-anthropic-agent-adapter: backlog
+  # INCLUDES: Agent Skills integration (open standard adopted by Microsoft/VS Code)
+  16-5-implement-langgraph-adapter: backlog
+  # LangGraph offers checkpointing and persistence out of the box
+  epic-16-retrospective: optional
+
+  # Epic 17: Deployment & CLI (The Final Polish - INTENTIONALLY LAST)
+  # DECISION: Must be LAST to know all options before offering them in CLI
+  # DECISION: CLI is the capstone UX for the developer platform
+  epic-17: backlog
+  17-1-create-rag-install-cli-tool: backlog
+  # Guided setup: LLM provider, database, agent framework, features
+  17-2-implement-auto-hardware-detection: backlog
+  # GPU for local LLM/Whisper, RAM for model selection
+  17-3-implement-env-generation-logic: backlog
+  # Generate complete .env, validate all combinations
+  17-4-verify-docker-compose-startup: backlog
+  # Health checks for selected stack
+  epic-17-retrospective: optional
+
+  # Epic 18: Enhanced Documentation & DevOps (The Manual)
+  # DECISION (2026-01-04): Some docs already exist. Focus on completing remaining guides.
+  # Existing: advanced-retrieval-configuration.md, mcp-wrapper-architecture.md, roadmap-decisions-2026-01-03.md
+  # Needed: provider-configuration.md, observability.md, headless-agent-protocol.md, cli-installation.md
+  epic-18: backlog
+  # DevOps Automation
+  18-1-document-observability-metrics: backlog
+  18-2-configure-dependabot-security-updates: backlog
+  18-3-configure-codeql-analysis: backlog
+  # New Documentation
+  18-4-document-provider-configuration-guide: backlog
+  # NOTE: 18-5 extends existing docs/guides/advanced-retrieval-configuration.md
+  18-5-update-advanced-retrieval-tuning-guide: backlog
+  18-6-document-headless-agent-protocol: backlog
+  # NOTE: 18-7 extends existing docs/guides/mcp-wrapper-architecture.md
+  18-7-update-mcp-server-usage-guide: backlog
+  18-8-create-cli-installation-manual: backlog
+  # TECH DEBT (2026-01-04): Audit workspace endpoints for RFC 7807 error format compliance
+  18-9-audit-rfc7807-error-compliance: backlog
+  epic-18-retrospective: optional

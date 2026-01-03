@@ -14,6 +14,10 @@ import structlog
 # Search configuration constants
 DEFAULT_SEARCH_RESULTS = 5
 MAX_SEARCH_RESULTS = 100
+LLM_PROVIDERS = {"openai", "openrouter", "ollama", "anthropic", "gemini"}
+EMBEDDING_PROVIDERS = {"openai", "openrouter", "ollama", "gemini", "voyage"}
+DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 
 logger = structlog.get_logger(__name__)
 
@@ -22,8 +26,23 @@ class Settings:
     """Application settings loaded from environment variables."""
 
     app_env: str
+    llm_provider: str
+    llm_api_key: Optional[str]
+    llm_base_url: Optional[str]
+    llm_model_id: str
     openai_api_key: str
     openai_model_id: str
+    openai_base_url: Optional[str]
+    openrouter_api_key: Optional[str]
+    openrouter_base_url: str
+    ollama_base_url: str
+    anthropic_api_key: Optional[str]
+    gemini_api_key: Optional[str]
+    voyage_api_key: Optional[str]
+    # Embedding provider settings (separate from LLM provider)
+    embedding_provider: str
+    embedding_api_key: Optional[str]
+    embedding_base_url: Optional[str]
     database_url: str
     db_pool_min: int
     db_pool_max: int
@@ -35,6 +54,11 @@ class Settings:
     neo4j_uri: str
     neo4j_user: str
     neo4j_password: str
+    neo4j_pool_min: int
+    neo4j_pool_max: int
+    neo4j_pool_acquire_timeout_seconds: float
+    neo4j_connection_timeout_seconds: float
+    neo4j_max_connection_lifetime_seconds: int
     redis_url: str
     backend_host: str
     backend_port: int
@@ -55,8 +79,6 @@ class Settings:
     # Epic 5 - Graphiti settings
     graphiti_embedding_model: str
     graphiti_llm_model: str
-    ingestion_backend: str  # "graphiti" or "legacy"
-    retrieval_backend: str  # "graphiti" or "legacy"
     # Epic 6 - Workspace settings
     share_secret: str  # Secret for signing share links (set via SHARE_SECRET env var)
     # Epic 7 - A2A settings
@@ -93,6 +115,21 @@ def load_settings() -> Settings:
     load_dotenv()
 
     app_env = os.getenv("APP_ENV", "development").strip().lower()
+    llm_provider = os.getenv("LLM_PROVIDER", "openai").strip().lower()
+    if llm_provider not in LLM_PROVIDERS:
+        raise ValueError(
+            "LLM_PROVIDER must be one of: openai, openrouter, ollama, anthropic, gemini."
+        )
+    llm_model_id = os.getenv("LLM_MODEL_ID")
+    openai_model_id = os.getenv("OPENAI_MODEL_ID")
+    if not llm_model_id and not openai_model_id:
+        openai_model_id = "gpt-4o-mini"
+        llm_model_id = openai_model_id
+    else:
+        if not llm_model_id:
+            llm_model_id = openai_model_id
+        if not openai_model_id:
+            openai_model_id = llm_model_id
 
     min_pool_size = 1
     try:
@@ -120,6 +157,35 @@ def load_settings() -> Settings:
         )
     if request_max_bytes < 1:
         raise ValueError("REQUEST_MAX_BYTES must be >= 1.")
+
+    try:
+        neo4j_pool_min = int(os.getenv("NEO4J_POOL_MIN", "1"))
+        neo4j_pool_max = int(os.getenv("NEO4J_POOL_MAX", "50"))
+        neo4j_pool_acquire_timeout_seconds = float(
+            os.getenv("NEO4J_POOL_ACQUIRE_TIMEOUT_SECONDS", "30")
+        )
+        neo4j_connection_timeout_seconds = float(
+            os.getenv("NEO4J_CONNECTION_TIMEOUT_SECONDS", "30")
+        )
+        neo4j_max_connection_lifetime_seconds = int(
+            os.getenv("NEO4J_MAX_CONNECTION_LIFETIME_SECONDS", "3600")
+        )
+    except ValueError as exc:
+        raise ValueError(
+            "NEO4J_POOL_MIN, NEO4J_POOL_MAX, and Neo4j timeout settings must be numeric."
+        ) from exc
+    if neo4j_pool_min < 1:
+        raise ValueError("NEO4J_POOL_MIN must be >= 1.")
+    if neo4j_pool_max < max(1, neo4j_pool_min):
+        raise ValueError(
+            "NEO4J_POOL_MAX must be >= max(1, NEO4J_POOL_MIN)."
+        )
+    if neo4j_pool_acquire_timeout_seconds <= 0:
+        raise ValueError("NEO4J_POOL_ACQUIRE_TIMEOUT_SECONDS must be > 0.")
+    if neo4j_connection_timeout_seconds <= 0:
+        raise ValueError("NEO4J_CONNECTION_TIMEOUT_SECONDS must be > 0.")
+    if neo4j_max_connection_lifetime_seconds <= 0:
+        raise ValueError("NEO4J_MAX_CONNECTION_LIFETIME_SECONDS must be > 0.")
     if rate_limit_per_minute < 1:
         raise ValueError("RATE_LIMIT_PER_MINUTE must be >= 1.")
     if rate_limit_retry_after_seconds < 1:
@@ -210,27 +276,22 @@ def load_settings() -> Settings:
                     "MCP_TOOL_TIMEOUT_OVERRIDES values must be numeric."
                 ) from exc
 
-    # Epic 5 - Validate backend selections
-    ingestion_backend = os.getenv("INGESTION_BACKEND", "graphiti")
-    if ingestion_backend not in {"graphiti", "legacy"}:
-        raise ValueError(
-            f"Invalid INGESTION_BACKEND: {ingestion_backend}. "
-            "Must be 'graphiti' or 'legacy'.")
-
-    retrieval_backend = os.getenv("RETRIEVAL_BACKEND", "graphiti")
-    if retrieval_backend not in {"graphiti", "legacy"}:
-        raise ValueError(
-            f"Invalid RETRIEVAL_BACKEND: {retrieval_backend}. "
-            "Must be 'graphiti' or 'legacy'.")
-
     required = [
-        "OPENAI_API_KEY",
         "DATABASE_URL",
         "NEO4J_URI",
         "NEO4J_USER",
         "NEO4J_PASSWORD",
         "REDIS_URL",
     ]
+    provider_required_keys = {
+        "openai": "OPENAI_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+    }
+    provider_key = provider_required_keys.get(llm_provider)
+    if provider_key:
+        required.append(provider_key)
     values = {key: os.getenv(key) for key in required}
     missing = [key for key, value in values.items() if not value]
     if missing:
@@ -240,7 +301,90 @@ def load_settings() -> Settings:
             f"{missing_list}. Copy .env.example to .env and fill values."
         )
 
-    openai_api_key = cast(str, values["OPENAI_API_KEY"])
+    openai_api_key = os.getenv("OPENAI_API_KEY", "")
+    openai_base_url = os.getenv("OPENAI_BASE_URL")
+    openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+    openrouter_base_url = os.getenv(
+        "OPENROUTER_BASE_URL", DEFAULT_OPENROUTER_BASE_URL
+    )
+    ollama_base_url = os.getenv("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
+    anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    voyage_api_key = os.getenv("VOYAGE_API_KEY")
+
+    # Embedding provider configuration
+    # Default to LLM_PROVIDER if it supports embeddings, otherwise openai
+    embedding_provider_env = os.getenv("EMBEDDING_PROVIDER", "").strip().lower()
+    if embedding_provider_env:
+        embedding_provider = embedding_provider_env
+    elif llm_provider in EMBEDDING_PROVIDERS:
+        # Use LLM provider for embeddings if it supports them
+        embedding_provider = llm_provider
+    else:
+        # Anthropic doesn't have native embeddings, default to openai
+        embedding_provider = "openai"
+        logger.warning(
+            "embedding_provider_fallback",
+            llm_provider=llm_provider,
+            embedding_provider=embedding_provider,
+            hint="Set EMBEDDING_PROVIDER explicitly. Consider 'voyage' for Anthropic (recommended by Anthropic docs).",
+        )
+
+    if embedding_provider not in EMBEDDING_PROVIDERS:
+        raise ValueError(
+            "EMBEDDING_PROVIDER must be one of: openai, openrouter, ollama, gemini, voyage."
+        )
+
+    if llm_provider == "openai":
+        llm_api_key = openai_api_key
+        llm_base_url = openai_base_url or None
+    elif llm_provider == "openrouter":
+        llm_api_key = openrouter_api_key
+        llm_base_url = openrouter_base_url
+    elif llm_provider == "ollama":
+        llm_api_key = os.getenv("OLLAMA_API_KEY") or None
+        llm_base_url = ollama_base_url
+    elif llm_provider == "anthropic":
+        llm_api_key = anthropic_api_key
+        llm_base_url = None
+    else:
+        llm_api_key = gemini_api_key
+        llm_base_url = None
+
+    # Derive embedding API credentials based on embedding_provider
+    if embedding_provider == "openai":
+        embedding_api_key = openai_api_key
+        embedding_base_url = openai_base_url or None
+    elif embedding_provider == "openrouter":
+        embedding_api_key = openrouter_api_key
+        embedding_base_url = openrouter_base_url
+    elif embedding_provider == "ollama":
+        embedding_api_key = os.getenv("OLLAMA_API_KEY") or None
+        embedding_base_url = ollama_base_url
+    elif embedding_provider == "gemini":
+        embedding_api_key = gemini_api_key
+        embedding_base_url = None  # Gemini uses its own client
+    elif embedding_provider == "voyage":
+        embedding_api_key = voyage_api_key
+        embedding_base_url = None  # Voyage uses its own client
+    else:
+        embedding_api_key = openai_api_key  # Fallback to OpenAI
+        embedding_base_url = openai_base_url or None
+
+    # Validate embedding provider API key is set
+    embedding_provider_keys = {
+        "openai": ("OPENAI_API_KEY", openai_api_key),
+        "openrouter": ("OPENROUTER_API_KEY", openrouter_api_key),
+        "gemini": ("GEMINI_API_KEY", gemini_api_key),
+        "voyage": ("VOYAGE_API_KEY", voyage_api_key),
+    }
+    if embedding_provider in embedding_provider_keys:
+        key_name, key_value = embedding_provider_keys[embedding_provider]
+        if not key_value:
+            raise ValueError(
+                f"{key_name} is required when EMBEDDING_PROVIDER={embedding_provider}."
+            )
+
     database_url = cast(str, values["DATABASE_URL"])
     neo4j_uri = cast(str, values["NEO4J_URI"])
     neo4j_user = cast(str, values["NEO4J_USER"])
@@ -249,7 +393,14 @@ def load_settings() -> Settings:
     model_pricing_json = os.getenv("MODEL_PRICING_JSON", "")
     if model_pricing_json:
         try:
-            json.loads(model_pricing_json)
+            pricing_data = json.loads(model_pricing_json)
+            if not isinstance(pricing_data, dict):
+                raise ValueError("MODEL_PRICING_JSON must be a JSON object (dict).")
+            for model_name, model_pricing in pricing_data.items():
+                if not isinstance(model_name, str):
+                    raise ValueError(f"MODEL_PRICING_JSON keys must be strings, got {type(model_name).__name__}.")
+                if not isinstance(model_pricing, dict):
+                    raise ValueError(f"MODEL_PRICING_JSON['{model_name}'] must be a dict with pricing info.")
         except json.JSONDecodeError as exc:
             raise ValueError("MODEL_PRICING_JSON must be valid JSON.") from exc
 
@@ -296,8 +447,22 @@ def load_settings() -> Settings:
 
     return Settings(
         app_env=app_env,
+        llm_provider=llm_provider,
+        llm_api_key=llm_api_key,
+        llm_base_url=llm_base_url,
+        llm_model_id=llm_model_id,
         openai_api_key=openai_api_key,
-        openai_model_id=os.getenv("OPENAI_MODEL_ID", "gpt-4o-mini"),
+        openai_model_id=openai_model_id,
+        openai_base_url=openai_base_url,
+        openrouter_api_key=openrouter_api_key,
+        openrouter_base_url=openrouter_base_url,
+        ollama_base_url=ollama_base_url,
+        anthropic_api_key=anthropic_api_key,
+        gemini_api_key=gemini_api_key,
+        voyage_api_key=voyage_api_key,
+        embedding_provider=embedding_provider,
+        embedding_api_key=embedding_api_key,
+        embedding_base_url=embedding_base_url,
         database_url=database_url,
         db_pool_min=db_pool_min,
         db_pool_max=db_pool_max,
@@ -309,6 +474,11 @@ def load_settings() -> Settings:
         neo4j_uri=neo4j_uri,
         neo4j_user=neo4j_user,
         neo4j_password=neo4j_password,
+        neo4j_pool_min=neo4j_pool_min,
+        neo4j_pool_max=neo4j_pool_max,
+        neo4j_pool_acquire_timeout_seconds=neo4j_pool_acquire_timeout_seconds,
+        neo4j_connection_timeout_seconds=neo4j_connection_timeout_seconds,
+        neo4j_max_connection_lifetime_seconds=neo4j_max_connection_lifetime_seconds,
         redis_url=redis_url,
         backend_host=os.getenv("BACKEND_HOST", "0.0.0.0"),
         backend_port=backend_port,
@@ -328,8 +498,6 @@ def load_settings() -> Settings:
         # Epic 5 - Graphiti settings
         graphiti_embedding_model=os.getenv("GRAPHITI_EMBEDDING_MODEL", "text-embedding-3-small"),
         graphiti_llm_model=os.getenv("GRAPHITI_LLM_MODEL", "gpt-4o-mini"),
-        ingestion_backend=ingestion_backend,
-        retrieval_backend=retrieval_backend,
         # Epic 6 - Workspace settings
         # Default generates random secret if not set (for dev), but production should set SHARE_SECRET
         share_secret=os.getenv("SHARE_SECRET", secrets.token_hex(32)),

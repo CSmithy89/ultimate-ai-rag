@@ -127,7 +127,8 @@ class TestHITLManager:
         assert events[1].data["args"]["sources"] == MOCK_SOURCES
         assert events[1].data["args"]["query"] == "test query"
 
-    def test_receive_validation_response_approved(self, manager):
+    @pytest.mark.asyncio
+    async def test_receive_validation_response_approved(self, manager):
         """Test receiving approval response."""
         # Create checkpoint first
         checkpoint = HITLCheckpoint(
@@ -138,7 +139,7 @@ class TestHITLManager:
         manager._pending_checkpoints["test-123"] = checkpoint
 
         # Receive approval
-        result = manager.receive_validation_response(
+        result = await manager.receive_validation_response(
             checkpoint_id="test-123",
             approved_source_ids=["source-1", "source-2"],
         )
@@ -148,7 +149,8 @@ class TestHITLManager:
         assert "source-3" in result.rejected_source_ids
         assert result.response_event.is_set()
 
-    def test_receive_validation_response_rejected(self, manager):
+    @pytest.mark.asyncio
+    async def test_receive_validation_response_rejected(self, manager):
         """Test receiving rejection response (no approvals)."""
         checkpoint = HITLCheckpoint(
             checkpoint_id="test-123",
@@ -157,7 +159,7 @@ class TestHITLManager:
         )
         manager._pending_checkpoints["test-123"] = checkpoint
 
-        result = manager.receive_validation_response(
+        result = await manager.receive_validation_response(
             checkpoint_id="test-123",
             approved_source_ids=[],
         )
@@ -166,10 +168,11 @@ class TestHITLManager:
         assert result.approved_source_ids == []
         assert len(result.rejected_source_ids) == 3
 
-    def test_receive_validation_response_not_found(self, manager):
+    @pytest.mark.asyncio
+    async def test_receive_validation_response_not_found(self, manager):
         """Test error when checkpoint not found."""
         with pytest.raises(KeyError) as exc_info:
-            manager.receive_validation_response(
+            await manager.receive_validation_response(
                 checkpoint_id="nonexistent",
                 approved_source_ids=["source-1"],
             )
@@ -189,7 +192,7 @@ class TestHITLManager:
         # Simulate response in background
         async def respond_later():
             await asyncio.sleep(0.1)
-            manager.receive_validation_response(
+            await manager.receive_validation_response(
                 checkpoint_id="test-123",
                 approved_source_ids=["source-1"],
             )

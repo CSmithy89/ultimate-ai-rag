@@ -43,11 +43,31 @@ class TestNeo4jClient:
                 uri="bolt://localhost:7687",
                 user="neo4j",
                 password="test",
+                pool_min_size=0,
             )
             await client.connect()
 
             mock_db.driver.assert_called_once()
             assert client._driver is not None
+
+    @pytest.mark.asyncio
+    async def test_connect_warms_pool_when_enabled(self):
+        """Test that pool warmup runs when pool_min_size is set."""
+        with patch("agentic_rag_backend.db.neo4j.AsyncGraphDatabase") as mock_db:
+            mock_driver = MagicMock()
+            mock_db.driver.return_value = mock_driver
+
+            client = Neo4jClient(
+                uri="bolt://localhost:7687",
+                user="neo4j",
+                password="test",
+                pool_min_size=2,
+            )
+            client._warm_pool = AsyncMock()
+
+            await client.connect()
+
+            client._warm_pool.assert_called_once_with(2)
 
     @pytest.mark.asyncio
     async def test_disconnect(self, client, mock_driver):

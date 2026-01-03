@@ -1,0 +1,21 @@
+<storyContext>
+  <story id="11.9" title="A2A session persistence" epic="11" />
+
+  <summary>
+    Persist A2A sessions to Redis to survive restarts.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Sessions can be recovered after restart.</acceptanceCriteria>
+    <acceptanceCriteria>Persistence is non-blocking to core API calls.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Keep in-memory cache for fast access.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="docs/epics/epic-11-tech-spec.md" section="Story Breakdown" />
+    <reference path="docs/epics/epic-11-code-cleanup-migration.md" section="Story 11.9" />
+  </references>
+</storyContext>

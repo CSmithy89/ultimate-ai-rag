@@ -1,10 +1,10 @@
 """CopilotKit AG-UI protocol endpoint."""
 
 import re
-from typing import List, Optional
+from typing import Any, List, Optional
 
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 import structlog
@@ -33,6 +33,7 @@ def get_rate_limiter(request: Request) -> RateLimiter:
 @router.post("")
 async def copilot_handler(
     request: CopilotRequest,
+    http_request: Request,
     orchestrator: OrchestratorAgent = Depends(get_orchestrator),
     limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> StreamingResponse:
@@ -54,7 +55,7 @@ async def copilot_handler(
     if not await limiter.allow(tenant_id):
         raise rate_limit_exceeded()
 
-    bridge = AGUIBridge(orchestrator)
+    bridge = AGUIBridge(orchestrator, hitl_manager=get_hitl_manager(http_request))
 
     async def event_generator():
         async for event in bridge.process_request(request):
@@ -107,6 +108,18 @@ class ValidationResponseResult(BaseModel):
     status: str
     approved_count: int
     rejected_count: int
+
+
+class HITLCheckpointResponse(BaseModel):
+    """Response payload for HITL checkpoint queries."""
+
+    checkpoint_id: str
+    status: str
+    query: str
+    tenant_id: Optional[str] = None
+    sources: List[dict[str, Any]]
+    approved_source_ids: List[str]
+    rejected_source_ids: List[str]
 
 
 def get_hitl_manager(request: Request):
@@ -175,7 +188,7 @@ async def receive_validation_response(
                 detail="Not authorized to respond to this checkpoint"
             )
 
-        checkpoint = hitl_manager.receive_validation_response(
+        checkpoint = await hitl_manager.receive_validation_response(
             checkpoint_id=request_body.checkpoint_id,
             approved_source_ids=request_body.approved_source_ids,
         )
@@ -192,3 +205,42 @@ async def receive_validation_response(
             status_code=404,
             detail=f"Checkpoint {request_body.checkpoint_id} not found"
         )
+
+
+@router.get("/hitl/checkpoints/{checkpoint_id}", response_model=HITLCheckpointResponse)
+async def get_hitl_checkpoint(
+    checkpoint_id: str,
+    request: Request,
+    tenant_id: Optional[str] = Depends(get_tenant_id_from_header),
+) -> HITLCheckpointResponse:
+    """Get a HITL checkpoint by ID."""
+    hitl_manager = get_hitl_manager(request)
+    if hitl_manager is None:
+        raise HTTPException(status_code=503, detail="HITL manager not configured")
+
+    record = await hitl_manager.fetch_checkpoint(checkpoint_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Checkpoint not found")
+
+    record_tenant = record.get("tenant_id")
+    if record_tenant and tenant_id and record_tenant != tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this checkpoint")
+
+    return HITLCheckpointResponse(**record)
+
+
+@router.get("/hitl/checkpoints", response_model=List[HITLCheckpointResponse])
+async def list_hitl_checkpoints(
+    request: Request,
+    tenant_id: Optional[str] = Depends(get_tenant_id_from_header),
+    limit: int = Query(20, ge=1, le=100),
+) -> List[HITLCheckpointResponse]:
+    """List HITL checkpoints for a tenant."""
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="X-Tenant-ID header required")
+    hitl_manager = get_hitl_manager(request)
+    if hitl_manager is None:
+        raise HTTPException(status_code=503, detail="HITL manager not configured")
+
+    records = await hitl_manager.list_checkpoints(tenant_id, limit=limit)
+    return [HITLCheckpointResponse(**record) for record in records]

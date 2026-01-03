@@ -27,11 +27,18 @@ dependencies = [
   "neo4j>=5.0.0",
   "tiktoken>=0.5.0",
   "openai>=1.0.0",
+  "anthropic>=0.25.0",
+  "google-genai>=0.3.0",
   "pgvector>=0.2.0",
   # Rate limiting
   "slowapi>=0.1.9",
-  # Epic 5 - Graphiti Temporal Knowledge Graph
-  "graphiti-core>=0.5.0",
+  # Epic 5 - Graphiti Temporal Knowledge Graph (with multi-provider support)
+  "graphiti-core[anthropic,google-genai,voyage]>=0.5.0",
+  # Voyage AI embeddings (for Anthropic users since Anthropic has no native embeddings)
+  "voyageai>=0.3.0",
+  # Epic 11 - HTML parsing for markdown conversion
+  "beautifulsoup4>=4.14.3",
+  "markdownify>=1.2.2",
 ]
 
 [project.scripts]

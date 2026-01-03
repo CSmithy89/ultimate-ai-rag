@@ -29,7 +29,7 @@ class RelationshipType(str, Enum):
 
 
 class ExtractedEntity(BaseModel):
-    """Entity extracted from text by the IndexerAgent."""
+    """Entity extracted from text during indexing."""
 
     name: str = Field(..., description="Entity name")
     type: str = Field(..., description="Entity type (Person, Organization, Technology, Concept, Location)")
@@ -49,7 +49,7 @@ class ExtractedEntity(BaseModel):
 
 
 class ExtractedRelationship(BaseModel):
-    """Relationship extracted from text by the IndexerAgent."""
+    """Relationship extracted from text during indexing."""
 
     source: str = Field(..., description="Source entity name")
     target: str = Field(..., description="Target entity name")

@@ -41,7 +41,9 @@ async def test_graphiti_episode_ingestion_and_temporal_queries(
         uri=integration_env["neo4j_uri"],
         user=integration_env["neo4j_user"],
         password=integration_env["neo4j_password"],
-        openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+        llm_provider="openai",
+        llm_api_key=os.getenv("OPENAI_API_KEY", ""),
+        embedding_api_key=os.getenv("OPENAI_API_KEY", ""),
     )
 
     await graphiti_client.connect()

@@ -6,6 +6,7 @@ and custom entity type configuration.
 """
 
 import asyncio
+import inspect
 import logging
 from enum import Enum
 from typing import Optional
@@ -23,6 +24,32 @@ except ImportError:
     Graphiti = None  # type: ignore
     OpenAIClient = None  # type: ignore
     OpenAIEmbedder = None  # type: ignore
+
+try:  # pragma: no cover - optional provider clients
+    from graphiti_core.llm_client import OpenAIGenericClient
+except ImportError:  # pragma: no cover - optional provider clients
+    OpenAIGenericClient = None  # type: ignore
+
+try:  # pragma: no cover - optional provider clients
+    from graphiti_core.llm_client import AnthropicClient
+except ImportError:  # pragma: no cover - optional provider clients
+    AnthropicClient = None  # type: ignore
+
+try:  # pragma: no cover - optional provider clients
+    from graphiti_core.llm_client import GeminiClient
+except ImportError:  # pragma: no cover - optional provider clients
+    GeminiClient = None  # type: ignore
+
+# Embedder imports for multi-provider support
+try:  # pragma: no cover - optional embedder clients
+    from graphiti_core.embedder import GeminiEmbedder
+except ImportError:  # pragma: no cover - optional embedder clients
+    GeminiEmbedder = None  # type: ignore
+
+try:  # pragma: no cover - optional embedder clients
+    from graphiti_core.embedder import VoyageAIEmbedder
+except ImportError:  # pragma: no cover - optional embedder clients
+    VoyageAIEmbedder = None  # type: ignore
 
 from ..models.entity_types import ENTITY_TYPES, EDGE_TYPE_MAPPINGS
 
@@ -65,7 +92,12 @@ class GraphitiClient:
         uri: str,
         user: str,
         password: str,
-        openai_api_key: str,
+        llm_provider: str,
+        llm_api_key: Optional[str],
+        llm_base_url: Optional[str] = None,
+        embedding_provider: str = "openai",
+        embedding_api_key: Optional[str] = None,
+        embedding_base_url: Optional[str] = None,
         embedding_model: str = "text-embedding-3-small",
         llm_model: str = "gpt-4o-mini",
     ) -> None:
@@ -75,9 +107,14 @@ class GraphitiClient:
             uri: Neo4j connection URI (bolt:// or neo4j://)
             user: Neo4j username
             password: Neo4j password
-            openai_api_key: OpenAI API key for embeddings and LLM
-            embedding_model: OpenAI embedding model name
-            llm_model: OpenAI LLM model for entity extraction
+            llm_provider: LLM provider identifier
+            llm_api_key: Provider API key for the LLM client
+            llm_base_url: OpenAI-compatible base URL override
+            embedding_provider: Embedding provider (openai/openrouter/ollama/gemini/voyage)
+            embedding_api_key: API key for embeddings provider
+            embedding_base_url: Base URL for embeddings provider
+            embedding_model: Embedding model name (provider-specific)
+            llm_model: LLM model for entity extraction
         """
         if not GRAPHITI_AVAILABLE:
             raise ImportError(
@@ -88,7 +125,12 @@ class GraphitiClient:
         self.uri = uri
         self.user = user
         self._password: Optional[str] = password
-        self._openai_api_key: Optional[str] = openai_api_key
+        self._llm_provider = llm_provider
+        self._llm_api_key: Optional[str] = llm_api_key
+        self._llm_base_url = llm_base_url
+        self._embedding_provider = embedding_provider
+        self._embedding_api_key: Optional[str] = embedding_api_key
+        self._embedding_base_url = embedding_base_url
         self.embedding_model = embedding_model
         self.llm_model = llm_model
         self._client: Optional[Graphiti] = None
@@ -150,18 +192,115 @@ class GraphitiClient:
             self._state = ConnectionState.CONNECTING
 
             try:
-                # Create OpenAI clients for LLM and embeddings
-                llm_client = OpenAIClient(  # type: ignore[call-arg]
-                    api_key=self._openai_api_key,
-                    model=self.llm_model,
-                )
-                embedder = OpenAIEmbedder(  # type: ignore[call-arg]
-                    api_key=self._openai_api_key,
-                    model=self.embedding_model,
-                )
+                # Create OpenAI-compatible clients for LLM and embeddings
+                def _build_component(
+                    component_cls,
+                    model: str,
+                    api_key: Optional[str],
+                    base_url: Optional[str],
+                ):
+                    if component_cls is None:
+                        raise RuntimeError("Graphiti client component not available.")
+                    try:
+                        params = inspect.signature(component_cls).parameters
+                        accepts_kwargs = any(
+                            param.kind == inspect.Parameter.VAR_KEYWORD
+                            for param in params.values()
+                        )
+                    except (TypeError, ValueError):  # pragma: no cover - fallback path
+                        params = {}
+                        accepts_kwargs = True
+                    kwargs: dict[str, object] = {}
+                    if "api_key" in params or accepts_kwargs:
+                        kwargs["api_key"] = api_key
+                    if "model" in params:
+                        kwargs["model"] = model
+                    elif "model_id" in params:
+                        kwargs["model_id"] = model
+                    elif "id" in params:
+                        kwargs["id"] = model
+                    else:
+                        kwargs["model"] = model
+                    if base_url:
+                        if "base_url" in params or accepts_kwargs:
+                            kwargs["base_url"] = base_url
+                        elif "api_base" in params or accepts_kwargs:
+                            kwargs["api_base"] = base_url
+                        elif "api_url" in params or accepts_kwargs:
+                            kwargs["api_url"] = base_url
+                        else:
+                            raise RuntimeError(
+                                "Graphiti client does not support base_url."
+                            )
+                    return component_cls(**kwargs)
 
-                # Clear the API key from memory after passing to clients
-                self._openai_api_key = None
+                if self._llm_provider in {"openai", "openrouter"}:
+                    llm_client = _build_component(
+                        OpenAIClient, self.llm_model, self._llm_api_key, self._llm_base_url
+                    )
+                elif self._llm_provider == "ollama":
+                    client_cls = OpenAIGenericClient or OpenAIClient
+                    llm_client = _build_component(
+                        client_cls, self.llm_model, self._llm_api_key, self._llm_base_url
+                    )
+                elif self._llm_provider == "anthropic":
+                    llm_client = _build_component(
+                        AnthropicClient, self.llm_model, self._llm_api_key, None
+                    )
+                elif self._llm_provider == "gemini":
+                    llm_client = _build_component(
+                        GeminiClient, self.llm_model, self._llm_api_key, None
+                    )
+                else:
+                    raise RuntimeError(f"Unsupported Graphiti provider {self._llm_provider!r}")
+
+                # Build embedder based on embedding_provider
+                if self._embedding_provider in {"openai", "openrouter", "ollama"}:
+                    if not self._embedding_api_key and self._embedding_provider != "ollama":
+                        raise RuntimeError(
+                            f"Embedding API key required for {self._embedding_provider} embedder."
+                        )
+                    embedder = _build_component(
+                        OpenAIEmbedder,
+                        self.embedding_model,
+                        self._embedding_api_key,
+                        self._embedding_base_url,
+                    )
+                elif self._embedding_provider == "gemini":
+                    if GeminiEmbedder is None:
+                        raise RuntimeError(
+                            "GeminiEmbedder not available. Install graphiti-core[google-genai]."
+                        )
+                    if not self._embedding_api_key:
+                        raise RuntimeError("GEMINI_API_KEY required for Gemini embedder.")
+                    embedder = _build_component(
+                        GeminiEmbedder,
+                        self.embedding_model,
+                        self._embedding_api_key,
+                        None,  # Gemini doesn't use base_url
+                    )
+                elif self._embedding_provider == "voyage":
+                    if VoyageAIEmbedder is None:
+                        raise RuntimeError(
+                            "VoyageAIEmbedder not available. Install graphiti-core[voyage]."
+                        )
+                    if not self._embedding_api_key:
+                        raise RuntimeError("VOYAGE_API_KEY required for Voyage embedder.")
+                    embedder = _build_component(
+                        VoyageAIEmbedder,
+                        self.embedding_model,
+                        self._embedding_api_key,
+                        None,  # Voyage doesn't use base_url
+                    )
+                else:
+                    raise RuntimeError(
+                        f"Unsupported embedding provider: {self._embedding_provider!r}. "
+                        "Use openai/openrouter/ollama/gemini/voyage."
+                    )
+
+                # Clear the API keys from memory after passing to clients
+                self._llm_api_key = None
+                self._embedding_api_key = None
 
                 # Initialize Graphiti with custom configuration
                 self._client = Graphiti(
@@ -272,7 +411,12 @@ async def create_graphiti_client(
     uri: str,
     user: str,
     password: str,
-    openai_api_key: str,
+    llm_provider: str,
+    llm_api_key: Optional[str],
+    llm_base_url: Optional[str] = None,
+    embedding_provider: str = "openai",
+    embedding_api_key: Optional[str] = None,
+    embedding_base_url: Optional[str] = None,
     embedding_model: str = "text-embedding-3-small",
     llm_model: str = "gpt-4o-mini",
 ) -> GraphitiClient:
@@ -282,9 +426,14 @@ async def create_graphiti_client(
         uri: Neo4j connection URI
         user: Neo4j username
         password: Neo4j password
-        openai_api_key: OpenAI API key
-        embedding_model: OpenAI embedding model name
-        llm_model: OpenAI LLM model name
+        llm_provider: LLM provider identifier
+        llm_api_key: API key for the LLM provider
+        llm_base_url: OpenAI-compatible base URL override
+        embedding_provider: Embedding provider (openai/openrouter/ollama/gemini/voyage)
+        embedding_api_key: API key for embeddings provider
+        embedding_base_url: Base URL for embeddings provider
+        embedding_model: Embedding model name (provider-specific)
+        llm_model: LLM model name
 
     Returns:
         Connected GraphitiClient instance
@@ -293,7 +442,12 @@ async def create_graphiti_client(
         uri=uri,
         user=user,
         password=password,
-        openai_api_key=openai_api_key,
+        llm_provider=llm_provider,
+        llm_api_key=llm_api_key,
+        llm_base_url=llm_base_url,
+        embedding_provider=embedding_provider,
+        embedding_api_key=embedding_api_key,
+        embedding_base_url=embedding_base_url,
         embedding_model=embedding_model,
         llm_model=llm_model,
     )

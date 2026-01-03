@@ -8,7 +8,23 @@
 cp .env.example .env
 ```
 
-Edit `.env` and set at least `OPENAI_API_KEY` and database credentials.
+Edit `.env` and set at least `LLM_PROVIDER` (defaults to `openai`), the matching
+provider API key, and database credentials.
+
+Provider keys:
+- `openai`: `OPENAI_API_KEY`
+- `openrouter`: `OPENROUTER_API_KEY`
+- `ollama`: `OLLAMA_BASE_URL` (no API key by default)
+- `anthropic`: `ANTHROPIC_API_KEY`
+- `gemini`: `GEMINI_API_KEY`
+
+Use `LLM_MODEL_ID` to set the primary model (defaults to `OPENAI_MODEL_ID`).
+OpenAI-compatible providers can override base URLs via `OPENAI_BASE_URL`,
+`OPENROUTER_BASE_URL`, or `OLLAMA_BASE_URL`.
+Runtime adapters support `openai`, `openrouter`, `ollama`, `anthropic`, and `gemini`
+for both LLM orchestration and embeddings. Set `EMBEDDING_PROVIDER` to override the
+default (matches `LLM_PROVIDER` when that provider supports embeddings). Voyage AI
+(`voyage`) is available for Anthropic users since Anthropic has no native embeddings.
 
 ### Backend
 
@@ -62,11 +78,16 @@ async def example() -> None:
 
 ### A2A Session Lifecycle
 
-- Sessions are stored in memory and cleared on service restart.
+- Sessions are cached in memory and persisted to Redis when available.
 - Sessions expire after `A2A_SESSION_TTL_SECONDS` (default 6 hours).
 - Expired sessions are pruned every `A2A_CLEANUP_INTERVAL_SECONDS` (default 1 hour).
 - Limits are enforced via `A2A_MAX_SESSIONS_PER_TENANT`, `A2A_MAX_SESSIONS_TOTAL`, and `A2A_MAX_MESSAGES_PER_SESSION`.
-- At defaults, worst-case memory usage can exceed ~10GB; tune limits or use a persistent backend for production.
+- At defaults, worst-case memory usage can exceed ~10GB; tune limits in production.
+
+### Runbooks
+
+- Graphiti migration: `docs/runbooks/graphiti-migration.md`
+- Persistence + usage: `docs/runbooks/persistence-and-usage.md`
 
 ## Epic Progress
 
@@ -115,7 +136,7 @@ async def example() -> None:
   - Hybrid retrieval with Graphiti search + vector fallback
   - Temporal query capabilities (point-in-time search, knowledge changes)
   - Custom entity types (TechnicalConcept, CodePattern, APIEndpoint, ConfigurationOption)
-  - Feature flags for backend selection (`INGESTION_BACKEND`, `RETRIEVAL_BACKEND`)
+  - Graphiti-only ingestion and retrieval (legacy backend flags removed)
   - Legacy module deprecation with migration path
   - Comprehensive test suite with 263 tests (86%+ Graphiti module coverage)
 
@@ -171,3 +192,16 @@ async def example() -> None:
   - PDF fixtures for ingestion coverage
   - Skipped test inventory and follow-up tracking
   - Benchmarks for ingestion speed and query latency with CI gating
+
+### Epic 11: Code Cleanup & Migration
+- Status: Complete
+- Stories: 11/11 completed
+- Key Features:
+  - Deprecated datetime cleanup and legacy module removal
+  - Graphiti migration finalization with HITL validation wiring
+  - Workspace persistence for save/share/bookmark flows
+  - Parser-based HTML-to-Markdown conversion
+  - Neo4j pooling configuration and A2A session persistence
+  - Embedding token usage tracking for cost monitoring
+  - Multi-provider configuration with LLM_PROVIDER and base URL overrides
+  - Provider adapters for OpenAI-compatible LLM clients

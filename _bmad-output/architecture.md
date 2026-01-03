@@ -6,12 +6,14 @@ inputDocuments:
   - '_bmad-output/prd.md'
   - '_bmad-output/project-planning-artifacts/ux-design-specification.md'
   - '_bmad-output/project-planning-artifacts/research/technical-Agentic-RAG-and-GraphRAG-System-research-2025-12-24.md'
+  - '_bmad-output/project-planning-artifacts/epics.md'
+  - 'docs/recommendations_2025.md'
 documentCounts:
   prd: 1
   ux: 1
   research: 1
-  epics: 0
-  projectDocs: 0
+  epics: 1
+  projectDocs: 1
 hasProjectContext: false
 workflowType: 'architecture'
 project_name: 'Agentic Rag and Graphrag with copilot'
@@ -1331,3 +1333,48 @@ GET /api/v1/knowledge/entity/{id}/history
 
 **Architecture Addendum Status:** APPROVED ✅
 
+---
+
+## Architecture Addendum: 2025 Recommendations (Epics 11-18)
+
+**Status:** Draft (Recommendation-Aligned)
+**Source:** `docs/recommendations_2025.md`
+
+### Architectural Impact Summary
+
+- **Multi-Provider LLM Adapter:** Introduce provider factory + adapter interface to decouple OpenAI-only flows (Epic 11).
+- **Advanced Retrieval Pipeline:** Add reranking, contextual chunking, and corrective grading stages (Epic 12).
+- **Enterprise Ingestion Adapters:** Add Apify/BrightData fallbacks and transcript-first YouTube ingestion (Epic 13).
+- **Connectivity Layer:** MCP server hardening and robust A2A protocol with RFC 7807 errors (Epic 14).
+- **Multimodal Processing:** Video/image ingestion pipelines and codebase hallucination detection (Epic 15).
+- **Framework Agnosticism:** Headless Agent Protocol and framework adapters (Epic 16).
+- **Install/Deployment CLI:** Guided setup, hardware detection, and startup validation (Epic 17).
+- **Documentation & DevOps:** Provider guides, retrieval tuning, MCP usage, and security automation (Epic 18).
+
+### New/Updated Components
+
+| Component | Purpose | Epics |
+|-----------|---------|-------|
+| `providers/*` | LLM provider adapters + factory | 11, 16 |
+| `retrieval/reranker.py` | Cross-encoder reranking stage | 12 |
+| `retrieval/grader.py` | Corrective RAG grading + fallback | 12 |
+| `ingestion/adapters/*` | Apify/BrightData ingestion adapters | 13 |
+| `ingestion/youtube.py` | Transcript-first YouTube ingestion | 13 |
+| `protocols/mcp_server.py` | External MCP tool server | 14 |
+| `protocols/a2a.py` | Robust A2A session handling | 14 |
+| `agents/headless_protocol.py` | Framework-agnostic agent interface | 16 |
+| `cli/rag_install.py` | Interactive CLI installer | 17 |
+
+### Config Additions
+
+- `LLM_PROVIDER` (openai, anthropic, gemini, ollama, openrouter)
+- `RERANK_PROVIDER`, `RERANK_TOP_N`
+- `GRADER_THRESHOLD`, `CONTEXTUAL_CHUNKING_ENABLED`
+- `INGESTION_PROVIDER` (crawl4ai, apify, brightdata)
+- `AGENT_FRAMEWORK` (agno, pydanticai, crewai, anthropic, langgraph)
+
+### References
+
+- `docs/recommendations_2025.md`
+- `_bmad-output/project-planning-artifacts/epics.md`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`

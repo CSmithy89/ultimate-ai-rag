@@ -50,6 +50,18 @@ DEFAULT_PRICING: dict[str, Pricing] = {
         input_per_1k=Decimal("0.00250"),
         output_per_1k=Decimal("0.01000"),
     ),
+    "text-embedding-3-small": Pricing(
+        input_per_1k=Decimal("0.00002"),
+        output_per_1k=Decimal("0"),
+    ),
+    "text-embedding-3-large": Pricing(
+        input_per_1k=Decimal("0.00013"),
+        output_per_1k=Decimal("0"),
+    ),
+    "text-embedding-ada-002": Pricing(
+        input_per_1k=Decimal("0.00010"),
+        output_per_1k=Decimal("0"),
+    ),
 }
 
 TOKENIZER_MODEL_IDS = {"gpt-4o-mini", "gpt-4o", "gpt-4"}

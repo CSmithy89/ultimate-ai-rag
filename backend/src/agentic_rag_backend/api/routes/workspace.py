@@ -4,8 +4,10 @@ Story 6-5: Frontend Actions
 
 Provides endpoints for:
 - POST /workspace/save - Save content to workspace
+- GET /workspace/{workspace_id} - Load saved content
 - POST /workspace/export - Export as markdown/PDF/JSON
 - POST /workspace/share - Generate shareable link
+- GET /workspace/share/{share_id} - Retrieve shared content
 - POST /workspace/bookmark - Bookmark content
 - GET /workspace/bookmarks - List bookmarks
 """
@@ -16,9 +18,9 @@ import hmac
 import json
 import logging
 from typing import Any, Literal, Optional
-from uuid import uuid4
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Header, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 from slowapi import Limiter
@@ -26,6 +28,7 @@ from slowapi.util import get_remote_address
 
 from agentic_rag_backend.config import get_settings
 from agentic_rag_backend.core.errors import TenantRequiredError
+from agentic_rag_backend.db.postgres import PostgresClient
 
 
 # Rate limiter instance - key function extracts client IP
@@ -49,6 +52,11 @@ SHARE_LINK_TTL_HOURS = 24
 def _get_share_secret() -> str:
     """Get share secret from config (cached via lru_cache in get_settings)."""
     return get_settings().share_secret
+
+
+async def get_postgres(request: Request) -> PostgresClient:
+    """Get PostgreSQL client from app.state."""
+    return request.app.state.postgres
 
 
 # ============================================
@@ -203,15 +211,45 @@ class BookmarksListResponse(BaseModel):
     meta: dict[str, Any] = Field(default_factory=dict)
 
 
-# ============================================
-# In-memory storage (to be replaced with DB)
-# ============================================
+class WorkspaceContentData(BaseModel):
+    """Workspace content response data."""
 
-# Simple in-memory storage for demo purposes
-# In production, this would use PostgreSQL
-_workspace_storage: dict[str, dict[str, Any]] = {}
-_shares_storage: dict[str, dict[str, Any]] = {}
-_bookmarks_storage: dict[str, list[dict[str, Any]]] = {}
+    workspace_id: str
+    content_id: str
+    content: str
+    title: Optional[str] = None
+    query: Optional[str] = None
+    sources: Optional[list[SourceInfo]] = None
+    session_id: Optional[str] = None
+    trajectory_id: Optional[str] = None
+    saved_at: str
+
+
+class WorkspaceContentResponse(BaseModel):
+    """Response for loading saved workspace content."""
+
+    data: WorkspaceContentData
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class SharedContentDetails(BaseModel):
+    """Shared content details response data."""
+
+    share_id: str
+    content_id: str
+    content: str
+    title: Optional[str] = None
+    query: Optional[str] = None
+    sources: Optional[list[SourceInfo]] = None
+    created_at: str
+    expires_at: Optional[str] = None
+
+
+class SharedContentRetrieveResponse(BaseModel):
+    """Response for retrieving shared content."""
+
+    data: SharedContentDetails
+    meta: dict[str, Any] = Field(default_factory=dict)
 
 
 # ============================================
@@ -235,6 +273,30 @@ def _get_tenant_id(body_tenant_id: Optional[str], header_tenant_id: Optional[str
     if not tenant_id:
         raise TenantRequiredError()
     return tenant_id
+
+
+def _parse_tenant_uuid(tenant_id: str) -> UUID:
+    """Parse tenant UUID or raise a ValueError."""
+    return UUID(tenant_id)
+
+
+def _problem_response(
+    request: Request,
+    status: int,
+    title: str,
+    detail: str,
+    type_suffix: str,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status,
+        content={
+            "type": f"https://api.example.com/errors/{type_suffix}",
+            "title": title,
+            "status": status,
+            "detail": detail,
+            "instance": request.url.path,
+        },
+    )
 
 
 def _generate_share_token(share_id: str, expires_at: datetime) -> str:
@@ -301,7 +363,8 @@ async def save_content(
     request: Request,
     request_body: SaveContentRequest,
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
-) -> SaveContentResponse:
+    postgres: PostgresClient = Depends(get_postgres),
+) -> SaveContentResponse | Response:
     """Save content to the user's workspace.
 
     Args:
@@ -315,37 +378,54 @@ async def save_content(
         TenantRequiredError: If no tenant ID is provided
     """
     tenant_id = _get_tenant_id(request_body.tenant_id, x_tenant_id)
-    workspace_id = str(uuid4())
-    saved_at = datetime.now(timezone.utc).isoformat()
+    try:
+        tenant_uuid = _parse_tenant_uuid(tenant_id)
+    except ValueError:
+        return _problem_response(
+            request,
+            400,
+            "Bad Request",
+            "tenant_id must be a valid UUID",
+            "invalid-tenant-id",
+        )
+    workspace_uuid = uuid4()
+    saved_at = datetime.now(timezone.utc)
+    title = request_body.title or f"Response - {saved_at.isoformat()[:10]}"
 
     logger.info("Saving content to workspace", extra={
         "tenant_id": tenant_id,
         "content_id": request_body.content_id,
-        "workspace_id": workspace_id,
+        "workspace_id": str(workspace_uuid),
     })
 
-    # Store in memory (replace with DB in production)
-    if tenant_id not in _workspace_storage:
-        _workspace_storage[tenant_id] = {}
-
-    _workspace_storage[tenant_id][workspace_id] = {
-        "content_id": request_body.content_id,
-        "content": request_body.content,
-        "title": request_body.title or f"Response - {saved_at[:10]}",
-        "query": request_body.query,
-        "sources": [s.model_dump() for s in request_body.sources] if request_body.sources else None,
-        "session_id": request_body.session_id,
-        "trajectory_id": request_body.trajectory_id,
-        "saved_at": saved_at,
-    }
+    try:
+        created_at = await postgres.create_workspace_item(
+            workspace_id=workspace_uuid,
+            tenant_id=tenant_uuid,
+            content_id=request_body.content_id,
+            content=request_body.content,
+            title=title,
+            query=request_body.query,
+            sources=[s.model_dump() for s in request_body.sources] if request_body.sources else None,
+            session_id=request_body.session_id,
+            trajectory_id=request_body.trajectory_id,
+        )
+    except ValueError as exc:
+        return _problem_response(
+            request,
+            413,
+            "Payload Too Large",
+            str(exc),
+            "payload-too-large",
+        )
 
     return SaveContentResponse(
         data=SavedContentData(
             content_id=request_body.content_id,
-            workspace_id=workspace_id,
-            saved_at=saved_at,
+            workspace_id=str(workspace_uuid),
+            saved_at=created_at.isoformat(),
         ),
-        meta={"request_id": str(uuid4()), "timestamp": saved_at},
+        meta={"request_id": str(uuid4()), "timestamp": created_at.isoformat()},
     )
 
 
@@ -476,7 +556,8 @@ async def share_content(
     request: Request,
     request_body: ShareContentRequest,
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
-) -> ShareContentResponse:
+    postgres: PostgresClient = Depends(get_postgres),
+) -> ShareContentResponse | Response:
     """Generate a shareable link for content.
 
     Args:
@@ -490,7 +571,18 @@ async def share_content(
         TenantRequiredError: If no tenant ID is provided
     """
     tenant_id = _get_tenant_id(request_body.tenant_id, x_tenant_id)
-    share_id = str(uuid4())
+    try:
+        tenant_uuid = _parse_tenant_uuid(tenant_id)
+    except ValueError:
+        return _problem_response(
+            request,
+            400,
+            "Bad Request",
+            "tenant_id must be a valid UUID",
+            "invalid-tenant-id",
+        )
+    share_uuid = uuid4()
+    share_id = str(share_uuid)
     created_at = datetime.now(timezone.utc)
     expires_at = created_at + timedelta(hours=SHARE_LINK_TTL_HOURS)
 
@@ -504,18 +596,26 @@ async def share_content(
         "expires_at": expires_at.isoformat(),
     })
 
-    # Store share data (replace with DB in production)
-    _shares_storage[share_id] = {
-        "tenant_id": tenant_id,
-        "content_id": request_body.content_id,
-        "content": request_body.content,
-        "title": request_body.title,
-        "query": request_body.query,
-        "sources": [s.model_dump() for s in request_body.sources] if request_body.sources else None,
-        "created_at": created_at.isoformat(),
-        "expires_at": expires_at.isoformat(),
-        "token": token,
-    }
+    try:
+        stored_at = await postgres.create_workspace_share(
+            share_id=share_uuid,
+            tenant_id=tenant_uuid,
+            content_id=request_body.content_id,
+            content=request_body.content,
+            title=request_body.title,
+            query=request_body.query,
+            sources=[s.model_dump() for s in request_body.sources] if request_body.sources else None,
+            token=token,
+            expires_at=expires_at,
+        )
+    except ValueError as exc:
+        return _problem_response(
+            request,
+            413,
+            "Payload Too Large",
+            str(exc),
+            "payload-too-large",
+        )
 
     # Generate share URL with signed token
     settings = get_settings()
@@ -528,7 +628,49 @@ async def share_content(
             share_url=share_url,
             expires_at=expires_at.isoformat(),
         ),
-        meta={"request_id": str(uuid4()), "timestamp": created_at.isoformat()},
+        meta={"request_id": str(uuid4()), "timestamp": stored_at.isoformat()},
+    )
+
+
+@router.get("/share/{share_id}", response_model=SharedContentRetrieveResponse)
+@limiter.limit("30/minute")
+async def get_shared_content(
+    request: Request,
+    share_id: UUID,
+    token: str = Query(..., description="Share token"),
+    postgres: PostgresClient = Depends(get_postgres),
+) -> SharedContentRetrieveResponse | Response:
+    """Retrieve shared content with token validation."""
+    row = await postgres.get_workspace_share(share_id)
+    if not row:
+        return _problem_response(request, 404, "Not Found", "Shared content not found", "not-found")
+
+    expires_at = row.get("expires_at")
+    if expires_at and expires_at < datetime.now(timezone.utc):
+        return _problem_response(request, 410, "Gone", "Share link has expired", "share-expired")
+
+    stored_token = row.get("token")
+    if stored_token:
+        if not hmac.compare_digest(stored_token, token):
+            return _problem_response(request, 403, "Forbidden", "Invalid share token", "invalid-token")
+    elif expires_at and not _verify_share_token(str(share_id), expires_at, token):
+        return _problem_response(request, 403, "Forbidden", "Invalid share token", "invalid-token")
+
+    created_at = row["created_at"].isoformat() if row.get("created_at") else None
+    expires_at_str = expires_at.isoformat() if expires_at else None
+
+    return SharedContentRetrieveResponse(
+        data=SharedContentDetails(
+            share_id=str(row["id"]),
+            content_id=row["content_id"],
+            content=row["content"],
+            title=row.get("title"),
+            query=row.get("query"),
+            sources=row.get("sources"),
+            created_at=created_at or datetime.now(timezone.utc).isoformat(),
+            expires_at=expires_at_str,
+        ),
+        meta={"request_id": str(uuid4()), "timestamp": datetime.now(timezone.utc).isoformat()},
     )
 
 
@@ -538,7 +680,8 @@ async def bookmark_content(
     request: Request,
     request_body: BookmarkContentRequest,
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
-) -> BookmarkContentResponse:
+    postgres: PostgresClient = Depends(get_postgres),
+) -> BookmarkContentResponse | Response:
     """Bookmark content for quick access later.
 
     Args:
@@ -552,35 +695,49 @@ async def bookmark_content(
         TenantRequiredError: If no tenant ID is provided
     """
     tenant_id = _get_tenant_id(request_body.tenant_id, x_tenant_id)
-    bookmark_id = str(uuid4())
-    bookmarked_at = datetime.now(timezone.utc).isoformat()
+    try:
+        tenant_uuid = _parse_tenant_uuid(tenant_id)
+    except ValueError:
+        return _problem_response(
+            request,
+            400,
+            "Bad Request",
+            "tenant_id must be a valid UUID",
+            "invalid-tenant-id",
+        )
+    bookmark_uuid = uuid4()
 
     logger.info("Creating bookmark", extra={
         "tenant_id": tenant_id,
         "content_id": request_body.content_id,
-        "bookmark_id": bookmark_id,
+        "bookmark_id": str(bookmark_uuid),
     })
 
-    # Store bookmark (replace with DB in production)
-    if tenant_id not in _bookmarks_storage:
-        _bookmarks_storage[tenant_id] = []
-
-    _bookmarks_storage[tenant_id].append({
-        "bookmark_id": bookmark_id,
-        "content_id": request_body.content_id,
-        "content": request_body.content,
-        "title": request_body.title or "Bookmarked Response",
-        "query": request_body.query,
-        "session_id": request_body.session_id,
-        "bookmarked_at": bookmarked_at,
-    })
+    try:
+        stored_at = await postgres.create_workspace_bookmark(
+            bookmark_id=bookmark_uuid,
+            tenant_id=tenant_uuid,
+            content_id=request_body.content_id,
+            content=request_body.content,
+            title=request_body.title or "Bookmarked Response",
+            query=request_body.query,
+            session_id=request_body.session_id,
+        )
+    except ValueError as exc:
+        return _problem_response(
+            request,
+            413,
+            "Payload Too Large",
+            str(exc),
+            "payload-too-large",
+        )
 
     return BookmarkContentResponse(
         data=BookmarkedContentData(
-            bookmark_id=bookmark_id,
-            bookmarked_at=bookmarked_at,
+            bookmark_id=str(bookmark_uuid),
+            bookmarked_at=stored_at.isoformat(),
         ),
-        meta={"request_id": str(uuid4()), "timestamp": bookmarked_at},
+        meta={"request_id": str(uuid4()), "timestamp": stored_at.isoformat()},
     )
 
 
@@ -588,10 +745,12 @@ async def bookmark_content(
 @limiter.limit("60/minute")
 async def get_bookmarks(
     request: Request,
-    tenant_id: str = Query(..., description="Tenant ID"),
+    tenant_id: Optional[str] = Query(None, description="Tenant ID"),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
     limit: int = Query(50, ge=1, le=100, description="Maximum bookmarks to return"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
-) -> BookmarksListResponse:
+    postgres: PostgresClient = Depends(get_postgres),
+) -> BookmarksListResponse | Response:
     """List bookmarks for a tenant.
 
     Args:
@@ -602,26 +761,39 @@ async def get_bookmarks(
     Returns:
         BookmarksListResponse with list of bookmarks
     """
+    tenant_value = _get_tenant_id(tenant_id, x_tenant_id)
+    try:
+        tenant_uuid = _parse_tenant_uuid(tenant_value)
+    except ValueError:
+        return _problem_response(
+            request,
+            400,
+            "Bad Request",
+            "tenant_id must be a valid UUID",
+            "invalid-tenant-id",
+        )
+
     logger.info("Listing bookmarks", extra={
-        "tenant_id": tenant_id,
+        "tenant_id": tenant_value,
         "limit": limit,
         "offset": offset,
     })
 
-    bookmarks = _bookmarks_storage.get(tenant_id, [])
-
-    # Apply pagination
-    paginated = bookmarks[offset : offset + limit]
+    bookmarks, total = await postgres.list_workspace_bookmarks(
+        tenant_id=tenant_uuid,
+        limit=limit,
+        offset=offset,
+    )
 
     items = [
         BookmarkItem(
-            bookmark_id=b["bookmark_id"],
+            bookmark_id=str(b["id"]),
             content_id=b["content_id"],
-            title=b["title"],
+            title=b.get("title") or "Bookmarked Response",
             query=b.get("query"),
-            bookmarked_at=b["bookmarked_at"],
+            bookmarked_at=b["created_at"].isoformat(),
         )
-        for b in paginated
+        for b in bookmarks
     ]
 
     return BookmarksListResponse(
@@ -629,8 +801,61 @@ async def get_bookmarks(
         meta={
             "request_id": str(uuid4()),
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "total": len(bookmarks),
+            "total": total,
             "limit": limit,
             "offset": offset,
         },
+    )
+
+
+@router.get("/{workspace_id}", response_model=WorkspaceContentResponse)
+@limiter.limit("60/minute")
+async def load_workspace_content(
+    request: Request,
+    workspace_id: UUID,
+    tenant_id: Optional[str] = Query(None, description="Tenant ID"),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
+    postgres: PostgresClient = Depends(get_postgres),
+) -> WorkspaceContentResponse | Response:
+    """Load saved workspace content by workspace ID."""
+    tenant_value = _get_tenant_id(tenant_id, x_tenant_id)
+    try:
+        tenant_uuid = _parse_tenant_uuid(tenant_value)
+    except ValueError:
+        return _problem_response(
+            request,
+            400,
+            "Bad Request",
+            "tenant_id must be a valid UUID",
+            "invalid-tenant-id",
+        )
+
+    row = await postgres.get_workspace_item(
+        tenant_id=tenant_uuid,
+        workspace_id=workspace_id,
+    )
+    if not row:
+        return _problem_response(
+            request,
+            404,
+            "Not Found",
+            "Workspace item not found",
+            "workspace-item-not-found",
+        )
+
+    saved_at = row["created_at"].isoformat() if row.get("created_at") else None
+
+    return WorkspaceContentResponse(
+        data=WorkspaceContentData(
+            workspace_id=str(row["id"]),
+            content_id=row["content_id"],
+            content=row["content"],
+            title=row.get("title"),
+            query=row.get("query"),
+            sources=row.get("sources"),
+            session_id=row.get("session_id"),
+            trajectory_id=row.get("trajectory_id"),
+            saved_at=saved_at or datetime.now(timezone.utc).isoformat(),
+        ),
+        meta={"request_id": str(uuid4()), "timestamp": datetime.now(timezone.utc).isoformat()},
     )

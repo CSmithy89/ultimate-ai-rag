@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from agentic_rag_backend.indexing.embeddings import (
+from agentic_rag_backend.embeddings import (
     EmbeddingGenerator,
     cosine_similarity,
     EMBEDDING_DIMENSION,
@@ -56,10 +56,15 @@ class TestEmbeddingGenerator:
     @pytest.fixture
     def generator(self, mock_openai_client):
         """Create an EmbeddingGenerator with mocked client."""
-        with patch("agentic_rag_backend.indexing.embeddings.AsyncOpenAI") as mock_class:
+        with patch("agentic_rag_backend.embeddings.AsyncOpenAI") as mock_class:
             mock_class.return_value = mock_openai_client
-            gen = EmbeddingGenerator(api_key="test-key", model="text-embedding-ada-002")
-            gen.client = mock_openai_client
+            # Use the backward-compatible class method
+            gen = EmbeddingGenerator.from_openai_config(
+                api_key="test-key",
+                model="text-embedding-ada-002",
+            )
+            # Replace the client with our mock
+            gen._client.client = mock_openai_client
             return gen
 
     @pytest.mark.asyncio
@@ -95,6 +100,37 @@ class TestEmbeddingGenerator:
 
         assert len(results) == 3
         assert all(len(r) == EMBEDDING_DIMENSION for r in results)
+
+    @pytest.mark.asyncio
+    async def test_generate_embeddings_records_usage(self, mock_openai_client):
+        """Test cost tracking is recorded when enabled."""
+        mock_response = MagicMock()
+        mock_items = []
+        for _ in range(2):
+            item = MagicMock()
+            item.embedding = [0.1] * EMBEDDING_DIMENSION
+            mock_items.append(item)
+        mock_response.data = mock_items
+        mock_openai_client.embeddings.create = AsyncMock(return_value=mock_response)
+
+        cost_tracker = MagicMock()
+        cost_tracker.record_usage = AsyncMock()
+
+        with patch("agentic_rag_backend.embeddings.AsyncOpenAI") as mock_class:
+            mock_class.return_value = mock_openai_client
+            generator = EmbeddingGenerator.from_openai_config(
+                api_key="test-key",
+                model="text-embedding-ada-002",
+                cost_tracker=cost_tracker,
+            )
+            generator._client.client = mock_openai_client
+
+            await generator.generate_embeddings(
+                ["Text one", "Text two"],
+                tenant_id="11111111-1111-1111-1111-111111111111",
+            )
+
+        cost_tracker.record_usage.assert_called()
 
     @pytest.mark.asyncio
     async def test_empty_text_list(self, generator):

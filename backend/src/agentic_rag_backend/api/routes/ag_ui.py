@@ -44,11 +44,17 @@ def get_rate_limiter(request: Request) -> RateLimiter:
     return request.app.state.rate_limiter
 
 
-@router.post("")
+def get_hitl_manager(request: Request | None):
+    if request is None:
+        return None
+    return getattr(request.app.state, "hitl_manager", None)
+
+
 async def ag_ui_handler(
     request: AGUIRequest,
-    orchestrator: OrchestratorAgent = Depends(get_orchestrator),
-    limiter: RateLimiter = Depends(get_rate_limiter),
+    orchestrator: OrchestratorAgent,
+    limiter: RateLimiter,
+    http_request: Request | None = None,
 ) -> StreamingResponse:
     """Stream AG-UI events for generic clients."""
     if not await limiter.allow(request.tenant_id):
@@ -69,7 +75,11 @@ async def ag_ui_handler(
         logger.warning("ag_ui_request_invalid", error=str(exc))
         raise HTTPException(status_code=422, detail="Invalid AG-UI request") from exc
 
-    bridge = AGUIBridge(orchestrator)
+    hitl_manager = get_hitl_manager(http_request)
+    if hitl_manager is None:
+        bridge = AGUIBridge(orchestrator)
+    else:
+        bridge = AGUIBridge(orchestrator, hitl_manager=hitl_manager)
 
     async def event_generator():
         try:
@@ -93,4 +103,19 @@ async def ag_ui_handler(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
         },
+    )
+
+
+@router.post("")
+async def ag_ui_endpoint(
+    request: AGUIRequest,
+    http_request: Request,
+    orchestrator: OrchestratorAgent = Depends(get_orchestrator),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+) -> StreamingResponse:
+    return await ag_ui_handler(
+        request=request,
+        orchestrator=orchestrator,
+        limiter=limiter,
+        http_request=http_request,
     )

@@ -1,5 +1,6 @@
-"""PostgreSQL async client for documents, jobs, and chunks tables."""
+"""PostgreSQL async client for documents, jobs, chunks, and workspace tables."""
 
+from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
@@ -10,6 +11,16 @@ from agentic_rag_backend.core.errors import DatabaseError
 from agentic_rag_backend.models.ingest import JobProgress, JobStatus, JobStatusEnum, JobType
 
 logger = structlog.get_logger(__name__)
+
+WORKSPACE_MAX_CONTENT_BYTES = 100_000
+
+
+def _validate_workspace_content(content: str) -> None:
+    byte_size = len(content.encode("utf-8"))
+    if byte_size > WORKSPACE_MAX_CONTENT_BYTES:
+        raise ValueError(
+            f"Content size ({byte_size} bytes) exceeds maximum of {WORKSPACE_MAX_CONTENT_BYTES} bytes"
+        )
 
 
 class PostgresClient:
@@ -220,6 +231,74 @@ class PostgresClient:
             await conn.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_llm_cost_alerts_tenant_id
                 ON llm_cost_alerts(tenant_id)
+            """)
+
+            # Epic 11: Workspace persistence tables
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS workspace_items (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    tenant_id UUID NOT NULL,
+                    content_id TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    title TEXT,
+                    query TEXT,
+                    sources JSONB,
+                    session_id TEXT,
+                    trajectory_id TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_workspace_items_tenant_id
+                ON workspace_items(tenant_id)
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_workspace_items_content_id
+                ON workspace_items(content_id)
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_workspace_items_tenant_content_id
+                ON workspace_items(tenant_id, content_id)
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS workspace_shares (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    tenant_id UUID NOT NULL,
+                    content_id TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    title TEXT,
+                    query TEXT,
+                    sources JSONB,
+                    token TEXT NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    expires_at TIMESTAMPTZ
+                )
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_workspace_shares_tenant_id
+                ON workspace_shares(tenant_id)
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_workspace_shares_expires_at
+                ON workspace_shares(expires_at)
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS workspace_bookmarks (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    tenant_id UUID NOT NULL,
+                    content_id TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    title TEXT,
+                    query TEXT,
+                    session_id TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_workspace_bookmarks_tenant_id
+                ON workspace_bookmarks(tenant_id)
             """)
 
             logger.info("tables_created")
@@ -904,6 +983,309 @@ class PostgresClient:
                 return row["count"] if row else 0
         except asyncpg.PostgresError as e:
             raise DatabaseError("get_chunk_count", str(e)) from e
+
+    async def create_workspace_item(
+        self,
+        workspace_id: UUID,
+        tenant_id: UUID,
+        content_id: str,
+        content: str,
+        title: Optional[str],
+        query: Optional[str],
+        sources: Optional[list[dict[str, Any]]],
+        session_id: Optional[str],
+        trajectory_id: Optional[str],
+    ) -> datetime:
+        """
+        Create a workspace item for saved content.
+
+        Args:
+            workspace_id: Workspace item UUID
+            tenant_id: Tenant identifier
+            content_id: Original content identifier
+            content: Saved content
+            title: Optional title
+            query: Optional query
+            sources: Optional sources metadata
+            session_id: Optional session ID
+            trajectory_id: Optional trajectory ID
+
+        Returns:
+            created_at timestamp
+        """
+        try:
+            _validate_workspace_content(content)
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO workspace_items (
+                        id,
+                        tenant_id,
+                        content_id,
+                        content,
+                        title,
+                        query,
+                        sources,
+                        session_id,
+                        trajectory_id
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    RETURNING created_at
+                    """,
+                    workspace_id,
+                    tenant_id,
+                    content_id,
+                    content,
+                    title,
+                    query,
+                    sources,
+                    session_id,
+                    trajectory_id,
+                )
+                return row["created_at"]
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("create_workspace_item", str(e)) from e
+
+    async def get_workspace_item(
+        self,
+        tenant_id: UUID,
+        workspace_id: UUID,
+    ) -> Optional[dict[str, Any]]:
+        """
+        Get a workspace item by ID with tenant filtering.
+
+        Args:
+            tenant_id: Tenant identifier
+            workspace_id: Workspace item UUID
+
+        Returns:
+            Workspace item record, or None if not found
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT
+                        id,
+                        content_id,
+                        content,
+                        title,
+                        query,
+                        sources,
+                        session_id,
+                        trajectory_id,
+                        created_at
+                    FROM workspace_items
+                    WHERE id = $1 AND tenant_id = $2
+                    """,
+                    workspace_id,
+                    tenant_id,
+                )
+                return dict(row) if row else None
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("get_workspace_item", str(e)) from e
+
+    async def create_workspace_share(
+        self,
+        share_id: UUID,
+        tenant_id: UUID,
+        content_id: str,
+        content: str,
+        title: Optional[str],
+        query: Optional[str],
+        sources: Optional[list[dict[str, Any]]],
+        token: str,
+        expires_at: Optional[datetime],
+    ) -> datetime:
+        """
+        Create a shareable workspace item.
+
+        Args:
+            share_id: Share UUID
+            tenant_id: Tenant identifier
+            content_id: Original content identifier
+            content: Shared content
+            title: Optional title
+            query: Optional query
+            sources: Optional sources metadata
+            token: Signed token
+            expires_at: Expiration timestamp
+
+        Returns:
+            created_at timestamp
+        """
+        try:
+            _validate_workspace_content(content)
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO workspace_shares (
+                        id,
+                        tenant_id,
+                        content_id,
+                        content,
+                        title,
+                        query,
+                        sources,
+                        token,
+                        expires_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    RETURNING created_at
+                    """,
+                    share_id,
+                    tenant_id,
+                    content_id,
+                    content,
+                    title,
+                    query,
+                    sources,
+                    token,
+                    expires_at,
+                )
+                return row["created_at"]
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("create_workspace_share", str(e)) from e
+
+    async def get_workspace_share(
+        self,
+        share_id: UUID,
+    ) -> Optional[dict[str, Any]]:
+        """
+        Get a shared workspace item by share ID.
+
+        Args:
+            share_id: Share UUID
+
+        Returns:
+            Share record, or None if not found
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT
+                        id,
+                        tenant_id,
+                        content_id,
+                        content,
+                        title,
+                        query,
+                        sources,
+                        token,
+                        created_at,
+                        expires_at
+                    FROM workspace_shares
+                    WHERE id = $1
+                    """,
+                    share_id,
+                )
+                return dict(row) if row else None
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("get_workspace_share", str(e)) from e
+
+    async def create_workspace_bookmark(
+        self,
+        bookmark_id: UUID,
+        tenant_id: UUID,
+        content_id: str,
+        content: str,
+        title: Optional[str],
+        query: Optional[str],
+        session_id: Optional[str],
+    ) -> datetime:
+        """
+        Create a workspace bookmark.
+
+        Args:
+            bookmark_id: Bookmark UUID
+            tenant_id: Tenant identifier
+            content_id: Original content identifier
+            content: Bookmarked content
+            title: Optional title
+            query: Optional query
+            session_id: Optional session ID
+
+        Returns:
+            created_at timestamp
+        """
+        try:
+            _validate_workspace_content(content)
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO workspace_bookmarks (
+                        id,
+                        tenant_id,
+                        content_id,
+                        content,
+                        title,
+                        query,
+                        session_id
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    RETURNING created_at
+                    """,
+                    bookmark_id,
+                    tenant_id,
+                    content_id,
+                    content,
+                    title,
+                    query,
+                    session_id,
+                )
+                return row["created_at"]
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("create_workspace_bookmark", str(e)) from e
+
+    async def list_workspace_bookmarks(
+        self,
+        tenant_id: UUID,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """
+        List workspace bookmarks for a tenant.
+
+        Args:
+            tenant_id: Tenant identifier
+            limit: Maximum number of bookmarks to return
+            offset: Pagination offset
+
+        Returns:
+            Tuple of bookmark rows and total count
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT
+                        id,
+                        content_id,
+                        title,
+                        query,
+                        created_at
+                    FROM workspace_bookmarks
+                    WHERE tenant_id = $1
+                    ORDER BY created_at DESC
+                    LIMIT $2 OFFSET $3
+                    """,
+                    tenant_id,
+                    limit,
+                    offset,
+                )
+                count_row = await conn.fetchrow(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM workspace_bookmarks
+                    WHERE tenant_id = $1
+                    """,
+                    tenant_id,
+                )
+                total = count_row["count"] if count_row else 0
+                return [dict(row) for row in rows], total
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("list_workspace_bookmarks", str(e)) from e
 
 
 # Global PostgreSQL client instance
