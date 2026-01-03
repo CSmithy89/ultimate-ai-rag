@@ -131,28 +131,80 @@ development_status:
   10-7-nfr-benchmark-validation: done
   epic-10-retrospective: done
 
-  # Epic 11: Code Cleanup & Migration (Tech Debt)
-  epic-11: done
+  # ==========================================
+  # REVISED ROADMAP 2025 (From Recommendations)
+  # ==========================================
+
+  # Epic 11: Code Cleanup & Migration (Revised)
+  epic-11: in-progress
   11-1-fix-datetime-deprecation: done
   11-2-delete-legacy-modules: done
   11-3-complete-graphiti-migration: done
-  11-4-wire-hitl-validation: done
-  11-5-implement-workspace-persistence: done
+  11-4-wire-hitl-validation: in-progress
+  11-5-implement-workspace-persistence: backlog
   11-6-replace-html-markdown-regex: done
   11-7-configure-neo4j-pooling: done
   11-8-add-llm-token-monitoring: done
   11-9-a2a-session-persistence: done
-  epic-11-retrospective: done
+  # NEW: Universalization Refactor
+  11-10-refactor-config-multiprovider: backlog
+  11-11-implement-provider-adapter-pattern: backlog
+  epic-11-retrospective: optional
 
-  # Epic 12: Documentation & DevOps (Tech Debt)
+  # Epic 12: Advanced Retrieval (The "Archon" Upgrade)
   epic-12: backlog
-  12-1-document-retrieval-configuration: backlog
-  12-2-document-observability-metrics: backlog
-  12-3-create-sdk-usage-guide: backlog
-  12-4-document-agui-protocol: backlog
-  12-5-document-hitl-flow: backlog
-  12-6-backfill-epic8-stories: backlog
-  12-7-add-troubleshooting-guides: backlog
-  12-8-configure-dependabot: backlog
-  12-9-configure-codeql: backlog
+  12-1-implement-cross-encoder-reranking: backlog
+  12-2-implement-contextual-retrieval-chunking: backlog
+  12-3-implement-corrective-rag-grader-agent: backlog
   epic-12-retrospective: optional
+
+  # Epic 13: Enterprise Ingestion
+  epic-13: backlog
+  13-1-integrate-apify-brightdata-fallback: backlog
+  13-2-implement-youtube-transcript-api-ingestion: backlog
+  13-3-optimize-crawl4ai-configuration: backlog
+  epic-13-retrospective: optional
+
+  # Epic 14: Connectivity
+  epic-14: backlog
+  14-1-expose-rag-engine-via-mcp-server: backlog
+  14-2-implement-robust-a2a-protocol: backlog
+  epic-14-retrospective: optional
+
+  # Epic 15: Multimodal & Codebase
+  epic-15: backlog
+  15-1-implement-full-video-ingestion-clip-whisper: backlog
+  15-2-implement-image-ingestion: backlog
+  15-3-implement-codebase-hallucination-detector: backlog
+  epic-15-retrospective: optional
+
+  # Epic 16: Framework Agnosticism
+  epic-16: backlog
+  16-1-define-headless-agent-protocol-interface: backlog
+  16-2-implement-pydantic-ai-adapter: backlog
+  16-3-implement-crewai-adapter: backlog
+  16-4-implement-anthropic-agent-adapter: backlog
+  16-5-implement-langgraph-adapter: backlog
+  epic-16-retrospective: optional
+
+  # Epic 17: Deployment & CLI (The Final Polish)
+  epic-17: backlog
+  17-1-create-rag-install-cli-tool: backlog
+  17-2-implement-auto-hardware-detection: backlog
+  17-3-implement-env-generation-logic: backlog
+  17-4-verify-docker-compose-startup: backlog
+  epic-17-retrospective: optional
+
+  # Epic 18: Enhanced Documentation & DevOps (The Manual)
+  epic-18: backlog
+  # Legacy Sustaining Items
+  18-1-document-observability-metrics: backlog
+  18-2-configure-dependabot-security-updates: backlog
+  18-3-configure-codeql-analysis: backlog
+  # New Universal Engine Documentation
+  18-4-document-provider-configuration-guide: backlog
+  18-5-create-advanced-retrieval-tuning-guide: backlog
+  18-6-document-headless-agent-protocol: backlog
+  18-7-create-mcp-server-usage-guide: backlog
+  18-8-create-cli-installation-manual: backlog
+  epic-18-retrospective: optional
