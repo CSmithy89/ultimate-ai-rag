@@ -1,6 +1,6 @@
 # Story 12.2: Implement Contextual Retrieval Chunking
 
-Status: review
+Status: done
 
 ## Story
 
