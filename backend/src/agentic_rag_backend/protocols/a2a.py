@@ -189,7 +189,22 @@ class A2ASessionManager:
                 return None
             raw = payload.decode("utf-8") if isinstance(payload, (bytes, bytearray)) else payload
             data = json.loads(raw)
-            return self._session_from_payload(data)
+            session = self._session_from_payload(data)
+            if session is None:
+                logger.warning(
+                    "a2a_session_payload_invalid",
+                    session_id=session_id,
+                    corrupted_data=True,
+                )
+                try:
+                    await redis.delete(self._session_key(session_id))
+                except Exception as exc:  # pragma: no cover - non-critical cleanup
+                    logger.warning(
+                        "a2a_session_delete_failed",
+                        session_id=session_id,
+                        error=str(exc),
+                    )
+            return session
         except Exception as exc:  # pragma: no cover - non-critical persistence
             logger.warning("a2a_session_load_failed", error=str(exc))
             return None

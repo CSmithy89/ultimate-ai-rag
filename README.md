@@ -21,8 +21,10 @@ Provider keys:
 Use `LLM_MODEL_ID` to set the primary model (defaults to `OPENAI_MODEL_ID`).
 OpenAI-compatible providers can override base URLs via `OPENAI_BASE_URL`,
 `OPENROUTER_BASE_URL`, or `OLLAMA_BASE_URL`.
-Runtime adapters currently support `openai`, `openrouter`, and `ollama`.
-`anthropic` and `gemini` providers fail fast until adapters are added.
+Runtime adapters support `openai`, `openrouter`, `ollama`, `anthropic`, and `gemini`
+for both LLM orchestration and embeddings. Set `EMBEDDING_PROVIDER` to override the
+default (matches `LLM_PROVIDER` when that provider supports embeddings). Voyage AI
+(`voyage`) is available for Anthropic users since Anthropic has no native embeddings.
 
 ### Backend
 
