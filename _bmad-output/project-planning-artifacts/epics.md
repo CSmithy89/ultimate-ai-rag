@@ -241,14 +241,18 @@ Define headless agent protocol and framework adapters for developers to build on
 ### Epic 17: Deployment & CLI (Final Polish)
 Deliver an interactive CLI install flow with hardware detection and startup verification.
 
+**Key Decision (2026-01-03):** CLI is LAST because it must know all available options from Epics 11-16 (LLM providers, embedding providers, agent frameworks, retrieval features). Technology: Python + Typer + Rich.
+
 **FRs covered:** (roadmap enhancements; no new FRs)
-**NFRs addressed:** (installation reliability)
+**NFRs addressed:** (installation reliability, first response <15 minutes)
 
 ### Epic 18: Enhanced Documentation & DevOps (Manual)
 Add documentation and DevOps automation for long-term maintainability.
 
+**Key Decision (2026-01-04):** Some docs already exist (advanced-retrieval, mcp-wrapper, roadmap-decisions). Focus on remaining: provider config, observability, headless protocol, CLI manual. Add Dependabot + CodeQL automation.
+
 **FRs covered:** (roadmap enhancements; no new FRs)
-**NFRs addressed:** (security and maintainability)
+**NFRs addressed:** (security automation, maintainability)
 
 ---
 
@@ -1466,7 +1470,11 @@ So that **graph-based workflows are supported**.
 
 ## Epic 17: Deployment & CLI (Final Polish)
 
-Deliver an interactive CLI install flow with hardware detection and startup verification.
+> **DECISION (2026-01-03):** CLI is LAST because it must know all available options from Epics 11-16 (providers, frameworks, features). See `docs/roadmap-decisions-2026-01-03.md`.
+
+Deliver an interactive CLI install flow with hardware detection and startup verification. **Goal: First response in under 15 minutes.**
+
+**Technology:** Python + Typer (CLI framework) + Rich (TUI rendering)
 
 ### Story 17.1: Create rag-install CLI Tool
 
@@ -1479,7 +1487,13 @@ So that **setup is guided and repeatable**.
 **Given** rag-install is executed
 **When** prompts are completed
 **Then** a valid configuration is produced
-**And** next steps are displayed
+**And** user selects from: LLM provider (openai/anthropic/gemini/openrouter/ollama)
+**And** user selects from: Embedding provider (openai/voyage/gemini/ollama)
+**And** user selects from: Agent framework (agno/pydanticai/crewai/langgraph/anthropic)
+**And** user selects from: Profile (minimal/standard/enterprise)
+**And** optional features are presented: reranking, contextual retrieval, CRAG grader
+**And** CLI validates API key formats before proceeding
+**And** non-interactive mode supported: `rag-install --profile standard --llm openai --yes`
 
 ### Story 17.2: Implement Auto Hardware Detection
 
@@ -1491,8 +1505,15 @@ So that **defaults match the local machine**.
 
 **Given** the CLI runs
 **When** hardware is detected
-**Then** CPU/GPU/RAM info is recorded
-**And** defaults are adjusted accordingly
+**Then** GPU type is identified (NVIDIA via nvidia-smi, Apple MPS, or None)
+**And** RAM is measured via psutil
+**And** CPU core count is recorded
+**And** profile recommendation is generated:
+  - <16GB RAM → Minimal profile
+  - 16GB+ RAM → Standard profile
+  - 32GB+ RAM + NVIDIA GPU → Enterprise profile
+**And** user can override detected recommendations
+**And** detection works on Linux, macOS, and Windows (WSL2)
 
 ### Story 17.3: Implement Env Generation Logic
 
@@ -1504,8 +1525,14 @@ So that **configuration is correct on first run**.
 
 **Given** user selections
 **When** the CLI writes .env
-**Then** required values are populated
-**And** an existing file is backed up
+**Then** all required values are populated with defaults or user input
+**And** API key formats are validated:
+  - OpenAI keys start with `sk-`
+  - Anthropic keys start with `sk-ant-`
+  - Database URLs are valid connection strings
+**And** an existing .env file is backed up to .env.bak
+**And** generated .env includes section comments for each category
+**And** sensitive values are masked in CLI output (show last 4 chars only)
 
 ### Story 17.4: Verify Docker Compose Startup
 
@@ -1517,14 +1544,33 @@ So that **the stack boots successfully**.
 
 **Given** docker compose is invoked
 **When** services start
-**Then** health checks are validated
-**And** failures provide actionable errors
+**Then** each service shows status with timing (e.g., "PostgreSQL... ✓ (2.1s)")
+**And** health endpoints are validated (backend /health, frontend /)
+**And** failures produce actionable errors:
+  - Port in use → "Stop existing service or change BACKEND_PORT"
+  - Docker not running → "Start Docker Desktop"
+  - Out of memory → "Try rag-install --profile minimal"
+  - API key invalid → "Check OPENAI_API_KEY"
+**And** successful startup displays service URLs and next steps
+**And** `--dry-run` option shows what would happen without executing
 
 ---
 
 ## Epic 18: Enhanced Documentation & DevOps (Manual)
 
 Add documentation and DevOps automation for long-term maintainability.
+
+**Documentation Status:**
+
+| Document | Status | Location |
+|----------|--------|----------|
+| Advanced Retrieval Config | ✅ EXISTS | `docs/guides/advanced-retrieval-configuration.md` |
+| MCP Wrapper Architecture | ✅ EXISTS | `docs/guides/mcp-wrapper-architecture.md` |
+| Roadmap Decisions | ✅ EXISTS | `docs/roadmap-decisions-2026-01-03.md` |
+| Provider Config Guide | ❌ NEEDED | `docs/guides/provider-configuration.md` |
+| Observability Guide | ❌ NEEDED | `docs/guides/observability.md` |
+| Headless Protocol Docs | ❌ NEEDED | `docs/guides/headless-agent-protocol.md` |
+| CLI Installation Manual | ❌ NEEDED | `docs/guides/cli-installation.md` |
 
 ### Story 18.1: Document Observability Metrics
 
@@ -1536,7 +1582,14 @@ So that **operators know what to monitor**.
 
 **Given** observability features exist
 **When** documentation is published
-**Then** metrics, dashboards, and alert thresholds are described
+**Then** key metrics are documented with meaning:
+  - `llm_tokens_total`, `llm_cost_usd` (Counter)
+  - `retrieval_latency_seconds` (Histogram, alert: p95 > 3s)
+  - `cache_hit_ratio` (Gauge, alert: < 0.5)
+  - `agent_trajectory_duration` (Histogram, alert: p95 > 10s)
+**And** Grafana dashboard JSON templates are provided
+**And** structured logging format with correlation IDs is explained
+**And** alert thresholds include rationale
 
 ### Story 18.2: Configure Dependabot Security Updates
 
@@ -1548,8 +1601,14 @@ So that **dependency updates are automated**.
 
 **Given** repository automation is enabled
 **When** Dependabot runs
-**Then** update PRs are created on schedule
-**And** labels and scopes are defined
+**Then** update PRs are created on schedule:
+  - pip (backend/): weekly on Monday
+  - npm (frontend/): weekly on Monday
+  - github-actions: weekly
+  - docker: monthly
+**And** labels are defined (dependencies, python, javascript, ci, docker)
+**And** grouped updates reduce PR noise (production vs dev)
+**And** open-pull-requests-limit is set to 10
 
 ### Story 18.3: Configure CodeQL Analysis
 
@@ -1560,8 +1619,12 @@ So that **security issues are detected in CI**.
 **Acceptance Criteria:**
 
 **Given** the CodeQL workflow is configured
-**When** PRs are opened
-**Then** CodeQL scans run and report findings
+**When** PRs are opened or code is pushed
+**Then** CodeQL scans run for Python and JavaScript
+**And** security-extended and security-and-quality queries are enabled
+**And** findings appear in GitHub Security tab
+**And** weekly scheduled scans run on Mondays
+**And** queries cover: SQL injection, XSS, path traversal, command injection
 
 ### Story 18.4: Document Provider Configuration Guide
 
@@ -1573,19 +1636,32 @@ So that **users can configure OpenAI, Anthropic, Gemini, OpenRouter, and Ollama*
 
 **Given** provider setup is supported
 **When** the guide is published
-**Then** .env examples and pitfalls are covered
+**Then** all 5 LLM providers are documented with setup steps
+**And** all 4 embedding providers are documented (openai, voyage, gemini, ollama)
+**And** cost estimates are included per 1M tokens
+**And** common pitfalls section helps avoid errors:
+  - OpenRouter requires model prefix
+  - Anthropic keys start with sk-ant-
+  - Ollama must be running locally
 
-### Story 18.5: Create Advanced Retrieval Tuning Guide
+### Story 18.5: Update Advanced Retrieval Tuning Guide
 
 As a **technical writer**,
 I want **an advanced retrieval tuning guide**,
 So that **teams can optimize reranking and grading**.
 
+> **NOTE:** Base guide already exists at `docs/guides/advanced-retrieval-configuration.md`
+
 **Acceptance Criteria:**
 
 **Given** retrieval features exist
-**When** documentation is published
-**Then** tuning knobs and benchmarking tips are described
+**When** documentation is extended
+**Then** tuning recommendations are added:
+  - FlashRank for testing, Cohere for production
+  - RERANKER_TOP_K: 10 is optimal for most cases
+  - CRAG threshold 0.5 as starting point
+**And** benchmarking methodology is described (MRR@10, NDCG@10, Precision@10)
+**And** recommended defaults include rationale
 
 ### Story 18.6: Document Headless Agent Protocol
 
@@ -1597,19 +1673,32 @@ So that **framework adapters are consistent**.
 
 **Given** the protocol interface is defined
 **When** documentation is published
-**Then** interface and usage examples are included
+**Then** AgentProtocol interface is fully documented with Python types
+**And** AgentInput and AgentResponse models are specified
+**And** adapter implementation guide is included (4 steps)
+**And** each framework adapter is described with its strengths:
+  - AgnoAdapter: Default, battle-tested
+  - PydanticAIAdapter: Type-safe outputs
+  - CrewAIAdapter: Multi-agent orchestration
+  - LangGraphAdapter: Stateful workflows
+  - AnthropicAdapter: Agent Skills integration
 
-### Story 18.7: Create MCP Server Usage Guide
+### Story 18.7: Update MCP Server Usage Guide
 
 As a **technical writer**,
 I want **an MCP server usage guide**,
 So that **external clients can integrate quickly**.
 
+> **NOTE:** Base guide already exists at `docs/guides/mcp-wrapper-architecture.md`
+
 **Acceptance Criteria:**
 
 **Given** MCP tools are available
-**When** the guide is published
-**Then** tool lists and examples are provided
+**When** the guide is extended
+**Then** Claude Desktop integration is documented (claude_desktop_config.json)
+**And** Cursor integration is documented (settings.json)
+**And** programmatic usage examples are provided (Python MCPClient)
+**And** authentication (X-API-Key header) and rate limiting are explained
 
 ### Story 18.8: Create CLI Installation Manual
 
@@ -1621,4 +1710,13 @@ So that **users can onboard without assistance**.
 
 **Given** the CLI exists
 **When** the manual is published
-**Then** setup and troubleshooting steps are included
+**Then** installation methods are documented (pipx, from source, docker)
+**And** all CLI commands and options are listed:
+  - rag-install: main wizard with --profile, --llm, --embedding, --framework, --yes
+  - rag-install validate: validate existing .env
+  - rag-install upgrade: upgrade configuration to new version
+**And** troubleshooting section covers common issues:
+  - Docker not running
+  - Port in use
+  - Out of memory
+**And** examples for interactive and non-interactive usage are provided

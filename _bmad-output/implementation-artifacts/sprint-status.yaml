@@ -234,15 +234,20 @@ development_status:
   epic-17-retrospective: optional
 
   # Epic 18: Enhanced Documentation & DevOps (The Manual)
+  # DECISION (2026-01-04): Some docs already exist. Focus on completing remaining guides.
+  # Existing: advanced-retrieval-configuration.md, mcp-wrapper-architecture.md, roadmap-decisions-2026-01-03.md
+  # Needed: provider-configuration.md, observability.md, headless-agent-protocol.md, cli-installation.md
   epic-18: backlog
-  # Legacy Sustaining Items
+  # DevOps Automation
   18-1-document-observability-metrics: backlog
   18-2-configure-dependabot-security-updates: backlog
   18-3-configure-codeql-analysis: backlog
-  # New Universal Engine Documentation
+  # New Documentation
   18-4-document-provider-configuration-guide: backlog
-  18-5-create-advanced-retrieval-tuning-guide: backlog
+  # NOTE: 18-5 extends existing docs/guides/advanced-retrieval-configuration.md
+  18-5-update-advanced-retrieval-tuning-guide: backlog
   18-6-document-headless-agent-protocol: backlog
-  18-7-create-mcp-server-usage-guide: backlog
+  # NOTE: 18-7 extends existing docs/guides/mcp-wrapper-architecture.md
+  18-7-update-mcp-server-usage-guide: backlog
   18-8-create-cli-installation-manual: backlog
   epic-18-retrospective: optional
