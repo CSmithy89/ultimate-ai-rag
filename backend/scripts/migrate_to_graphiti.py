@@ -36,6 +36,7 @@ from agentic_rag_backend.db.postgres import (
     close_postgres_client,
 )
 from agentic_rag_backend.indexing.graphiti_ingestion import ingest_document_as_episode
+from agentic_rag_backend.llm import UnsupportedLLMProviderError, get_llm_adapter
 from agentic_rag_backend.models.documents import (
     SourceType,
     UnifiedDocument,
@@ -221,6 +222,15 @@ async def migrate(
     chunk_batch_size: int = CHUNK_BATCH_SIZE,
 ) -> int:
     settings = get_settings()
+    try:
+        llm_adapter = get_llm_adapter(settings)
+    except UnsupportedLLMProviderError as exc:
+        logger.error(
+            "llm_provider_unsupported",
+            provider=settings.llm_provider,
+            error=str(exc),
+        )
+        return 1
 
     if not GRAPHITI_AVAILABLE:
         logger.error("graphiti_not_available", reason="graphiti-core not installed")
@@ -239,7 +249,8 @@ async def migrate(
             uri=settings.neo4j_uri,
             user=settings.neo4j_user,
             password=settings.neo4j_password,
-            openai_api_key=settings.openai_api_key,
+            openai_api_key=llm_adapter.api_key or "",
+            openai_base_url=llm_adapter.base_url,
             embedding_model=settings.graphiti_embedding_model,
             llm_model=settings.graphiti_llm_model,
         )

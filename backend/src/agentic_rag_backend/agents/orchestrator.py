@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import inspect
 import asyncio
 import math
 import re
@@ -75,6 +76,7 @@ class OrchestratorAgent:
         self,
         api_key: str,
         model_id: str = "gpt-4o-mini",
+        base_url: str | None = None,
         logger: TrajectoryLogger | None = None,
         cost_tracker: CostTracker | None = None,
         model_router: ModelRouter | None = None,
@@ -94,6 +96,7 @@ class OrchestratorAgent:
         self._cost_tracker = cost_tracker
         self._model_router = model_router
         self._model_id = model_id
+        self._base_url = base_url
         self._agents: dict[str, Any] = {}
         self._vector_search: VectorSearchService | None = None
         self._graph_traversal: GraphTraversalService | None = None
@@ -101,6 +104,7 @@ class OrchestratorAgent:
             embedding_generator = EmbeddingGenerator(
                 api_key=api_key,
                 model=embedding_model,
+                base_url=base_url,
                 cost_tracker=cost_tracker,
             )
             self._vector_search = VectorSearchService(
@@ -149,15 +153,26 @@ class OrchestratorAgent:
                 ),
             )
 
+    def _build_chat_model(self, model_id: str) -> AgnoOpenAIChatType:
+        kwargs: dict[str, Any] = {"api_key": self._api_key, "id": model_id}
+        if self._base_url:
+            try:
+                params = inspect.signature(AgnoOpenAIChatImpl).parameters
+            except (TypeError, ValueError):  # pragma: no cover - fallback path
+                params = {}
+            if "base_url" in params:
+                kwargs["base_url"] = self._base_url
+            elif "api_base" in params:
+                kwargs["api_base"] = self._base_url
+        return AgnoOpenAIChatImpl(**kwargs)
+
     def _get_agent(self, model_id: str) -> AgnoAgentType | None:
         if AgnoAgentImpl is None or AgnoOpenAIChatImpl is None:
             return None
         cached = self._agents.get(model_id)
         if cached:
             return cached
-        agent = AgnoAgentImpl(
-            model=AgnoOpenAIChatImpl(api_key=self._api_key, id=model_id)
-        )
+        agent = AgnoAgentImpl(model=self._build_chat_model(model_id))
         self._agents[model_id] = agent
         return agent
 

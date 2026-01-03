@@ -21,6 +21,8 @@ Provider keys:
 Use `LLM_MODEL_ID` to set the primary model (defaults to `OPENAI_MODEL_ID`).
 OpenAI-compatible providers can override base URLs via `OPENAI_BASE_URL`,
 `OPENROUTER_BASE_URL`, or `OLLAMA_BASE_URL`.
+Runtime adapters currently support `openai`, `openrouter`, and `ollama`.
+`anthropic` and `gemini` providers fail fast until adapters are added.
 
 ### Backend
 
@@ -191,7 +193,7 @@ async def example() -> None:
 
 ### Epic 11: Code Cleanup & Migration
 - Status: Complete
-- Stories: 9/9 completed
+- Stories: 11/11 completed
 - Key Features:
   - Deprecated datetime cleanup and legacy module removal
   - Graphiti migration finalization with HITL validation wiring
@@ -199,3 +201,5 @@ async def example() -> None:
   - Parser-based HTML-to-Markdown conversion
   - Neo4j pooling configuration and A2A session persistence
   - Embedding token usage tracking for cost monitoring
+  - Multi-provider configuration with LLM_PROVIDER and base URL overrides
+  - Provider adapters for OpenAI-compatible LLM clients

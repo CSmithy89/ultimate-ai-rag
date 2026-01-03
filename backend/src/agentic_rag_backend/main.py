@@ -31,6 +31,7 @@ from .api.routes import (
 from .api.routes.ingest import limiter as slowapi_limiter
 from .api.utils import rate_limit_exceeded
 from .config import Settings, load_settings
+from .llm import UnsupportedLLMProviderError, get_llm_adapter
 from .core.errors import AppError, app_error_handler, http_exception_handler
 from .protocols.a2a import A2ASessionManager
 from .protocols.ag_ui_bridge import HITLManager
@@ -62,6 +63,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     settings = load_settings()
     app.state.settings = settings
+    try:
+        llm_adapter = get_llm_adapter(settings)
+    except UnsupportedLLMProviderError as exc:
+        struct_logger.error(
+            "llm_provider_unsupported",
+            provider=settings.llm_provider,
+            error=str(exc),
+        )
+        raise RuntimeError(str(exc)) from exc
     key_bytes = bytes.fromhex(settings.trace_encryption_key)
     app.state.trace_key_fingerprint = hashlib.sha256(key_bytes).hexdigest()
     app.state.trace_key_source = (
@@ -144,7 +154,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     uri=settings.neo4j_uri,
                     user=settings.neo4j_user,
                     password=settings.neo4j_password,
-                    openai_api_key=settings.openai_api_key,
+                    openai_api_key=llm_adapter.api_key or "",
+                    openai_base_url=llm_adapter.base_url,
                     embedding_model=settings.graphiti_embedding_model,
                     llm_model=settings.graphiti_llm_model,
                 )
@@ -169,8 +180,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
         app.state.redis = None
         app.state.orchestrator = OrchestratorAgent(
-            api_key=settings.openai_api_key,
-            model_id=settings.openai_model_id,
+            api_key=llm_adapter.api_key or "",
+            model_id=settings.llm_model_id,
+            base_url=llm_adapter.base_url,
             logger=None,
             postgres=getattr(app.state, "postgres", None),
             neo4j=getattr(app.state, "neo4j", None),
@@ -214,8 +226,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 window_seconds=60,
             )
         app.state.orchestrator = OrchestratorAgent(
-            api_key=settings.openai_api_key,
-            model_id=settings.openai_model_id,
+            api_key=llm_adapter.api_key or "",
+            model_id=settings.llm_model_id,
+            base_url=llm_adapter.base_url,
             logger=app.state.trajectory_logger,
             postgres=getattr(app.state, "postgres", None),
             neo4j=getattr(app.state, "neo4j", None),

@@ -6,6 +6,7 @@ and custom entity type configuration.
 """
 
 import asyncio
+import inspect
 import logging
 from enum import Enum
 from typing import Optional
@@ -66,6 +67,7 @@ class GraphitiClient:
         user: str,
         password: str,
         openai_api_key: str,
+        openai_base_url: Optional[str] = None,
         embedding_model: str = "text-embedding-3-small",
         llm_model: str = "gpt-4o-mini",
     ) -> None:
@@ -76,6 +78,7 @@ class GraphitiClient:
             user: Neo4j username
             password: Neo4j password
             openai_api_key: OpenAI API key for embeddings and LLM
+            openai_base_url: OpenAI-compatible base URL override
             embedding_model: OpenAI embedding model name
             llm_model: OpenAI LLM model for entity extraction
         """
@@ -89,6 +92,7 @@ class GraphitiClient:
         self.user = user
         self._password: Optional[str] = password
         self._openai_api_key: Optional[str] = openai_api_key
+        self._openai_base_url = openai_base_url
         self.embedding_model = embedding_model
         self.llm_model = llm_model
         self._client: Optional[Graphiti] = None
@@ -150,15 +154,28 @@ class GraphitiClient:
             self._state = ConnectionState.CONNECTING
 
             try:
-                # Create OpenAI clients for LLM and embeddings
-                llm_client = OpenAIClient(  # type: ignore[call-arg]
-                    api_key=self._openai_api_key,
-                    model=self.llm_model,
-                )
-                embedder = OpenAIEmbedder(  # type: ignore[call-arg]
-                    api_key=self._openai_api_key,
-                    model=self.embedding_model,
-                )
+                # Create OpenAI-compatible clients for LLM and embeddings
+                def _build_openai_component(component_cls, model: str):
+                    kwargs = {
+                        "api_key": self._openai_api_key,
+                        "model": model,
+                    }
+                    if self._openai_base_url:
+                        params = inspect.signature(component_cls).parameters
+                        if "base_url" in params:
+                            kwargs["base_url"] = self._openai_base_url
+                        elif "api_base" in params:
+                            kwargs["api_base"] = self._openai_base_url
+                        else:
+                            raise RuntimeError(
+                                "Graphiti OpenAI client does not support base_url."
+                            )
+                    return component_cls(**kwargs)
+
+                llm_client = _build_openai_component(OpenAIClient, self.llm_model)  # type: ignore[call-arg]
+                embedder = _build_openai_component(
+                    OpenAIEmbedder, self.embedding_model
+                )  # type: ignore[call-arg]
 
                 # Clear the API key from memory after passing to clients
                 self._openai_api_key = None
@@ -273,6 +290,7 @@ async def create_graphiti_client(
     user: str,
     password: str,
     openai_api_key: str,
+    openai_base_url: Optional[str] = None,
     embedding_model: str = "text-embedding-3-small",
     llm_model: str = "gpt-4o-mini",
 ) -> GraphitiClient:
@@ -283,6 +301,7 @@ async def create_graphiti_client(
         user: Neo4j username
         password: Neo4j password
         openai_api_key: OpenAI API key
+        openai_base_url: OpenAI-compatible base URL override
         embedding_model: OpenAI embedding model name
         llm_model: OpenAI LLM model name
 
@@ -294,6 +313,7 @@ async def create_graphiti_client(
         user=user,
         password=password,
         openai_api_key=openai_api_key,
+        openai_base_url=openai_base_url,
         embedding_model=embedding_model,
         llm_model=llm_model,
     )

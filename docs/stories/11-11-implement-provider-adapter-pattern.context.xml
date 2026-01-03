@@ -1,0 +1,21 @@
+<storyContext>
+  <story id="11.11" title="Implement provider adapter pattern" epic="11" />
+
+  <summary>
+    Wire provider adapters into orchestration, embeddings, and Graphiti for OpenAI-compatible providers.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Provider selection drives LLM/embedding clients with base URL overrides.</acceptanceCriteria>
+    <acceptanceCriteria>Unsupported providers fail fast with clear messaging.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Use OpenAI-compatible providers (openai/openrouter/ollama) via base URL overrides.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="docs/recommendations_2025.md" section="The \"Universalization\" Refactor" />
+    <reference path="backend/src/agentic_rag_backend/config.py" section="Settings" />
+  </references>
+</storyContext>

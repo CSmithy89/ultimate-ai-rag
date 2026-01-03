@@ -1,4 +1,4 @@
-"""OpenAI embedding generation with batch processing and retry logic."""
+"""OpenAI-compatible embedding generation with batch processing and retry logic."""
 
 from typing import Optional
 from uuid import UUID
@@ -28,7 +28,7 @@ MAX_TOKENS_PER_REQUEST = 8191  # Model token limit
 
 class EmbeddingGenerator:
     """
-    OpenAI embedding generation with batch processing.
+    OpenAI-compatible embedding generation with batch processing.
 
     Features:
     - Batch processing for efficiency (up to 100 texts per API call)
@@ -38,8 +38,9 @@ class EmbeddingGenerator:
 
     def __init__(
         self,
-        api_key: str,
+        api_key: Optional[str],
         model: str = DEFAULT_EMBEDDING_MODEL,
+        base_url: Optional[str] = None,
         timeout: float = 30.0,
         cost_tracker: Optional[CostTracker] = None,
     ) -> None:
@@ -47,14 +48,18 @@ class EmbeddingGenerator:
         Initialize embedding generator.
 
         Args:
-            api_key: OpenAI API key
+            api_key: OpenAI-compatible API key (optional for local providers)
             model: Embedding model ID (default: text-embedding-ada-002)
+            base_url: OpenAI-compatible base URL override
             timeout: Request timeout in seconds (default: 30.0)
         """
-        self.client = AsyncOpenAI(
-            api_key=api_key,
-            timeout=timeout,
-        )
+        client_kwargs: dict[str, object] = {
+            "api_key": api_key or "",
+            "timeout": timeout,
+        }
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        self.client = AsyncOpenAI(**client_kwargs)
         self.model = model
         self._cost_tracker = cost_tracker
         logger.info("embedding_generator_initialized", model=model, timeout=timeout)
