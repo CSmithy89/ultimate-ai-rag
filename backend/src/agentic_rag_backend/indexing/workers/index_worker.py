@@ -30,6 +30,11 @@ from agentic_rag_backend.db.redis import (
 from agentic_rag_backend.embeddings import EmbeddingGenerator
 from agentic_rag_backend.llm.providers import get_embedding_adapter
 from agentic_rag_backend.indexing.chunker import chunk_document
+from agentic_rag_backend.indexing.contextual import (
+    ContextualChunkEnricher,
+    DocumentContext,
+    create_contextual_enricher,
+)
 from agentic_rag_backend.indexing.graphiti_ingestion import ingest_document_as_episode
 from agentic_rag_backend.llm import UnsupportedLLMProviderError, get_llm_adapter
 from agentic_rag_backend.models.documents import (
@@ -51,6 +56,7 @@ async def process_index_job(
     skip_graphiti_ingestion: bool,
     chunk_size: int,
     chunk_overlap: int,
+    contextual_enricher: Optional[ContextualChunkEnricher] = None,
 ) -> None:
     """
     Process a single indexing job.
@@ -77,6 +83,7 @@ async def process_index_job(
         skip_graphiti_ingestion: Skip Graphiti ingestion when disabled
         chunk_size: Target chunk size in tokens
         chunk_overlap: Token overlap between chunks
+        contextual_enricher: Optional contextual chunk enricher for improved retrieval
 
     Raises:
         ExtractionError: If indexing fails
@@ -204,24 +211,66 @@ async def process_index_job(
             },
         )
 
-        chunk_texts = [chunk.content for chunk in chunks]
+        # Epic 12: Apply contextual enrichment if enabled
+        chunk_texts_for_embedding = []
+        chunk_metadata_list = []
+
+        if contextual_enricher:
+            # Create document context for enrichment
+            doc_context = DocumentContext(
+                title=metadata_model.title or filename,
+                summary=metadata_model.description,
+                full_content=content,
+            )
+
+            logger.info(
+                "contextual_enrichment_starting",
+                job_id=str(job_id),
+                chunk_count=len(chunks),
+                model=contextual_enricher.get_model(),
+            )
+
+            enriched_chunks = await contextual_enricher.enrich_chunks(chunks, doc_context)
+
+            for enriched in enriched_chunks:
+                # Use enriched content for embedding
+                chunk_texts_for_embedding.append(enriched.enriched_content)
+                chunk_metadata_list.append({
+                    "start_char": enriched.start_char,
+                    "end_char": enriched.end_char,
+                    "contextual_enrichment": True,
+                    "context": enriched.context,
+                    "context_generation_ms": enriched.context_generation_ms,
+                })
+
+            logger.info(
+                "contextual_enrichment_complete",
+                job_id=str(job_id),
+                chunk_count=len(enriched_chunks),
+            )
+        else:
+            # Standard chunking without enrichment
+            for chunk in chunks:
+                chunk_texts_for_embedding.append(chunk.content)
+                chunk_metadata_list.append({
+                    "start_char": chunk.start_char,
+                    "end_char": chunk.end_char,
+                })
+
         embeddings = await embedding_generator.generate_embeddings(
-            chunk_texts,
+            chunk_texts_for_embedding,
             tenant_id=str(tenant_id),
         )
 
-        for chunk, embedding in zip(chunks, embeddings):
+        for chunk, embedding, metadata in zip(chunks, embeddings, chunk_metadata_list):
             await postgres.create_chunk(
                 tenant_id=tenant_id,
                 document_id=document_id,
-                content=chunk.content,
+                content=chunk.content,  # Store original content
                 chunk_index=chunk.chunk_index,
                 token_count=chunk.token_count,
-                embedding=embedding,
-                metadata={
-                    "start_char": chunk.start_char,
-                    "end_char": chunk.end_char,
-                },
+                embedding=embedding,  # Embedding from enriched content
+                metadata=metadata,
             )
 
         ingestion_result = None
@@ -411,12 +460,17 @@ async def run_index_worker(
         cost_tracker=cost_tracker,
     )
 
+    # Epic 12: Create contextual enricher if enabled
+    contextual_enricher = create_contextual_enricher(settings)
+
     logger.info(
         "index_worker_initialized",
         consumer_name=consumer_name,
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
         embedding_model=settings.embedding_model,
+        contextual_enrichment=settings.contextual_retrieval_enabled,
+        contextual_model=settings.contextual_model if settings.contextual_retrieval_enabled else None,
     )
 
     # Consume jobs from stream
@@ -436,6 +490,7 @@ async def run_index_worker(
                 skip_graphiti_ingestion=skip_graphiti_ingestion,
                 chunk_size=settings.chunk_size,
                 chunk_overlap=settings.chunk_overlap,
+                contextual_enricher=contextual_enricher,
             )
         except Exception as e:
             # Log but don't crash the worker

@@ -100,6 +100,11 @@ class Settings:
     routing_simple_max_score: int
     routing_complex_min_score: int
     trace_encryption_key: str
+    # Epic 12 - Advanced Retrieval (Contextual Retrieval)
+    contextual_retrieval_enabled: bool
+    contextual_model: str
+    contextual_prompt_caching: bool
+    contextual_reindex_batch_size: int
 
 
 def load_settings() -> Settings:
@@ -445,6 +450,17 @@ def load_settings() -> Settings:
             "TRACE_ENCRYPTION_KEY must be set for non-development environments."
         )
 
+    # Epic 12 - Contextual Retrieval settings
+    contextual_enabled_raw = os.getenv("CONTEXTUAL_RETRIEVAL_ENABLED", "false").strip().lower()
+    contextual_retrieval_enabled = contextual_enabled_raw in {"true", "1", "yes"}
+    contextual_model = os.getenv("CONTEXTUAL_MODEL", "claude-3-haiku-20240307")
+    contextual_caching_raw = os.getenv("CONTEXTUAL_PROMPT_CACHING", "true").strip().lower()
+    contextual_prompt_caching = contextual_caching_raw in {"true", "1", "yes"}
+    try:
+        contextual_reindex_batch_size = int(os.getenv("CONTEXTUAL_REINDEX_BATCH_SIZE", "100"))
+    except ValueError:
+        contextual_reindex_batch_size = 100
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -520,6 +536,11 @@ def load_settings() -> Settings:
         routing_simple_max_score=routing_simple_max_score,
         routing_complex_min_score=routing_complex_min_score,
         trace_encryption_key=trace_encryption_key,
+        # Epic 12 - Contextual Retrieval settings
+        contextual_retrieval_enabled=contextual_retrieval_enabled,
+        contextual_model=contextual_model,
+        contextual_prompt_caching=contextual_prompt_caching,
+        contextual_reindex_batch_size=contextual_reindex_batch_size,
     )
 
 
