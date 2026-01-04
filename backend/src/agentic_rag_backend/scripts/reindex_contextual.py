@@ -205,21 +205,45 @@ async def reindex_document(
         tenant_id=str(tenant_id),
     )
 
-    # Update each chunk
+    # Validate list lengths before zip to prevent silent truncation
+    if not (len(chunks_data) == len(enriched_chunks) == len(embeddings)):
+        logger.error(
+            "list_length_mismatch",
+            document_id=str(document_id),
+            chunks_data_len=len(chunks_data),
+            enriched_chunks_len=len(enriched_chunks),
+            embeddings_len=len(embeddings),
+        )
+        return {
+            "document_id": str(document_id),
+            "status": "error",
+            "reason": "list_length_mismatch",
+            "chunks_processed": 0,
+        }
+
+    # Update each chunk with concurrent DB operations
+    update_tasks = []
+    reindex_timestamp = time.time()
+
     for chunk_record, enriched, embedding in zip(chunks_data, enriched_chunks, embeddings):
         updated_metadata = chunk_record.get("metadata", {}).copy()
         updated_metadata["contextual_enrichment"] = True
         updated_metadata["context"] = enriched.context
         updated_metadata["context_generation_ms"] = enriched.context_generation_ms
-        updated_metadata["reindexed_at"] = time.time()
+        updated_metadata["reindexed_at"] = reindex_timestamp
 
-        await update_chunk_embedding(
-            postgres,
-            UUID(str(chunk_record["id"])),
-            tenant_id,
-            embedding,
-            updated_metadata,
+        update_tasks.append(
+            update_chunk_embedding(
+                postgres,
+                UUID(str(chunk_record["id"])),
+                tenant_id,
+                embedding,
+                updated_metadata,
+            )
         )
+
+    # Execute all DB updates concurrently
+    await asyncio.gather(*update_tasks)
 
     return {
         "document_id": str(document_id),
@@ -334,6 +358,9 @@ async def reindex_all(
         elapsed_seconds=round(elapsed_seconds, 2),
         dry_run=dry_run,
     )
+
+    # Cleanup database connection
+    await postgres.close()
 
 
 def main() -> None:

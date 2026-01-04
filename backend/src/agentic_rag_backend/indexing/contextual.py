@@ -7,6 +7,7 @@ improves retrieval accuracy by 35-67% by preserving document context.
 Reference: https://www.anthropic.com/news/contextual-retrieval
 """
 
+import asyncio
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -213,6 +214,11 @@ class ContextualChunkEnricher:
             messages=messages,
         )
 
+        # Defensive check for empty response
+        if not response.content:
+            logger.warning("anthropic_empty_response", model=self._model)
+            return ""
+
         return response.content[0].text.strip()
 
     async def _generate_openai(self, prompt: str) -> str:
@@ -222,6 +228,11 @@ class ContextualChunkEnricher:
             max_tokens=150,
             messages=[{"role": "user", "content": prompt}],
         )
+
+        # Defensive check for empty response
+        if not response.choices or not response.choices[0].message.content:
+            logger.warning("openai_empty_response", model=self._model)
+            return ""
 
         return response.choices[0].message.content.strip()
 
@@ -269,33 +280,54 @@ class ContextualChunkEnricher:
         self,
         chunks: list[ChunkData],
         document_context: DocumentContext,
+        max_concurrency: int = 5,
     ) -> list[EnrichedChunk]:
         """Enrich multiple chunks with contextual information.
+
+        Uses asyncio.gather() for parallel processing with rate limiting
+        to improve throughput while respecting API limits.
 
         Args:
             chunks: List of chunks to enrich
             document_context: Document-level context
+            max_concurrency: Maximum concurrent API calls (default: 5)
 
         Returns:
-            List of EnrichedChunk objects
+            List of EnrichedChunk objects in the same order as input
         """
-        enriched = []
-        total_latency_ms = 0.0
+        if not chunks:
+            return []
 
-        for chunk in chunks:
-            enriched_chunk = await self.enrich_chunk(chunk, document_context)
-            enriched.append(enriched_chunk)
-            total_latency_ms += enriched_chunk.context_generation_ms
+        start_time = time.perf_counter()
+
+        # Use semaphore to limit concurrency and avoid overwhelming API
+        semaphore = asyncio.Semaphore(max_concurrency)
+
+        async def enrich_with_limit(chunk: ChunkData) -> EnrichedChunk:
+            async with semaphore:
+                return await self.enrich_chunk(chunk, document_context)
+
+        # Process all chunks in parallel with rate limiting
+        enriched = await asyncio.gather(
+            *[enrich_with_limit(chunk) for chunk in chunks]
+        )
+
+        total_latency_ms = (time.perf_counter() - start_time) * 1000
+        avg_context_gen_ms = (
+            sum(e.context_generation_ms for e in enriched) / len(enriched)
+            if enriched else 0
+        )
 
         logger.info(
             "chunks_enriched",
             chunk_count=len(chunks),
             total_latency_ms=round(total_latency_ms, 2),
-            avg_latency_ms=round(total_latency_ms / len(chunks), 2) if chunks else 0,
+            avg_context_gen_ms=round(avg_context_gen_ms, 2),
+            max_concurrency=max_concurrency,
             model=self._model,
         )
 
-        return enriched
+        return list(enriched)
 
     def get_model(self) -> str:
         """Get the model name used for context generation."""

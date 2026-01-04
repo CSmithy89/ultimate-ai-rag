@@ -11,12 +11,26 @@ from dotenv import load_dotenv
 import structlog
 
 
+def get_bool_env(key: str, default: str = "false") -> bool:
+    """Parse a boolean environment variable.
+
+    Args:
+        key: Environment variable name
+        default: Default value if not set (default: "false")
+
+    Returns:
+        True if value is "true", "1", or "yes" (case-insensitive), False otherwise
+    """
+    return os.getenv(key, default).strip().lower() in {"true", "1", "yes"}
+
+
 # Search configuration constants
 DEFAULT_SEARCH_RESULTS = 5
 MAX_SEARCH_RESULTS = 100
 LLM_PROVIDERS = {"openai", "openrouter", "ollama", "anthropic", "gemini"}
 EMBEDDING_PROVIDERS = {"openai", "openrouter", "ollama", "gemini", "voyage"}
 RERANKER_PROVIDERS = {"cohere", "flashrank"}
+FALLBACK_STRATEGIES = {"web_search", "expanded_query", "alternate_index"}
 DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 
@@ -445,8 +459,7 @@ def load_settings() -> Settings:
         )
 
     # Epic 12 - Reranker configuration
-    reranker_enabled_raw = os.getenv("RERANKER_ENABLED", "false").strip().lower()
-    reranker_enabled = reranker_enabled_raw in {"true", "1", "yes"}
+    reranker_enabled = get_bool_env("RERANKER_ENABLED", "false")
     reranker_provider = os.getenv("RERANKER_PROVIDER", "flashrank").strip().lower()
     if reranker_enabled and reranker_provider not in RERANKER_PROVIDERS:
         raise ValueError(
@@ -493,28 +506,24 @@ def load_settings() -> Settings:
         )
 
     # Epic 12 - Contextual Retrieval settings
-    contextual_enabled_raw = os.getenv("CONTEXTUAL_RETRIEVAL_ENABLED", "false").strip().lower()
-    contextual_retrieval_enabled = contextual_enabled_raw in {"true", "1", "yes"}
+    contextual_retrieval_enabled = get_bool_env("CONTEXTUAL_RETRIEVAL_ENABLED", "false")
     contextual_model = os.getenv("CONTEXTUAL_MODEL", "claude-3-haiku-20240307")
-    contextual_caching_raw = os.getenv("CONTEXTUAL_PROMPT_CACHING", "true").strip().lower()
-    contextual_prompt_caching = contextual_caching_raw in {"true", "1", "yes"}
+    contextual_prompt_caching = get_bool_env("CONTEXTUAL_PROMPT_CACHING", "true")
     try:
         contextual_reindex_batch_size = int(os.getenv("CONTEXTUAL_REINDEX_BATCH_SIZE", "100"))
     except ValueError:
         contextual_reindex_batch_size = 100
 
     # Epic 12 - Corrective RAG Grader settings
-    grader_enabled_raw = os.getenv("GRADER_ENABLED", "false").strip().lower()
-    grader_enabled = grader_enabled_raw in {"true", "1", "yes"}
+    grader_enabled = get_bool_env("GRADER_ENABLED", "false")
     try:
         grader_threshold = float(os.getenv("GRADER_THRESHOLD", "0.5"))
         grader_threshold = max(0.0, min(1.0, grader_threshold))  # Clamp to 0.0-1.0
     except ValueError:
         grader_threshold = 0.5
-    grader_fallback_enabled_raw = os.getenv("GRADER_FALLBACK_ENABLED", "true").strip().lower()
-    grader_fallback_enabled = grader_fallback_enabled_raw in {"true", "1", "yes"}
+    grader_fallback_enabled = get_bool_env("GRADER_FALLBACK_ENABLED", "true")
     grader_fallback_strategy = os.getenv("GRADER_FALLBACK_STRATEGY", "web_search")
-    if grader_fallback_strategy not in {"web_search", "expanded_query", "alternate_index"}:
+    if grader_fallback_strategy not in FALLBACK_STRATEGIES:
         grader_fallback_strategy = "web_search"
     tavily_api_key = os.getenv("TAVILY_API_KEY")
 

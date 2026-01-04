@@ -7,6 +7,7 @@ The grader uses a lightweight approach (cross-encoder or simple heuristics) rath
 than full LLM calls to minimize latency and cost.
 """
 
+import math
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -216,10 +217,21 @@ class CrossEncoderGrader(BaseGrader):
         # Score with cross-encoder
         scores = self._model.predict(pairs)
 
+        # Handle edge case of empty scores (shouldn't happen but be defensive)
+        if len(scores) == 0:
+            grading_time_ms = int((time.perf_counter() - start_time) * 1000)
+            return GraderResult(
+                score=0.0,
+                passed=False,
+                threshold=threshold,
+                grading_time_ms=grading_time_ms,
+                fallback_triggered=True,
+            )
+
         # Average score (cross-encoder scores are typically -inf to +inf, normalize)
         avg_score = sum(scores) / len(scores)
-        # Sigmoid-like normalization to 0-1
-        score = 1 / (1 + 2.718281828 ** (-avg_score))
+        # Sigmoid normalization to 0-1 range
+        score = 1 / (1 + math.exp(-avg_score))
 
         passed = score >= threshold
         grading_time_ms = int((time.perf_counter() - start_time) * 1000)
