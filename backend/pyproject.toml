@@ -45,6 +45,8 @@ dependencies = [
   # Epic 12 - Advanced Retrieval (Corrective RAG Grader - optional)
   "tavily-python>=0.3.0",
   "sentence-transformers>=2.0.0",
+  # Epic 13 - Enterprise Ingestion (YouTube Transcripts)
+  "youtube-transcript-api>=0.6.0",
 ]
 
 [project.scripts]

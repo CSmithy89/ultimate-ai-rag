@@ -139,6 +139,9 @@ class Settings:
     brightdata_username: Optional[str]
     brightdata_password: Optional[str]
     brightdata_zone: str
+    # Epic 13 - Enterprise Ingestion (YouTube Transcripts)
+    youtube_preferred_languages: list[str]
+    youtube_chunk_duration_seconds: int
 
 
 def load_settings() -> Settings:
@@ -550,6 +553,25 @@ def load_settings() -> Settings:
     brightdata_password = os.getenv("BRIGHTDATA_PASSWORD")
     brightdata_zone = os.getenv("BRIGHTDATA_ZONE", "scraping_browser")
 
+    # Epic 13 - YouTube Transcript settings
+    youtube_preferred_languages_raw = os.getenv(
+        "YOUTUBE_PREFERRED_LANGUAGES", '["en", "en-US"]'
+    )
+    try:
+        youtube_preferred_languages = json.loads(youtube_preferred_languages_raw)
+        if not isinstance(youtube_preferred_languages, list):
+            youtube_preferred_languages = ["en", "en-US"]
+    except (json.JSONDecodeError, ValueError):
+        youtube_preferred_languages = ["en", "en-US"]
+    try:
+        youtube_chunk_duration_seconds = int(
+            os.getenv("YOUTUBE_CHUNK_DURATION_SECONDS", "120")
+        )
+        if youtube_chunk_duration_seconds < 1:
+            youtube_chunk_duration_seconds = 120
+    except ValueError:
+        youtube_chunk_duration_seconds = 120
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -649,6 +671,9 @@ def load_settings() -> Settings:
         brightdata_username=brightdata_username,
         brightdata_password=brightdata_password,
         brightdata_zone=brightdata_zone,
+        # Epic 13 - YouTube Transcript settings
+        youtube_preferred_languages=youtube_preferred_languages,
+        youtube_chunk_duration_seconds=youtube_chunk_duration_seconds,
     )
 
 
