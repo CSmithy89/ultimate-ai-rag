@@ -239,6 +239,14 @@ class TestSymbolTableSerialization:
         assert restored.symbol_count() == populated_table.symbol_count()
         assert restored.contains("create_user")
 
+    def test_declared_packages_roundtrip(self, populated_table):
+        """Test declared package persistence in serialization."""
+        populated_table.set_declared_packages({"fastapi", "requests"})
+        data = populated_table.to_dict()
+
+        restored = SymbolTable.from_dict(data)
+        assert restored.get_declared_packages() == {"fastapi", "requests"}
+
     def test_get_cache_key(self, populated_table):
         """Test generating cache key."""
         key = populated_table.get_cache_key()

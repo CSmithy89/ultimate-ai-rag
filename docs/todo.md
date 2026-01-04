@@ -1,5 +1,20 @@
 # Review Follow-ups
 
+## Epic 15 Review Follow-ups
+### High Priority
+- [x] Add per-tenant rate limiting on `/index-repository` and `/index` to prevent indexing DoS (`backend/src/agentic_rag_backend/api/routes/codebase.py`).
+- [x] Fix async directory scan to use `async for` with `aiofiles.os.scandir` (`backend/src/agentic_rag_backend/codebase/detector.py`).
+- [x] Replace `startswith` path containment check with `relative_to` in `validate_directory` to close traversal edge case (`backend/src/agentic_rag_backend/codebase/validators/path_validator.py`).
+
+### Medium Priority
+- [x] Add size-based guardrails/metrics for symbol table cache to avoid large-tenant memory exhaustion (`backend/src/agentic_rag_backend/api/routes/codebase.py`).
+- [x] Persist declared dependencies with the symbol table/cache so import validation can boost confidence even when `repo_path` is not provided (`backend/src/agentic_rag_backend/api/routes/codebase.py`).
+- [x] Log slow hallucination detection runs (thresholded `processing_time_ms`) to identify regex bottlenecks (`backend/src/agentic_rag_backend/codebase/detector.py` or `backend/src/agentic_rag_backend/api/routes/codebase.py`).
+
+### Low Priority
+- [x] Fail fast on invalid codebase settings (threshold range, detector mode) instead of silently falling back (`backend/src/agentic_rag_backend/config.py`).
+- [x] Fix MD036 style in Epic 15 test report gate decision (`docs/epics/epic-15-test-report.md`).
+
 ## Epic 8 Review Follow-ups
 - [x] Require a stable `TRACE_ENCRYPTION_KEY` in non-dev environments; fail startup if missing to prevent data loss.
 - [x] Fix keyword matching in `backend/src/agentic_rag_backend/ops/model_router.py` to use proper word-boundary regex (`\b`).

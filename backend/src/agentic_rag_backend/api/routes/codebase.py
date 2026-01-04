@@ -11,7 +11,7 @@ from typing import Any, Optional
 from uuid import UUID, uuid4
 
 import structlog
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 
 from agentic_rag_backend.config import get_settings
@@ -40,6 +40,7 @@ from agentic_rag_backend.core.errors import (
 )
 from agentic_rag_backend.embeddings import EmbeddingGenerator
 from agentic_rag_backend.llm.providers import get_embedding_adapter
+from agentic_rag_backend.rate_limit import RateLimiter
 
 logger = structlog.get_logger(__name__)
 
@@ -242,11 +243,28 @@ def _get_symbol_table_cache(tenant_id: str, ttl_seconds: int) -> Optional[Symbol
     return symbol_table
 
 
-def _set_symbol_table_cache(tenant_id: str, symbol_table: SymbolTable) -> None:
+def _set_symbol_table_cache(
+    tenant_id: str,
+    symbol_table: SymbolTable,
+    max_symbols: Optional[int] = None,
+) -> bool:
+    symbol_count = symbol_table.symbol_count()
+    file_count = symbol_table.file_count()
+    if max_symbols and symbol_count > max_symbols:
+        logger.warning(
+            "symbol_table_cache_skipped",
+            tenant_id=tenant_id,
+            symbol_count=symbol_count,
+            file_count=file_count,
+            max_symbols=max_symbols,
+        )
+        _symbol_tables.pop(tenant_id, None)
+        return False
     _symbol_tables[tenant_id] = (time.time(), symbol_table)
     _symbol_tables.move_to_end(tenant_id)
     while len(_symbol_tables) > _SYMBOL_TABLE_CACHE_MAX:
         _symbol_tables.popitem(last=False)
+    return True
 
 
 def _clear_symbol_table_cache(tenant_id: str) -> bool:
@@ -256,6 +274,12 @@ def _clear_symbol_table_cache(tenant_id: str) -> bool:
 async def get_redis_client(request: Request):
     """Get Redis client from app.state."""
     return getattr(request.app.state, "redis_client", None)
+
+
+def get_index_rate_limiter(request: Request) -> RateLimiter:
+    """Get rate limiter for indexing operations."""
+    limiter = getattr(request.app.state, "codebase_index_limiter", None)
+    return limiter or request.app.state.rate_limiter
 
 
 @router.post(
@@ -321,7 +345,11 @@ async def validate_response(
                 resolved_repo_path,
             )
             if symbol_table:
-                _set_symbol_table_cache(tenant_id, symbol_table)
+                _set_symbol_table_cache(
+                    tenant_id,
+                    symbol_table,
+                    settings.codebase_symbol_table_max_symbols,
+                )
 
     if symbol_table is None:
         # If repo_path provided, index it
@@ -332,7 +360,11 @@ async def validate_response(
                     tenant_id,
                     allowed_base_path=settings.codebase_allowed_base_path,
                 )
-                _set_symbol_table_cache(tenant_id, symbol_table)
+                _set_symbol_table_cache(
+                    tenant_id,
+                    symbol_table,
+                    settings.codebase_symbol_table_max_symbols,
+                )
 
                 # Cache in Redis if available
                 redis_client = await get_redis_client(request)
@@ -368,13 +400,30 @@ async def validate_response(
         threshold=threshold,
         openapi_spec=request.app.openapi(),
     )
-    declared_packages = load_repo_dependencies(symbol_table.repo_path)
+    declared_packages = symbol_table.get_declared_packages()
+    if not declared_packages and symbol_table.repo_path:
+        declared_packages = load_repo_dependencies(symbol_table.repo_path)
+        if declared_packages:
+            symbol_table.set_declared_packages(declared_packages)
     if declared_packages:
-        detector.add_installed_packages(sorted(declared_packages))
+        detector.add_declared_packages(sorted(declared_packages))
 
     # Validate the response
     report = detector.validate_response(body.response_text, tenant_id)
     should_block = detector.should_block(report)
+
+    if (
+        settings.codebase_detection_slow_ms
+        and report.processing_time_ms >= settings.codebase_detection_slow_ms
+    ):
+        logger.warning(
+            "codebase_validation_slow",
+            tenant_id=tenant_id,
+            processing_time_ms=report.processing_time_ms,
+            threshold_ms=settings.codebase_detection_slow_ms,
+            response_length=len(body.response_text),
+            total_symbols=report.total_symbols_checked,
+        )
 
     if should_block:
         invalid_symbols = [
@@ -441,6 +490,7 @@ async def validate_response(
 async def index_repository_endpoint(
     request: Request,
     body: IndexRepositoryRequest,
+    limiter: RateLimiter = Depends(get_index_rate_limiter),
 ) -> dict[str, Any]:
     """Index a repository and create a symbol table.
 
@@ -466,6 +516,9 @@ async def index_repository_endpoint(
         repo_path=body.repo_path,
     )
 
+    if not await limiter.allow(f"codebase-index:{tenant_id}"):
+        raise rate_limit_exceeded()
+
     try:
         symbol_table = await index_repository(
             body.repo_path,
@@ -485,7 +538,11 @@ async def index_repository_endpoint(
         ) from e
 
     # Store in memory cache
-    _set_symbol_table_cache(tenant_id, symbol_table)
+    _set_symbol_table_cache(
+        tenant_id,
+        symbol_table,
+        settings.codebase_symbol_table_max_symbols,
+    )
 
     # Cache in Redis if available
     cached = False
@@ -527,10 +584,15 @@ async def index_repository_endpoint(
 async def index_codebase(
     request: Request,
     body: IndexCodebaseRequest,
+    limiter: RateLimiter = Depends(get_index_rate_limiter),
 ) -> dict[str, Any]:
     settings = get_settings()
     if not settings.codebase_rag_enabled:
         raise CodebaseValidationError(reason="Codebase RAG is disabled.")
+
+    tenant_id = str(body.tenant_id)
+    if not await limiter.allow(f"codebase-index:{tenant_id}"):
+        raise rate_limit_exceeded()
 
     try:
         repo_path = resolve_repo_path(
@@ -556,7 +618,7 @@ async def index_codebase(
     redis_client = await get_redis_client(request)
 
     indexer = CodebaseIndexer(
-        tenant_id=str(body.tenant_id),
+        tenant_id=tenant_id,
         repo_path=repo_path,
         postgres=postgres,
         embedding_generator=embedding_generator,
@@ -744,3 +806,4 @@ async def clear_symbol_table(
         "memory_cleared": memory_cleared,
         "redis_cleared": redis_cleared,
     })
+from agentic_rag_backend.api.utils import rate_limit_exceeded

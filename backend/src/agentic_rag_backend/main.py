@@ -216,6 +216,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             max_requests=settings.rate_limit_per_minute,
             window_seconds=60,
         )
+        app.state.codebase_index_limiter = InMemoryRateLimiter(
+            max_requests=settings.codebase_index_rate_limit_max,
+            window_seconds=settings.codebase_index_rate_limit_window_seconds,
+        )
         app.state.redis = None
         # Create retrieval enhancements (reranker, grader) if enabled
         reranker, grader = _create_retrieval_enhancements(settings)
@@ -267,11 +271,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 window_seconds=60,
                 key_prefix=settings.rate_limit_redis_prefix,
             )
+            app.state.codebase_index_limiter = RedisRateLimiter(
+                client=redis_client,
+                max_requests=settings.codebase_index_rate_limit_max,
+                window_seconds=settings.codebase_index_rate_limit_window_seconds,
+                key_prefix=f"{settings.rate_limit_redis_prefix}:codebase-index",
+            )
         else:
             app.state.redis = None
             app.state.rate_limiter = InMemoryRateLimiter(
                 max_requests=settings.rate_limit_per_minute,
                 window_seconds=60,
+            )
+            app.state.codebase_index_limiter = InMemoryRateLimiter(
+                max_requests=settings.codebase_index_rate_limit_max,
+                window_seconds=settings.codebase_index_rate_limit_window_seconds,
             )
 
         # Create retrieval enhancements (reranker, grader) if enabled

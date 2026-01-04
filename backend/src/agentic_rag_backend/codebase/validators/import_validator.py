@@ -22,7 +22,8 @@ class ImportValidator(BaseValidator):
     Checks that import statements reference:
     1. Standard library modules
     2. Installed packages
-    3. Local modules in the codebase
+    3. Declared dependencies
+    4. Local modules in the codebase
 
     Attributes:
         symbol_table: The SymbolTable containing local module info
@@ -32,17 +33,24 @@ class ImportValidator(BaseValidator):
         self,
         symbol_table: SymbolTable,
         installed_packages: Optional[set[str]] = None,
+        declared_packages: Optional[set[str]] = None,
     ) -> None:
         """Initialize the import validator.
 
         Args:
             symbol_table: SymbolTable containing indexed codebase symbols
             installed_packages: Optional set of known installed package names
+            declared_packages: Optional set of declared dependency names
         """
         self._symbol_table = symbol_table
         self._installed_packages = {
             self._normalize_package_name(pkg)
             for pkg in (installed_packages or set())
+            if pkg
+        }
+        self._declared_packages = {
+            self._normalize_package_name(pkg)
+            for pkg in (declared_packages or set())
             if pkg
         }
         self._std_lib_modules = self._get_stdlib_modules()
@@ -177,6 +185,17 @@ class ImportValidator(BaseValidator):
                 location_in_response=location,
             )
 
+        # Check declared dependencies (less confident than installed packages)
+        if self._declared_packages and normalized_top_level in self._declared_packages:
+            return ValidationResult(
+                symbol_name=import_ref,
+                is_valid=True,
+                confidence=0.85,
+                reason=f"'{module_name}' matches declared dependency '{top_level}'",
+                suggestions=[],
+                location_in_response=location,
+            )
+
         # Try to find the module spec
         if not self._installed_packages:
             try:
@@ -224,7 +243,12 @@ class ImportValidator(BaseValidator):
             )
 
         # Not found - suggest similar
-        all_modules = list(self._std_lib_modules | self._installed_packages | local_modules)
+        all_modules = list(
+            self._std_lib_modules
+            | self._installed_packages
+            | self._declared_packages
+            | local_modules
+        )
         similar = self._find_similar_modules(module_name, all_modules)
 
         return ValidationResult(
@@ -301,6 +325,11 @@ class ImportValidator(BaseValidator):
         """
         if package_name:
             self._installed_packages.add(self._normalize_package_name(package_name))
+
+    def add_declared_package(self, package_name: str) -> None:
+        """Add a package to the declared dependency list."""
+        if package_name:
+            self._declared_packages.add(self._normalize_package_name(package_name))
 
     def load_from_requirements(self, requirements_content: str) -> int:
         """Load package names from requirements.txt content.

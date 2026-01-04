@@ -55,6 +55,9 @@ class SymbolTable:
         # Track all file paths for path validation
         self._known_files: set[str] = set()
 
+        # Track declared dependencies for import validation.
+        self._declared_packages: set[str] = set()
+
     def add(self, symbol: CodeSymbol) -> None:
         """Add a symbol to the table.
 
@@ -205,6 +208,19 @@ class SymbolTable:
         """
         self._known_files.add(file_path)
 
+    def set_declared_packages(self, packages: set[str]) -> None:
+        """Set declared dependency packages for the repository."""
+        self._declared_packages = {pkg for pkg in packages if pkg}
+
+    def add_declared_package(self, package_name: str) -> None:
+        """Add a declared dependency package name."""
+        if package_name:
+            self._declared_packages.add(package_name)
+
+    def get_declared_packages(self) -> set[str]:
+        """Get declared dependency packages."""
+        return set(self._declared_packages)
+
     def get_all_known_files(self) -> list[str]:
         """Get all known file paths.
 
@@ -246,6 +262,7 @@ class SymbolTable:
         self._files.clear()
         self._qualified.clear()
         self._known_files.clear()
+        self._declared_packages.clear()
 
     def remove_file(self, file_path: str) -> None:
         """Remove all symbols and file references for a given file."""
@@ -307,6 +324,7 @@ class SymbolTable:
                 for s in self.get_all_symbols()
             ],
             "known_files": list(self._known_files),
+            "declared_packages": sorted(self._declared_packages),
         }
 
     @classmethod
@@ -340,6 +358,9 @@ class SymbolTable:
 
         for file_path in data.get("known_files", []):
             table.add_known_file(file_path)
+
+        for package_name in data.get("declared_packages", []):
+            table.add_declared_package(package_name)
 
         return table
 

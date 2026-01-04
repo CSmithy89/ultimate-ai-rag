@@ -233,6 +233,10 @@ class Settings:
     codebase_hallucination_threshold: float
     codebase_detector_mode: str
     codebase_cache_ttl_seconds: int
+    codebase_symbol_table_max_symbols: int
+    codebase_index_rate_limit_max: int
+    codebase_index_rate_limit_window_seconds: int
+    codebase_detection_slow_ms: int
     codebase_allowed_base_path: Optional[str]
     codebase_rag_enabled: bool
     codebase_languages: list[str]
@@ -699,15 +703,37 @@ def load_settings() -> Settings:
         youtube_chunk_duration_seconds = 120
 
     # Epic 15 - Codebase Intelligence settings
-    codebase_hallucination_threshold = get_float_env(
-        "CODEBASE_HALLUCINATION_THRESHOLD", 0.3, min_val=0.0
-    )
-    codebase_hallucination_threshold = min(1.0, codebase_hallucination_threshold)
+    raw_hallucination_threshold = os.getenv("CODEBASE_HALLUCINATION_THRESHOLD")
+    if raw_hallucination_threshold is None:
+        codebase_hallucination_threshold = 0.3
+    else:
+        try:
+            codebase_hallucination_threshold = float(raw_hallucination_threshold)
+        except ValueError as exc:
+            raise ValueError(
+                "CODEBASE_HALLUCINATION_THRESHOLD must be a float between 0.0 and 1.0."
+            ) from exc
+        if not 0.0 <= codebase_hallucination_threshold <= 1.0:
+            raise ValueError(
+                "CODEBASE_HALLUCINATION_THRESHOLD must be between 0.0 and 1.0."
+            )
     codebase_detector_mode = os.getenv("CODEBASE_DETECTOR_MODE", "warn").lower()
     if codebase_detector_mode not in {"warn", "block"}:
-        codebase_detector_mode = "warn"
+        raise ValueError("CODEBASE_DETECTOR_MODE must be 'warn' or 'block'.")
     codebase_cache_ttl_seconds = get_int_env(
         "CODEBASE_CACHE_TTL_SECONDS", 3600, min_val=60
+    )
+    codebase_symbol_table_max_symbols = get_int_env(
+        "CODEBASE_SYMBOL_TABLE_MAX_SYMBOLS", 200000, min_val=0
+    )
+    codebase_index_rate_limit_max = get_int_env(
+        "CODEBASE_INDEX_RATE_LIMIT_MAX", 10, min_val=1
+    )
+    codebase_index_rate_limit_window_seconds = get_int_env(
+        "CODEBASE_INDEX_RATE_LIMIT_WINDOW_SECONDS", 3600, min_val=60
+    )
+    codebase_detection_slow_ms = get_int_env(
+        "CODEBASE_DETECTION_SLOW_MS", 2000, min_val=0
     )
     codebase_allowed_base_path = os.getenv("CODEBASE_ALLOWED_BASE_PATH")
     if codebase_allowed_base_path:
@@ -870,6 +896,10 @@ def load_settings() -> Settings:
         codebase_hallucination_threshold=codebase_hallucination_threshold,
         codebase_detector_mode=codebase_detector_mode,
         codebase_cache_ttl_seconds=codebase_cache_ttl_seconds,
+        codebase_symbol_table_max_symbols=codebase_symbol_table_max_symbols,
+        codebase_index_rate_limit_max=codebase_index_rate_limit_max,
+        codebase_index_rate_limit_window_seconds=codebase_index_rate_limit_window_seconds,
+        codebase_detection_slow_ms=codebase_detection_slow_ms,
         codebase_allowed_base_path=codebase_allowed_base_path,
         codebase_rag_enabled=codebase_rag_enabled,
         codebase_languages=codebase_languages,

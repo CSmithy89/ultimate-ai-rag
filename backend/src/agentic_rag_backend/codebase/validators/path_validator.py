@@ -262,7 +262,9 @@ class FilePathValidator(BaseValidator):
             try:
                 resolved_path = full_path.resolve()
                 repo_resolved = Path(self._repo_root).resolve()
-                if not str(resolved_path).startswith(str(repo_resolved)):
+                try:
+                    resolved_path.relative_to(repo_resolved)
+                except ValueError:
                     logger.warning(
                         "path_traversal_blocked",
                         requested_path=dir_path,

@@ -445,6 +445,15 @@ class HallucinationDetector:
         for pkg in packages:
             self._import_validator.add_installed_package(pkg)
 
+    def add_declared_packages(self, packages: list[str]) -> None:
+        """Add declared dependencies for import validation.
+
+        Args:
+            packages: List of dependency names from repo manifests
+        """
+        for pkg in packages:
+            self._import_validator.add_declared_package(pkg)
+
 
 def _extract_requirement_name(requirement: str) -> Optional[str]:
     """Extract a package name from a dependency string."""
@@ -722,8 +731,7 @@ async def index_repository(
     async def scan_directory(dir_path: Path) -> None:
         """Recursively scan a directory for source files."""
         try:
-            entries = await aiofiles.os.scandir(str(dir_path))
-            for entry in entries:
+            async for entry in aiofiles.os.scandir(str(dir_path)):
                 entry_path = Path(entry.path)
 
                 if should_ignore(entry_path):
@@ -766,6 +774,10 @@ async def index_repository(
             logger.warning("directory_scan_failed", path=str(dir_path), error=str(e))
 
     await scan_directory(Path(repo_path))
+
+    declared_packages = load_repo_dependencies(repo_path)
+    if declared_packages:
+        symbol_table.set_declared_packages(declared_packages)
 
     logger.info(
         "repository_indexed",
