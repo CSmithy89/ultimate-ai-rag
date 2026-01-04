@@ -169,7 +169,7 @@ development_status:
   # Config: CONTEXTUAL_RETRIEVAL_ENABLED, uses prompt caching + cost-effective model
   12-3-implement-corrective-rag-grader-agent: review
   # Config: GRADER_ENABLED, GRADER_THRESHOLD, GRADER_FALLBACK_ENABLED, GRADER_FALLBACK_STRATEGY, TAVILY_API_KEY
-  epic-12-retrospective: optional
+  epic-12-retrospective: done
 
   # Epic 13: Enterprise Ingestion
   # DECISION (2026-01-04): Current crawler.py does NOT use installed Crawl4AI library!
