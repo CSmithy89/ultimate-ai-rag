@@ -1,13 +1,33 @@
 # Epic 16 Tech Spec: Framework Agnosticism (Developer Extension Points)
 
+> **⚠️ DEPRECATED - MERGED INTO EPIC 17**
+>
+> **Date Deprecated:** 2026-01-05
+> **Reason:** Party Mode analysis revealed that PydanticAI, CrewAI, and LangGraph
+> all have **native A2A + MCP protocol support**. Internal framework adapters are
+> not needed.
+>
+> **Decision:** Adopted "Vision A: RAG as Service" - Agno remains internal
+> orchestrator, external developers connect via A2A/MCP using their preferred
+> framework.
+>
+> **What was preserved (moved to Epic 17):**
+> - Story 16-4 → **17-6**: Agent Skills for Anthropic ecosystem
+> - Framework concept → **17-5**: Starter templates for each framework
+> - Protocol docs → **17-7**: Protocol integration guide
+>
+> **See:** `epic-17-tech-spec.md` for the merged specification.
+
+---
+
 **Date:** 2025-12-31
-**Updated:** 2026-01-03 (Party Mode Analysis)
-**Status:** Backlog
+**Updated:** 2026-01-05 (DEPRECATED - Merged into Epic 17)
+**Status:** Deprecated
 **Epic Owner:** Product and Engineering
 
 ---
 
-## Overview
+## Overview (Historical)
 
 Epic 16 introduces a headless agent protocol to make the system framework-agnostic. It adds adapters for major agent frameworks so developers can **build on** their preferred framework.
 

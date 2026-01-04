@@ -214,33 +214,46 @@ development_status:
   # Index repository as knowledge, symbol extraction for context (NEW)
   epic-15-retrospective: done
 
-  # Epic 16: Framework Agnosticism (Developer Extension Points)
-  # DECISION: This enables developers to BUILD ON their preferred framework
-  # DECISION: Story 16-4 includes Agent Skills integration (open standard)
-  epic-16: backlog
-  16-1-define-headless-agent-protocol-interface: backlog
-  16-2-implement-pydantic-ai-adapter: backlog
-  # PydanticAI already supports A2A and MCP protocols natively
-  16-3-implement-crewai-adapter: backlog
-  # CrewAI supports hierarchical process mode for multi-agent
-  16-4-implement-anthropic-agent-adapter: backlog
-  # INCLUDES: Agent Skills integration (open standard adopted by Microsoft/VS Code)
-  16-5-implement-langgraph-adapter: backlog
-  # LangGraph offers checkpointing and persistence out of the box
+  # ==========================================
+  # Epic 16: DEPRECATED - Merged into Epic 17
+  # ==========================================
+  # DECISION (2026-01-05): Party Mode analysis revealed that PydanticAI, CrewAI,
+  # and LangGraph all have NATIVE A2A + MCP support. Internal framework adapters
+  # are NOT needed. Adopted "Vision A: RAG as Service" approach.
+  #
+  # What was kept from Epic 16 (moved to Epic 17):
+  # - Story 16-4 → 17-6: Agent Skills for Anthropic ecosystem
+  # - Framework templates → 17-5: Starter templates for each framework
+  # - Protocol docs → 17-7: Protocol integration guide
+  #
+  # What was removed (not needed - native protocol support exists):
+  # - 16-1: Headless agent protocol interface
+  # - 16-2: PydanticAI adapter (native A2A + MCP)
+  # - 16-3: CrewAI adapter (native A2A + MCP)
+  # - 16-5: LangGraph adapter (native A2A + MCP)
+  epic-16: deprecated
+  # All stories moved to Epic 17 or removed
   epic-16-retrospective: optional
 
-  # Epic 17: Deployment & CLI (The Final Polish - INTENTIONALLY LAST)
-  # DECISION: Must be LAST to know all options before offering them in CLI
+  # Epic 17: Developer Experience, CLI & Framework Integration
+  # DECISION: Merged Epic 16 (Framework Agnosticism) per Vision A
   # DECISION: CLI is the capstone UX for the developer platform
+  # UPDATED: 2026-01-05 - Added framework templates, Agent Skills, protocol docs
   epic-17: backlog
   17-1-create-rag-install-cli-tool: backlog
-  # Guided setup: LLM provider, database, agent framework, features
+  # Guided setup: LLM provider, database, framework template, features
   17-2-implement-auto-hardware-detection: backlog
   # GPU for local LLM/Whisper, RAM for model selection
   17-3-implement-env-generation-logic: backlog
   # Generate complete .env, validate all combinations
   17-4-verify-docker-compose-startup: backlog
   # Health checks for selected stack
+  17-5-create-framework-starter-templates: backlog
+  # NEW (from Epic 16): PydanticAI, CrewAI, LangGraph, Anthropic examples
+  17-6-implement-agent-skills-anthropic: backlog
+  # NEW (from Epic 16-4): .skills/ folder for Claude Desktop/Code integration
+  17-7-document-protocol-integration-guide: backlog
+  # NEW (from Epic 16): A2A, MCP, AG-UI connection documentation
   epic-17-retrospective: optional
 
   # Epic 18: Enhanced Documentation & DevOps (The Manual)
