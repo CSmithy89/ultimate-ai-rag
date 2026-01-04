@@ -182,14 +182,14 @@ development_status:
   # - MEDIUM: Make heuristic content length weight configurable
   # - LOW: Add contextual retrieval cost logging (token usage)
   # See: epic-13-tech-spec.md "Epic 12 Carry-Forward Items" section
-  epic-13: in-progress
+  epic-13: done
   13-1-integrate-apify-brightdata-fallback: done
   13-2-implement-youtube-transcript-api-ingestion: done
   # RENAMED: Was "optimize" - now full migration to Crawl4AI library
   13-3-migrate-to-crawl4ai-library: done
   # NEW: Crawl profiles (fast/thorough/stealth)
   13-4-implement-crawl-configuration-profiles: done
-  epic-13-retrospective: optional
+  epic-13-retrospective: done
 
   # Epic 14: Connectivity (MCP Wrapper Architecture)
   # DECISION: WRAP Graphiti MCP, don't duplicate - extend with RAG-specific tools
@@ -261,3 +261,62 @@ development_status:
   # TECH DEBT (2026-01-04): Audit workspace endpoints for RFC 7807 error format compliance
   18-9-audit-rfc7807-error-compliance: backlog
   epic-18-retrospective: optional
+
+  # ==========================================
+  # Epic 19: Advanced Retrieval Intelligence
+  # ORIGIN: Party Mode Competitive Analysis + Epic 12 Retro Carry-Forward (2026-01-04)
+  # COMPETITORS: Mem0, Zep, MS GraphRAG, LightRAG, Cognee, RAGFlow
+  # See: epic-19-tech-spec.md
+  # ==========================================
+  epic-19: backlog
+
+  # --- Group A: Memory Platform (Compete with Mem0) ---
+  19-A1-implement-memory-scopes: backlog
+  # Config: MEMORY_SCOPES_ENABLED, MEMORY_DEFAULT_SCOPE (user|session|agent)
+  19-A2-implement-memory-consolidation: backlog
+
+  # --- Group B: Graph Intelligence (Compete with MS GraphRAG) ---
+  19-B1-implement-community-detection: backlog
+  # Config: COMMUNITY_DETECTION_ENABLED, COMMUNITY_ALGORITHM (louvain|leiden)
+  19-B2-implement-lazyrag-pattern: backlog
+  # Defer summarization to query time for 99% indexing cost reduction
+  19-B3-implement-global-local-query-routing: backlog
+
+  # --- Group C: Retrieval Excellence (Differentiation) ---
+  19-C1-implement-graph-based-rerankers: backlog
+  # Zep-style: episode-mentions, node-distance, hybrid
+  19-C2-implement-dual-level-retrieval: backlog
+  # LightRAG-style: low-level (entities) + high-level (themes)
+  19-C3-implement-parent-child-chunk-hierarchy: backlog
+  # Small-to-big retrieval pattern
+  19-C4-implement-retrieval-quality-benchmarks: backlog
+  # MRR@K, NDCG@K, Precision@K, Recall@K
+  19-C5-implement-prometheus-retrieval-metrics: backlog
+  # Grafana dashboards + alerts
+
+  # --- Group D: Document Intelligence (RAGFlow Approach) ---
+  19-D1-enhance-table-layout-extraction: backlog
+  19-D2-implement-multimodal-ingestion: backlog
+  # Images, Office docs, formulas
+
+  # --- Group E: Advanced Features (Cognee-Inspired) ---
+  19-E1-implement-ontology-support: backlog
+  19-E2-implement-self-improving-feedback-loop: backlog
+
+  # --- Group F: Epic 12 Code Review Carry-Forward ---
+  # PRIORITY: HIGH
+  19-F1-add-full-retrieval-pipeline-integration-test: backlog
+  19-F2-add-multi-tenancy-enforcement-tests: backlog
+  # PRIORITY: MEDIUM
+  19-F3-make-crossencoder-grader-model-selectable: backlog
+  19-F4-make-heuristic-content-length-weight-configurable: backlog
+  # PRIORITY: LOW
+  19-F5-add-contextual-retrieval-cost-logging: backlog
+
+  # --- Group G: Epic 12 Retro Future Enhancements ---
+  19-G1-add-reranking-result-caching: backlog
+  19-G2-make-context-generation-prompt-configurable: backlog
+  19-G3-add-crossencoder-model-preloading: backlog
+  19-G4-support-custom-normalization-strategies: backlog
+
+  epic-19-retrospective: optional
