@@ -10,6 +10,9 @@ from typing import Optional, cast
 from dotenv import load_dotenv
 import structlog
 
+# Initialize logger early for use in helper functions
+_config_logger = structlog.get_logger("agentic_rag_backend.config")
+
 
 def get_bool_env(key: str, default: str = "false") -> bool:
     """Parse a boolean environment variable.
@@ -22,6 +25,80 @@ def get_bool_env(key: str, default: str = "false") -> bool:
         True if value is "true", "1", or "yes" (case-insensitive), False otherwise
     """
     return os.getenv(key, default).strip().lower() in {"true", "1", "yes"}
+
+
+def get_int_env(key: str, default: int, min_val: Optional[int] = None) -> int:
+    """Parse an integer environment variable with optional minimum validation.
+
+    Args:
+        key: Environment variable name
+        default: Default value if not set or invalid
+        min_val: Optional minimum value; if current value < min_val, returns default
+
+    Returns:
+        Parsed integer value, or default if parsing fails or value < min_val
+    """
+    raw_value = os.getenv(key)
+    if raw_value is None:
+        return default
+    try:
+        value = int(raw_value)
+        if min_val is not None and value < min_val:
+            _config_logger.warning(
+                "config_value_below_minimum",
+                key=key,
+                value=value,
+                min_val=min_val,
+                using_default=default,
+            )
+            return default
+        return value
+    except ValueError:
+        _config_logger.warning(
+            "config_parse_error",
+            key=key,
+            raw_value=raw_value,
+            expected_type="int",
+            using_default=default,
+        )
+        return default
+
+
+def get_float_env(key: str, default: float, min_val: Optional[float] = None) -> float:
+    """Parse a float environment variable with optional minimum validation.
+
+    Args:
+        key: Environment variable name
+        default: Default value if not set or invalid
+        min_val: Optional minimum value; if current value < min_val, returns default
+
+    Returns:
+        Parsed float value, or default if parsing fails or value < min_val
+    """
+    raw_value = os.getenv(key)
+    if raw_value is None:
+        return default
+    try:
+        value = float(raw_value)
+        if min_val is not None and value < min_val:
+            _config_logger.warning(
+                "config_value_below_minimum",
+                key=key,
+                value=value,
+                min_val=min_val,
+                using_default=default,
+            )
+            return default
+        return value
+    except ValueError:
+        _config_logger.warning(
+            "config_parse_error",
+            key=key,
+            raw_value=raw_value,
+            expected_type="float",
+            using_default=default,
+        )
+        return default
 
 
 # Search configuration constants
@@ -78,8 +155,17 @@ class Settings:
     backend_host: str
     backend_port: int
     frontend_url: str
-    # Epic 4 - Crawl settings
-    crawl4ai_rate_limit: float
+    # Epic 4 / Story 13.3 - Crawl4AI settings
+    crawl4ai_rate_limit: float  # Legacy - kept for backward compatibility
+    crawl4ai_headless: bool
+    crawl4ai_max_concurrent: int
+    crawl4ai_cache_enabled: bool
+    crawl4ai_proxy_url: Optional[str]
+    crawl4ai_js_wait_seconds: float
+    crawl4ai_page_timeout_ms: int
+    # Story 13.4 - Crawl Configuration Profiles
+    crawl4ai_profile: str
+    crawl4ai_stealth_proxy: Optional[str]
     # Story 4.2 - PDF Document Parsing settings
     docling_table_mode: str
     max_upload_size_mb: int
@@ -239,6 +325,27 @@ def load_settings() -> Settings:
         crawl4ai_rate_limit = float(os.getenv("CRAWL4AI_RATE_LIMIT", "1.0"))
     except ValueError:
         crawl4ai_rate_limit = 1.0
+
+    # Story 13.3 - Crawl4AI configuration (using helper functions)
+    crawl4ai_headless = get_bool_env("CRAWL4AI_HEADLESS", "true")
+    crawl4ai_max_concurrent = get_int_env("CRAWL4AI_MAX_CONCURRENT", 10, min_val=1)
+    crawl4ai_cache_enabled = get_bool_env("CRAWL4AI_CACHE_ENABLED", "true")
+    crawl4ai_proxy_url = os.getenv("CRAWL4AI_PROXY_URL") or None
+    crawl4ai_js_wait_seconds = get_float_env("CRAWL4AI_JS_WAIT_SECONDS", 2.0, min_val=0.0)
+    crawl4ai_page_timeout_ms = get_int_env("CRAWL4AI_PAGE_TIMEOUT_MS", 60000, min_val=1000)
+
+    # Story 13.4 - Crawl Configuration Profiles
+    crawl4ai_profile = os.getenv("CRAWL4AI_PROFILE", "fast").strip().lower()
+    valid_profiles = {"fast", "thorough", "stealth"}
+    if crawl4ai_profile not in valid_profiles:
+        logger.warning(
+            "invalid_crawl_profile",
+            profile=crawl4ai_profile,
+            valid_profiles=list(valid_profiles),
+            fallback="fast",
+        )
+        crawl4ai_profile = "fast"
+    crawl4ai_stealth_proxy = os.getenv("CRAWL4AI_STEALTH_PROXY") or None
 
     try:
         max_upload_size_mb = int(os.getenv("MAX_UPLOAD_SIZE_MB", "100"))
@@ -611,6 +718,16 @@ def load_settings() -> Settings:
         backend_port=backend_port,
         frontend_url=os.getenv("FRONTEND_URL", "http://localhost:3000"),
         crawl4ai_rate_limit=crawl4ai_rate_limit,
+        # Story 13.3 - Crawl4AI settings
+        crawl4ai_headless=crawl4ai_headless,
+        crawl4ai_max_concurrent=crawl4ai_max_concurrent,
+        crawl4ai_cache_enabled=crawl4ai_cache_enabled,
+        crawl4ai_proxy_url=crawl4ai_proxy_url,
+        crawl4ai_js_wait_seconds=crawl4ai_js_wait_seconds,
+        crawl4ai_page_timeout_ms=crawl4ai_page_timeout_ms,
+        # Story 13.4 - Crawl Configuration Profiles
+        crawl4ai_profile=crawl4ai_profile,
+        crawl4ai_stealth_proxy=crawl4ai_stealth_proxy,
         # Story 4.2 - PDF Document Parsing settings
         docling_table_mode=os.getenv("DOCLING_TABLE_MODE", "accurate"),
         max_upload_size_mb=max_upload_size_mb,

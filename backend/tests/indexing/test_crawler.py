@@ -1,4 +1,8 @@
-"""Tests for the crawler service."""
+"""Tests for the crawler service.
+
+Story 13.3: Updated tests for Crawl4AI migration.
+Tests helper functions and CrawlerService with Crawl4AI backend.
+"""
 
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -7,17 +11,18 @@ import pytest
 
 from agentic_rag_backend.indexing.crawler import (
     CrawlerService,
-    RobotsTxtChecker,
     compute_content_hash,
     crawl_url,
-    extract_links,
-    extract_title,
-    html_to_markdown,
+    extract_links_from_html,
+    extract_title_from_html,
     is_same_domain,
     is_valid_url,
     normalize_url,
+    CRAWL4AI_AVAILABLE,
 )
+from agentic_rag_backend.models.documents import CrawledPage
 from agentic_rag_backend.models.ingest import CrawlOptions
+from agentic_rag_backend.core.errors import InvalidUrlError
 
 
 class TestUrlValidation:
@@ -124,106 +129,25 @@ class TestContentHash:
         assert hash1 != hash2
 
 
-class TestHtmlToMarkdown:
-    """Tests for HTML to Markdown conversion."""
-
-    def test_convert_headers(self):
-        """Test header conversion."""
-        html = "<h1>Title</h1><h2>Subtitle</h2>"
-        result = html_to_markdown(html)
-        assert "# Title" in result
-        assert "## Subtitle" in result
-
-    def test_convert_paragraphs(self):
-        """Test paragraph conversion."""
-        html = "<p>First paragraph</p><p>Second paragraph</p>"
-        result = html_to_markdown(html)
-        assert "First paragraph" in result
-        assert "Second paragraph" in result
-
-    def test_convert_links(self):
-        """Test link conversion."""
-        html = '<a href="https://example.com">Link text</a>'
-        result = html_to_markdown(html)
-        assert "[Link text](https://example.com)" in result
-
-    def test_convert_bold(self):
-        """Test bold text conversion."""
-        html = "<strong>bold text</strong>"
-        result = html_to_markdown(html)
-        assert "**bold text**" in result
-
-    def test_convert_italic(self):
-        """Test italic text conversion."""
-        html = "<em>italic text</em>"
-        result = html_to_markdown(html)
-        assert "*italic text*" in result
-
-    def test_convert_code(self):
-        """Test inline code conversion."""
-        html = "<code>code</code>"
-        result = html_to_markdown(html)
-        assert "`code`" in result
-
-    def test_removes_script_tags(self):
-        """Test script tags are removed."""
-        html = "<p>Content</p><script>alert('xss')</script>"
-        result = html_to_markdown(html)
-        assert "script" not in result
-        assert "alert" not in result
-
-    def test_removes_style_tags(self):
-        """Test style tags are removed."""
-        html = "<style>.foo { color: red; }</style><p>Content</p>"
-        result = html_to_markdown(html)
-        assert "style" not in result
-        assert "color" not in result
-
-    def test_with_title(self):
-        """Test prepending title."""
-        html = "<p>Content</p>"
-        result = html_to_markdown(html, title="Page Title")
-        assert result.startswith("# Page Title")
-
-    def test_convert_tables(self):
-        """Test table conversion preserves structure."""
-        html = (
-            "<table>"
-            "<tr><th>Name</th><th>Age</th></tr>"
-            "<tr><td>Ada</td><td>36</td></tr>"
-            "</table>"
-        )
-        result = html_to_markdown(html)
-        assert "| Name | Age |" in result
-        assert "| --- | --- |" in result
-        assert "| Ada | 36 |" in result
-
-    def test_strips_unsafe_link_attributes(self):
-        """Test javascript: links are stripped."""
-        html = '<a href="javascript:alert(1)">Click</a>'
-        result = html_to_markdown(html)
-        assert "javascript:" not in result
-
-
 class TestExtractTitle:
     """Tests for title extraction."""
 
     def test_extract_title_present(self):
         """Test extracting title when present."""
         html = "<html><head><title>Page Title</title></head><body></body></html>"
-        result = extract_title(html)
+        result = extract_title_from_html(html)
         assert result == "Page Title"
 
     def test_extract_title_missing(self):
         """Test when title is missing."""
         html = "<html><head></head><body></body></html>"
-        result = extract_title(html)
+        result = extract_title_from_html(html)
         assert result is None
 
     def test_extract_title_with_whitespace(self):
         """Test title with whitespace is trimmed."""
         html = "<title>  Spaced Title  </title>"
-        result = extract_title(html)
+        result = extract_title_from_html(html)
         assert result == "Spaced Title"
 
 
@@ -233,169 +157,154 @@ class TestExtractLinks:
     def test_extract_links_basic(self):
         """Test basic link extraction."""
         html = '<a href="/page1">Link 1</a><a href="/page2">Link 2</a>'
-        result = extract_links(html, "https://example.com")
+        result = extract_links_from_html(html, "https://example.com")
         assert "https://example.com/page1" in result
         assert "https://example.com/page2" in result
 
     def test_extract_links_same_domain_only(self):
         """Test only same-domain links are extracted."""
         html = '<a href="/local">Local</a><a href="https://other.com/page">External</a>'
-        result = extract_links(html, "https://example.com")
+        result = extract_links_from_html(html, "https://example.com")
         assert "https://example.com/local" in result
         assert "https://other.com/page" not in result
 
     def test_extract_links_removes_duplicates(self):
         """Test duplicate links are removed."""
         html = '<a href="/page">Link 1</a><a href="/page">Link 2</a>'
-        result = extract_links(html, "https://example.com")
+        result = extract_links_from_html(html, "https://example.com")
         assert result.count("https://example.com/page") == 1
 
 
-class TestRobotsTxtChecker:
-    """Tests for robots.txt compliance checker."""
+class MockCrawlResult:
+    """Mock Crawl4AI CrawlResult for testing."""
 
-    @pytest.mark.asyncio
-    async def test_is_allowed_no_robots_txt(self):
-        """Test URL is allowed when no robots.txt exists."""
-        checker = RobotsTxtChecker()
+    def __init__(
+        self,
+        url: str,
+        success: bool = True,
+        markdown: str = "",
+        html: str = "",
+        error_message: str = None,
+    ):
+        self.url = url
+        self.success = success
+        self.error_message = error_message
+        self.html = html
 
-        with patch("httpx.AsyncClient") as MockClient:
-            mock_client = AsyncMock()
-            mock_response = MagicMock()
-            mock_response.status_code = 404
-            mock_client.get.return_value = mock_response
-            MockClient.return_value.__aenter__.return_value = mock_client
-
-            result = await checker.is_allowed("https://example.com/page")
-            assert result is True
-
-    @pytest.mark.asyncio
-    async def test_is_allowed_with_robots_txt(self):
-        """Test URL checking against robots.txt."""
-        checker = RobotsTxtChecker()
-
-        robots_content = """
-User-agent: *
-Disallow: /private/
-Disallow: /admin/
-"""
-
-        with patch("httpx.AsyncClient") as MockClient:
-            mock_client = AsyncMock()
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.text = robots_content
-            mock_client.get.return_value = mock_response
-            MockClient.return_value.__aenter__.return_value = mock_client
-
-            # Allowed path
-            result = await checker.is_allowed("https://example.com/public/page")
-            assert result is True
-
-            # Disallowed path
-            result = await checker.is_allowed("https://example.com/private/secret")
-            assert result is False
+        # Mock markdown object with raw_markdown attribute
+        if markdown:
+            self.markdown = MagicMock()
+            self.markdown.raw_markdown = markdown
+        else:
+            self.markdown = None
 
 
 class TestCrawlerService:
     """Tests for the CrawlerService class."""
 
-    @pytest.mark.asyncio
-    async def test_crawl_page_success(self):
-        """Test successful single page crawl."""
-        crawler = CrawlerService(respect_robots_txt=False)
-
-        with patch.object(crawler, "_fetch_url") as mock_fetch:
-            mock_fetch.return_value = (
-                "<html><head><title>Test</title></head><body><p>Content</p></body></html>",
-                200,
-            )
-
-            result = await crawler.crawl_page("https://example.com/page")
-
-            assert result is not None
-            assert result.url == "https://example.com/page"
-            assert result.title == "Test"
-            assert "Content" in result.content
-            assert len(result.content_hash) == 64
+    @pytest.mark.skipif(not CRAWL4AI_AVAILABLE, reason="Crawl4AI not installed")
+    def test_crawler_service_init(self):
+        """Test CrawlerService initialization."""
+        crawler = CrawlerService(
+            headless=True,
+            max_concurrent=5,
+            cache_enabled=True,
+        )
+        assert crawler.headless is True
+        assert crawler.max_concurrent == 5
+        assert crawler.cache_enabled is True
 
     @pytest.mark.asyncio
-    async def test_crawl_page_not_found(self):
-        """Test crawl returns None for 404."""
-        crawler = CrawlerService(respect_robots_txt=False)
-
-        with patch.object(crawler, "_fetch_url") as mock_fetch:
-            mock_fetch.return_value = ("Not Found", 404)
-
-            result = await crawler.crawl_page("https://example.com/missing")
-            assert result is None
+    @pytest.mark.skipif(not CRAWL4AI_AVAILABLE, reason="Crawl4AI not installed")
+    async def test_crawler_requires_context_manager(self):
+        """Test CrawlerService requires async context manager."""
+        crawler = CrawlerService()
+        with pytest.raises(RuntimeError, match="context manager"):
+            await crawler.crawl_page("https://example.com")
 
     @pytest.mark.asyncio
     async def test_crawl_page_invalid_url(self):
         """Test crawl returns None for invalid URL."""
-        crawler = CrawlerService()
-        result = await crawler.crawl_page("not-a-url")
-        assert result is None
+        # Create a mock crawler that bypasses context manager check
+        with patch('agentic_rag_backend.indexing.crawler.CRAWL4AI_AVAILABLE', True):
+            crawler = CrawlerService.__new__(CrawlerService)
+            crawler.headless = True
+            crawler.max_concurrent = 10
+            crawler.cache_enabled = True
+            crawler.proxy_url = None
+            crawler.js_wait_seconds = 2.0
+            crawler.page_timeout_ms = 60000
+            crawler._crawler = MagicMock()  # Mock as initialized
+
+            result = await crawler.crawl_page("not-a-url")
+            assert result is None
 
     @pytest.mark.asyncio
-    async def test_crawl_respects_depth_limit(self):
-        """Test crawl respects max_depth parameter."""
-        crawler = CrawlerService(respect_robots_txt=False)
+    async def test_convert_result_to_crawled_page_success(self):
+        """Test converting successful Crawl4AI result."""
+        with patch('agentic_rag_backend.indexing.crawler.CRAWL4AI_AVAILABLE', True):
+            crawler = CrawlerService.__new__(CrawlerService)
+            crawler.headless = True
 
-        pages_crawled = []
-
-        async def mock_crawl_page(url):
-            from agentic_rag_backend.models.documents import CrawledPage
-
-            if len(pages_crawled) < 5:
-                pages_crawled.append(url)
-                return CrawledPage(
-                    url=url,
-                    title="Test",
-                    content="# Test",
-                    content_hash="a" * 64,
-                    crawl_timestamp=datetime.now(timezone.utc),
-                    links=[f"https://example.com/page{len(pages_crawled)}"],
-                )
-            return None
-
-        with patch.object(crawler, "crawl_page", side_effect=mock_crawl_page):
-            results = []
-            async for page in crawler.crawl(
-                "https://example.com",
-                max_depth=2,
-                options=CrawlOptions(follow_links=True, respect_robots_txt=False),
-            ):
-                results.append(page)
-
-            # With max_depth=2, should get start page + 1 level of links
-            assert len(results) <= 2
-
-
-@pytest.mark.asyncio
-async def test_crawl_url_function():
-    """Test the convenience crawl_url function."""
-    with patch("agentic_rag_backend.indexing.crawler.CrawlerService") as MockCrawler:
-        mock_instance = AsyncMock()
-
-        async def mock_crawl(*args, **kwargs):
-            from agentic_rag_backend.models.documents import CrawledPage
-
-            yield CrawledPage(
-                url="https://example.com",
-                title="Test",
-                content="# Test",
-                content_hash="a" * 64,
-                crawl_timestamp=datetime.now(timezone.utc),
-                links=[],
+            result = MockCrawlResult(
+                url="https://example.com/page",
+                success=True,
+                markdown="# Test Page\n\nContent here.",
+                html="<html><head><title>Test</title></head><body><p>Content</p></body></html>",
             )
 
-        mock_instance.crawl = mock_crawl
-        MockCrawler.return_value = mock_instance
+            page = crawler._convert_result_to_crawled_page(result, depth=0)
 
-        results = []
-        async for page in crawl_url("https://example.com"):
-            results.append(page)
+            assert page is not None
+            assert page.url == "https://example.com/page"
+            assert "Content here" in page.content
+            assert len(page.content_hash) == 64
 
-        assert len(results) == 1
-        assert results[0].url == "https://example.com"
+    @pytest.mark.asyncio
+    async def test_convert_result_to_crawled_page_failure(self):
+        """Test converting failed Crawl4AI result."""
+        with patch('agentic_rag_backend.indexing.crawler.CRAWL4AI_AVAILABLE', True):
+            crawler = CrawlerService.__new__(CrawlerService)
+            crawler.headless = True
+
+            result = MockCrawlResult(
+                url="https://example.com/error",
+                success=False,
+                error_message="Connection failed",
+            )
+
+            page = crawler._convert_result_to_crawled_page(result, depth=0)
+            assert page is None
+
+
+class TestCrawlUrlFunction:
+    """Tests for the convenience crawl_url function."""
+
+    @pytest.mark.asyncio
+    async def test_crawl_url_invalid_url(self):
+        """Test crawl_url raises error for invalid URL."""
+        with pytest.raises(InvalidUrlError):
+            async for _ in crawl_url("not-a-url"):
+                pass
+
+
+class TestCrawlOptions:
+    """Tests for CrawlOptions model."""
+
+    def test_crawl_options_defaults(self):
+        """Test CrawlOptions default values."""
+        options = CrawlOptions()
+        assert options.follow_links is True
+        assert options.respect_robots_txt is True
+        assert options.rate_limit == 1.0
+
+    def test_crawl_options_custom(self):
+        """Test CrawlOptions with custom values."""
+        options = CrawlOptions(
+            follow_links=False,
+            rate_limit=2.0,
+            include_patterns=[r".*docs.*"],
+        )
+        assert options.follow_links is False
+        assert options.rate_limit == 2.0
+        assert len(options.include_patterns) == 1

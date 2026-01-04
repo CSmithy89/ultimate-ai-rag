@@ -216,6 +216,9 @@ class CrawledPage(BaseModel):
     links: list[str] = Field(
         default_factory=list, description="Links discovered on this page"
     )
+    tenant_id: Optional[str] = Field(
+        default=None, description="Tenant ID for multi-tenancy tracking"
+    )
 
 
 # Story 4.2 - PDF Document Parsing Models

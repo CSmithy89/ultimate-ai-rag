@@ -182,14 +182,14 @@ development_status:
   # - MEDIUM: Make heuristic content length weight configurable
   # - LOW: Add contextual retrieval cost logging (token usage)
   # See: epic-13-tech-spec.md "Epic 12 Carry-Forward Items" section
-  epic-13: in-progress
+  epic-13: done
   13-1-integrate-apify-brightdata-fallback: done
   13-2-implement-youtube-transcript-api-ingestion: done
   # RENAMED: Was "optimize" - now full migration to Crawl4AI library
-  13-3-migrate-to-crawl4ai-library: backlog
+  13-3-migrate-to-crawl4ai-library: done
   # NEW: Crawl profiles (fast/thorough/stealth)
-  13-4-implement-crawl-configuration-profiles: backlog
-  epic-13-retrospective: optional
+  13-4-implement-crawl-configuration-profiles: done
+  epic-13-retrospective: done
 
   # Epic 14: Connectivity (MCP Wrapper Architecture)
   # DECISION: WRAP Graphiti MCP, don't duplicate - extend with RAG-specific tools
@@ -261,3 +261,101 @@ development_status:
   # TECH DEBT (2026-01-04): Audit workspace endpoints for RFC 7807 error format compliance
   18-9-audit-rfc7807-error-compliance: backlog
   epic-18-retrospective: optional
+
+  # ==========================================
+  # Epic 19: Advanced Retrieval Intelligence
+  # ORIGIN: Party Mode Competitive Analysis + Epic 12 Retro Carry-Forward (2026-01-04)
+  # COMPETITORS: Mem0, Zep, MS GraphRAG, LightRAG, Cognee, RAGFlow
+  # See: epic-19-tech-spec.md
+  # ==========================================
+  epic-19: backlog
+
+  # --- Group A: Memory Platform (Compete with Mem0) ---
+  19-A1-implement-memory-scopes: backlog
+  # Config: MEMORY_SCOPES_ENABLED, MEMORY_DEFAULT_SCOPE (user|session|agent)
+  19-A2-implement-memory-consolidation: backlog
+
+  # --- Group B: Graph Intelligence (Compete with MS GraphRAG) ---
+  19-B1-implement-community-detection: backlog
+  # Config: COMMUNITY_DETECTION_ENABLED, COMMUNITY_ALGORITHM (louvain|leiden)
+  19-B2-implement-lazyrag-pattern: backlog
+  # Defer summarization to query time for 99% indexing cost reduction
+  19-B3-implement-global-local-query-routing: backlog
+
+  # --- Group C: Retrieval Excellence (Differentiation) ---
+  19-C1-implement-graph-based-rerankers: backlog
+  # Zep-style: episode-mentions, node-distance, hybrid
+  19-C2-implement-dual-level-retrieval: backlog
+  # LightRAG-style: low-level (entities) + high-level (themes)
+  19-C3-implement-parent-child-chunk-hierarchy: backlog
+  # Small-to-big retrieval pattern
+  19-C4-implement-retrieval-quality-benchmarks: backlog
+  # MRR@K, NDCG@K, Precision@K, Recall@K
+  19-C5-implement-prometheus-retrieval-metrics: backlog
+  # Grafana dashboards + alerts
+
+  # --- Group D: Document Intelligence (RAGFlow Approach) ---
+  19-D1-enhance-table-layout-extraction: backlog
+  19-D2-implement-multimodal-ingestion: backlog
+  # Images, Office docs, formulas
+
+  # --- Group E: Advanced Features (Cognee-Inspired) ---
+  19-E1-implement-ontology-support: backlog
+  19-E2-implement-self-improving-feedback-loop: backlog
+
+  # --- Group F: Epic 12 Code Review Carry-Forward ---
+  # PRIORITY: HIGH
+  19-F1-add-full-retrieval-pipeline-integration-test: backlog
+  19-F2-add-multi-tenancy-enforcement-tests: backlog
+  # PRIORITY: MEDIUM
+  19-F3-make-crossencoder-grader-model-selectable: backlog
+  19-F4-make-heuristic-content-length-weight-configurable: backlog
+  # PRIORITY: LOW
+  19-F5-add-contextual-retrieval-cost-logging: backlog
+
+  # --- Group G: Epic 12 Retro Future Enhancements ---
+  19-G1-add-reranking-result-caching: backlog
+  19-G2-make-context-generation-prompt-configurable: backlog
+  19-G3-add-crossencoder-model-preloading: backlog
+  19-G4-support-custom-normalization-strategies: backlog
+
+  # --- Group H: Additional Competitive Features ---
+  # Origin: Qdrant, RAGFlow competitive analysis
+  19-H1-implement-sparse-vector-search-bm42: backlog
+  19-H2-implement-cross-language-query: backlog
+  19-H3-implement-external-data-source-sync: backlog
+  # Confluence, S3, Notion, Google Drive, Discord
+  19-H4-implement-voice-io: backlog
+  19-H5-implement-colbert-reranking: backlog
+  19-H6-implement-visual-workflow-editor: backlog
+
+  # --- Group I: Epic 13 Code Review Carry-Forward ---
+  # Origin: gemini-code-assist and coderabbitai reviews (2026-01-04)
+  # PRIORITY: MEDIUM
+  19-I1-externalize-crawl-profile-domain-matching: backlog
+  # Move _EXACT_DOMAIN_PROFILES etc. to JSON/YAML config for easier updates
+  19-I2-add-dynamic-user-agent-rotation: backlog
+  # Replace hardcoded Chrome 131 with fake-useragent or configurable list
+  19-I3-add-crawler-legacy-alias-deprecation-warnings: backlog
+  # extract_links/extract_title aliases should warn and document migration
+  # PRIORITY: LOW
+  19-I4-add-profile-magic-number-documentation: backlog
+  # Document rationale for rate_limit=5.0, max_concurrent=10, etc.
+  19-I5-optimize-beautifulsoup-async-parsing: backlog
+  # Consider async HTML parsing for large documents
+  19-I6-add-visited-set-bloom-filter: backlog
+  # For crawls >10k pages, use bloom filter instead of set()
+  19-I7-implement-config-validation-fail-fast: backlog
+  # Consider ValueError instead of warning for invalid profiles in prod
+  19-I8-implement-crawl-many-error-recovery: backlog
+  # Return partial results on failure, add URL context to error logs
+  19-I9-implement-rate-limiting-enforcement: backlog
+  # Currently advisory-only, add actual rate limiting (not just js_wait)
+  19-I10-add-fallback-provider-key-validation: backlog
+  # Validate APIFY/BRIGHTDATA keys when crawl_fallback_enabled=true
+  19-I11-document-large-crawl-memory-implications: backlog
+  # Document memory usage for >100 page crawls, recommend streaming
+  19-I12-add-profile-auto-detection-examples: backlog
+  # Add usage examples to get_profile_for_url() docstring
+
+  epic-19-retrospective: optional
