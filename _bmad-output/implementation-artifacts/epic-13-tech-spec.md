@@ -228,6 +228,44 @@ CRAWL4AI_PROFILE=fast|thorough|stealth  # Default: fast
 | `models/ingest.py` | Update CrawlOptions model |
 | `api/routes/ingest.py` | Add profile selection |
 
+## Epic 12 Carry-Forward Items
+
+The following items from Epic 12 code review should be addressed during Epic 13:
+
+### Integration Tests (High Priority)
+
+1. **Full Retrieval Pipeline Integration Test**
+   - Location: `backend/tests/test_orchestrator_integration.py`
+   - Test retrieval with reranking + grading + fallback all enabled
+   - Verify: vector search → rerank → grade → fallback (if triggered)
+   - Include assertions on trajectory logging, hit ordering, fallback execution
+
+2. **Multi-Tenancy Enforcement Tests**
+   - Add explicit `tenant_id` assertions in integration tests
+   - Verify all database queries include tenant filtering
+   - Prevent data leakage between tenants
+
+### Configuration Enhancements (Medium Priority)
+
+3. **Grader Model Selection**
+   - Current: Hardcoded to `HeuristicGrader`
+   - Target: Make `CrossEncoderGrader` selectable via `GRADER_MODEL=heuristic|cross_encoder`
+   - Location: `backend/src/agentic_rag_backend/retrieval/grader.py:488-490`
+
+4. **Heuristic Grader Content Length Weight**
+   - Current: Hardcoded normalization factor (`avg_length / 1000`)
+   - Target: Make configurable via `GRADER_CONTENT_LENGTH_WEIGHT` env var
+   - Location: `backend/src/agentic_rag_backend/retrieval/grader.py:142-143`
+   - Alternative: Document as known limitation in config guide
+
+### Observability (Low Priority)
+
+5. **Contextual Retrieval Cost Logging**
+   - Log token usage and cost estimates for contextual enrichment
+   - Help users understand spending on LLM calls per chunk
+
+---
+
 ## Dependencies
 
 - Crawl4AI library (already installed: `crawl4ai>=0.3.0`)
