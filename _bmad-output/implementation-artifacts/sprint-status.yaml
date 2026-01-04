@@ -211,7 +211,7 @@ development_status:
   # AST-based symbol validation, file path verification, API endpoint matching
   15-2-implement-codebase-rag-context: done
   # Index repository as knowledge, symbol extraction for context (NEW)
-  epic-15-retrospective: optional
+  epic-15-retrospective: done
 
   # Epic 16: Framework Agnosticism (Developer Extension Points)
   # DECISION: This enables developers to BUILD ON their preferred framework
