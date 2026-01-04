@@ -586,9 +586,19 @@ async def execute_incoming_task(
             reason="Orchestrator not initialized - cannot execute task",
         )
 
+    # Set of capabilities that are actually implemented in this endpoint
+    EXECUTABLE_CAPABILITIES = {"hybrid_retrieve", "vector_search"}
+
     async def task_handler(task_request: TaskRequest) -> dict[str, Any]:
         """Execute the capability requested by the task."""
         capability = task_request.capability_name
+
+        # Validate capability is implemented before attempting execution
+        if capability not in EXECUTABLE_CAPABILITIES:
+            raise ValueError(
+                f"Capability '{capability}' not implemented. "
+                f"Available: {sorted(EXECUTABLE_CAPABILITIES)}"
+            )
 
         # Route to appropriate handler based on capability
         if capability == "hybrid_retrieve":
@@ -623,8 +633,7 @@ async def execute_incoming_task(
                 service="vector_search",
                 reason="Vector search service not initialized",
             )
-        else:
-            raise ValueError(f"Unknown capability: {capability}")
+        # Note: 'else' clause removed - capability validation at start covers this
 
     response = await delegation_manager.handle_incoming_task(
         request_body.model_dump(),

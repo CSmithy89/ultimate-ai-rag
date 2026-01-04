@@ -401,6 +401,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Epic 14: Stop A2A registry cleanup task
     if hasattr(app.state, "a2a_registry") and app.state.a2a_registry:
         await app.state.a2a_registry.stop_cleanup_task()
+    # Epic 14: Close A2A delegation manager HTTP client
+    if hasattr(app.state, "a2a_delegation_manager") and app.state.a2a_delegation_manager:
+        await app.state.a2a_delegation_manager.close()
     # Epic 5: Graphiti connection
     if hasattr(app.state, "graphiti") and app.state.graphiti:
         await app.state.graphiti.disconnect()
