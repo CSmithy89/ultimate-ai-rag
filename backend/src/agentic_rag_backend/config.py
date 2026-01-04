@@ -78,8 +78,14 @@ class Settings:
     backend_host: str
     backend_port: int
     frontend_url: str
-    # Epic 4 - Crawl settings
-    crawl4ai_rate_limit: float
+    # Epic 4 / Story 13.3 - Crawl4AI settings
+    crawl4ai_rate_limit: float  # Legacy - kept for backward compatibility
+    crawl4ai_headless: bool
+    crawl4ai_max_concurrent: int
+    crawl4ai_cache_enabled: bool
+    crawl4ai_proxy_url: Optional[str]
+    crawl4ai_js_wait_seconds: float
+    crawl4ai_page_timeout_ms: int
     # Story 4.2 - PDF Document Parsing settings
     docling_table_mode: str
     max_upload_size_mb: int
@@ -239,6 +245,29 @@ def load_settings() -> Settings:
         crawl4ai_rate_limit = float(os.getenv("CRAWL4AI_RATE_LIMIT", "1.0"))
     except ValueError:
         crawl4ai_rate_limit = 1.0
+
+    # Story 13.3 - Crawl4AI configuration
+    crawl4ai_headless = get_bool_env("CRAWL4AI_HEADLESS", "true")
+    try:
+        crawl4ai_max_concurrent = int(os.getenv("CRAWL4AI_MAX_CONCURRENT", "10"))
+        if crawl4ai_max_concurrent < 1:
+            crawl4ai_max_concurrent = 10
+    except ValueError:
+        crawl4ai_max_concurrent = 10
+    crawl4ai_cache_enabled = get_bool_env("CRAWL4AI_CACHE_ENABLED", "true")
+    crawl4ai_proxy_url = os.getenv("CRAWL4AI_PROXY_URL") or None
+    try:
+        crawl4ai_js_wait_seconds = float(os.getenv("CRAWL4AI_JS_WAIT_SECONDS", "2.0"))
+        if crawl4ai_js_wait_seconds < 0:
+            crawl4ai_js_wait_seconds = 2.0
+    except ValueError:
+        crawl4ai_js_wait_seconds = 2.0
+    try:
+        crawl4ai_page_timeout_ms = int(os.getenv("CRAWL4AI_PAGE_TIMEOUT_MS", "60000"))
+        if crawl4ai_page_timeout_ms < 1000:
+            crawl4ai_page_timeout_ms = 60000
+    except ValueError:
+        crawl4ai_page_timeout_ms = 60000
 
     try:
         max_upload_size_mb = int(os.getenv("MAX_UPLOAD_SIZE_MB", "100"))
@@ -611,6 +640,13 @@ def load_settings() -> Settings:
         backend_port=backend_port,
         frontend_url=os.getenv("FRONTEND_URL", "http://localhost:3000"),
         crawl4ai_rate_limit=crawl4ai_rate_limit,
+        # Story 13.3 - Crawl4AI settings
+        crawl4ai_headless=crawl4ai_headless,
+        crawl4ai_max_concurrent=crawl4ai_max_concurrent,
+        crawl4ai_cache_enabled=crawl4ai_cache_enabled,
+        crawl4ai_proxy_url=crawl4ai_proxy_url,
+        crawl4ai_js_wait_seconds=crawl4ai_js_wait_seconds,
+        crawl4ai_page_timeout_ms=crawl4ai_page_timeout_ms,
         # Story 4.2 - PDF Document Parsing settings
         docling_table_mode=os.getenv("DOCLING_TABLE_MODE", "accurate"),
         max_upload_size_mb=max_upload_size_mb,

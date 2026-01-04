@@ -186,7 +186,7 @@ development_status:
   13-1-integrate-apify-brightdata-fallback: done
   13-2-implement-youtube-transcript-api-ingestion: done
   # RENAMED: Was "optimize" - now full migration to Crawl4AI library
-  13-3-migrate-to-crawl4ai-library: backlog
+  13-3-migrate-to-crawl4ai-library: done
   # NEW: Crawl profiles (fast/thorough/stealth)
   13-4-implement-crawl-configuration-profiles: backlog
   epic-13-retrospective: optional
