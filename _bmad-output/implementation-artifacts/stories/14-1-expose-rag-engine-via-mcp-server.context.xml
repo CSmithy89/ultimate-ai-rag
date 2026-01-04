@@ -1,0 +1,785 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story 14-1: Expose RAG Engine via MCP Server
+  Context file for implementation
+  Generated: 2026-01-04
+-->
+<story-context>
+  <metadata>
+    <story-id>14-1</story-id>
+    <epic>14 - Connectivity (MCP Wrapper Architecture)</epic>
+    <title>Expose RAG Engine via MCP Server</title>
+    <status>ready-for-dev</status>
+    <complexity>High (5-6 days estimated)</complexity>
+    <priority>High</priority>
+  </metadata>
+
+  <key-decisions>
+    <decision id="1" date="2026-01-03">
+      <title>WRAP Graphiti MCP, don't duplicate</title>
+      <rationale>
+        - DRY principle: avoid duplicating existing Graphiti functionality
+        - Future-proof: Graphiti updates automatically flow through the wrapper
+        - Easy extension: add RAG-specific tools alongside existing Graphiti tools
+      </rationale>
+    </decision>
+  </key-decisions>
+
+  <module-structure>
+    <description>Create new mcp/ module under backend:</description>
+    <files-to-create>
+      <file path="backend/src/agentic_rag_backend/mcp/__init__.py" purpose="Module exports" />
+      <file path="backend/src/agentic_rag_backend/mcp/server.py" purpose="UnifiedMCPServer class" />
+      <file path="backend/src/agentic_rag_backend/mcp/schemas.py" purpose="Pydantic models for MCP I/O" />
+      <file path="backend/src/agentic_rag_backend/mcp/auth.py" purpose="API key authentication" />
+      <file path="backend/src/agentic_rag_backend/mcp/tools/__init__.py" purpose="Tool exports" />
+      <file path="backend/src/agentic_rag_backend/mcp/tools/graphiti_wrapper.py" purpose="Graphiti tool wrapping" />
+      <file path="backend/src/agentic_rag_backend/mcp/tools/vector_tools.py" purpose="vector_search, hybrid_retrieve" />
+      <file path="backend/src/agentic_rag_backend/mcp/tools/ingestion_tools.py" purpose="ingest_url, ingest_pdf, ingest_youtube" />
+      <file path="backend/src/agentic_rag_backend/mcp/tools/query_tools.py" purpose="query_with_reranking, explain_answer" />
+      <file path="backend/src/agentic_rag_backend/mcp/transport/__init__.py" purpose="Transport exports" />
+      <file path="backend/src/agentic_rag_backend/mcp/transport/http.py" purpose="HTTP/SSE transport" />
+      <file path="backend/src/agentic_rag_backend/mcp/transport/stdio.py" purpose="stdio transport for Claude Desktop (optional)" />
+      <file path="backend/tests/mcp/__init__.py" purpose="Test module" />
+      <file path="backend/tests/mcp/test_server.py" purpose="UnifiedMCPServer tests" />
+      <file path="backend/tests/mcp/test_schemas.py" purpose="Schema validation tests" />
+      <file path="backend/tests/mcp/test_auth.py" purpose="Authentication tests" />
+      <file path="backend/tests/mcp/tools/__init__.py" purpose="Tool tests module" />
+      <file path="backend/tests/mcp/tools/test_vector_tools.py" purpose="Vector tool tests" />
+      <file path="backend/tests/mcp/tools/test_ingestion_tools.py" purpose="Ingestion tool tests" />
+      <file path="backend/tests/mcp/tools/test_query_tools.py" purpose="Query tool tests" />
+      <file path="backend/tests/mcp/tools/test_graphiti_wrapper.py" purpose="Graphiti wrapper tests" />
+      <file path="backend/tests/mcp/transport/__init__.py" purpose="Transport tests module" />
+      <file path="backend/tests/mcp/transport/test_http.py" purpose="HTTP transport tests" />
+    </files-to-create>
+    <files-to-modify>
+      <file path="backend/pyproject.toml" change="Add mcp dependency" />
+      <file path="backend/src/agentic_rag_backend/config.py" change="Add MCP server settings" />
+      <file path="backend/src/agentic_rag_backend/main.py" change="Register MCP router conditionally" />
+      <file path=".env.example" change="Document new environment variables" />
+    </files-to-modify>
+  </module-structure>
+
+  <tool-inventory>
+    <graphiti-tools description="Wrapped pass-through to Graphiti MCP">
+      <tool name="graphiti_add_memory" description="Add episodic memory to graph" strategy="Direct pass-through with tenant isolation" />
+      <tool name="graphiti_add_episode" description="Ingest knowledge as episode" strategy="Direct pass-through with tenant isolation" />
+      <tool name="graphiti_search_nodes" description="Find entities in graph" strategy="Direct pass-through with tenant isolation" />
+      <tool name="graphiti_search_facts" description="Find relationships/facts" strategy="Direct pass-through with tenant isolation" />
+      <tool name="graphiti_delete_episode" description="Remove specific knowledge" strategy="Direct pass-through with tenant isolation" />
+      <tool name="graphiti_clear_graph" description="Reset entire graph" strategy="Add tenant isolation guard" />
+    </graphiti-tools>
+    <rag-extension-tools description="New RAG-specific tools">
+      <tool name="vector_search" description="pgvector semantic search" implementation="Uses VectorSearchService" />
+      <tool name="hybrid_retrieve" description="Combined vector + graph retrieval" implementation="Uses hybrid synthesis + optional reranking" />
+      <tool name="ingest_url" description="Web URL ingestion" implementation="Uses Crawler (Crawl4AI)" />
+      <tool name="ingest_pdf" description="PDF document ingestion" implementation="Uses Parser (Docling)" />
+      <tool name="ingest_youtube" description="YouTube transcript ingestion" implementation="Uses YouTubeIngestionService" />
+      <tool name="query_with_reranking" description="Query with explicit reranking" implementation="Uses RerankerClient" />
+      <tool name="explain_answer" description="Get answer explanation/trajectory" implementation="Uses trajectory logging" />
+    </rag-extension-tools>
+  </tool-inventory>
+
+  <configuration>
+    <env-vars>
+      <var name="MCP_SERVER_ENABLED" type="boolean" default="false" description="Enable MCP server" />
+      <var name="MCP_SERVER_PORT" type="integer" default="8080" description="Separate from main API if needed" />
+      <var name="MCP_AUTH_ENABLED" type="boolean" default="true" description="Always require API key" />
+      <var name="MCP_RATE_LIMIT_RPM" type="integer" default="60" description="Requests per minute per API key" />
+      <var name="MCP_RATE_LIMIT_BURST" type="integer" default="10" description="Burst allowance" />
+      <var name="MCP_LOG_REQUESTS" type="boolean" default="true" description="Log incoming requests" />
+      <var name="MCP_LOG_RESPONSES" type="boolean" default="false" description="Don't log responses (may contain sensitive data)" />
+      <var name="MCP_WRAP_GRAPHITI" type="boolean" default="true" description="Enable Graphiti tool pass-through" />
+      <var name="MCP_GRAPHITI_TOOLS" type="string" default="add_episode,search_nodes,search_facts,delete_episode,clear_graph" description="Enabled Graphiti tools" />
+    </env-vars>
+  </configuration>
+
+  <dependencies>
+    <dependency name="mcp" version=">=1.0.0" purpose="MCP SDK" />
+    <existing-dependency name="graphiti-core" purpose="Provides MCP tools for graph operations" />
+  </dependencies>
+
+  <existing-patterns>
+    <pattern name="MCP Protocol Implementation">
+      <description>
+        Existing MCP implementation in protocols/mcp.py provides a registry pattern.
+        Follow the MCPToolRegistry class structure for tool registration and invocation.
+      </description>
+      <file>backend/src/agentic_rag_backend/protocols/mcp.py</file>
+      <code-snippet><![CDATA[
+class MCPToolNotFoundError(KeyError):
+    """Raised when a requested tool is not registered."""
+
+
+@dataclass(frozen=True)
+class MCPTool:
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+    handler: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+    timeout_seconds: float | None = None
+
+
+class MCPToolRegistry:
+    """Registry for MCP-style tool definitions and execution."""
+
+    def __init__(
+        self,
+        orchestrator: OrchestratorAgent,
+        neo4j: Neo4jClient | None,
+        timeout_seconds: float | None = None,
+        tool_timeouts: dict[str, float] | None = None,
+        max_timeout_seconds: float = 300.0,
+    ) -> None:
+        self._orchestrator = orchestrator
+        self._neo4j = neo4j
+        self._default_timeout_seconds = timeout_seconds
+        self._tool_timeouts = tool_timeouts or {}
+        self._max_timeout_seconds = max_timeout_seconds if max_timeout_seconds > 0 else 300.0
+        self._tools = {
+            "knowledge.query": MCPTool(...),
+            "knowledge.graph_stats": MCPTool(...),
+        }
+
+    def list_tools(self) -> list[dict[str, Any]]:
+        """Return tool descriptors for discovery."""
+        return [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": tool.input_schema,
+            }
+            for tool in self._tools.values()
+        ]
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Invoke a tool by name with arguments."""
+        tool = self._tools.get(name)
+        if not tool:
+            raise MCPToolNotFoundError(name)
+        timeout = (
+            tool.timeout_seconds
+            if tool.timeout_seconds is not None
+            else self._default_timeout_seconds
+        )
+        effective_timeout = self._max_timeout_seconds
+        if timeout and timeout > 0:
+            effective_timeout = min(timeout, self._max_timeout_seconds)
+        return await asyncio.wait_for(tool.handler(arguments), timeout=effective_timeout)
+      ]]></code-snippet>
+    </pattern>
+
+    <pattern name="MCP Routes">
+      <description>
+        Existing MCP API routes in api/routes/mcp.py provide the endpoint pattern.
+        Follow JSON-RPC 2.0 format for requests/responses.
+      </description>
+      <file>backend/src/agentic_rag_backend/api/routes/mcp.py</file>
+      <code-snippet><![CDATA[
+"""MCP-style tool discovery and invocation endpoints."""
+
+router = APIRouter(prefix="/mcp", tags=["mcp"])
+
+
+class ToolDescriptor(BaseModel):
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+
+
+class ToolListResponse(BaseModel):
+    tools: list[ToolDescriptor]
+    meta: dict[str, Any]
+
+
+class ToolCallRequest(BaseModel):
+    tool: str = Field(..., min_length=1)
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class ToolCallResponse(BaseModel):
+    tool: str
+    result: dict[str, Any]
+    meta: dict[str, Any]
+
+
+@router.get("/tools", response_model=ToolListResponse)
+async def list_tools(
+    registry: MCPToolRegistry = Depends(get_mcp_registry),
+) -> ToolListResponse:
+    """List available MCP tools."""
+    return ToolListResponse(
+        tools=[ToolDescriptor(**tool) for tool in registry.list_tools()],
+        meta=build_meta(),
+    )
+
+
+@router.post("/call", response_model=ToolCallResponse)
+async def call_tool(
+    request_body: ToolCallRequest,
+    registry: MCPToolRegistry = Depends(get_mcp_registry),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+) -> ToolCallResponse:
+    """Invoke a tool by name with arguments."""
+    tenant_id = request_body.arguments.get("tenant_id")
+    # ... validation and rate limiting ...
+    result = await registry.call_tool(request_body.tool, request_body.arguments)
+    return ToolCallResponse(tool=request_body.tool, result=result, meta=build_meta())
+      ]]></code-snippet>
+    </pattern>
+
+    <pattern name="Graphiti Client">
+      <description>
+        GraphitiClient in db/graphiti.py provides graph operations.
+        The client property must be used after connect() is called.
+      </description>
+      <file>backend/src/agentic_rag_backend/db/graphiti.py</file>
+      <code-snippet><![CDATA[
+class GraphitiClient:
+    """Managed Graphiti client for temporal knowledge graph operations."""
+
+    @property
+    def client(self) -> Any:
+        """Get the underlying Graphiti client."""
+        if self._client is None or self._state != ConnectionState.CONNECTED:
+            raise RuntimeError(
+                f"Graphiti client is not connected (state: {self._state.value}). "
+                "Call connect() first."
+            )
+        return self._client
+
+    @property
+    def is_connected(self) -> bool:
+        """Check if client is connected."""
+        return self._state == ConnectionState.CONNECTED and self._client is not None
+
+    async def connect(self) -> None:
+        """Establish connection to Neo4j and initialize Graphiti."""
+        # ... connection logic ...
+
+    async def disconnect(self, timeout: float = DEFAULT_DISCONNECT_TIMEOUT) -> None:
+        """Close the Graphiti connection and cleanup resources."""
+        # ... cleanup logic ...
+      ]]></code-snippet>
+    </pattern>
+
+    <pattern name="Vector Search Service">
+      <description>
+        VectorSearchService in retrieval/vector_search.py provides semantic search.
+        Uses PostgresClient and EmbeddingGenerator for pgvector queries.
+      </description>
+      <file>backend/src/agentic_rag_backend/retrieval/vector_search.py</file>
+      <code-snippet><![CDATA[
+class VectorSearchService:
+    """Semantic vector search over pgvector chunks."""
+
+    def __init__(
+        self,
+        postgres: Optional[PostgresClient],
+        embedding_generator: Optional[EmbeddingGenerator],
+        limit: int = DEFAULT_VECTOR_LIMIT,
+        similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
+        timeout_seconds: float = DEFAULT_RETRIEVAL_TIMEOUT_SECONDS,
+        cache_ttl_seconds: float = DEFAULT_RETRIEVAL_CACHE_TTL_SECONDS,
+        cache_size: int = DEFAULT_RETRIEVAL_CACHE_SIZE,
+    ) -> None:
+        # ... initialization ...
+
+    async def search(self, query: str, tenant_id: str) -> list[VectorHit]:
+        """Search for similar chunks and return vector hits."""
+        if not self.postgres or not self.embedding_generator:
+            logger.warning("vector_search_unavailable")
+            return []
+
+        try:
+            tenant_uuid = UUID(tenant_id)
+        except ValueError:
+            logger.warning("vector_search_invalid_tenant_id", tenant_id=tenant_id)
+            return []
+
+        # ... caching, embedding generation, and search ...
+        return hits
+      ]]></code-snippet>
+    </pattern>
+
+    <pattern name="Reranker Client">
+      <description>
+        RerankerClient in retrieval/reranking.py provides cross-encoder reranking.
+        Supports Cohere and FlashRank providers.
+      </description>
+      <file>backend/src/agentic_rag_backend/retrieval/reranking.py</file>
+      <code-snippet><![CDATA[
+class RerankerClient(ABC):
+    """Abstract base class for reranker clients."""
+
+    @abstractmethod
+    async def rerank(
+        self,
+        query: str,
+        hits: list[VectorHit],
+        top_k: int = 10,
+    ) -> list[RerankedHit]:
+        """Rerank vector hits using cross-encoder scoring."""
+        pass
+
+    @abstractmethod
+    def get_model(self) -> str:
+        """Get the model name used for reranking."""
+        pass
+
+
+def create_reranker_client(adapter: RerankerProviderAdapter) -> RerankerClient:
+    """Factory function to create the appropriate reranker client."""
+    if adapter.provider == RerankerProviderType.COHERE:
+        return CohereRerankerClient(api_key=adapter.api_key, model=adapter.model)
+    elif adapter.provider == RerankerProviderType.FLASHRANK:
+        return FlashRankRerankerClient(model=adapter.model)
+    else:
+        raise ValueError(f"Unsupported reranker provider: {adapter.provider}")
+      ]]></code-snippet>
+    </pattern>
+
+    <pattern name="Crawler Service">
+      <description>
+        CrawlerService in indexing/crawler.py provides web crawling using Crawl4AI.
+        Used for ingest_url tool.
+      </description>
+      <file>backend/src/agentic_rag_backend/indexing/crawler.py</file>
+      <code-snippet><![CDATA[
+class CrawlerService:
+    """Crawl4AI-powered web crawler service."""
+
+    async def __aenter__(self) -> "CrawlerService":
+        """Async context manager entry - initialize browser."""
+        # ... setup ...
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Async context manager exit - cleanup browser."""
+        # ... cleanup ...
+
+    async def crawl_page(self, url: str) -> Optional[CrawledPage]:
+        """Crawl a single page using Crawl4AI."""
+        # ... crawl logic ...
+
+    async def crawl(
+        self,
+        start_url: str,
+        max_depth: int = DEFAULT_MAX_DEPTH,
+        max_pages: int = DEFAULT_MAX_PAGES,
+        options: Optional[CrawlOptions] = None,
+        tenant_id: Optional[str] = None,
+    ) -> AsyncGenerator[CrawledPage, None]:
+        """Crawl a website starting from the given URL."""
+        # ... multi-page crawl logic ...
+
+
+async def crawl_url(
+    url: str,
+    max_depth: int = DEFAULT_MAX_DEPTH,
+    max_pages: int = DEFAULT_MAX_PAGES,
+    # ... other params ...
+) -> AsyncGenerator[CrawledPage, None]:
+    """Convenience function for crawling a URL using Crawl4AI."""
+    # ... wrapper ...
+      ]]></code-snippet>
+    </pattern>
+
+    <pattern name="YouTube Ingestion">
+      <description>
+        YouTube ingestion in indexing/youtube_ingestion.py provides transcript extraction.
+        Used for ingest_youtube tool.
+      </description>
+      <file>backend/src/agentic_rag_backend/indexing/youtube_ingestion.py</file>
+      <code-snippet><![CDATA[
+class YouTubeIngestionResult(BaseModel):
+    """Result of ingesting a YouTube video transcript."""
+    video_id: str
+    source_url: str
+    language: str
+    is_generated: bool
+    chunks: list[TranscriptChunk]
+    duration_seconds: float
+    full_text: str
+
+
+async def ingest_youtube_video(
+    url: str,
+    languages: Optional[list[str]] = None,
+    chunk_duration_seconds: Optional[int] = None,
+) -> YouTubeIngestionResult:
+    """Ingest a YouTube video by fetching and chunking its transcript."""
+    video_id = extract_video_id(url)
+    transcript_result = await fetch_transcript(video_id, languages)
+    chunks = chunk_transcript(transcript_result, chunk_duration_seconds)
+    return YouTubeIngestionResult(
+        video_id=video_id,
+        source_url=f"https://youtube.com/watch?v={video_id}",
+        language=transcript_result.language,
+        is_generated=transcript_result.is_generated,
+        chunks=chunks,
+        duration_seconds=transcript_result.duration_seconds,
+        full_text=transcript_result.full_text,
+    )
+      ]]></code-snippet>
+    </pattern>
+
+    <pattern name="PDF Parser">
+      <description>
+        PDF parsing in indexing/parser.py provides document extraction using Docling.
+        Used for ingest_pdf tool.
+      </description>
+      <file>backend/src/agentic_rag_backend/indexing/parser.py</file>
+      <code-snippet><![CDATA[
+def parse_pdf(
+    file_path: Path,
+    document_id: UUID,
+    tenant_id: UUID,
+    table_mode: str = "accurate",
+) -> ParsedDocument:
+    """Parse a PDF document and return a ParsedDocument model."""
+    # Validate PDF
+    if not validate_pdf(file_path):
+        raise InvalidPdfError(file_path.name, "File is not a valid PDF document")
+
+    # Check for password protection
+    if check_password_protected(file_path):
+        raise PasswordProtectedError(file_path.name)
+
+    # ... parse PDF using Docling ...
+    return ParsedDocument(
+        id=document_id,
+        tenant_id=tenant_id,
+        filename=file_path.name,
+        content_hash=content_hash,
+        file_size=file_size,
+        page_count=page_count,
+        sections=sections,
+        tables=tables,
+        footnotes=footnotes,
+        metadata=doc_metadata,
+        processing_time_ms=processing_time_ms,
+    )
+      ]]></code-snippet>
+    </pattern>
+
+    <pattern name="API Response Format">
+      <description>
+        Standard API response format from api/routes/knowledge.py.
+        Follow this pattern for all MCP endpoints.
+      </description>
+      <file>backend/src/agentic_rag_backend/api/routes/knowledge.py</file>
+      <code-snippet><![CDATA[
+def success_response(data: Any) -> dict[str, Any]:
+    """
+    Wrap data in standard success response format.
+
+    Args:
+        data: Response data
+
+    Returns:
+        Dictionary with data and meta fields
+    """
+    return {
+        "data": data,
+        "meta": {
+            "requestId": str(uuid4()),
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        },
+    }
+      ]]></code-snippet>
+    </pattern>
+
+    <pattern name="Configuration Settings Pattern">
+      <description>
+        Settings class in config.py. Add MCP settings following the existing pattern.
+      </description>
+      <file>backend/src/agentic_rag_backend/config.py</file>
+      <code-snippet><![CDATA[
+@dataclass(frozen=True)
+class Settings:
+    """Application settings loaded from environment variables."""
+    # ... existing settings ...
+
+    # Epic 7 - MCP settings
+    mcp_tool_timeout_seconds: float
+    mcp_tool_timeout_overrides: dict[str, float]
+    mcp_tool_max_timeout_seconds: float
+
+    # Add new Epic 14 - MCP Server settings:
+    # mcp_server_enabled: bool
+    # mcp_server_port: int
+    # mcp_auth_enabled: bool
+    # mcp_rate_limit_rpm: int
+    # mcp_rate_limit_burst: int
+    # mcp_log_requests: bool
+    # mcp_log_responses: bool
+    # mcp_wrap_graphiti: bool
+    # mcp_graphiti_tools: list[str]
+      ]]></code-snippet>
+    </pattern>
+
+    <pattern name="Test Fixtures">
+      <description>
+        Test fixtures from conftest.py. Follow this pattern for MCP tests.
+      </description>
+      <file>backend/tests/conftest.py</file>
+      <code-snippet><![CDATA[
+"""pytest fixtures for Agentic RAG Backend tests."""
+
+import os
+
+# Set environment variables BEFORE any imports
+os.environ.setdefault("OPENAI_API_KEY", "test-key")
+os.environ.setdefault("DATABASE_URL", "postgresql://localhost/test")
+os.environ.setdefault("NEO4J_URI", "bolt://localhost:7687")
+os.environ.setdefault("NEO4J_USER", "neo4j")
+os.environ.setdefault("NEO4J_PASSWORD", "test")
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379")
+
+
+@pytest.fixture
+def sample_tenant_id():
+    """Provide a sample tenant ID."""
+    return uuid4()
+
+
+@pytest.fixture
+def mock_neo4j_client():
+    """Mock Neo4jClient wrapper."""
+    from agentic_rag_backend.db.neo4j import Neo4jClient
+    client = MagicMock(spec=Neo4jClient)
+    # ... configure mock ...
+    return client
+
+
+@pytest.fixture
+def mock_postgres_client(sample_job_id, sample_tenant_id):
+    """Mock PostgresClient wrapper."""
+    from agentic_rag_backend.db.postgres import PostgresClient
+    client = MagicMock(spec=PostgresClient)
+    # ... configure mock ...
+    return client
+
+
+def make_mock_graphiti_node(...):
+    """Create a mock Graphiti node with proper name attribute."""
+    node = MagicMock()
+    node.uuid = uuid
+    node.configure_mock(name=name)  # Handle reserved attribute
+    node.summary = summary
+    node.labels = labels
+    return node
+      ]]></code-snippet>
+    </pattern>
+  </existing-patterns>
+
+  <imports-needed>
+    <section name="mcp/server.py">
+      <import>from __future__ import annotations</import>
+      <import>import asyncio</import>
+      <import>from typing import Any, Optional</import>
+      <import>import structlog</import>
+      <import>from mcp.server import Server</import>
+      <import>from mcp.server.models import Tool, TextContent</import>
+      <import>from mcp.types import ToolResult</import>
+      <import>from ..db.graphiti import GraphitiClient</import>
+      <import>from ..db.postgres import PostgresClient</import>
+      <import>from ..retrieval.vector_search import VectorSearchService</import>
+      <import>from ..retrieval.reranking import RerankerClient, create_reranker_client</import>
+      <import>from ..indexing.crawler import CrawlerService, crawl_url</import>
+      <import>from ..indexing.parser import parse_pdf</import>
+      <import>from ..indexing.youtube_ingestion import ingest_youtube_video</import>
+    </section>
+    <section name="mcp/transport/http.py">
+      <import>from fastapi import APIRouter, Depends, HTTPException, Request</import>
+      <import>from fastapi.responses import StreamingResponse</import>
+      <import>from pydantic import BaseModel, Field</import>
+      <import>from sse_starlette.sse import EventSourceResponse</import>
+      <import>from ...rate_limit import RateLimiter</import>
+      <import>from ...validation import is_valid_tenant_id</import>
+      <import>from ...api.utils import build_meta, rate_limit_exceeded</import>
+    </section>
+    <section name="mcp/auth.py">
+      <import>from fastapi import Depends, HTTPException, Header, status</import>
+      <import>from ..config import get_settings</import>
+    </section>
+    <section name="mcp/schemas.py">
+      <import>from pydantic import BaseModel, Field</import>
+      <import>from typing import Any, Optional, Union</import>
+    </section>
+  </imports-needed>
+
+  <api-endpoints>
+    <endpoint method="POST" path="/mcp/" description="JSON-RPC endpoint for MCP calls" />
+    <endpoint method="GET" path="/mcp/sse" description="SSE endpoint for streaming MCP" />
+    <endpoint method="GET" path="/mcp/tools" description="List available tools (convenience)" />
+  </api-endpoints>
+
+  <acceptance-criteria-mapping>
+    <criterion id="AC-1" task="MCP Server Initialization">
+      <implementation>
+        - Add MCP_SERVER_ENABLED to config.py
+        - Initialize UnifiedMCPServer in main.py lifespan
+        - Log tool count at startup
+      </implementation>
+    </criterion>
+    <criterion id="AC-2" task="Tool Listing">
+      <implementation>
+        - Implement list_tools() method returning all registered tools
+        - Include Graphiti tools and RAG extension tools
+      </implementation>
+    </criterion>
+    <criterion id="AC-3" task="Graphiti Tool Pass-Through">
+      <implementation>
+        - Create graphiti_wrapper.py with delegation methods
+        - Enforce tenant isolation via group_id parameter
+      </implementation>
+    </criterion>
+    <criterion id="AC-4" task="Vector Search Tool">
+      <implementation>
+        - Use VectorSearchService.search()
+        - Return similarity score and chunk content
+        - Filter by tenant_id
+      </implementation>
+    </criterion>
+    <criterion id="AC-5" task="Hybrid Retrieve Tool">
+      <implementation>
+        - Combine VectorSearchService and Graphiti search
+        - Optional RerankerClient.rerank()
+        - Merge and format results
+      </implementation>
+    </criterion>
+    <criterion id="AC-6" task="URL Ingestion Tool">
+      <implementation>
+        - Use CrawlerService.crawl()
+        - Index content via ingestion pipeline
+        - Return page count ingested
+      </implementation>
+    </criterion>
+    <criterion id="AC-7" task="PDF Ingestion Tool">
+      <implementation>
+        - Use parse_pdf()
+        - Index parsed content
+        - Return page count
+      </implementation>
+    </criterion>
+    <criterion id="AC-8" task="YouTube Ingestion Tool">
+      <implementation>
+        - Use ingest_youtube_video()
+        - Return video_id, language, duration, chunk count
+      </implementation>
+    </criterion>
+    <criterion id="AC-9" task="Query with Reranking Tool">
+      <implementation>
+        - Get vector results
+        - Apply RerankerClient.rerank()
+        - Return reranked results
+      </implementation>
+    </criterion>
+    <criterion id="AC-10" task="Explain Answer Tool">
+      <implementation>
+        - Fetch trajectory from PostgreSQL
+        - Format plan, thoughts, sources
+      </implementation>
+    </criterion>
+    <criterion id="AC-11" task="Tenant Isolation">
+      <implementation>
+        - All database queries MUST include tenant_id
+        - Validate tenant_id on every tool call
+      </implementation>
+    </criterion>
+    <criterion id="AC-12" task="HTTP Transport">
+      <implementation>
+        - POST /mcp/ for JSON-RPC
+        - Parse and route to appropriate tool
+        - Response follows JSON-RPC 2.0 format
+      </implementation>
+    </criterion>
+    <criterion id="AC-13" task="SSE Transport">
+      <implementation>
+        - GET /mcp/sse for streaming
+        - Send initial tools list as event
+        - Keep alive with periodic pings
+      </implementation>
+    </criterion>
+    <criterion id="AC-14" task="Authentication">
+      <implementation>
+        - Create verify_api_key dependency
+        - Return HTTP 401 for invalid/missing API key
+      </implementation>
+    </criterion>
+    <criterion id="AC-15" task="Rate Limiting">
+      <implementation>
+        - Configure via MCP_RATE_LIMIT_RPM
+        - Return HTTP 429 when exceeded
+        - Include retry-after in response
+      </implementation>
+    </criterion>
+  </acceptance-criteria-mapping>
+
+  <testing-requirements>
+    <unit-tests>
+      <test-file path="backend/tests/mcp/test_server.py" description="UnifiedMCPServer class tests" />
+      <test-file path="backend/tests/mcp/test_schemas.py" description="Pydantic model validation" />
+      <test-file path="backend/tests/mcp/test_auth.py" description="Authentication tests" />
+      <test-file path="backend/tests/mcp/tools/test_vector_tools.py" description="Vector tool tests" />
+      <test-file path="backend/tests/mcp/tools/test_ingestion_tools.py" description="Ingestion tool tests" />
+      <test-file path="backend/tests/mcp/tools/test_query_tools.py" description="Query tool tests" />
+      <test-file path="backend/tests/mcp/tools/test_graphiti_wrapper.py" description="Graphiti wrapper tests" />
+      <test-file path="backend/tests/mcp/transport/test_http.py" description="HTTP transport tests" />
+    </unit-tests>
+    <test-scenarios>
+      <scenario name="tenant_isolation">
+        <test>test_vector_search_requires_tenant - Tool returns error when tenant not set</test>
+        <test>test_vector_search_with_tenant - Tool executes when tenant is set</test>
+        <test>test_tenant_isolation_enforced - One tenant cannot access another's data</test>
+      </scenario>
+      <scenario name="tool_execution">
+        <test>test_tool_list_returns_all_tools - tools/list returns Graphiti + RAG tools</test>
+        <test>test_vector_search_returns_results - vector_search returns formatted results</test>
+        <test>test_hybrid_retrieve_combines_sources - hybrid_retrieve merges vector and graph results</test>
+      </scenario>
+      <scenario name="authentication">
+        <test>test_invalid_api_key_rejected - Invalid API key returns 401</test>
+        <test>test_missing_api_key_rejected - Missing API key returns 401</test>
+      </scenario>
+      <scenario name="rate_limiting">
+        <test>test_rate_limit_enforced - Excess requests return 429</test>
+        <test>test_burst_allowance - Burst requests within allowance succeed</test>
+      </scenario>
+    </test-scenarios>
+  </testing-requirements>
+
+  <references>
+    <reference name="Model Context Protocol Specification" url="https://modelcontextprotocol.io/" />
+    <reference name="Graphiti MCP Server Documentation" url="https://deepwiki.com/getzep/graphiti" />
+    <reference name="MCP Wrapper Architecture" path="docs/guides/mcp-wrapper-architecture.md" />
+    <reference name="Epic 14 Tech Spec" path="_bmad-output/epics/epic-14-tech-spec.md" />
+    <reference name="Project Architecture" path="_bmad-output/architecture.md" />
+    <reference name="Project Context" path="_bmad-output/project-context.md" />
+  </references>
+
+  <risks-and-mitigations>
+    <risk impact="High">
+      <description>Graphiti MCP API changes</description>
+      <mitigation>Pin graphiti-core version, monitor releases</mitigation>
+    </risk>
+    <risk impact="Medium">
+      <description>MCP SDK breaking changes</description>
+      <mitigation>Pin mcp package version, test thoroughly</mitigation>
+    </risk>
+    <risk impact="Medium">
+      <description>Rate limiting for external clients</description>
+      <mitigation>Configurable limits, burst allowance</mitigation>
+    </risk>
+    <risk impact="High">
+      <description>Security vulnerabilities in MCP transport</description>
+      <mitigation>API key auth, tenant isolation, input validation</mitigation>
+    </risk>
+    <risk impact="Medium">
+      <description>Performance of wrapped calls</description>
+      <mitigation>Connection pooling, async operations</mitigation>
+    </risk>
+  </risks-and-mitigations>
+</story-context>
