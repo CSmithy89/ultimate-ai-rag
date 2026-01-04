@@ -22,6 +22,17 @@ from .fallback_providers import (
     SimpleCrawlProvider,
     create_fallback_crawler,
 )
+from .youtube_ingestion import (
+    YouTubeIngestionError,
+    TranscriptSegment,
+    YouTubeTranscriptResult,
+    TranscriptChunk,
+    YouTubeIngestionResult,
+    extract_video_id,
+    fetch_transcript,
+    chunk_transcript,
+    ingest_youtube_video,
+)
 
 __all__ = [
     # Crawler
@@ -50,4 +61,14 @@ __all__ = [
     "FallbackCrawler",
     "SimpleCrawlProvider",
     "create_fallback_crawler",
+    # Epic 13: YouTube Transcript Ingestion
+    "YouTubeIngestionError",
+    "TranscriptSegment",
+    "YouTubeTranscriptResult",
+    "TranscriptChunk",
+    "YouTubeIngestionResult",
+    "extract_video_id",
+    "fetch_transcript",
+    "chunk_transcript",
+    "ingest_youtube_video",
 ]
