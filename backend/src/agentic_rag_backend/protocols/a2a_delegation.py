@@ -12,7 +12,10 @@ import time
 from asyncio import Lock
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
+
+if TYPE_CHECKING:
+    import redis
 from uuid import uuid4
 
 import httpx
@@ -26,6 +29,13 @@ from .a2a_registry import A2AAgentRegistry
 logger = structlog.get_logger(__name__)
 
 
+# Constants for TTL multipliers (documented rationale)
+# Pending task TTL: 2x timeout ensures task survives execution + response time
+PENDING_TASK_TTL_MULTIPLIER = 2
+# Result TTL: 1 hour allows clients to poll for results after completion
+RESULT_TTL_SECONDS = 3600
+
+
 @dataclass
 class DelegationConfig:
     """Configuration for task delegation behavior.
@@ -37,6 +47,7 @@ class DelegationConfig:
         max_concurrent_tasks: Maximum concurrent outbound delegations
         redis_prefix: Prefix for Redis keys
         http_timeout_seconds: Timeout for HTTP requests to agents
+        result_ttl_seconds: TTL for completed task results in Redis
     """
 
     default_timeout_seconds: int = 300
@@ -45,6 +56,7 @@ class DelegationConfig:
     max_concurrent_tasks: int = 50
     redis_prefix: str = "a2a:tasks"
     http_timeout_seconds: float = 30.0
+    result_ttl_seconds: int = RESULT_TTL_SECONDS
 
 
 @dataclass
@@ -114,7 +126,7 @@ class TaskDelegationManager:
         """Generate Redis key for a task result."""
         return f"{self._config.redis_prefix}:result:{task_id}"
 
-    def _get_redis(self) -> Any | None:
+    def _get_redis(self) -> "redis.Redis | None":
         """Get Redis client if available."""
         if not self._redis_client:
             return None
@@ -132,7 +144,8 @@ class TaskDelegationManager:
         try:
             key = self._task_key(request.task_id)
             payload = json.dumps(request.to_dict())
-            ttl = request.timeout_seconds * 2
+            # TTL = timeout * multiplier to survive execution + response handling
+            ttl = request.timeout_seconds * PENDING_TASK_TTL_MULTIPLIER
             await redis.set(key, payload, ex=ttl)
         except Exception as exc:
             logger.warning("a2a_task_persist_failed", task_id=request.task_id, error=str(exc))
@@ -145,8 +158,7 @@ class TaskDelegationManager:
         try:
             key = self._result_key(result.task_id)
             payload = json.dumps(result.to_dict())
-            # Keep results for 1 hour for retrieval
-            await redis.set(key, payload, ex=3600)
+            await redis.set(key, payload, ex=self._config.result_ttl_seconds)
         except Exception as exc:
             logger.warning("a2a_result_persist_failed", task_id=result.task_id, error=str(exc))
 

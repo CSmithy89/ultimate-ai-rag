@@ -588,17 +588,25 @@ async def execute_incoming_task(
                 "evidence": result.evidence,
             }
         elif capability == "vector_search":
-            # Direct vector search
+            # Direct vector search using public property (not private _postgres)
             query = task_request.parameters.get("query", "")
-            top_k = task_request.parameters.get("top_k", 10)
-            if orchestrator._postgres:
-                results = await orchestrator._postgres.vector_search(
-                    query,
-                    task_request.tenant_id,
-                    limit=top_k,
-                )
-                return {"results": results}
-            return {"results": [], "error": "Vector store not available"}
+            vector_service = orchestrator.vector_search_service
+            if vector_service:
+                hits = await vector_service.search(query, task_request.tenant_id)
+                # Convert VectorHit objects to dicts for JSON serialization
+                return {
+                    "results": [
+                        {
+                            "chunk_id": hit.chunk_id,
+                            "document_id": hit.document_id,
+                            "content": hit.content,
+                            "similarity": hit.similarity,
+                            "metadata": hit.metadata,
+                        }
+                        for hit in hits
+                    ]
+                }
+            return {"results": [], "error": "Vector search service not available"}
         else:
             raise ValueError(f"Unknown capability: {capability}")
 

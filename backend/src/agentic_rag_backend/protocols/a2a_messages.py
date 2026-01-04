@@ -439,7 +439,14 @@ def get_rag_capabilities() -> list[AgentCapability]:
     return RAG_CAPABILITIES.copy()
 
 
-# Capabilities that are actually implemented and can be executed
+# Capabilities that are actually implemented and can be executed via A2A.
+# Currently only 2 of 6 RAG_CAPABILITIES are implemented:
+# - hybrid_retrieve: Uses OrchestratorAgent.run() which combines vector + graph retrieval
+# - vector_search: Uses VectorSearchService.search() for semantic search
+#
+# NOT YET IMPLEMENTED (would need ingestion services wired to execute endpoint):
+# - ingest_url, ingest_pdf, ingest_youtube, query_with_reranking
+# These are advertised in RAG_CAPABILITIES but filtered out by get_implemented_rag_capabilities()
 IMPLEMENTED_CAPABILITY_NAMES = {"hybrid_retrieve", "vector_search"}
 
 

@@ -13,11 +13,14 @@ from asyncio import Lock
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 import structlog
 
 from agentic_rag_backend.db.redis import RedisClient
+
+if TYPE_CHECKING:
+    import redis
 
 from .a2a_messages import (
     AgentCapability,
@@ -26,6 +29,14 @@ from .a2a_messages import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+# Constants for TTL and cleanup multipliers (documented rationale)
+# Registration TTL: 2x heartbeat timeout provides buffer for network delays
+REGISTRATION_TTL_MULTIPLIER = 2
+# Cleanup threshold: 3x heartbeat timeout ensures we don't prematurely remove agents
+# that are slow to respond but still functioning
+CLEANUP_THRESHOLD_MULTIPLIER = 3
 
 
 @dataclass
@@ -37,12 +48,16 @@ class RegistryConfig:
         heartbeat_timeout_seconds: Time after which missing heartbeat marks unhealthy
         cleanup_interval_seconds: Time between registry cleanup runs
         redis_prefix: Prefix for Redis keys
+        registration_ttl_multiplier: Multiplier for registration TTL (default 2x timeout)
+        cleanup_threshold_multiplier: Multiplier for cleanup threshold (default 3x timeout)
     """
 
     heartbeat_interval_seconds: int = 30
     heartbeat_timeout_seconds: int = 60
     cleanup_interval_seconds: int = 60
     redis_prefix: str = "a2a:registry"
+    registration_ttl_multiplier: int = REGISTRATION_TTL_MULTIPLIER
+    cleanup_threshold_multiplier: int = CLEANUP_THRESHOLD_MULTIPLIER
 
 
 class A2AAgentRegistry:
@@ -87,7 +102,7 @@ class A2AAgentRegistry:
         """Generate Redis key for tenant's agent index."""
         return f"{self._config.redis_prefix}:tenant:{tenant_id}:agents"
 
-    def _get_redis(self) -> Any | None:
+    def _get_redis(self) -> "redis.Redis | None":
         """Get Redis client if available."""
         if not self._redis_client:
             return None
@@ -105,8 +120,8 @@ class A2AAgentRegistry:
         try:
             key = self._agent_key(agent.agent_id)
             payload = json.dumps(agent.to_dict())
-            # Store agent with TTL of 2x heartbeat timeout for automatic cleanup
-            ttl = self._config.heartbeat_timeout_seconds * 2
+            # Store agent with configurable TTL multiplier for automatic cleanup
+            ttl = self._config.heartbeat_timeout_seconds * self._config.registration_ttl_multiplier
             await redis.set(key, payload, ex=ttl)
 
             # Add to tenant index
@@ -181,8 +196,12 @@ class A2AAgentRegistry:
             for agent_id, agent in self._agents.items():
                 self._update_health_status(agent)
                 elapsed = (now - agent.last_heartbeat).total_seconds()
-                # Remove if more than 3x timeout (agent clearly abandoned)
-                if elapsed > self._config.heartbeat_timeout_seconds * 3:
+                # Remove if exceeds configurable cleanup threshold
+                cleanup_threshold = (
+                    self._config.heartbeat_timeout_seconds
+                    * self._config.cleanup_threshold_multiplier
+                )
+                if elapsed > cleanup_threshold:
                     agents_to_remove.append(agent_id)
 
             for agent_id in agents_to_remove:
@@ -410,11 +429,17 @@ class A2AAgentRegistry:
         async with self._lock:
             # First load any agents from Redis that we don't have in memory
             redis_agent_ids = await self._load_tenant_agents(tenant_id)
-            for agent_id in redis_agent_ids:
-                if agent_id not in self._agents:
-                    agent = await self._load_agent(agent_id)
-                    if agent:
-                        self._agents[agent_id] = agent
+
+            # Use asyncio.gather() for parallel Redis loads instead of sequential loop
+            missing_ids = [aid for aid in redis_agent_ids if aid not in self._agents]
+            if missing_ids:
+                loaded_agents = await asyncio.gather(
+                    *[self._load_agent(aid) for aid in missing_ids],
+                    return_exceptions=True,
+                )
+                for agent in loaded_agents:
+                    if isinstance(agent, AgentRegistration):
+                        self._agents[agent.agent_id] = agent
 
             # Filter by tenant
             tenant_agents = [

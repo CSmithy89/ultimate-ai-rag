@@ -9,7 +9,10 @@ import time
 from dataclasses import dataclass, field
 from asyncio import Lock
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    import redis
 from uuid import uuid4
 
 import structlog
@@ -106,7 +109,7 @@ class A2ASessionManager:
             )
             return None
 
-    def _get_redis(self) -> Any | None:
+    def _get_redis(self) -> "redis.Redis | None":
         if not self._redis_client:
             return None
         try:
