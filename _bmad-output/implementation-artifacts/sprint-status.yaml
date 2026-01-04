@@ -161,13 +161,12 @@ development_status:
   # DECISION: Reranker complements Graphiti (Stage 1 + Stage 2 retrieval)
   # DECISION: All features are CONFIGURABLE via environment flags
   # See: docs/guides/advanced-retrieval-configuration.md
-  # TECH DEBT (2026-01-04): Complete native Anthropic/Gemini adapter wiring per Epic 11 retro
-  epic-12: in-progress
+  epic-12: done
   12-1-implement-cross-encoder-reranking: done
   # Config: RERANKER_ENABLED, RERANKER_PROVIDER (cohere|flashrank), RERANKER_TOP_K
   12-2-implement-contextual-retrieval-chunking: done
   # Config: CONTEXTUAL_RETRIEVAL_ENABLED, uses prompt caching + cost-effective model
-  12-3-implement-corrective-rag-grader-agent: review
+  12-3-implement-corrective-rag-grader-agent: done
   # Config: GRADER_ENABLED, GRADER_THRESHOLD, GRADER_FALLBACK_ENABLED, GRADER_FALLBACK_STRATEGY, TAVILY_API_KEY
   epic-12-retrospective: done
 

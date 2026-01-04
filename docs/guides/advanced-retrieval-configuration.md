@@ -246,6 +246,71 @@ Retrieved Documents
 | `expanded_query` | Reformulate query and retry | Ambiguous queries |
 | `alternate_index` | Search different knowledge base | Multi-domain systems |
 
+#### Code Integration Point
+
+```python
+# backend/src/agentic_rag_backend/retrieval/grader.py
+
+from agentic_rag_backend.retrieval.grader import (
+    create_grader,
+    RetrievalGrader,
+    RetrievalHit,
+    GraderResult,
+)
+from agentic_rag_backend.config import get_settings
+
+settings = get_settings()
+
+# Create grader if enabled (returns None if disabled)
+grader = create_grader(settings)
+
+# Use in retrieval pipeline
+if grader:
+    # Convert your hits to RetrievalHit format
+    grader_hits = [
+        RetrievalHit(
+            content=hit.content,
+            score=hit.similarity,
+            metadata=hit.metadata,
+        )
+        for hit in vector_hits
+    ]
+
+    # Grade and get fallback if needed
+    result, fallback_hits = await grader.grade_and_fallback(
+        query=query,
+        hits=grader_hits,
+        tenant_id=tenant_id,  # For multi-tenancy
+    )
+
+    # result contains:
+    # - score: float (0.0-1.0)
+    # - passed: bool
+    # - threshold: float
+    # - grading_time_ms: int
+    # - fallback_triggered: bool
+    # - fallback_strategy: FallbackStrategy | None
+
+    if result.fallback_triggered:
+        # Merge fallback hits with original results
+        all_hits = vector_hits + fallback_hits
+```
+
+#### Trajectory Logging
+
+When grader is enabled, the following events are logged:
+
+```
+THOUGHT: "Grading retrieval quality with heuristic"
+ACTION: "Run CRAG grader evaluation"
+OBSERVATION: "Grade: 0.720 (threshold: 0.5, passed: True, grading_time: 5ms)"
+```
+
+If fallback is triggered:
+```
+OBSERVATION: "Fallback triggered (web_search): added 5 additional results"
+```
+
 ---
 
 ## Recommended Configurations

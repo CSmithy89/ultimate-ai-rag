@@ -113,32 +113,35 @@ async def get_chunks_for_document(
             ]
 
 
-async def update_chunk_embedding(
+async def update_chunks_in_transaction(
     postgres: PostgresClient,
-    chunk_id: UUID,
-    tenant_id: UUID,
-    embedding: list[float],
-    metadata: dict,
+    updates: list[tuple[UUID, UUID, list[float], dict]],
 ) -> None:
-    """Update a chunk's embedding and metadata.
+    """Update multiple chunks atomically in a single transaction.
+
+    This ensures all chunks for a document are updated together,
+    preventing inconsistent state if the script crashes mid-document.
 
     Args:
         postgres: PostgreSQL client
-        chunk_id: Chunk identifier
-        tenant_id: Tenant identifier
-        embedding: New embedding vector
-        metadata: Updated metadata
+        updates: List of (chunk_id, tenant_id, embedding, metadata) tuples
     """
+    if not updates:
+        return
+
     async with postgres.pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
-                UPDATE chunks
-                SET embedding = %s, metadata = %s
-                WHERE id = %s AND tenant_id = %s
-                """,
-                (embedding, metadata, str(chunk_id), str(tenant_id)),
-            )
+        # Use a transaction to ensure atomicity
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                for chunk_id, tenant_id, embedding, metadata in updates:
+                    await cur.execute(
+                        """
+                        UPDATE chunks
+                        SET embedding = %s, metadata = %s
+                        WHERE id = %s AND tenant_id = %s
+                        """,
+                        (embedding, metadata, str(chunk_id), str(tenant_id)),
+                    )
 
 
 async def reindex_document(
@@ -221,9 +224,9 @@ async def reindex_document(
             "chunks_processed": 0,
         }
 
-    # Update each chunk with concurrent DB operations
-    update_tasks = []
+    # Build update batch for transactional update
     reindex_timestamp = time.time()
+    updates = []
 
     for chunk_record, enriched, embedding in zip(chunks_data, enriched_chunks, embeddings):
         updated_metadata = chunk_record.get("metadata", {}).copy()
@@ -232,18 +235,15 @@ async def reindex_document(
         updated_metadata["context_generation_ms"] = enriched.context_generation_ms
         updated_metadata["reindexed_at"] = reindex_timestamp
 
-        update_tasks.append(
-            update_chunk_embedding(
-                postgres,
-                UUID(str(chunk_record["id"])),
-                tenant_id,
-                embedding,
-                updated_metadata,
-            )
-        )
+        updates.append((
+            UUID(str(chunk_record["id"])),
+            tenant_id,
+            embedding,
+            updated_metadata,
+        ))
 
-    # Execute all DB updates concurrently
-    await asyncio.gather(*update_tasks)
+    # Execute all DB updates atomically in a single transaction
+    await update_chunks_in_transaction(postgres, updates)
 
     return {
         "document_id": str(document_id),
