@@ -15,6 +15,7 @@ Story 13.4: Added crawl configuration profiles for different scenarios.
 
 import asyncio
 import hashlib
+import ipaddress
 import os
 import re
 from datetime import datetime, timezone
@@ -63,6 +64,31 @@ DEFAULT_JS_WAIT_SECONDS = 2.0  # Wait for JavaScript to render
 DEFAULT_MAX_PAGES = 1000  # Maximum pages to crawl in a single session
 
 
+def sanitize_proxy_url(proxy_url: Optional[str]) -> Optional[str]:
+    """
+    Remove credentials from proxy URL for safe logging.
+
+    Args:
+        proxy_url: Proxy URL that may contain credentials
+
+    Returns:
+        Sanitized URL with credentials replaced by '***:***', or None
+    """
+    if not proxy_url:
+        return None
+    try:
+        parsed = urlparse(proxy_url)
+        if parsed.username or parsed.password:
+            # Reconstruct URL without credentials
+            host_port = parsed.hostname or ""
+            if parsed.port:
+                host_port = f"{host_port}:{parsed.port}"
+            return f"{parsed.scheme}://***:***@{host_port}"
+        return proxy_url
+    except Exception:
+        return "***"
+
+
 def compute_content_hash(content: str) -> str:
     """
     Compute SHA-256 hash of content for deduplication.
@@ -76,19 +102,51 @@ def compute_content_hash(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-def is_valid_url(url: str) -> bool:
+def is_valid_url(url: str, allow_private: bool = False) -> bool:
     """
-    Validate URL format.
+    Validate URL format and optionally reject private/internal IPs (SSRF protection).
 
     Args:
         url: URL string to validate
+        allow_private: If False (default), reject private IP ranges for SSRF protection
 
     Returns:
-        True if URL is valid, False otherwise
+        True if URL is valid and safe, False otherwise
     """
     try:
         result = urlparse(url)
-        return all([result.scheme in ("http", "https"), result.netloc])
+        if result.scheme not in ("http", "https"):
+            return False
+        if not result.netloc:
+            return False
+
+        hostname = result.hostname
+        if not hostname:
+            return False
+
+        # SSRF protection: reject private/internal IPs unless explicitly allowed
+        if not allow_private:
+            # Reject localhost variants
+            if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
+                logger.warning("ssrf_blocked_localhost", url=url, hostname=hostname)
+                return False
+
+            # Check if hostname is an IP address and reject private ranges
+            try:
+                ip = ipaddress.ip_address(hostname)
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                    logger.warning(
+                        "ssrf_blocked_private_ip",
+                        url=url,
+                        hostname=hostname,
+                        ip_type="private" if ip.is_private else "reserved",
+                    )
+                    return False
+            except ValueError:
+                # Not an IP address, likely a domain name - that's fine
+                pass
+
+        return True
     except Exception:
         return False
 
@@ -290,7 +348,9 @@ class CrawlerService:
             self.wait_for = profile.wait_for
             self.wait_timeout = profile.wait_timeout
             # Use profile rate limit to calculate js_wait_seconds if not explicitly set
-            self.js_wait_seconds = js_wait_seconds if js_wait_seconds != DEFAULT_JS_WAIT_SECONDS else max(1.0, 1.0 / profile.rate_limit)
+            # Guard against division by zero with max(0.1, rate_limit)
+            safe_rate_limit = max(0.1, profile.rate_limit)
+            self.js_wait_seconds = js_wait_seconds if js_wait_seconds != DEFAULT_JS_WAIT_SECONDS else max(1.0, 1.0 / safe_rate_limit)
             self.profile_name = profile.name
             logger.info(
                 "crawler_profile_applied",
@@ -301,6 +361,7 @@ class CrawlerService:
                 max_concurrent=self.max_concurrent,
                 cache_enabled=self.cache_enabled,
                 wait_for=self.wait_for,
+                proxy_configured=sanitize_proxy_url(self.proxy_url),
             )
         else:
             self.headless = headless
@@ -314,6 +375,17 @@ class CrawlerService:
             self.profile_name = None
 
         self.page_timeout_ms = page_timeout_ms
+
+        # Validate timeout configuration
+        wait_timeout_ms = self.wait_timeout * 1000
+        if wait_timeout_ms > self.page_timeout_ms:
+            logger.warning(
+                "wait_timeout_exceeds_page_timeout",
+                wait_timeout_s=self.wait_timeout,
+                wait_timeout_ms=wait_timeout_ms,
+                page_timeout_ms=self.page_timeout_ms,
+                recommendation="wait_timeout should be less than page_timeout",
+            )
 
         self._crawler: Optional[AsyncWebCrawler] = None
         self._browser_config: Optional[BrowserConfig] = None
@@ -407,16 +479,30 @@ class CrawlerService:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Async context manager exit - cleanup browser."""
+        """Async context manager exit - cleanup browser with robust error handling."""
         if self._crawler:
-            await self._crawler.__aexit__(exc_type, exc_val, exc_tb)
-            self._crawler = None
-        logger.info("crawler_shutdown")
+            try:
+                await self._crawler.__aexit__(exc_type, exc_val, exc_tb)
+                logger.info(
+                    "crawler_browser_closed",
+                    exc_occurred=exc_type is not None,
+                    profile=self.profile_name,
+                )
+            except Exception as e:
+                logger.error(
+                    "crawler_cleanup_error",
+                    error=str(e),
+                    profile=self.profile_name,
+                )
+            finally:
+                self._crawler = None
+        logger.info("crawler_shutdown", profile=self.profile_name)
 
     def _convert_result_to_crawled_page(
         self,
         result,
         depth: int = 0,
+        tenant_id: Optional[str] = None,
     ) -> Optional[CrawledPage]:
         """
         Convert Crawl4AI result to CrawledPage model.
@@ -479,6 +565,7 @@ class CrawlerService:
             crawl_timestamp=datetime.now(timezone.utc),
             depth=depth,
             links=links,
+            tenant_id=tenant_id,
         )
 
     async def crawl_page(self, url: str) -> Optional[CrawledPage]:
@@ -513,6 +600,8 @@ class CrawlerService:
         self,
         urls: list[str],
         stream: bool = False,
+        max_pages: int = DEFAULT_MAX_PAGES,
+        tenant_id: Optional[str] = None,
     ) -> AsyncGenerator[CrawledPage, None]:
         """
         Crawl multiple URLs in parallel using Crawl4AI's arun_many().
@@ -523,6 +612,8 @@ class CrawlerService:
         Args:
             urls: List of URLs to crawl
             stream: If True, yield results as they complete. If False, wait for all.
+            max_pages: Maximum number of pages to crawl (memory safeguard)
+            tenant_id: Optional tenant ID for multi-tenancy tracking
 
         Yields:
             CrawledPage objects for each successfully crawled page
@@ -540,6 +631,15 @@ class CrawlerService:
 
         if not valid_urls:
             return
+
+        # Enforce max_pages limit to prevent unbounded memory usage
+        if len(valid_urls) > max_pages:
+            logger.warning(
+                "crawl_urls_truncated",
+                requested=len(valid_urls),
+                max_pages=max_pages,
+            )
+            valid_urls = valid_urls[:max_pages]
 
         # Create dispatcher for parallel crawling
         dispatcher = MemoryAdaptiveDispatcher(
@@ -585,7 +685,7 @@ class CrawlerService:
                     config=config,
                     dispatcher=dispatcher,
                 ):
-                    page = self._convert_result_to_crawled_page(result, depth=0)
+                    page = self._convert_result_to_crawled_page(result, depth=0, tenant_id=tenant_id)
                     if page:
                         yield page
             else:
@@ -596,7 +696,7 @@ class CrawlerService:
                     dispatcher=dispatcher,
                 )
                 for result in results:
-                    page = self._convert_result_to_crawled_page(result, depth=0)
+                    page = self._convert_result_to_crawled_page(result, depth=0, tenant_id=tenant_id)
                     if page:
                         yield page
 
@@ -693,7 +793,7 @@ class CrawlerService:
             # Crawl all URLs at this depth in parallel
             next_level: list[str] = []
 
-            async for page in self.crawl_many(urls_to_crawl, stream=True):
+            async for page in self.crawl_many(urls_to_crawl, stream=True, max_pages=remaining_budget, tenant_id=tenant_id):
                 page.depth = depth
                 pages_crawled += 1
                 yield page
