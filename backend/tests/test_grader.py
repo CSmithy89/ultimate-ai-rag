@@ -315,7 +315,7 @@ class TestRetrievalGrader:
         assert result.fallback_strategy == FallbackStrategy.WEB_SEARCH
         assert len(fallback_hits) == 1
         assert fallback_hits[0].content == "Fallback hit"
-        mock_fallback.execute.assert_called_once_with("test query")
+        mock_fallback.execute.assert_called_once_with("test query", None)
 
     @pytest.mark.asyncio
     async def test_grade_failing_no_fallback_handler(self, grader):

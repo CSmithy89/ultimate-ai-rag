@@ -360,7 +360,7 @@ class TestContextualChunkEnricher:
 
     @pytest.mark.asyncio
     async def test_document_content_truncation(self):
-        """Test that long document content is truncated."""
+        """Test that long document content is truncated using token-aware truncation."""
         enricher = ContextualChunkEnricher(
             model="claude-3-haiku-20240307",
             api_key="test-key",
@@ -377,8 +377,9 @@ class TestContextualChunkEnricher:
         mock_anthropic.AsyncAnthropic.return_value = mock_client
 
         with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
-            # Create very long document content
-            long_content = "x" * 10000
+            # Create very long document content with unique words (each word = ~1 token)
+            # MAX_DOCUMENT_CONTEXT_TOKENS is 2000, so 3000 unique words should trigger truncation
+            long_content = " ".join(f"word{i}" for i in range(3000))
 
             doc_context = DocumentContext(
                 title="Long Doc",

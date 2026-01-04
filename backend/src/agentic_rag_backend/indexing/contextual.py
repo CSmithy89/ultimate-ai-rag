@@ -13,13 +13,50 @@ from dataclasses import dataclass
 from typing import Optional
 
 import structlog
+import tiktoken
 
 from .chunker import ChunkData
 
 logger = structlog.get_logger(__name__)
 
 # Configuration constants
-MAX_DOCUMENT_CONTEXT_CHARS = 6000  # Maximum document content for context generation
+MAX_DOCUMENT_CONTEXT_TOKENS = 2000  # Maximum tokens for document context (more accurate than chars)
+TIKTOKEN_ENCODING = "cl100k_base"  # Encoding used by Claude and GPT-4
+
+# Lazy-loaded tiktoken encoder
+_tiktoken_encoder: Optional[tiktoken.Encoding] = None
+
+
+def _get_encoder() -> tiktoken.Encoding:
+    """Get or create the tiktoken encoder (singleton pattern)."""
+    global _tiktoken_encoder
+    if _tiktoken_encoder is None:
+        _tiktoken_encoder = tiktoken.get_encoding(TIKTOKEN_ENCODING)
+    return _tiktoken_encoder
+
+
+def truncate_to_tokens(text: str, max_tokens: int) -> str:
+    """Truncate text to a maximum number of tokens.
+
+    Args:
+        text: The text to truncate
+        max_tokens: Maximum number of tokens
+
+    Returns:
+        Truncated text with "... [truncated]" suffix if truncation occurred
+    """
+    encoder = _get_encoder()
+    tokens = encoder.encode(text)
+
+    if len(tokens) <= max_tokens:
+        return text
+
+    # Truncate tokens and decode back to text
+    truncated_tokens = tokens[:max_tokens]
+    truncated_text = encoder.decode(truncated_tokens)
+
+    return truncated_text + "... [truncated]"
+
 
 # Default context generation prompt with cache-friendly structure
 CONTEXT_GENERATION_PROMPT = """<document>
@@ -63,7 +100,10 @@ class ContextualChunkEnricher:
     Uses a cost-effective LLM (claude-3-haiku, gpt-4o-mini) to generate
     chunk-specific context that preserves document meaning.
 
-    Supports prompt caching (Anthropic) for ~90% cost reduction.
+    Supported providers:
+        - anthropic: Direct Anthropic API with prompt caching (~90% cost reduction)
+        - openai: Direct OpenAI API
+        - openrouter: OpenRouter gateway for multiple model providers (uses OpenAI-compatible API)
     """
 
     def __init__(
@@ -72,6 +112,7 @@ class ContextualChunkEnricher:
         use_prompt_caching: bool = True,
         api_key: Optional[str] = None,
         provider: str = "anthropic",
+        base_url: Optional[str] = None,
     ) -> None:
         """Initialize the contextual enricher.
 
@@ -79,12 +120,14 @@ class ContextualChunkEnricher:
             model: LLM model to use for context generation
             use_prompt_caching: Enable prompt caching (Anthropic only)
             api_key: API key for the LLM provider
-            provider: LLM provider (anthropic, openai)
+            provider: LLM provider (anthropic, openai, openrouter)
+            base_url: Custom base URL for OpenAI-compatible providers (e.g., OpenRouter)
         """
         self._model = model
         self._use_prompt_caching = use_prompt_caching
         self._api_key = api_key
         self._provider = provider
+        self._base_url = base_url
         self._client = None
         self._initialized = False
 
@@ -93,6 +136,7 @@ class ContextualChunkEnricher:
             model=model,
             provider=provider,
             prompt_caching=use_prompt_caching,
+            base_url=base_url,
         )
 
     async def _ensure_client(self) -> None:
@@ -114,9 +158,19 @@ class ContextualChunkEnricher:
         elif self._provider in {"openai", "openrouter"}:
             try:
                 import openai
-                self._client = openai.AsyncOpenAI(api_key=self._api_key)
+
+                # Use custom base_url for OpenRouter or other OpenAI-compatible providers
+                client_kwargs = {"api_key": self._api_key}
+                if self._base_url:
+                    client_kwargs["base_url"] = self._base_url
+
+                self._client = openai.AsyncOpenAI(**client_kwargs)
                 self._initialized = True
-                logger.info("openai_client_initialized", model=self._model)
+                logger.info(
+                    "openai_client_initialized",
+                    model=self._model,
+                    base_url=self._base_url,
+                )
             except ImportError:
                 raise RuntimeError(
                     "openai package required for contextual retrieval. "
@@ -148,10 +202,11 @@ class ContextualChunkEnricher:
         if document_context.summary:
             doc_header += f"Summary: {document_context.summary}\n"
 
-        # Truncate document content if too long for context window
-        doc_content = document_context.full_content
-        if len(doc_content) > MAX_DOCUMENT_CONTEXT_CHARS:
-            doc_content = doc_content[:MAX_DOCUMENT_CONTEXT_CHARS] + "... [truncated]"
+        # Truncate document content using token-aware truncation
+        doc_content = truncate_to_tokens(
+            document_context.full_content,
+            MAX_DOCUMENT_CONTEXT_TOKENS,
+        )
 
         full_doc = doc_header + doc_content if doc_header else doc_content
 
@@ -353,9 +408,22 @@ def create_contextual_enricher(
     if not settings.contextual_retrieval_enabled:
         return None
 
-    # Determine provider from model name
+    # Determine provider from model name or explicit setting
     model = settings.contextual_model
-    if "claude" in model.lower():
+    base_url: Optional[str] = None
+
+    # Check if OpenRouter is explicitly configured
+    openrouter_key = getattr(settings, "openrouter_api_key", None)
+    openrouter_base = getattr(settings, "openrouter_base_url", "https://openrouter.ai/api/v1")
+
+    if openrouter_key and (
+        "openrouter" in model.lower()
+        or "/" in model  # OpenRouter uses "org/model" format
+    ):
+        provider = "openrouter"
+        api_key = openrouter_key
+        base_url = openrouter_base
+    elif "claude" in model.lower():
         provider = "anthropic"
         api_key = settings.anthropic_api_key
     elif "gpt" in model.lower():
@@ -379,4 +447,5 @@ def create_contextual_enricher(
         use_prompt_caching=settings.contextual_prompt_caching,
         api_key=api_key,
         provider=provider,
+        base_url=base_url,
     )

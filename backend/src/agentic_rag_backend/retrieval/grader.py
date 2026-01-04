@@ -268,11 +268,12 @@ class BaseFallbackHandler(ABC):
     """Abstract base class for fallback handlers."""
 
     @abstractmethod
-    async def execute(self, query: str) -> list[RetrievalHit]:
+    async def execute(self, query: str, tenant_id: Optional[str] = None) -> list[RetrievalHit]:
         """Execute fallback retrieval.
 
         Args:
             query: The original query string
+            tenant_id: Tenant identifier for multi-tenancy isolation
 
         Returns:
             List of additional retrieval hits from fallback
@@ -311,13 +312,25 @@ class WebSearchFallback(BaseFallbackHandler):
                     "Install with: pip install tavily-python"
                 )
 
-    async def execute(self, query: str) -> list[RetrievalHit]:
-        """Execute web search fallback."""
+    async def execute(self, query: str, tenant_id: Optional[str] = None) -> list[RetrievalHit]:
+        """Execute web search fallback.
+
+        Args:
+            query: The original query string
+            tenant_id: Tenant identifier for multi-tenancy isolation (unused for web search)
+
+        Returns:
+            List of retrieval hits from web search
+        """
         self._ensure_client()
 
         try:
-            response = self._client.search(
-                query=query, max_results=self.max_results, search_depth="basic"
+            # Wrap synchronous Tavily call in asyncio.to_thread to avoid blocking event loop
+            response = await asyncio.to_thread(
+                self._client.search,
+                query=query,
+                max_results=self.max_results,
+                search_depth="basic",
             )
 
             hits = []
@@ -369,8 +382,15 @@ class ExpandedQueryFallback(BaseFallbackHandler):
         """
         self.retrieval_func = retrieval_func
 
-    async def execute(self, query: str) -> list[RetrievalHit]:
+    async def execute(self, query: str, tenant_id: Optional[str] = None) -> list[RetrievalHit]:
         """Execute expanded query fallback.
+
+        Args:
+            query: The original query string
+            tenant_id: Tenant identifier for multi-tenancy isolation
+
+        Returns:
+            List of additional retrieval hits from expanded queries
 
         Note: This is a placeholder implementation. Full implementation
         would use an LLM to generate query variations.
@@ -378,9 +398,10 @@ class ExpandedQueryFallback(BaseFallbackHandler):
         logger.info(
             "expanded_query_fallback_executed",
             query=query[:100],
+            tenant_id=tenant_id,
         )
         # Placeholder - return empty list
-        # Full implementation would generate query variations
+        # Full implementation would generate query variations and call retrieval_func with tenant_id
         return []
 
 
@@ -415,13 +436,14 @@ class RetrievalGrader:
         self.fallback_handler = fallback_handler
 
     async def grade_and_fallback(
-        self, query: str, hits: list[RetrievalHit]
+        self, query: str, hits: list[RetrievalHit], tenant_id: Optional[str] = None
     ) -> tuple[GraderResult, list[RetrievalHit]]:
         """Grade retrieval results and execute fallback if needed.
 
         Args:
             query: The original query string
             hits: List of retrieval hits to grade
+            tenant_id: Tenant identifier for multi-tenancy isolation
 
         Returns:
             Tuple of (GraderResult, list of additional hits from fallback)
@@ -439,9 +461,10 @@ class RetrievalGrader:
                 score=result.score,
                 threshold=result.threshold,
                 strategy=self.fallback_strategy.value,
+                tenant_id=tenant_id,
             )
 
-            fallback_hits = await self.fallback_handler.execute(query)
+            fallback_hits = await self.fallback_handler.execute(query, tenant_id)
 
         return result, fallback_hits
 
