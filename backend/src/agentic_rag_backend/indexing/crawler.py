@@ -15,6 +15,7 @@ Story 13.4: Added crawl configuration profiles for different scenarios.
 
 import asyncio
 import hashlib
+import os
 import re
 from datetime import datetime, timezone
 from typing import AsyncGenerator, Optional
@@ -59,7 +60,7 @@ DEFAULT_USER_AGENT = (
 )
 DEFAULT_MAX_CONCURRENT = 10  # Maximum concurrent crawl sessions
 DEFAULT_JS_WAIT_SECONDS = 2.0  # Wait for JavaScript to render
-HTML_MARKDOWN_THREAD_THRESHOLD = 100_000
+DEFAULT_MAX_PAGES = 1000  # Maximum pages to crawl in a single session
 
 
 def compute_content_hash(content: str) -> str:
@@ -181,7 +182,7 @@ def extract_links_from_markdown(markdown: str, base_url: str) -> list[str]:
     Returns:
         List of normalized absolute URLs
     """
-    # Match markdown links: [text](url) and bare URLs
+    # Match markdown links: [text](url)
     link_pattern = r'\[([^\]]*)\]\(([^)]+)\)'
     links = []
 
@@ -331,12 +332,15 @@ class CrawlerService:
         # Add stealth mode configuration if enabled
         # Stealth mode helps bypass bot detection
         if self.stealth:
-            # Use user_agent to appear more like a real browser
-            config_kwargs["user_agent"] = (
+            # Use current Chrome user agent to appear more like a real browser
+            # Chrome 130+ is recommended to avoid bot detection flags
+            user_agent = os.getenv(
+                "CRAWL4AI_USER_AGENT",
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
             )
-            logger.debug("stealth_mode_enabled", headless=self.headless)
+            config_kwargs["user_agent"] = user_agent
+            logger.debug("stealth_mode_enabled", headless=self.headless, user_agent=user_agent[:50])
 
         return BrowserConfig(**config_kwargs)
 
@@ -373,13 +377,14 @@ class CrawlerService:
         # Add wait_for condition if specified (from profile or explicit setting)
         if self.wait_for:
             config_kwargs["wait_for"] = self.wait_for
-            # Use wait_timeout for the wait condition
+            # Pass wait_for_timeout in milliseconds to CrawlerRunConfig
             if self.wait_timeout > 0:
+                config_kwargs["wait_for_timeout"] = int(self.wait_timeout * 1000)
                 config_kwargs["wait_until"] = "domcontentloaded"
             logger.debug(
                 "wait_for_condition_set",
                 wait_for=self.wait_for,
-                wait_timeout=self.wait_timeout,
+                wait_timeout_ms=int(self.wait_timeout * 1000),
             )
 
         return CrawlerRunConfig(**config_kwargs)
@@ -549,14 +554,21 @@ class CrawlerService:
         if hasattr(config, 'clone'):
             config = config.clone(stream=stream)
         else:
-            # Fallback: create new config with stream
-            config = CrawlerRunConfig(
-                cache_mode=config.cache_mode,
-                page_timeout=self.page_timeout_ms,
-                delay_before_return_html=self.js_wait_seconds if self.js_wait_seconds > 0 else 0.1,
-                verbose=False,
-                stream=stream,
-            )
+            # Fallback: create new config with stream, preserving all settings
+            fallback_kwargs = {
+                "cache_mode": config.cache_mode,
+                "page_timeout": self.page_timeout_ms,
+                "delay_before_return_html": self.js_wait_seconds if self.js_wait_seconds > 0 else 0.1,
+                "verbose": False,
+                "stream": stream,
+            }
+            # Preserve wait_for settings from original config
+            if self.wait_for:
+                fallback_kwargs["wait_for"] = self.wait_for
+                if self.wait_timeout > 0:
+                    fallback_kwargs["wait_for_timeout"] = int(self.wait_timeout * 1000)
+                    fallback_kwargs["wait_until"] = "domcontentloaded"
+            config = CrawlerRunConfig(**fallback_kwargs)
 
         logger.info(
             "crawl_many_started",
@@ -598,7 +610,9 @@ class CrawlerService:
         self,
         start_url: str,
         max_depth: int = DEFAULT_MAX_DEPTH,
+        max_pages: int = DEFAULT_MAX_PAGES,
         options: Optional[CrawlOptions] = None,
+        tenant_id: Optional[str] = None,
     ) -> AsyncGenerator[CrawledPage, None]:
         """
         Crawl a website starting from the given URL.
@@ -609,7 +623,9 @@ class CrawlerService:
         Args:
             start_url: Starting URL for the crawl
             max_depth: Maximum depth to crawl (1 = start page only)
+            max_pages: Maximum pages to crawl (prevents unbounded memory growth)
             options: Optional crawl configuration
+            tenant_id: Optional tenant ID for multi-tenancy tracking
 
         Yields:
             CrawledPage objects for each successfully crawled page
@@ -626,14 +642,27 @@ class CrawlerService:
 
         visited: set[str] = set()
         current_level: list[str] = [start_url]
+        pages_crawled = 0
 
         logger.info(
             "crawl_started",
             start_url=start_url,
             max_depth=max_depth,
+            max_pages=max_pages,
+            tenant_id=tenant_id,
         )
 
         for depth in range(max_depth):
+            # Check max_pages limit before starting new depth
+            if pages_crawled >= max_pages:
+                logger.warning(
+                    "crawl_max_pages_reached",
+                    max_pages=max_pages,
+                    pages_crawled=pages_crawled,
+                    depth=depth,
+                )
+                break
+
             # Filter out already visited URLs
             urls_to_crawl = []
             for url in current_level:
@@ -644,6 +673,16 @@ class CrawlerService:
 
             if not urls_to_crawl:
                 break
+
+            # Limit URLs to remaining page budget
+            remaining_budget = max_pages - pages_crawled
+            if len(urls_to_crawl) > remaining_budget:
+                urls_to_crawl = urls_to_crawl[:remaining_budget]
+                logger.info(
+                    "crawl_urls_limited_by_budget",
+                    original_count=len(current_level),
+                    limited_to=remaining_budget,
+                )
 
             logger.info(
                 "crawl_depth_started",
@@ -656,7 +695,13 @@ class CrawlerService:
 
             async for page in self.crawl_many(urls_to_crawl, stream=True):
                 page.depth = depth
+                pages_crawled += 1
                 yield page
+
+                # Check if we've hit the max_pages limit
+                if pages_crawled >= max_pages:
+                    logger.info("crawl_max_pages_limit_hit", max_pages=max_pages)
+                    break
 
                 # Collect links for next depth if we haven't reached max depth
                 if depth < max_depth - 1 and options.follow_links:
@@ -680,18 +725,22 @@ class CrawlerService:
                             if should_include:
                                 next_level.append(link)
 
-            current_level = list(set(next_level))  # Deduplicate
+            # Use set for efficient deduplication
+            current_level = list(set(next_level))
 
         logger.info(
             "crawl_completed",
             start_url=start_url,
-            pages_crawled=len(visited),
+            pages_crawled=pages_crawled,
+            visited_urls=len(visited),
+            tenant_id=tenant_id,
         )
 
 
 async def crawl_url(
     url: str,
     max_depth: int = DEFAULT_MAX_DEPTH,
+    max_pages: int = DEFAULT_MAX_PAGES,
     rate_limit: float = DEFAULT_RATE_LIMIT,
     options: Optional[CrawlOptions] = None,
     headless: bool = True,
@@ -702,6 +751,7 @@ async def crawl_url(
     profile: Optional[CrawlProfile] = None,
     profile_name: Optional[str] = None,
     auto_detect_profile: bool = False,
+    tenant_id: Optional[str] = None,
 ) -> AsyncGenerator[CrawledPage, None]:
     """
     Convenience function for crawling a URL using Crawl4AI.
@@ -709,6 +759,7 @@ async def crawl_url(
     Args:
         url: URL to crawl
         max_depth: Maximum crawl depth
+        max_pages: Maximum pages to crawl (prevents unbounded memory growth)
         rate_limit: Requests per second (legacy parameter, not used with Crawl4AI)
         options: Optional crawl configuration
         headless: Run browser in headless mode
@@ -719,6 +770,7 @@ async def crawl_url(
         profile: Optional CrawlProfile instance to use
         profile_name: Optional profile name (fast, thorough, stealth)
         auto_detect_profile: If True, auto-detect profile based on URL
+        tenant_id: Optional tenant ID for multi-tenancy tracking
 
     Yields:
         CrawledPage objects for each crawled page
@@ -747,7 +799,13 @@ async def crawl_url(
         js_wait_seconds=js_wait_seconds,
         profile=effective_profile,
     ) as crawler:
-        async for page in crawler.crawl(url, max_depth=max_depth, options=options):
+        async for page in crawler.crawl(
+            url,
+            max_depth=max_depth,
+            max_pages=max_pages,
+            options=options,
+            tenant_id=tenant_id,
+        ):
             yield page
 
 

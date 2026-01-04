@@ -24,6 +24,46 @@ def get_bool_env(key: str, default: str = "false") -> bool:
     return os.getenv(key, default).strip().lower() in {"true", "1", "yes"}
 
 
+def get_int_env(key: str, default: int, min_val: Optional[int] = None) -> int:
+    """Parse an integer environment variable with optional minimum validation.
+
+    Args:
+        key: Environment variable name
+        default: Default value if not set or invalid
+        min_val: Optional minimum value; if current value < min_val, returns default
+
+    Returns:
+        Parsed integer value, or default if parsing fails or value < min_val
+    """
+    try:
+        value = int(os.getenv(key, str(default)))
+        if min_val is not None and value < min_val:
+            return default
+        return value
+    except ValueError:
+        return default
+
+
+def get_float_env(key: str, default: float, min_val: Optional[float] = None) -> float:
+    """Parse a float environment variable with optional minimum validation.
+
+    Args:
+        key: Environment variable name
+        default: Default value if not set or invalid
+        min_val: Optional minimum value; if current value < min_val, returns default
+
+    Returns:
+        Parsed float value, or default if parsing fails or value < min_val
+    """
+    try:
+        value = float(os.getenv(key, str(default)))
+        if min_val is not None and value < min_val:
+            return default
+        return value
+    except ValueError:
+        return default
+
+
 # Search configuration constants
 DEFAULT_SEARCH_RESULTS = 5
 MAX_SEARCH_RESULTS = 100
@@ -249,28 +289,13 @@ def load_settings() -> Settings:
     except ValueError:
         crawl4ai_rate_limit = 1.0
 
-    # Story 13.3 - Crawl4AI configuration
+    # Story 13.3 - Crawl4AI configuration (using helper functions)
     crawl4ai_headless = get_bool_env("CRAWL4AI_HEADLESS", "true")
-    try:
-        crawl4ai_max_concurrent = int(os.getenv("CRAWL4AI_MAX_CONCURRENT", "10"))
-        if crawl4ai_max_concurrent < 1:
-            crawl4ai_max_concurrent = 10
-    except ValueError:
-        crawl4ai_max_concurrent = 10
+    crawl4ai_max_concurrent = get_int_env("CRAWL4AI_MAX_CONCURRENT", 10, min_val=1)
     crawl4ai_cache_enabled = get_bool_env("CRAWL4AI_CACHE_ENABLED", "true")
     crawl4ai_proxy_url = os.getenv("CRAWL4AI_PROXY_URL") or None
-    try:
-        crawl4ai_js_wait_seconds = float(os.getenv("CRAWL4AI_JS_WAIT_SECONDS", "2.0"))
-        if crawl4ai_js_wait_seconds < 0:
-            crawl4ai_js_wait_seconds = 2.0
-    except ValueError:
-        crawl4ai_js_wait_seconds = 2.0
-    try:
-        crawl4ai_page_timeout_ms = int(os.getenv("CRAWL4AI_PAGE_TIMEOUT_MS", "60000"))
-        if crawl4ai_page_timeout_ms < 1000:
-            crawl4ai_page_timeout_ms = 60000
-    except ValueError:
-        crawl4ai_page_timeout_ms = 60000
+    crawl4ai_js_wait_seconds = get_float_env("CRAWL4AI_JS_WAIT_SECONDS", 2.0, min_val=0.0)
+    crawl4ai_page_timeout_ms = get_int_env("CRAWL4AI_PAGE_TIMEOUT_MS", 60000, min_val=1000)
 
     # Story 13.4 - Crawl Configuration Profiles
     crawl4ai_profile = os.getenv("CRAWL4AI_PROFILE", "fast").strip().lower()

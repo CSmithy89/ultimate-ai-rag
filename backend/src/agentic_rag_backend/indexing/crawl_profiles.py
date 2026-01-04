@@ -8,7 +8,7 @@ Provides pre-defined profiles for common crawling scenarios:
 - STEALTH: For bot-protected sites with anti-detection measures
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Optional
 from urllib.parse import urlparse
@@ -222,11 +222,14 @@ def get_profile_for_url(url: str) -> str:
         )
         return "thorough"
 
-    except Exception as e:
+    except (ValueError, AttributeError) as e:
+        # ValueError: malformed URL in urlparse
+        # AttributeError: None or unexpected type in URL
         logger.warning(
             "crawl_profile_detection_failed",
             url=url,
             error=str(e),
+            error_type=type(e).__name__,
             fallback_profile="thorough",
         )
         return "thorough"
@@ -237,7 +240,7 @@ def apply_proxy_override(profile: CrawlProfile, proxy_url: Optional[str]) -> Cra
     Create a new profile with an overridden proxy configuration.
 
     Since CrawlProfile is frozen, this creates a new instance with the
-    updated proxy_config field.
+    updated proxy_config field using dataclasses.replace().
 
     Args:
         profile: Original profile
@@ -249,15 +252,4 @@ def apply_proxy_override(profile: CrawlProfile, proxy_url: Optional[str]) -> Cra
     if proxy_url is None:
         return profile
 
-    return CrawlProfile(
-        name=profile.name,
-        description=profile.description,
-        headless=profile.headless,
-        stealth=profile.stealth,
-        max_concurrent=profile.max_concurrent,
-        rate_limit=profile.rate_limit,
-        wait_for=profile.wait_for,
-        wait_timeout=profile.wait_timeout,
-        proxy_config=proxy_url,
-        cache_enabled=profile.cache_enabled,
-    )
+    return replace(profile, proxy_config=proxy_url)
