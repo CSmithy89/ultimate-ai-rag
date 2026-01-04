@@ -191,6 +191,11 @@ class OrchestratorAgent:
                 ),
             )
 
+    @property
+    def vector_search_service(self) -> "VectorSearchService | None":
+        """Public access to the vector search service for A2A capabilities."""
+        return self._vector_search
+
     def _build_chat_model(self, model_id: str) -> Any:
         if self._provider in {"openai", "openrouter", "ollama"}:
             model_cls = AgnoOpenAIChatImpl

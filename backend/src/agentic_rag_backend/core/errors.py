@@ -40,6 +40,16 @@ class ErrorCode(str, Enum):
     CODEBASE_VALIDATION_FAILED = "codebase_validation_failed"
     CODEBASE_INDEX_FAILED = "codebase_index_failed"
     HALLUCINATION_DETECTED = "hallucination_detected"
+    # Epic 14 - A2A Protocol error codes
+    A2A_AGENT_NOT_FOUND = "a2a_agent_not_found"
+    A2A_AGENT_UNHEALTHY = "a2a_agent_unhealthy"
+    A2A_CAPABILITY_NOT_FOUND = "a2a_capability_not_found"
+    A2A_TASK_NOT_FOUND = "a2a_task_not_found"
+    A2A_TASK_TIMEOUT = "a2a_task_timeout"
+    A2A_DELEGATION_FAILED = "a2a_delegation_failed"
+    A2A_REGISTRATION_FAILED = "a2a_registration_failed"
+    A2A_PERMISSION_DENIED = "a2a_permission_denied"
+    A2A_SERVICE_UNAVAILABLE = "a2a_service_unavailable"
 
 
 class AppError(Exception):
@@ -412,4 +422,121 @@ class HallucinationError(AppError):
                     f"({ratio:.1%} exceeds {threshold:.1%} threshold)",
             status=422,
             details=details,
+        )
+
+
+# Epic 14 - A2A Protocol Errors
+
+
+class A2AAgentNotFoundError(AppError):
+    """Error when an A2A agent is not found."""
+
+    def __init__(self, agent_id: str) -> None:
+        super().__init__(
+            code=ErrorCode.A2A_AGENT_NOT_FOUND,
+            message=f"Agent '{agent_id}' not found in registry",
+            status=404,
+            details={"agent_id": agent_id},
+        )
+
+
+class A2AAgentUnhealthyError(AppError):
+    """Error when an A2A agent is unhealthy or unresponsive."""
+
+    def __init__(self, agent_id: str, reason: str = "Agent is not responding to heartbeats") -> None:
+        super().__init__(
+            code=ErrorCode.A2A_AGENT_UNHEALTHY,
+            message=f"Agent '{agent_id}' is unhealthy: {reason}",
+            status=503,
+            details={"agent_id": agent_id, "reason": reason},
+        )
+
+
+class A2ACapabilityNotFoundError(AppError):
+    """Error when no agent with required capability is found."""
+
+    def __init__(self, capability_name: str) -> None:
+        super().__init__(
+            code=ErrorCode.A2A_CAPABILITY_NOT_FOUND,
+            message=f"No healthy agent found with capability '{capability_name}'",
+            status=404,
+            details={"capability_name": capability_name},
+        )
+
+
+class A2ATaskNotFoundError(AppError):
+    """Error when an A2A task is not found."""
+
+    def __init__(self, task_id: str) -> None:
+        super().__init__(
+            code=ErrorCode.A2A_TASK_NOT_FOUND,
+            message=f"Task '{task_id}' not found",
+            status=404,
+            details={"task_id": task_id},
+        )
+
+
+class A2ATaskTimeoutError(AppError):
+    """Error when an A2A task times out."""
+
+    def __init__(self, task_id: str, timeout_seconds: int) -> None:
+        super().__init__(
+            code=ErrorCode.A2A_TASK_TIMEOUT,
+            message=f"Task '{task_id}' timed out after {timeout_seconds} seconds",
+            status=504,
+            details={"task_id": task_id, "timeout_seconds": timeout_seconds},
+        )
+
+
+class A2ADelegationError(AppError):
+    """Error when task delegation fails."""
+
+    def __init__(self, reason: str, task_id: Optional[str] = None) -> None:
+        details: dict[str, Any] = {}
+        if task_id:
+            details["task_id"] = task_id
+        super().__init__(
+            code=ErrorCode.A2A_DELEGATION_FAILED,
+            message=f"Task delegation failed: {reason}",
+            status=500,
+            details=details,
+        )
+
+
+class A2ARegistrationError(AppError):
+    """Error when agent registration fails."""
+
+    def __init__(self, agent_id: str, reason: str) -> None:
+        super().__init__(
+            code=ErrorCode.A2A_REGISTRATION_FAILED,
+            message=f"Agent registration failed: {reason}",
+            status=400,
+            details={"agent_id": agent_id},
+        )
+
+
+class A2APermissionError(AppError):
+    """Error when A2A operation is denied due to permission/tenant mismatch."""
+
+    def __init__(self, reason: str, resource_id: Optional[str] = None) -> None:
+        details: dict[str, Any] = {"reason": reason}
+        if resource_id:
+            details["resource_id"] = resource_id
+        super().__init__(
+            code=ErrorCode.A2A_PERMISSION_DENIED,
+            message=f"A2A operation denied: {reason}",
+            status=403,
+            details=details,
+        )
+
+
+class A2AServiceUnavailableError(AppError):
+    """Error when an A2A service (like orchestrator) is unavailable."""
+
+    def __init__(self, service: str, reason: str = "Service not available") -> None:
+        super().__init__(
+            code=ErrorCode.A2A_SERVICE_UNAVAILABLE,
+            message=f"{service} is unavailable: {reason}",
+            status=503,
+            details={"service": service, "reason": reason},
         )

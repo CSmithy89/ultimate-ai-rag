@@ -39,6 +39,9 @@ from .core.errors import AppError, app_error_handler, http_exception_handler
 from .protocols.a2a import A2ASessionManager
 from .protocols.ag_ui_bridge import HITLManager
 from .protocols.mcp import MCPToolRegistry
+from .protocols.a2a_registry import A2AAgentRegistry, RegistryConfig
+from .protocols.a2a_delegation import TaskDelegationManager, DelegationConfig
+from .protocols.a2a_messages import get_implemented_rag_capabilities
 from .rate_limit import InMemoryRateLimiter, RateLimiter, RedisRateLimiter, close_redis
 from .schemas import QueryEnvelope, QueryRequest, QueryResponse, ResponseMeta
 from .trajectory import TrajectoryLogger, close_pool, create_pool
@@ -320,6 +323,68 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await app.state.a2a_manager.start_cleanup_task(
         settings.a2a_cleanup_interval_seconds
     )
+
+    # Epic 14: Initialize A2A agent registry and task delegation
+    if settings.a2a_enabled:
+        registry_config = RegistryConfig(
+            heartbeat_interval_seconds=settings.a2a_heartbeat_interval_seconds,
+            heartbeat_timeout_seconds=settings.a2a_heartbeat_timeout_seconds,
+            cleanup_interval_seconds=settings.a2a_cleanup_interval_seconds,
+        )
+        app.state.a2a_registry = A2AAgentRegistry(
+            config=registry_config,
+            redis_client=getattr(app.state, "redis_client", None),
+        )
+        await app.state.a2a_registry.start_cleanup_task()
+
+        delegation_config = DelegationConfig(
+            default_timeout_seconds=settings.a2a_task_default_timeout_seconds,
+            max_retries=settings.a2a_task_max_retries,
+        )
+        app.state.a2a_delegation_manager = TaskDelegationManager(
+            registry=app.state.a2a_registry,
+            config=delegation_config,
+            redis_client=getattr(app.state, "redis_client", None),
+        )
+
+        # Self-register this agent's RAG capabilities in the registry
+        # Use a default tenant for system-level registration
+        default_tenant = "system"
+        try:
+            await app.state.a2a_registry.register_agent(
+                agent_id=settings.a2a_agent_id,
+                agent_type="rag_engine",
+                endpoint_url=settings.a2a_endpoint_url,
+                capabilities=get_implemented_rag_capabilities(),
+                tenant_id=default_tenant,
+                metadata={
+                    "version": "0.1.0",
+                    "self_registered": True,
+                },
+            )
+            struct_logger.info(
+                "a2a_agent_self_registered",
+                agent_id=settings.a2a_agent_id,
+                capabilities=[c.name for c in get_implemented_rag_capabilities()],
+            )
+        except Exception:
+            # Use exception() to log full traceback for debugging startup issues
+            struct_logger.exception(
+                "a2a_self_registration_failed",
+                agent_id=settings.a2a_agent_id,
+            )
+
+        struct_logger.info(
+            "a2a_protocol_initialized",
+            agent_id=settings.a2a_agent_id,
+            endpoint_url=settings.a2a_endpoint_url,
+            heartbeat_interval=settings.a2a_heartbeat_interval_seconds,
+        )
+    else:
+        app.state.a2a_registry = None
+        app.state.a2a_delegation_manager = None
+        struct_logger.info("a2a_protocol_disabled")
+
     app.state.mcp_registry = MCPToolRegistry(
         orchestrator=app.state.orchestrator,
         neo4j=getattr(app.state, "neo4j", None),
@@ -333,6 +398,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Shutdown: Close database connections
     if hasattr(app.state, "a2a_manager") and app.state.a2a_manager:
         await app.state.a2a_manager.stop_cleanup_task()
+    # Epic 14: Stop A2A registry cleanup task
+    if hasattr(app.state, "a2a_registry") and app.state.a2a_registry:
+        await app.state.a2a_registry.stop_cleanup_task()
+    # Epic 14: Close A2A delegation manager HTTP client
+    if hasattr(app.state, "a2a_delegation_manager") and app.state.a2a_delegation_manager:
+        await app.state.a2a_delegation_manager.close()
     # Epic 5: Graphiti connection
     if hasattr(app.state, "graphiti") and app.state.graphiti:
         await app.state.graphiti.disconnect()

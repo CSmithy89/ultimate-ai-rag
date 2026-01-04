@@ -24,6 +24,17 @@ Mark each standard as Addressed, N/A, or Planned, with a brief note.
 - [ ] Error handling + logging: [Addressed | N/A | Planned] - [note]
 - [ ] Documentation updates: [Addressed | N/A | Planned] - [note]
 
+## Security Checklist
+
+For data-access operations, verify each item. Mark N/A if not applicable.
+
+- [ ] **Cross-tenant isolation verified**: After fetching data, verify `tenant_id` matches before returning
+- [ ] **Authorization checked**: User/agent has permission to access the resource
+- [ ] **No information leakage**: Error messages don't reveal existence of resources in other tenants
+- [ ] **Redis keys include tenant scope**: Keys are prefixed/scoped to prevent cross-tenant access
+- [ ] **Integration tests for access control**: Tests attempt cross-tenant access and verify denial
+- [ ] **RFC 7807 error responses**: All errors follow standard format with proper codes
+
 ## Tasks / Subtasks
 
 - [ ] Task (AC: 1)

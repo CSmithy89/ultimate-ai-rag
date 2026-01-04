@@ -195,11 +195,11 @@ development_status:
   # DECISION: WRAP Graphiti MCP, don't duplicate - extend with RAG-specific tools
   # TECH SPEC: _bmad-output/epics/epic-14-tech-spec.md (2026-01-04)
   # See: docs/guides/mcp-wrapper-architecture.md
-  epic-14: in-progress
+  epic-14: done
   14-1-expose-rag-engine-via-mcp-server: done
   # Wraps Graphiti MCP + adds: vector_search, ingest_url, ingest_pdf, ingest_youtube, query_with_reranking
-  14-2-implement-robust-a2a-protocol: backlog
-  epic-14-retrospective: optional
+  14-2-implement-robust-a2a-protocol: done
+  epic-14-retrospective: done
 
   # Epic 15: Codebase Intelligence (RENAMED - was Multimodal & Codebase)
   # DECISION: REMOVED video/image processing (YouTube transcript covers 90%+ of RAG needs)
@@ -262,6 +262,10 @@ development_status:
   18-8-create-cli-installation-manual: backlog
   # TECH DEBT (2026-01-04): Audit workspace endpoints for RFC 7807 error format compliance
   18-9-audit-rfc7807-error-compliance: backlog
+  # NEW (Epic 14 Retro): MCP stdio transport for Claude Desktop native integration
+  18-10-implement-mcp-stdio-transport: backlog
+  # NEW (Epic 14 Retro): RFC 7807 error response linter for CI
+  18-11-implement-rfc7807-linter-rule: backlog
   epic-18-retrospective: optional
 
   # ==========================================
@@ -308,6 +312,7 @@ development_status:
   # --- Group F: Epic 12 Code Review Carry-Forward ---
   # PRIORITY: HIGH
   19-F1-add-full-retrieval-pipeline-integration-test: backlog
+  # UPDATED (Epic 14 Retro): Include A2A API endpoint integration tests
   19-F2-add-multi-tenancy-enforcement-tests: backlog
   # PRIORITY: MEDIUM
   19-F3-make-crossencoder-grader-model-selectable: backlog
@@ -359,5 +364,17 @@ development_status:
   # Document memory usage for >100 page crawls, recommend streaming
   19-I12-add-profile-auto-detection-examples: backlog
   # Add usage examples to get_profile_for_url() docstring
+
+  # --- Group J: Epic 14 Retro Carry-Forward ---
+  # Origin: Epic 14 retrospective (2026-01-05)
+  # PRIORITY: HIGH
+  19-J1-add-tenant-isolation-automated-tests: backlog
+  # Automated security test suite that attempts cross-tenant access patterns
+  # PRIORITY: MEDIUM
+  19-J2-add-endpoint-spec-compliance-tests: backlog
+  # Validate endpoint paths and capabilities match story specs
+  # PRIORITY: LOW
+  19-J3-implement-dedicated-pdf-parsing-tool: backlog
+  # Dedicated PDF parsing with Docling instead of generic text ingestion flow
 
   epic-19-retrospective: optional

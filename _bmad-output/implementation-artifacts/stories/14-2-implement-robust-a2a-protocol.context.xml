@@ -1,0 +1,742 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story Context File for 14-2: Implement Robust A2A Protocol
+  Generated: 2026-01-04
+  Epic: 14 - Connectivity (MCP Wrapper Architecture)
+
+  This file provides comprehensive implementation context for developers
+  working on Story 14-2. It includes existing code patterns, dependencies,
+  file locations, and implementation guidance.
+-->
+<story-context>
+  <metadata>
+    <story-id>14-2</story-id>
+    <title>Implement Robust A2A Protocol</title>
+    <status>ready-for-dev</status>
+    <complexity>High (5-6 days estimated)</complexity>
+    <epic>14 - Connectivity (MCP Wrapper Architecture)</epic>
+    <story-file>_bmad-output/implementation-artifacts/stories/14-2-implement-robust-a2a-protocol.md</story-file>
+    <tech-spec>_bmad-output/epics/epic-14-tech-spec.md</tech-spec>
+  </metadata>
+
+  <objective>
+    <summary>
+      Enhance the existing A2A protocol implementation with agent capabilities discovery,
+      standardized task delegation, result tracking, health monitoring, and bidirectional
+      communication patterns to enable robust multi-agent orchestration.
+    </summary>
+    <gaps-to-address>
+      <gap priority="high">No agent capabilities discovery - agents cannot discover what other agents can do</gap>
+      <gap priority="high">No structured task delegation - only free-form messages, no request/response correlation</gap>
+      <gap priority="high">No result tracking - no way to correlate requests with responses</gap>
+      <gap priority="medium">No health monitoring - no way to detect unhealthy peer agents</gap>
+      <gap priority="medium">Limited error handling - no standardized RFC 7807 error responses for delegation failures</gap>
+    </gaps-to-address>
+  </objective>
+
+  <existing-code>
+    <description>
+      The existing A2A implementation provides basic session management with Redis persistence.
+      This story extends and enhances this foundation rather than replacing it.
+    </description>
+
+    <file path="backend/src/agentic_rag_backend/protocols/a2a.py">
+      <description>Current A2ASessionManager with basic session management</description>
+      <key-classes>
+        <class name="A2AMessage">
+          <purpose>Message dataclass with sender, content, timestamp, metadata</purpose>
+          <method name="to_dict">Serialize to dictionary for JSON/Redis</method>
+        </class>
+        <class name="A2ASession">
+          <purpose>Session dataclass with session_id, tenant_id, created_at, last_activity, messages</purpose>
+          <method name="to_dict">Serialize to dictionary for JSON/Redis</method>
+        </class>
+        <class name="A2ASessionManager">
+          <purpose>In-memory session manager with Redis persistence</purpose>
+          <method name="create_session">Create new session for tenant</method>
+          <method name="get_session">Get session by ID with optional Redis recovery</method>
+          <method name="add_message">Append message to session</method>
+          <method name="start_cleanup_task">Start TTL cleanup background task</method>
+          <method name="stop_cleanup_task">Stop cleanup background task</method>
+        </class>
+      </key-classes>
+      <patterns-to-follow>
+        <pattern name="redis-persistence">
+          <description>Sessions persist to Redis with TTL for recovery after restart</description>
+          <code><![CDATA[
+async def _persist_session(self, session: A2ASession) -> None:
+    redis = self._get_redis()
+    if not redis:
+        return
+    try:
+        payload = json.dumps(session.to_dict())
+        key = self._session_key(session.session_id)
+        if self._session_ttl_seconds > 0:
+            await redis.set(key, payload, ex=self._session_ttl_seconds)
+        else:
+            await redis.set(key, payload)
+    except Exception as exc:
+        logger.warning("a2a_session_persist_failed", error=str(exc))
+]]></code>
+        </pattern>
+        <pattern name="async-lock">
+          <description>Use asyncio.Lock for thread-safe session access</description>
+          <code><![CDATA[
+async def create_session(self, tenant_id: str) -> dict[str, Any]:
+    async with self._lock:
+        self._maybe_prune_locked()
+        # ... session creation logic
+]]></code>
+        </pattern>
+        <pattern name="tenant-isolation">
+          <description>All operations verify tenant_id ownership</description>
+          <code><![CDATA[
+if session.tenant_id != tenant_id:
+    raise PermissionError("tenant mismatch")
+]]></code>
+        </pattern>
+      </patterns-to-follow>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/api/routes/a2a.py">
+      <description>Current A2A API endpoints with rate limiting and tenant validation</description>
+      <endpoints>
+        <endpoint method="POST" path="/a2a/sessions">Create new A2A session</endpoint>
+        <endpoint method="POST" path="/a2a/sessions/{session_id}/messages">Add message to session</endpoint>
+        <endpoint method="GET" path="/a2a/sessions/{session_id}">Get session transcript</endpoint>
+      </endpoints>
+      <patterns-to-follow>
+        <pattern name="dependency-injection">
+          <description>Use FastAPI Depends for manager and limiter</description>
+          <code><![CDATA[
+def get_a2a_manager(request: Request) -> A2ASessionManager:
+    """Get the A2A session manager from app state."""
+    manager = getattr(request.app.state, "a2a_manager", None)
+    if manager is None:
+        raise RuntimeError("A2A session manager not initialized")
+    return manager
+
+@router.post("/sessions", response_model=CreateSessionResponse)
+async def create_session(
+    request_body: CreateSessionRequest,
+    manager: A2ASessionManager = Depends(get_a2a_manager),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+) -> CreateSessionResponse:
+]]></code>
+        </pattern>
+        <pattern name="pydantic-models">
+          <description>Request/response models with validation</description>
+          <code><![CDATA[
+class CreateSessionRequest(BaseModel):
+    tenant_id: str = Field(..., min_length=1, max_length=255, pattern=TENANT_ID_PATTERN)
+
+class MessageRequest(BaseModel):
+    tenant_id: str = Field(..., min_length=1, max_length=255, pattern=TENANT_ID_PATTERN)
+    sender: str = Field(..., min_length=1, max_length=64)
+    content: str = Field(..., min_length=1, max_length=10000)
+    metadata: dict[str, Any] | None = None
+]]></code>
+        </pattern>
+        <pattern name="error-handling">
+          <description>Map exceptions to HTTP status codes</description>
+          <code><![CDATA[
+try:
+    session = await manager.add_message(...)
+except ValueError as exc:
+    raise HTTPException(status_code=409, detail=str(exc)) from exc
+except KeyError as exc:
+    raise HTTPException(status_code=404, detail="Session not found") from exc
+except PermissionError as exc:
+    raise HTTPException(status_code=403, detail="Tenant not authorized") from exc
+]]></code>
+        </pattern>
+      </patterns-to-follow>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/protocols/__init__.py">
+      <description>Protocol module exports</description>
+      <current-exports>
+        <export>AGUIBridge</export>
+        <export>MCPToolRegistry</export>
+        <export>A2ASessionManager</export>
+      </current-exports>
+      <new-exports-needed>
+        <export>A2AAgentRegistry</export>
+        <export>TaskDelegationManager</export>
+        <export>AgentCapability</export>
+        <export>AgentRegistration</export>
+        <export>TaskRequest</export>
+        <export>TaskResult</export>
+        <export>A2AMessageType</export>
+        <export>TaskStatus</export>
+      </new-exports-needed>
+    </file>
+  </existing-code>
+
+  <reference-implementations>
+    <description>
+      These existing implementations provide patterns to follow for the new A2A components.
+    </description>
+
+    <file path="backend/src/agentic_rag_backend/db/redis.py">
+      <description>Redis client with Streams support - reference for async Redis operations</description>
+      <key-patterns>
+        <pattern name="connection-management">
+          <code><![CDATA[
+class RedisClient:
+    def __init__(self, url: str) -> None:
+        self.url = url
+        self._client: Optional[redis.Redis] = None
+
+    async def connect(self) -> None:
+        if self._client is None:
+            self._client = redis.from_url(
+                self.url,
+                encoding="utf-8",
+                decode_responses=False,
+            )
+
+    async def disconnect(self) -> None:
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
+
+    @property
+    def client(self) -> redis.Redis:
+        if self._client is None:
+            raise RedisError("connection", "Redis client not connected")
+        return self._client
+]]></code>
+        </pattern>
+        <pattern name="serialization">
+          <code><![CDATA[
+def _serialize_value(value: Any) -> str:
+    """Serialize a value for Redis storage."""
+    if isinstance(value, (UUID, datetime)):
+        return str(value)
+    if isinstance(value, dict):
+        return json.dumps(value)
+    return str(value)
+
+def _deserialize_message(data: dict[bytes, bytes]) -> dict[str, Any]:
+    """Deserialize a Redis message to a dictionary."""
+    result = {}
+    for key, value in data.items():
+        key_str = key.decode("utf-8") if isinstance(key, bytes) else key
+        value_str = value.decode("utf-8") if isinstance(value, bytes) else value
+        try:
+            result[key_str] = json.loads(value_str)
+        except (json.JSONDecodeError, TypeError):
+            result[key_str] = value_str
+    return result
+]]></code>
+        </pattern>
+      </key-patterns>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/core/errors.py">
+      <description>RFC 7807 error handling - reference for error responses</description>
+      <key-patterns>
+        <pattern name="error-code-enum">
+          <code><![CDATA[
+class ErrorCode(str, Enum):
+    """Standardized error codes for the application."""
+    VALIDATION_ERROR = "validation_error"
+    JOB_NOT_FOUND = "job_not_found"
+    TENANT_REQUIRED = "tenant_required"
+    RATE_LIMIT_EXCEEDED = "rate_limit_exceeded"
+    INTERNAL_ERROR = "internal_error"
+    # Add A2A-specific codes here
+]]></code>
+        </pattern>
+        <pattern name="app-error-class">
+          <code><![CDATA[
+class AppError(Exception):
+    """Structured application error following RFC 7807 Problem Details."""
+
+    def __init__(
+        self,
+        code: ErrorCode,
+        message: str,
+        status: int = 500,
+        details: Optional[dict[str, Any]] = None,
+    ) -> None:
+        self.code = code
+        self.message = message
+        self.status = status
+        self.details = details or {}
+        super().__init__(message)
+
+    def to_problem_detail(self, instance: str) -> dict[str, Any]:
+        problem = {
+            "type": f"https://api.example.com/errors/{self.code.value.replace('_', '-')}",
+            "title": self.code.value.replace("_", " ").title(),
+            "status": self.status,
+            "detail": self.message,
+            "instance": instance,
+        }
+        if self.details:
+            problem["errors"] = self.details
+        return problem
+]]></code>
+        </pattern>
+      </key-patterns>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/validation.py">
+      <description>Shared validation helpers</description>
+      <code><![CDATA[
+TENANT_ID_PATTERN = (
+    r"^[0-9a-fA-F]{8}-"
+    r"[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{12}$"
+)
+SESSION_ID_PATTERN = r"^[A-Za-z0-9]+(?:[._:-][A-Za-z0-9]+)*$"
+
+TENANT_ID_REGEX = re.compile(TENANT_ID_PATTERN)
+
+def is_valid_tenant_id(value: str) -> bool:
+    return bool(TENANT_ID_REGEX.fullmatch(value))
+]]></code>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/api/utils.py">
+      <description>API utility functions</description>
+      <code><![CDATA[
+def build_meta() -> dict[str, Any]:
+    """Build standard response metadata."""
+    return {
+        "requestId": str(uuid4()),
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+
+def rate_limit_exceeded(retry_after_seconds: int | None = None) -> HTTPException:
+    """Create a rate limit exceeded exception with Retry-After header."""
+    if retry_after_seconds is None:
+        from ..config import get_settings
+        retry_after_seconds = get_settings().rate_limit_retry_after_seconds
+    return HTTPException(
+        status_code=429,
+        detail="Rate limit exceeded",
+        headers={"Retry-After": str(retry_after_seconds)},
+    )
+]]></code>
+    </file>
+  </reference-implementations>
+
+  <configuration>
+    <description>Configuration settings and environment variables</description>
+
+    <file path="backend/src/agentic_rag_backend/config.py">
+      <existing-a2a-settings>
+        <setting name="a2a_session_ttl_seconds" default="21600" env="A2A_SESSION_TTL_SECONDS"/>
+        <setting name="a2a_cleanup_interval_seconds" default="3600" env="A2A_CLEANUP_INTERVAL_SECONDS"/>
+        <setting name="a2a_max_sessions_per_tenant" default="100" env="A2A_MAX_SESSIONS_PER_TENANT"/>
+        <setting name="a2a_max_sessions_total" default="1000" env="A2A_MAX_SESSIONS_TOTAL"/>
+        <setting name="a2a_max_messages_per_session" default="1000" env="A2A_MAX_MESSAGES_PER_SESSION"/>
+      </existing-a2a-settings>
+      <new-settings-needed>
+        <setting name="a2a_enabled" default="true" env="A2A_ENABLED"/>
+        <setting name="a2a_agent_id" default="agentic-rag-001" env="A2A_AGENT_ID"/>
+        <setting name="a2a_endpoint_url" default="http://localhost:8000" env="A2A_ENDPOINT_URL"/>
+        <setting name="a2a_heartbeat_interval_seconds" default="30" env="A2A_HEARTBEAT_INTERVAL_SECONDS"/>
+        <setting name="a2a_heartbeat_timeout_seconds" default="60" env="A2A_HEARTBEAT_TIMEOUT_SECONDS"/>
+        <setting name="a2a_task_default_timeout_seconds" default="300" env="A2A_TASK_DEFAULT_TIMEOUT_SECONDS"/>
+        <setting name="a2a_task_max_retries" default="3" env="A2A_TASK_MAX_RETRIES"/>
+      </new-settings-needed>
+      <settings-pattern>
+        <code><![CDATA[
+# Example pattern from existing config.py
+try:
+    a2a_session_ttl_seconds = int(os.getenv("A2A_SESSION_TTL_SECONDS", "21600"))
+except ValueError:
+    a2a_session_ttl_seconds = 21600
+]]></code>
+      </settings-pattern>
+    </file>
+
+    <file path="backend/.env.example">
+      <new-variables-to-document>
+        <variable name="A2A_ENABLED" description="Enable/disable A2A protocol" default="true"/>
+        <variable name="A2A_AGENT_ID" description="Unique identifier for this agent" default="agentic-rag-001"/>
+        <variable name="A2A_ENDPOINT_URL" description="Public endpoint URL for this agent" default="http://localhost:8000"/>
+        <variable name="A2A_HEARTBEAT_INTERVAL_SECONDS" description="How often to send heartbeats" default="30"/>
+        <variable name="A2A_HEARTBEAT_TIMEOUT_SECONDS" description="Time without heartbeat before marking unhealthy" default="60"/>
+        <variable name="A2A_TASK_DEFAULT_TIMEOUT_SECONDS" description="Default timeout for delegated tasks" default="300"/>
+        <variable name="A2A_TASK_MAX_RETRIES" description="Maximum retry attempts for failed tasks" default="3"/>
+      </new-variables-to-document>
+    </file>
+  </configuration>
+
+  <main-application>
+    <file path="backend/src/agentic_rag_backend/main.py">
+      <description>Application lifespan and startup - where A2A components are initialized</description>
+      <current-a2a-initialization>
+        <code><![CDATA[
+# In lifespan() function:
+app.state.a2a_manager = A2ASessionManager(
+    session_ttl_seconds=settings.a2a_session_ttl_seconds,
+    max_sessions_per_tenant=settings.a2a_max_sessions_per_tenant,
+    max_sessions_total=settings.a2a_max_sessions_total,
+    max_messages_per_session=settings.a2a_max_messages_per_session,
+    redis_client=getattr(app.state, "redis_client", None),
+)
+await app.state.a2a_manager.start_cleanup_task(
+    settings.a2a_cleanup_interval_seconds
+)
+
+# On shutdown:
+if hasattr(app.state, "a2a_manager") and app.state.a2a_manager:
+    await app.state.a2a_manager.stop_cleanup_task()
+]]></code>
+      </current-a2a-initialization>
+      <new-initialization-needed>
+        <code><![CDATA[
+# Add after existing A2A manager initialization:
+if settings.a2a_enabled:
+    # Initialize agent registry
+    app.state.a2a_registry = A2AAgentRegistry(
+        redis_client=getattr(app.state, "redis_client", None),
+        heartbeat_timeout_seconds=settings.a2a_heartbeat_timeout_seconds,
+        cleanup_interval_seconds=settings.a2a_cleanup_interval_seconds,
+    )
+    await app.state.a2a_registry.start_health_monitor()
+
+    # Initialize task delegation manager
+    app.state.a2a_delegation = TaskDelegationManager(
+        agent_id=settings.a2a_agent_id,
+        registry=app.state.a2a_registry,
+        redis_client=getattr(app.state, "redis_client", None),
+        default_timeout_seconds=settings.a2a_task_default_timeout_seconds,
+        max_retries=settings.a2a_task_max_retries,
+    )
+
+    # Register this agent's RAG capabilities
+    await app.state.a2a_registry.register_agent(
+        agent_id=settings.a2a_agent_id,
+        agent_type="rag_engine",
+        endpoint_url=settings.a2a_endpoint_url,
+        capabilities=_get_rag_capabilities(),
+        tenant_id="system",  # System-level registration
+    )
+
+# On shutdown:
+if hasattr(app.state, "a2a_registry") and app.state.a2a_registry:
+    await app.state.a2a_registry.stop_health_monitor()
+]]></code>
+      </new-initialization-needed>
+    </file>
+  </main-application>
+
+  <test-patterns>
+    <file path="backend/tests/protocols/test_a2a_manager.py">
+      <description>Existing A2A tests - follow these patterns</description>
+      <patterns>
+        <pattern name="fake-redis">
+          <code><![CDATA[
+class FakeRedis:
+    def __init__(self) -> None:
+        self.store: dict[str, str] = {}
+        self.expirations: dict[str, float] = {}
+        self.now = 0.0
+
+    async def set(self, key: str, value: str, ex: int | None = None) -> None:
+        self.store[key] = value
+        if ex is not None:
+            self.expirations[key] = self.now + float(ex)
+
+    async def get(self, key: str) -> str | None:
+        expires_at = self.expirations.get(key)
+        if expires_at is not None and self.now >= expires_at:
+            self.store.pop(key, None)
+            self.expirations.pop(key, None)
+            return None
+        return self.store.get(key)
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+]]></code>
+        </pattern>
+        <pattern name="redis-wrapper-mock">
+          <code><![CDATA[
+redis_wrapper = MagicMock()
+redis_wrapper.client = FakeRedis()
+manager = A2ASessionManager(redis_client=redis_wrapper)
+]]></code>
+        </pattern>
+        <pattern name="concurrent-test">
+          <code><![CDATA[
+@pytest.mark.asyncio
+async def test_a2a_concurrent_session_creation() -> None:
+    manager = A2ASessionManager()
+    sessions = await asyncio.gather(
+        *[manager.create_session("11111111-1111-1111-1111-111111111111") for _ in range(5)]
+    )
+    session_ids = {session["session_id"] for session in sessions}
+    assert len(session_ids) == 5
+]]></code>
+        </pattern>
+        <pattern name="cleanup-task-test">
+          <code><![CDATA[
+@pytest.mark.asyncio
+async def test_a2a_cleanup_task_prunes_expired_sessions() -> None:
+    manager = A2ASessionManager(session_ttl_seconds=1)
+    session = await manager.create_session("11111111-1111-1111-1111-111111111111")
+    manager._sessions[session["session_id"]].last_activity = datetime.now(timezone.utc) - timedelta(seconds=5)
+
+    await manager.start_cleanup_task(0.01)
+    try:
+        await asyncio.sleep(0.02)
+        assert session["session_id"] not in manager._sessions
+    finally:
+        await manager.stop_cleanup_task()
+]]></code>
+        </pattern>
+      </patterns>
+    </file>
+
+    <file path="backend/tests/api/routes/test_a2a.py">
+      <description>API endpoint tests</description>
+      <patterns>
+        <pattern name="allow-deny-limiter">
+          <code><![CDATA[
+class AllowLimiter:
+    async def allow(self, key: str) -> bool:
+        return True
+
+class DenyLimiter:
+    async def allow(self, key: str) -> bool:
+        return False
+]]></code>
+        </pattern>
+        <pattern name="endpoint-test">
+          <code><![CDATA[
+@pytest.mark.asyncio
+async def test_create_session_success() -> None:
+    manager = A2ASessionManager()
+    response = await create_session(
+        request_body=CreateSessionRequest(tenant_id="11111111-1111-1111-1111-111111111111"),
+        manager=manager,
+        limiter=AllowLimiter(),
+    )
+    assert response.session["tenant_id"] == "11111111-1111-1111-1111-111111111111"
+    assert response.session["session_id"]
+    assert response.session["created_at"]
+]]></code>
+        </pattern>
+        <pattern name="http-exception-test">
+          <code><![CDATA[
+@pytest.mark.asyncio
+async def test_get_session_tenant_mismatch() -> None:
+    manager = A2ASessionManager()
+    session = await manager.create_session("11111111-1111-1111-1111-111111111111")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_session(
+            session_id=session["session_id"],
+            tenant_id="22222222-2222-2222-2222-222222222222",
+            manager=manager,
+            limiter=AllowLimiter(),
+        )
+    assert exc_info.value.status_code == 403
+]]></code>
+        </pattern>
+      </patterns>
+    </file>
+
+    <file path="backend/tests/conftest.py">
+      <description>Test fixtures - use these for consistency</description>
+      <relevant-fixtures>
+        <fixture name="sample_tenant_id">Returns uuid4()</fixture>
+        <fixture name="mock_redis">AsyncMock Redis client</fixture>
+        <fixture name="mock_redis_client">MagicMock RedisClient wrapper</fixture>
+      </relevant-fixtures>
+    </file>
+  </test-patterns>
+
+  <files-to-create>
+    <file path="backend/src/agentic_rag_backend/protocols/a2a_messages.py">
+      <description>Structured message types for A2A protocol</description>
+      <contents>
+        <enum name="A2AMessageType">CAPABILITY_QUERY, CAPABILITY_RESPONSE, TASK_REQUEST, TASK_PROGRESS, TASK_RESULT, HEARTBEAT, ERROR</enum>
+        <enum name="TaskStatus">PENDING, ACCEPTED, RUNNING, COMPLETED, FAILED, CANCELLED</enum>
+        <dataclass name="AgentCapability">name, description, parameters_schema, returns_schema, estimated_duration_ms</dataclass>
+        <dataclass name="AgentRegistration">agent_id, agent_type, endpoint_url, capabilities, tenant_id, registered_at, last_heartbeat, health_status, metadata</dataclass>
+        <dataclass name="TaskRequest">task_id, source_agent, target_agent, capability_name, parameters, priority, timeout_seconds, correlation_id</dataclass>
+        <dataclass name="TaskResult">task_id, status, result, error, execution_time_ms</dataclass>
+      </contents>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/protocols/a2a_registry.py">
+      <description>Agent capabilities registry with health monitoring</description>
+      <class name="A2AAgentRegistry">
+        <method name="__init__">redis_client, redis_prefix, heartbeat_timeout_seconds, cleanup_interval_seconds</method>
+        <method name="register_agent">Register agent with capabilities (returns AgentRegistration)</method>
+        <method name="unregister_agent">Remove agent from registry</method>
+        <method name="heartbeat">Update agent's last_heartbeat timestamp</method>
+        <method name="get_agent">Get agent by ID</method>
+        <method name="find_agents_by_capability">Filter by capability and tenant, optional healthy_only</method>
+        <method name="list_all_capabilities">Return capabilities grouped by name with providing agents</method>
+        <method name="start_health_monitor">Start background health check task</method>
+        <method name="stop_health_monitor">Stop background health check task</method>
+        <method name="_health_check_loop">Mark stale agents as unhealthy</method>
+      </class>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/protocols/a2a_delegation.py">
+      <description>Task delegation manager</description>
+      <class name="TaskDelegationManager">
+        <method name="__init__">agent_id, registry, redis_client, default_timeout_seconds, max_retries</method>
+        <method name="delegate_task">Create and send task to target agent</method>
+        <method name="receive_result">Handle result from target agent, invoke callbacks</method>
+        <method name="get_result">Wait for and retrieve task result with timeout</method>
+        <method name="cancel_task">Cancel pending task and notify target</method>
+        <method name="register_callback">Register callback for task completion</method>
+        <method name="_send_task">HTTP POST to target agent endpoint</method>
+        <method name="_send_cancellation">HTTP DELETE to target agent</method>
+      </class>
+    </file>
+
+    <file path="backend/tests/protocols/test_a2a_messages.py">
+      <description>Unit tests for message types</description>
+    </file>
+
+    <file path="backend/tests/protocols/test_a2a_registry.py">
+      <description>Unit tests for agent registry</description>
+    </file>
+
+    <file path="backend/tests/protocols/test_a2a_delegation.py">
+      <description>Unit tests for task delegation</description>
+    </file>
+  </files-to-create>
+
+  <files-to-modify>
+    <file path="backend/src/agentic_rag_backend/protocols/__init__.py">
+      <change>Add exports for new modules</change>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/api/routes/a2a.py">
+      <change>Add new endpoints for agent registration, heartbeat, capabilities, task delegation</change>
+      <new-endpoints>
+        <endpoint method="POST" path="/a2a/agents/register">Register agent with capabilities</endpoint>
+        <endpoint method="POST" path="/a2a/agents/{agent_id}/heartbeat">Update agent heartbeat</endpoint>
+        <endpoint method="GET" path="/a2a/agents">List agents (filter by capability, healthy_only)</endpoint>
+        <endpoint method="DELETE" path="/a2a/agents/{agent_id}">Unregister agent</endpoint>
+        <endpoint method="GET" path="/a2a/capabilities">List all capabilities</endpoint>
+        <endpoint method="POST" path="/a2a/tasks/delegate">Delegate task to target agent</endpoint>
+        <endpoint method="GET" path="/a2a/tasks/{task_id}/result">Get task result (with wait_seconds)</endpoint>
+        <endpoint method="DELETE" path="/a2a/tasks/{task_id}">Cancel task</endpoint>
+        <endpoint method="POST" path="/a2a/tasks">Receive delegated task (target agent endpoint)</endpoint>
+      </new-endpoints>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/config.py">
+      <change>Add new A2A settings to Settings dataclass and load_settings()</change>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/core/errors.py">
+      <change>Add A2A-specific error codes to ErrorCode enum</change>
+      <new-error-codes>
+        <code>A2A_AGENT_NOT_FOUND</code>
+        <code>A2A_CAPABILITY_NOT_FOUND</code>
+        <code>A2A_AGENT_UNHEALTHY</code>
+        <code>A2A_TASK_TIMEOUT</code>
+        <code>A2A_TASK_CANCELLED</code>
+        <code>A2A_DELEGATION_FAILED</code>
+      </new-error-codes>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/main.py">
+      <change>Initialize A2AAgentRegistry and TaskDelegationManager at startup, register RAG capabilities</change>
+    </file>
+
+    <file path="backend/.env.example">
+      <change>Document new A2A environment variables</change>
+    </file>
+  </files-to-modify>
+
+  <dependencies>
+    <internal>
+      <dependency>Story 14-1 (MCP Server) - DONE - shares auth patterns</dependency>
+      <dependency>Epic 3 - VectorSearchService for RAG capabilities</dependency>
+      <dependency>Epic 5 - GraphitiClient for RAG capabilities</dependency>
+      <dependency>Epic 12 - RerankerClient for RAG capabilities</dependency>
+      <dependency>Epic 13 - Crawler, YouTubeIngestionService for RAG capabilities</dependency>
+    </internal>
+    <external>
+      <dependency>httpx - for HTTP communication to target agents</dependency>
+      <dependency>redis.asyncio - for persistence</dependency>
+    </external>
+  </dependencies>
+
+  <rag-capabilities-to-register>
+    <description>
+      When A2A initializes, register these RAG system capabilities that external agents can invoke:
+    </description>
+    <capability name="hybrid_retrieve">
+      <description>Combined vector + graph retrieval</description>
+      <parameters>query (string, required), top_k (integer, default 10)</parameters>
+    </capability>
+    <capability name="ingest_url">
+      <description>Crawl and ingest a URL</description>
+      <parameters>url (string, required), depth (integer, default 1)</parameters>
+    </capability>
+    <capability name="ingest_pdf">
+      <description>Parse and ingest a PDF document</description>
+      <parameters>file_path (string, required)</parameters>
+    </capability>
+    <capability name="ingest_youtube">
+      <description>Extract and ingest YouTube transcript</description>
+      <parameters>video_url (string, required), languages (array, optional)</parameters>
+    </capability>
+    <capability name="vector_search">
+      <description>Semantic search via pgvector</description>
+      <parameters>query (string, required), top_k (integer, default 10)</parameters>
+    </capability>
+    <capability name="query_with_reranking">
+      <description>Query with explicit reranking control</description>
+      <parameters>query (string, required), reranker (string, default "flashrank"), top_k (integer, default 10)</parameters>
+    </capability>
+  </rag-capabilities-to-register>
+
+  <acceptance-criteria-summary>
+    <ac id="AC-1">Agent registration with capabilities - POST /a2a/agents/register</ac>
+    <ac id="AC-2">Agent heartbeat updates - POST /a2a/agents/{agent_id}/heartbeat</ac>
+    <ac id="AC-3">Heartbeat timeout detection marks agents unhealthy</ac>
+    <ac id="AC-4">Capabilities discovery - GET /a2a/capabilities</ac>
+    <ac id="AC-5">Find agents by capability with tenant filtering - GET /a2a/agents?capability=X</ac>
+    <ac id="AC-6">Task delegation with validation - POST /a2a/tasks/delegate</ac>
+    <ac id="AC-7">Task result tracking with status and execution_time_ms</ac>
+    <ac id="AC-8">Task timeout handling with cleanup</ac>
+    <ac id="AC-9">Task cancellation - DELETE /a2a/tasks/{task_id}</ac>
+    <ac id="AC-10">Standardized message types with correlation IDs</ac>
+    <ac id="AC-11">RFC 7807 error responses</ac>
+    <ac id="AC-12">Tenant isolation on all operations</ac>
+    <ac id="AC-13">Redis persistence for registrations and sessions</ac>
+    <ac id="AC-14">Task priority support (1-10 scale)</ac>
+    <ac id="AC-15">Callback support for task completion</ac>
+  </acceptance-criteria-summary>
+
+  <implementation-notes>
+    <note priority="high">
+      Follow the existing A2ASessionManager pattern for async lock management and Redis persistence
+    </note>
+    <note priority="high">
+      All new endpoints MUST enforce tenant_id isolation - never allow cross-tenant access
+    </note>
+    <note priority="high">
+      Use RFC 7807 error format for all error responses (see core/errors.py)
+    </note>
+    <note priority="medium">
+      Use httpx.AsyncClient for HTTP communication to target agents
+    </note>
+    <note priority="medium">
+      Health monitor should run as a background asyncio task like the cleanup task
+    </note>
+    <note priority="low">
+      Consider circuit breaker pattern for repeated delegation failures (future enhancement)
+    </note>
+  </implementation-notes>
+</story-context>
