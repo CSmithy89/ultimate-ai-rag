@@ -19,7 +19,11 @@ import structlog
 
 from agentic_rag_backend.db.redis import RedisClient
 
-from .a2a_messages import AgentCapability, AgentRegistration, get_rag_capabilities
+from .a2a_messages import (
+    AgentCapability,
+    AgentRegistration,
+    get_implemented_rag_capabilities,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -486,11 +490,14 @@ class A2AAgentRegistry:
         Returns:
             The created AgentRegistration
         """
+        # Use get_implemented_rag_capabilities() to only advertise capabilities
+        # that are actually implemented in the execute endpoint (hybrid_retrieve,
+        # vector_search). This prevents advertising unimplemented capabilities.
         return await self.register_agent(
             agent_id=agent_id,
             agent_type="rag_engine",
             endpoint_url=endpoint_url,
-            capabilities=get_rag_capabilities(),
+            capabilities=get_implemented_rag_capabilities(),
             tenant_id=tenant_id,
             metadata={
                 "version": "0.1.0",

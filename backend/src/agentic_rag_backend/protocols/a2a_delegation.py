@@ -216,10 +216,19 @@ class TaskDelegationManager:
                 tenant_id=request.tenant_id,
             )
         except httpx.HTTPStatusError as exc:
+            # Log full error details for debugging, but don't expose in response
+            # to avoid leaking sensitive info from downstream agents
+            logger.warning(
+                "a2a_downstream_agent_error",
+                task_id=request.task_id,
+                target_agent=request.target_agent,
+                status_code=exc.response.status_code,
+                response_text=exc.response.text[:500],  # Limit for logs
+            )
             return TaskResult(
                 task_id=request.task_id,
                 status=TaskStatus.FAILED,
-                error=f"HTTP error {exc.response.status_code}: {exc.response.text[:200]}",
+                error=f"HTTP error {exc.response.status_code} from target agent",
                 execution_time_ms=int((time.monotonic() - start_time) * 1000),
                 tenant_id=request.tenant_id,
             )
@@ -445,6 +454,9 @@ class TaskDelegationManager:
         Returns:
             True if task was cancelled, False if not found or already completed
         """
+        # Extract task info inside lock, but do Redis I/O outside to avoid blocking
+        result_to_persist: TaskResult | None = None
+
         async with self._lock:
             pending = self._pending_tasks.get(task_id)
             if not pending:
@@ -453,18 +465,23 @@ class TaskDelegationManager:
             if pending.request.tenant_id != tenant_id:
                 raise PermissionError("Task belongs to different tenant")
 
-            # Mark as cancelled
-            result = TaskResult(
+            # Remove from pending tasks while holding lock
+            self._pending_tasks.pop(task_id, None)
+
+            # Prepare result to persist (will do I/O outside lock)
+            result_to_persist = TaskResult(
                 task_id=task_id,
                 status=TaskStatus.CANCELLED,
                 error="Task cancelled by request",
                 tenant_id=tenant_id,
             )
-            await self._persist_result(result)
 
-            self._pending_tasks.pop(task_id, None)
+        # Persist result outside the lock to avoid blocking other operations
+        if result_to_persist:
+            await self._persist_result(result_to_persist)
             logger.info("a2a_task_cancelled", task_id=task_id, tenant_id=tenant_id)
-            return True
+
+        return True
 
     async def list_pending_tasks(self, tenant_id: str) -> list[TaskRequest]:
         """List all pending tasks for a tenant.

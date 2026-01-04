@@ -48,6 +48,8 @@ class ErrorCode(str, Enum):
     A2A_TASK_TIMEOUT = "a2a_task_timeout"
     A2A_DELEGATION_FAILED = "a2a_delegation_failed"
     A2A_REGISTRATION_FAILED = "a2a_registration_failed"
+    A2A_PERMISSION_DENIED = "a2a_permission_denied"
+    A2A_SERVICE_UNAVAILABLE = "a2a_service_unavailable"
 
 
 class AppError(Exception):
@@ -510,4 +512,31 @@ class A2ARegistrationError(AppError):
             message=f"Agent registration failed: {reason}",
             status=400,
             details={"agent_id": agent_id},
+        )
+
+
+class A2APermissionError(AppError):
+    """Error when A2A operation is denied due to permission/tenant mismatch."""
+
+    def __init__(self, reason: str, resource_id: Optional[str] = None) -> None:
+        details: dict[str, Any] = {"reason": reason}
+        if resource_id:
+            details["resource_id"] = resource_id
+        super().__init__(
+            code=ErrorCode.A2A_PERMISSION_DENIED,
+            message=f"A2A operation denied: {reason}",
+            status=403,
+            details=details,
+        )
+
+
+class A2AServiceUnavailableError(AppError):
+    """Error when an A2A service (like orchestrator) is unavailable."""
+
+    def __init__(self, service: str, reason: str = "Service not available") -> None:
+        super().__init__(
+            code=ErrorCode.A2A_SERVICE_UNAVAILABLE,
+            message=f"{service} is unavailable: {reason}",
+            status=503,
+            details={"service": service, "reason": reason},
         )

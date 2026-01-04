@@ -18,7 +18,9 @@ import structlog
 from ...api.utils import build_meta, rate_limit_exceeded
 from ...core.errors import (
     A2AAgentNotFoundError,
+    A2APermissionError,
     A2ARegistrationError,
+    A2AServiceUnavailableError,
     A2ATaskNotFoundError,
 )
 from ...protocols.a2a import A2ASessionManager
@@ -146,16 +148,17 @@ class TaskListResponse(BaseModel):
 class ExecuteTaskRequest(BaseModel):
     """Incoming task execution request from another agent."""
 
-    task_id: str
-    source_agent: str
-    target_agent: str
-    capability_name: str
-    parameters: dict[str, Any]
-    priority: int = 5
-    timeout_seconds: int = 300
-    correlation_id: Optional[str] = None
+    task_id: str = Field(..., min_length=1, max_length=255)
+    source_agent: str = Field(..., min_length=1, max_length=255)
+    target_agent: str = Field(..., min_length=1, max_length=255)
+    capability_name: str = Field(..., min_length=1, max_length=100)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    priority: int = Field(default=5, ge=1, le=10)
+    timeout_seconds: int = Field(default=300, ge=1, le=3600)
+    correlation_id: Optional[str] = Field(None, max_length=255)
     created_at: str
-    tenant_id: str
+    # Validate tenant_id format to prevent injection attacks
+    tenant_id: str = Field(..., min_length=1, max_length=255, pattern=TENANT_ID_PATTERN)
 
 
 class ExecuteTaskResponse(BaseModel):
@@ -253,7 +256,7 @@ async def add_message(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Session not found") from exc
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail="Tenant not authorized") from exc
+        raise A2APermissionError("Tenant not authorized for this session") from exc
 
     return SessionResponse(session=session, meta=build_meta())
 
@@ -319,7 +322,7 @@ async def register_agent(
     except ValueError as exc:
         raise A2ARegistrationError(request_body.agent_id, str(exc)) from exc
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise A2APermissionError(str(exc), request_body.agent_id) from exc
 
     logger.info(
         "a2a_agent_registered_api",
@@ -344,7 +347,7 @@ async def unregister_agent(
     try:
         success = await registry.unregister_agent(agent_id, tenant_id)
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise A2APermissionError(str(exc), agent_id) from exc
 
     if not success:
         raise A2AAgentNotFoundError(agent_id)
@@ -369,7 +372,7 @@ async def agent_heartbeat(
     try:
         success = await registry.heartbeat(agent_id, request_body.tenant_id)
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise A2APermissionError(str(exc), agent_id) from exc
 
     if not success:
         raise A2AAgentNotFoundError(agent_id)
@@ -522,7 +525,7 @@ async def cancel_task(
     try:
         success = await delegation_manager.cancel_task(task_id, tenant_id)
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise A2APermissionError(str(exc), task_id) from exc
 
     if not success:
         raise A2ATaskNotFoundError(task_id)
@@ -565,10 +568,9 @@ async def execute_incoming_task(
     # Get the orchestrator to execute capabilities
     orchestrator = getattr(request.app.state, "orchestrator", None)
     if not orchestrator:
-        return ExecuteTaskResponse(
-            task_id=request_body.task_id,
-            status=TaskStatus.FAILED.value,
-            error="Orchestrator not available",
+        raise A2AServiceUnavailableError(
+            service="Orchestrator",
+            reason="Orchestrator not initialized - cannot execute task",
         )
 
     async def task_handler(task_request: TaskRequest) -> dict[str, Any]:

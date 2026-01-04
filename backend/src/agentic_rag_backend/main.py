@@ -367,11 +367,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 agent_id=settings.a2a_agent_id,
                 capabilities=[c.name for c in get_implemented_rag_capabilities()],
             )
-        except Exception as e:
-            struct_logger.warning(
+        except Exception:
+            # Use exception() to log full traceback for debugging startup issues
+            struct_logger.exception(
                 "a2a_self_registration_failed",
                 agent_id=settings.a2a_agent_id,
-                error=str(e),
             )
 
         struct_logger.info(
