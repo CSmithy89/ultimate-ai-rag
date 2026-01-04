@@ -4,6 +4,7 @@ Provides the main HallucinationDetector class that validates LLM responses
 against a codebase symbol table to catch hallucinated code references.
 """
 
+import fnmatch
 import json
 import re
 import time
@@ -587,10 +588,66 @@ def load_repo_dependencies(repo_path: str) -> set[str]:
     return deps
 
 
+def resolve_repo_path(
+    repo_path: str,
+    allowed_base_path: Optional[str] = None,
+) -> str:
+    """Validate and resolve a repository path.
+
+    Args:
+        repo_path: Repository path to validate
+        allowed_base_path: Optional base path that repo_path must reside in
+
+    Returns:
+        Resolved absolute repo path
+
+    Raises:
+        ValueError: If repo_path is invalid or outside allowed_base_path
+        FileNotFoundError: If repo_path does not exist
+    """
+    repo_path_obj = Path(repo_path)
+
+    if not repo_path_obj.is_absolute():
+        raise ValueError(f"repo_path must be an absolute path, got: {repo_path}")
+
+    if ".." in repo_path_obj.parts:
+        raise ValueError(f"repo_path cannot contain '..': {repo_path}")
+
+    try:
+        resolved_path = repo_path_obj.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f"Repository path does not exist: {repo_path}") from exc
+
+    if not resolved_path.is_dir():
+        raise ValueError(f"repo_path must be a directory: {repo_path}")
+
+    if allowed_base_path:
+        base_path_obj = Path(allowed_base_path)
+        if not base_path_obj.is_absolute():
+            raise ValueError(
+                f"CODEBASE_ALLOWED_BASE_PATH must be absolute: {allowed_base_path}"
+            )
+        try:
+            base_resolved = base_path_obj.resolve(strict=True)
+        except FileNotFoundError as exc:
+            raise ValueError(
+                f"CODEBASE_ALLOWED_BASE_PATH does not exist: {allowed_base_path}"
+            ) from exc
+        try:
+            resolved_path.relative_to(base_resolved)
+        except ValueError as exc:
+            raise ValueError(
+                f"repo_path must be within {base_resolved}: {repo_path}"
+            ) from exc
+
+    return str(resolved_path)
+
+
 async def index_repository(
     repo_path: str,
     tenant_id: str,
     ignore_patterns: Optional[list[str]] = None,
+    allowed_base_path: Optional[str] = None,
 ) -> SymbolTable:
     """Index a repository and create a symbol table.
 
@@ -613,28 +670,8 @@ async def index_repository(
 
     from gitignore_parser import parse_gitignore
 
-    # SECURITY: Validate repo_path to prevent path traversal and SSRF
-    repo_path_obj = Path(repo_path)
-
-    # Must be absolute path
-    if not repo_path_obj.is_absolute():
-        raise ValueError(f"repo_path must be an absolute path, got: {repo_path}")
-
-    # Check for path traversal attempts in the input
-    if ".." in repo_path:
-        raise ValueError(f"repo_path cannot contain '..': {repo_path}")
-
-    # Resolve to canonical path and check it still matches
-    try:
-        resolved_path = repo_path_obj.resolve(strict=True)
-    except FileNotFoundError:
-        raise FileNotFoundError(f"Repository path does not exist: {repo_path}")
-
-    if not resolved_path.is_dir():
-        raise ValueError(f"repo_path must be a directory: {repo_path}")
-
-    # Use resolved path for all operations
-    repo_path = str(resolved_path)
+    # SECURITY: Validate repo_path to prevent traversal and constrain scope.
+    repo_path = resolve_repo_path(repo_path, allowed_base_path)
 
     symbol_table = SymbolTable(tenant_id, repo_path)
     parser = ASTParser()
@@ -677,7 +714,6 @@ async def index_repository(
                 if f"/{pattern[:-1]}/" in f"/{rel_path}/" or rel_path.startswith(pattern[:-1] + "/"):
                     return True
             else:
-                import fnmatch
                 if fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(path.name, pattern):
                     return True
 

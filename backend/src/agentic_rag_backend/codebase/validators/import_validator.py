@@ -58,6 +58,11 @@ class ImportValidator(BaseValidator):
         Returns:
             Set of stdlib module names
         """
+        import sys
+
+        if hasattr(sys, "stdlib_module_names"):
+            return set(sys.stdlib_module_names)
+
         # Common stdlib modules (not exhaustive but covers most cases)
         return {
             "abc", "aifc", "argparse", "array", "ast", "asynchat", "asyncio",

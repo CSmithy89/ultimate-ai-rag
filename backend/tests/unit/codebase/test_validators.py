@@ -146,7 +146,7 @@ class TestFilePathValidator:
         result = validator.validate("src/user.py")  # Missing 's'
 
         assert result.is_valid is False
-        # Should suggest src/users.py
+        assert "src/users.py" in result.suggestions
 
     def test_validate_normalized_path(self, symbol_table):
         """Test that paths are normalized."""

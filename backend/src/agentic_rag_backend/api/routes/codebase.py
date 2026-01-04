@@ -4,8 +4,9 @@ Provides endpoints for validating LLM responses against a codebase
 to detect hallucinated code references.
 """
 
+from collections import OrderedDict
 from datetime import datetime, timezone
-from pathlib import Path
+import time
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
@@ -21,7 +22,11 @@ from agentic_rag_backend.codebase import (
 )
 from agentic_rag_backend.codebase.indexing import CodebaseIndexer
 from agentic_rag_backend.codebase.retrieval import CodeSearchService
-from agentic_rag_backend.codebase.detector import index_repository, load_repo_dependencies
+from agentic_rag_backend.codebase.detector import (
+    index_repository,
+    load_repo_dependencies,
+    resolve_repo_path,
+)
 from agentic_rag_backend.codebase.symbol_table import (
     cache_symbol_table,
     get_cached_symbol_table,
@@ -220,9 +225,32 @@ def success_response(data: Any) -> dict[str, Any]:
     }
 
 
-# In-memory symbol table cache (per-tenant)
-# In production, use Redis caching
-_symbol_tables: dict[str, SymbolTable] = {}
+# In-memory symbol table cache (per-tenant) with TTL and LRU eviction.
+_symbol_tables: "OrderedDict[str, tuple[float, SymbolTable]]" = OrderedDict()
+_SYMBOL_TABLE_CACHE_MAX = 256
+
+
+def _get_symbol_table_cache(tenant_id: str, ttl_seconds: int) -> Optional[SymbolTable]:
+    entry = _symbol_tables.get(tenant_id)
+    if not entry:
+        return None
+    cached_at, symbol_table = entry
+    if time.time() - cached_at > ttl_seconds:
+        _symbol_tables.pop(tenant_id, None)
+        return None
+    _symbol_tables.move_to_end(tenant_id)
+    return symbol_table
+
+
+def _set_symbol_table_cache(tenant_id: str, symbol_table: SymbolTable) -> None:
+    _symbol_tables[tenant_id] = (time.time(), symbol_table)
+    _symbol_tables.move_to_end(tenant_id)
+    while len(_symbol_tables) > _SYMBOL_TABLE_CACHE_MAX:
+        _symbol_tables.popitem(last=False)
+
+
+def _clear_symbol_table_cache(tenant_id: str) -> bool:
+    return _symbol_tables.pop(tenant_id, None) is not None
 
 
 async def get_redis_client(request: Request):
@@ -257,6 +285,18 @@ async def validate_response(
     """
     settings = get_settings()
     tenant_id = str(body.tenant_id)
+    resolved_repo_path: Optional[str] = None
+    if body.repo_path:
+        try:
+            resolved_repo_path = resolve_repo_path(
+                body.repo_path,
+                settings.codebase_allowed_base_path,
+            )
+        except Exception as exc:
+            raise CodebaseIndexError(
+                repo_path=body.repo_path,
+                reason=str(exc),
+            ) from exc
 
     logger.info(
         "validate_response_request",
@@ -266,29 +306,33 @@ async def validate_response(
     )
 
     # Get or load symbol table
-    symbol_table = _symbol_tables.get(tenant_id)
+    symbol_table = _get_symbol_table_cache(
+        tenant_id,
+        settings.codebase_cache_ttl_seconds,
+    )
 
     if symbol_table is None:
         # Try to load from Redis cache
         redis_client = await get_redis_client(request)
-        if redis_client and body.repo_path:
+        if redis_client and resolved_repo_path:
             symbol_table = await get_cached_symbol_table(
                 redis_client,
                 tenant_id,
-                body.repo_path,
+                resolved_repo_path,
             )
             if symbol_table:
-                _symbol_tables[tenant_id] = symbol_table
+                _set_symbol_table_cache(tenant_id, symbol_table)
 
     if symbol_table is None:
         # If repo_path provided, index it
-        if body.repo_path:
+        if resolved_repo_path:
             try:
                 symbol_table = await index_repository(
-                    body.repo_path,
+                    resolved_repo_path,
                     tenant_id,
+                    allowed_base_path=settings.codebase_allowed_base_path,
                 )
-                _symbol_tables[tenant_id] = symbol_table
+                _set_symbol_table_cache(tenant_id, symbol_table)
 
                 # Cache in Redis if available
                 redis_client = await get_redis_client(request)
@@ -301,11 +345,11 @@ async def validate_response(
             except Exception as e:
                 logger.error(
                     "repository_indexing_failed",
-                    repo_path=body.repo_path,
+                    repo_path=resolved_repo_path,
                     error=str(e),
                 )
                 raise CodebaseIndexError(
-                    repo_path=body.repo_path,
+                    repo_path=resolved_repo_path,
                     reason=str(e),
                 ) from e
         else:
@@ -427,6 +471,7 @@ async def index_repository_endpoint(
             body.repo_path,
             tenant_id,
             body.ignore_patterns,
+            allowed_base_path=settings.codebase_allowed_base_path,
         )
     except Exception as e:
         logger.error(
@@ -440,7 +485,7 @@ async def index_repository_endpoint(
         ) from e
 
     # Store in memory cache
-    _symbol_tables[tenant_id] = symbol_table
+    _set_symbol_table_cache(tenant_id, symbol_table)
 
     # Cache in Redis if available
     cached = False
@@ -487,9 +532,16 @@ async def index_codebase(
     if not settings.codebase_rag_enabled:
         raise CodebaseValidationError(reason="Codebase RAG is disabled.")
 
-    repo_path_obj = Path(body.repo_path)
-    if not repo_path_obj.is_absolute() or not repo_path_obj.exists() or not repo_path_obj.is_dir():
-        raise CodebaseIndexError(repo_path=body.repo_path, reason="repo_path must be an existing absolute directory")
+    try:
+        repo_path = resolve_repo_path(
+            body.repo_path,
+            settings.codebase_allowed_base_path,
+        )
+    except Exception as exc:
+        raise CodebaseIndexError(
+            repo_path=body.repo_path,
+            reason=str(exc),
+        ) from exc
 
     postgres = getattr(request.app.state, "postgres", None)
     if postgres is None:
@@ -505,7 +557,7 @@ async def index_codebase(
 
     indexer = CodebaseIndexer(
         tenant_id=str(body.tenant_id),
-        repo_path=body.repo_path,
+        repo_path=repo_path,
         postgres=postgres,
         embedding_generator=embedding_generator,
         neo4j=neo4j,
@@ -602,8 +654,12 @@ async def get_symbol_table_stats(
     Raises:
         HTTPException: If no symbol table found for tenant
     """
+    settings = get_settings()
     tenant_id_str = str(tenant_id)
-    symbol_table = _symbol_tables.get(tenant_id_str)
+    symbol_table = _get_symbol_table_cache(
+        tenant_id_str,
+        settings.codebase_cache_ttl_seconds,
+    )
 
     if symbol_table is None:
         # Use AppError base class for RFC 7807 compliance
@@ -655,8 +711,7 @@ async def clear_symbol_table(
     redis_cleared = False
 
     # Clear from memory
-    if tenant_id_str in _symbol_tables:
-        del _symbol_tables[tenant_id_str]
+    if _clear_symbol_table_cache(tenant_id_str):
         memory_cleared = True
 
     # Also clear from Redis if available
@@ -665,8 +720,9 @@ async def clear_symbol_table(
         try:
             # Delete all keys matching the tenant's codebase pattern
             pattern = f"codebase:{tenant_id_str}:*"
-            async for key in redis_client.scan_iter(match=pattern):
-                await redis_client.delete(key)
+            client = redis_client.client
+            async for key in client.scan_iter(match=pattern):
+                await client.delete(key)
                 redis_cleared = True
         except Exception as e:
             logger.warning(

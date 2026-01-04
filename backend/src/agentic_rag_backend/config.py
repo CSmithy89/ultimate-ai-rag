@@ -5,6 +5,7 @@ import os
 import secrets
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 from typing import Optional, cast
 
 from dotenv import load_dotenv
@@ -232,6 +233,7 @@ class Settings:
     codebase_hallucination_threshold: float
     codebase_detector_mode: str
     codebase_cache_ttl_seconds: int
+    codebase_allowed_base_path: Optional[str]
     codebase_rag_enabled: bool
     codebase_languages: list[str]
     codebase_exclude_patterns: list[str]
@@ -707,6 +709,16 @@ def load_settings() -> Settings:
     codebase_cache_ttl_seconds = get_int_env(
         "CODEBASE_CACHE_TTL_SECONDS", 3600, min_val=60
     )
+    codebase_allowed_base_path = os.getenv("CODEBASE_ALLOWED_BASE_PATH")
+    if codebase_allowed_base_path:
+        base_path = Path(codebase_allowed_base_path)
+        if not base_path.is_absolute():
+            raise ValueError("CODEBASE_ALLOWED_BASE_PATH must be an absolute path.")
+        if not base_path.exists():
+            raise ValueError(
+                f"CODEBASE_ALLOWED_BASE_PATH does not exist: {codebase_allowed_base_path}"
+            )
+        codebase_allowed_base_path = str(base_path.resolve())
     codebase_rag_enabled = get_bool_env("CODEBASE_RAG_ENABLED", "false")
     codebase_languages_raw = os.getenv("CODEBASE_LANGUAGES", "python,typescript,javascript")
     codebase_languages = [
@@ -858,6 +870,7 @@ def load_settings() -> Settings:
         codebase_hallucination_threshold=codebase_hallucination_threshold,
         codebase_detector_mode=codebase_detector_mode,
         codebase_cache_ttl_seconds=codebase_cache_ttl_seconds,
+        codebase_allowed_base_path=codebase_allowed_base_path,
         codebase_rag_enabled=codebase_rag_enabled,
         codebase_languages=codebase_languages,
         codebase_exclude_patterns=codebase_exclude_patterns,

@@ -33,8 +33,12 @@ class CodeSearchService:
         limit: int = 10,
         include_relationships: bool = True,
     ) -> list[dict[str, Any]]:
-        self._vector_search.limit = max(limit * 2, self._vector_search.limit)
-        hits = await self._vector_search.search(query, tenant_id)
+        original_limit = self._vector_search.limit
+        try:
+            self._vector_search.limit = max(limit * 2, original_limit)
+            hits = await self._vector_search.search(query, tenant_id)
+        finally:
+            self._vector_search.limit = original_limit
         code_hits = [
             hit for hit in hits
             if hit.metadata and hit.metadata.get("source_type") == "codebase"

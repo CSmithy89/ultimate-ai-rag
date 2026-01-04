@@ -4,6 +4,7 @@ Validates that API endpoint references match defined routes.
 """
 
 import re
+from pathlib import Path
 from typing import Optional
 
 import structlog
@@ -131,29 +132,72 @@ class APIEndpointValidator(BaseValidator):
         }
 
         for symbol in functions + methods:
-            if symbol.signature:
-                # Try to extract route info from signature/docstring
-                # This is a simplified heuristic
-                for decorator, method in route_decorators.items():
-                    if symbol.docstring and decorator in symbol.docstring:
-                        # Extract path from decorator
-                        path_match = re.search(
-                            rf'{decorator}\s*\(\s*["\']([^"\']+)["\']',
-                            symbol.docstring,
-                        )
-                        if path_match:
-                            path = path_match.group(1)
-                            if path not in self._routes:
-                                self._routes[path] = []
-                            if method not in self._routes[path]:
-                                self._routes[path].append(method)
-                                count += 1
+            extracted = self._extract_routes_from_symbol(symbol, route_decorators)
+            for path, method in extracted:
+                if path not in self._routes:
+                    self._routes[path] = []
+                    self._route_patterns.append(
+                        (self._path_to_regex(path), self._routes[path])
+                    )
+                if method not in self._routes[path]:
+                    self._routes[path].append(method)
+                    count += 1
 
         logger.info(
             "fastapi_routes_extracted",
             route_count=count,
         )
         return count
+
+    def _extract_routes_from_symbol(
+        self,
+        symbol,
+        route_decorators: dict[str, str],
+    ) -> list[tuple[str, str]]:
+        """Extract route decorators from source code near a symbol definition."""
+        if not symbol.file_path or not symbol.line_start:
+            return []
+
+        source_path = Path(self._symbol_table.repo_path) / symbol.file_path
+        try:
+            lines = source_path.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            logger.warning(
+                "fastapi_route_read_failed",
+                file_path=symbol.file_path,
+                error=str(exc),
+            )
+            return []
+
+        if symbol.line_start > len(lines):
+            return []
+
+        decorator_lines: list[str] = []
+        idx = symbol.line_start - 2
+        while idx >= 0:
+            line = lines[idx].strip()
+            if not line:
+                if decorator_lines:
+                    break
+                idx -= 1
+                continue
+            if line.startswith("@"):
+                decorator_lines.append(line)
+                idx -= 1
+                continue
+            break
+
+        decorator_lines.reverse()
+        extracted: list[tuple[str, str]] = []
+        for line in decorator_lines:
+            for decorator, method in route_decorators.items():
+                path_match = re.search(
+                    rf"{re.escape(decorator)}\s*\(\s*[\"']([^\"']+)[\"']",
+                    line,
+                )
+                if path_match:
+                    extracted.append((path_match.group(1), method))
+        return extracted
 
     def validate(
         self,
