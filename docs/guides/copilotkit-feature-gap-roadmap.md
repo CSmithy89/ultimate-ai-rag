@@ -118,6 +118,83 @@ Status labels: **Implemented**, **Partial**, **Missing**.
 4. MCP-UI + Open-JSON-UI (interop breadth)
 5. A2A caps and AG-UI telemetry polish
 
+## Implementation Backlog (Epic-Ready)
+Ownership tags: **Backend**, **Frontend**, **Platform/DevOps**, **Product/UX**.
+
+### A2UI Support
+- **Owner**: Backend + Frontend
+- **Dependencies**: AG-UI stream pipeline; existing CopilotKit UI shell
+- **Tasks**:
+  - Backend: add A2UI schema validator and `A2UI_ENABLED` flag; reject invalid payloads with RFC 7807 errors.
+  - Backend: expose A2UI payloads through AG-UI events (new event type or payload envelope).
+  - Frontend: build A2UI renderer with allowlisted widgets and safe fallbacks.
+  - Prompts: enable A2UI output when enabled and beneficial.
+  - Tests: schema validation tests + rendering snapshot tests.
+- **Acceptance**: A2UI widget renders in UI and falls back cleanly on unsupported components.
+
+### Observability + Tool Call Visualization
+- **Owner**: Frontend + Backend
+- **Dependencies**: AG-UI event flow and MCP tool call metadata
+- **Tasks**:
+  - Frontend: add tool call UI component for args/results with status badges.
+  - Backend: emit standardized tool call events (start/args/end) with timing.
+  - Frontend: wire CopilotKit Inspector + observability hooks (if license used).
+  - Backend: emit AG-UI and MCP metrics (latency, counts, failures).
+  - Tests: verify tool call render + event emission.
+- **Acceptance**: Tool calls are visible in UI and metrics are emitted per request.
+
+### MCP Client Integration (Outbound)
+- **Owner**: Backend
+- **Dependencies**: MCP tool registry, existing timeout settings
+- **Tasks**:
+  - Add MCP client config (env or settings) and client factory.
+  - Merge external MCP tools into registry with namespacing.
+  - Add retries/timeouts and error normalization.
+  - Integration tests against a mock MCP server.
+- **Acceptance**: External MCP tool calls succeed with retries and timeouts enforced.
+
+### MCP-UI Support
+- **Owner**: Frontend + Backend
+- **Dependencies**: AG-UI payload envelope, CSP configuration
+- **Tasks**:
+  - Backend: accept MCP-UI payloads and provide signed/proxied iframe URLs.
+  - Frontend: sandboxed iframe renderer with postMessage bridge.
+  - Security: CSP + allowlist for iframe origins.
+  - Tests: iframe render + postMessage resize handling.
+- **Acceptance**: MCP-UI widgets render safely with sandboxing.
+
+### Open-JSON-UI Support
+- **Owner**: Frontend + Backend
+- **Dependencies**: Schema validator framework
+- **Tasks**:
+  - Backend: validate Open-JSON-UI payloads and pass through AG-UI.
+  - Frontend: map Open-JSON-UI components to existing primitives.
+  - Tests: contract payload fixtures for validation and rendering.
+- **Acceptance**: Canonical Open-JSON-UI payloads render without errors.
+
+### AG-UI Telemetry Enhancements
+- **Owner**: Backend
+- **Dependencies**: Observability pipeline
+- **Tasks**:
+  - Emit stream metrics (latency, event count, drop rate).
+  - Standardize error event payloads for client consumption.
+  - Add load tests for sustained streams.
+- **Acceptance**: Metrics and standardized errors appear in logs/telemetry.
+
+### A2A Limits + Metrics
+- **Owner**: Backend
+- **Dependencies**: A2A session manager
+- **Tasks**:
+  - Implement per-tenant session/message caps with config.
+  - Emit metrics for session churn and message throughput.
+  - Extend concurrency and TTL tests.
+- **Acceptance**: Cap enforcement verified; metrics available.
+
+## Dependencies & Risks
+- **UI spec changes**: A2UI/MCP-UI/Open-JSON-UI schemas may evolve; pin versions and document.
+- **Security**: iframe and declarative UI require strict allowlists and CSP.
+- **Observability**: Ensure metrics are sampled to avoid performance regressions.
+
 ## Success Metrics
 - A2UI render success rate and fallback frequency
 - MCP tool latency percentiles
