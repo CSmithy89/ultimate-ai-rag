@@ -199,7 +199,7 @@ development_status:
   14-1-expose-rag-engine-via-mcp-server: done
   # Wraps Graphiti MCP + adds: vector_search, ingest_url, ingest_pdf, ingest_youtube, query_with_reranking
   14-2-implement-robust-a2a-protocol: done
-  epic-14-retrospective: optional
+  epic-14-retrospective: done
 
   # Epic 15: Codebase Intelligence (RENAMED - was Multimodal & Codebase)
   # DECISION: REMOVED video/image processing (YouTube transcript covers 90%+ of RAG needs)
