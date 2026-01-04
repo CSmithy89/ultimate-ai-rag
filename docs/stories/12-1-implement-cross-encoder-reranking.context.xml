@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>12-1</story-id>
+    <story-title>Implement Cross-Encoder Reranking</story-title>
+    <epic>Epic 12: Advanced Retrieval (Archon Upgrade)</epic>
+    <generated>2026-01-04</generated>
+  </metadata>
+
+  <implementation-guide>
+    <summary>
+      Add cross-encoder reranking as an optional post-retrieval stage to improve result relevance.
+      Follows existing multi-provider adapter pattern from embeddings/LLM providers.
+      Integrates into orchestrator after vector search, before prompt building.
+    </summary>
+
+    <pipeline-flow>
+      <step order="1">Query received by orchestrator</step>
+      <step order="2">RetrievalRouter selects strategy (VECTOR/GRAPH/HYBRID)</step>
+      <step order="3">Vector search returns K candidates (DEFAULT_VECTOR_LIMIT=8)</step>
+      <step order="4">**NEW: Reranking** - Cross-encoder scores query-document pairs</step>
+      <step order="5">Select top N results (RERANKER_TOP_K, default=10)</step>
+      <step order="6">Build hybrid prompt with ranked evidence</step>
+      <step order="7">LLM generates response</step>
+    </pipeline-flow>
+
+    <integration-points>
+      <point file="backend/src/agentic_rag_backend/config.py">
+        Add reranker configuration: RERANKER_ENABLED, RERANKER_PROVIDER, RERANKER_TOP_K, COHERE_API_KEY
+      </point>
+      <point file="backend/src/agentic_rag_backend/retrieval/reranking.py" action="create">
+        New module: RerankerAdapter base class, CohereReranker, FlashRankReranker implementations
+      </point>
+      <point file="backend/src/agentic_rag_backend/agents/orchestrator.py">
+        Inject reranking service, call after _run_vector_search(), log to trajectory
+      </point>
+      <point file="backend/pyproject.toml">
+        Add dependencies: cohere>=5.0, flashrank>=0.3
+      </point>
+    </integration-points>
+  </implementation-guide>
+
+  <existing-patterns>
+    <pattern name="Multi-Provider Adapter" source="llm/providers.py">
+      <description>
+        Create frozen dataclass adapter with provider enum, api_key, base_url, model.
+        Factory function creates appropriate client based on provider type.
+      </description>
+      <example>
+        @dataclass(frozen=True)
+        class EmbeddingProviderAdapter:
+            provider: EmbeddingProviderType
+            api_key: Optional[str]
+            base_url: Optional[str]
+            model: str
+      </example>
+    </pattern>
+
+    <pattern name="Async Retry with Backoff" source="embeddings.py">
+      <description>
+        Use tenacity @retry decorator with exponential jitter for API resilience.
+      </description>
+      <example>
+        @retry(
+            stop=stop_after_attempt(5),
+            wait=wait_exponential_jitter(initial=1, max=60),
+            retry=retry_if_exception_type(Exception),
+        )
+        async def rerank_batch(self, items):
+            ...
+      </example>
+    </pattern>
+
+    <pattern name="Trajectory Logging" source="agents/orchestrator.py">
+      <description>
+        Log thoughts (reasoning), actions (tool calls), observations (results).
+      </description>
+      <example>
+        await self._logger.log_thought(tenant_id, trajectory_id, "Selecting reranking strategy")
+        await self._logger.log_action(tenant_id, trajectory_id, "Reranking with Cohere")
+        await self._logger.log_observation(tenant_id, trajectory_id, f"Reranked {count} items")
+      </example>
+    </pattern>
+
+    <pattern name="Cost Tracking" source="agents/orchestrator.py">
+      <description>
+        Record usage for billing and monitoring via CostTracker.
+      </description>
+      <example>
+        await self._cost_tracker.record_usage(
+            tenant_id=tenant_id,
+            model_id="rerank-v3.5",
+            prompt=query,
+            completion="",
+            trajectory_id=trajectory_id,
+        )
+      </example>
+    </pattern>
+  </existing-patterns>
+
+  <key-files>
+    <file path="backend/src/agentic_rag_backend/config.py" role="Configuration management">
+      Contains Settings dataclass, load_settings(), provider validation.
+      Add RERANKER_* configuration fields here.
+    </file>
+    <file path="backend/src/agentic_rag_backend/llm/providers.py" role="Provider adapter pattern reference">
+      EmbeddingProviderAdapter, EmbeddingProviderType enum, get_embedding_adapter factory.
+      Follow this pattern for RerankerProviderAdapter.
+    </file>
+    <file path="backend/src/agentic_rag_backend/embeddings.py" role="Client implementation reference">
+      EmbeddingClient ABC, OpenAIEmbeddingClient, GeminiEmbeddingClient, VoyageEmbeddingClient.
+      Follow this pattern for RerankerClient implementations.
+    </file>
+    <file path="backend/src/agentic_rag_backend/agents/orchestrator.py" role="Integration target">
+      OrchestratorAgent class, _run_vector_search() method (line ~403).
+      Add reranking call after vector search returns.
+    </file>
+    <file path="backend/src/agentic_rag_backend/retrieval/vector_search.py" role="Vector search service">
+      VectorSearchService, search() method returns list[VectorHit].
+      Reranking will process these hits.
+    </file>
+    <file path="backend/src/agentic_rag_backend/retrieval/types.py" role="Data models">
+      VectorHit dataclass with: chunk_id, document_id, content, similarity, metadata.
+    </file>
+    <file path="backend/src/agentic_rag_backend/retrieval/constants.py" role="Configuration constants">
+      DEFAULT_VECTOR_LIMIT=8, MAX_VECTOR_HITS=6, DEFAULT_SIMILARITY_THRESHOLD=0.7.
+    </file>
+  </key-files>
+
+  <providers>
+    <provider name="Cohere">
+      <package>cohere>=5.0</package>
+      <model>rerank-v3.5 (default), rerank-english-v3.0, rerank-multilingual-v3.0</model>
+      <api>client.rerank(model, query, documents, top_n, return_documents)</api>
+      <cost>$0.001 per 1K tokens (estimate)</cost>
+      <features>100+ languages, 32K context, high accuracy</features>
+    </provider>
+    <provider name="FlashRank">
+      <package>flashrank>=0.3</package>
+      <model>ms-marco-MiniLM-L-12-v2 (default)</model>
+      <api>ranker.rerank(query, passages)</api>
+      <cost>Free (local CPU)</cost>
+      <features>CPU-optimized, no API cost, good for cost-sensitive deployments</features>
+    </provider>
+  </providers>
+
+  <configuration>
+    <env-vars>
+      <var name="RERANKER_ENABLED" type="bool" default="false">Enable/disable reranking</var>
+      <var name="RERANKER_PROVIDER" type="str" default="flashrank">cohere | flashrank</var>
+      <var name="RERANKER_TOP_K" type="int" default="10">Number of results after reranking</var>
+      <var name="RERANKER_MODEL" type="str" default="provider-specific">Model ID override</var>
+      <var name="COHERE_API_KEY" type="str" default="none">Required if provider=cohere</var>
+    </env-vars>
+  </configuration>
+
+  <implementation-steps>
+    <step order="1" file="backend/pyproject.toml">
+      Add dependencies: cohere>=5.0, flashrank>=0.3
+    </step>
+    <step order="2" file="backend/src/agentic_rag_backend/config.py">
+      Add reranker settings to Settings dataclass and load_settings()
+    </step>
+    <step order="3" file="backend/src/agentic_rag_backend/retrieval/reranking.py" action="create">
+      Create reranking module with:
+      - RerankerProviderType enum (COHERE, FLASHRANK)
+      - RerankerProviderAdapter dataclass
+      - RerankerClient ABC with rerank() method
+      - CohereRerankerClient implementation
+      - FlashRankRerankerClient implementation
+      - RerankedResult dataclass
+      - create_reranker_client() factory
+      - get_reranker_adapter() configuration loader
+    </step>
+    <step order="4" file="backend/src/agentic_rag_backend/retrieval/__init__.py">
+      Export reranking module
+    </step>
+    <step order="5" file="backend/src/agentic_rag_backend/agents/orchestrator.py">
+      - Inject RerankerClient into __init__ (optional, enabled via config)
+      - Add reranking step in _run_vector_search() or after hybrid retrieval
+      - Log reranking to trajectory
+      - Handle graceful fallback if reranking fails
+    </step>
+    <step order="6" file="backend/tests/test_reranking.py" action="create">
+      Add tests for:
+      - CohereRerankerClient with mocked API
+      - FlashRankRerankerClient with local model
+      - Configuration validation
+      - Fallback behavior on failure
+    </step>
+    <step order="7" file="docs/guides/advanced-retrieval-configuration.md">
+      Update with reranking configuration section
+    </step>
+  </implementation-steps>
+
+  <test-requirements>
+    <test type="unit" file="test_reranking.py">
+      - Test CohereRerankerClient with mocked cohere.Client
+      - Test FlashRankRerankerClient with local model
+      - Test configuration validation (invalid provider raises error)
+      - Test disabled reranking (bypass when RERANKER_ENABLED=false)
+    </test>
+    <test type="integration" file="test_retrieval_integration.py">
+      - Test retrieval pipeline with reranking enabled
+      - Verify pre-rerank and post-rerank results differ
+      - Verify trajectory logging includes reranking events
+    </test>
+  </test-requirements>
+
+  <error-handling>
+    <scenario name="API Timeout">
+      Log warning, return original unreranked results, continue with pipeline.
+    </scenario>
+    <scenario name="API Rate Limit">
+      Use tenacity retry with exponential backoff (5 attempts, 1-60s jitter).
+    </scenario>
+    <scenario name="Invalid API Key">
+      Fail fast at startup with clear error message about missing COHERE_API_KEY.
+    </scenario>
+    <scenario name="Reranker Unavailable">
+      Log error, return original results, add observation to trajectory.
+    </scenario>
+  </error-handling>
+
+  <success-metrics>
+    <metric name="Latency">Reranking adds less than 200ms to p95 latency</metric>
+    <metric name="Relevance">Top-10 relevance improves by 20% on evaluation set</metric>
+    <metric name="Reliability">Graceful fallback when reranking fails (no user-facing errors)</metric>
+  </success-metrics>
+</story-context>

@@ -18,6 +18,8 @@ from starlette.responses import JSONResponse, Response
 import structlog
 
 from .agents.orchestrator import OrchestratorAgent
+from .retrieval import create_reranker_client, get_reranker_adapter
+from .retrieval.grader import create_grader
 from .api.routes import (
     ingest_router,
     knowledge_router,
@@ -51,6 +53,37 @@ def _should_skip_pool() -> bool:
 
 def _should_skip_graphiti() -> bool:
     return os.getenv("SKIP_GRAPHITI") == "1"
+
+
+def _create_retrieval_enhancements(settings: Settings) -> tuple:
+    """Create reranker and grader instances based on settings.
+
+    Returns:
+        Tuple of (reranker, grader) - either may be None if disabled
+    """
+    reranker = None
+    if settings.reranker_enabled:
+        try:
+            reranker_adapter = get_reranker_adapter(settings)
+            reranker = create_reranker_client(reranker_adapter)
+            struct_logger.info(
+                "reranker_enabled",
+                provider=settings.reranker_provider,
+                model=settings.reranker_model,
+            )
+        except Exception as e:
+            struct_logger.warning("reranker_init_failed", error=str(e))
+
+    grader = create_grader(settings)
+    if grader:
+        struct_logger.info(
+            "grader_enabled",
+            model=grader.get_model(),
+            threshold=settings.grader_threshold,
+            fallback_enabled=settings.grader_fallback_enabled,
+        )
+
+    return reranker, grader
 
 
 @asynccontextmanager
@@ -183,6 +216,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             window_seconds=60,
         )
         app.state.redis = None
+        # Create retrieval enhancements (reranker, grader) if enabled
+        reranker, grader = _create_retrieval_enhancements(settings)
+
         app.state.orchestrator = OrchestratorAgent(
             api_key=llm_adapter.api_key or "",
             provider=llm_adapter.provider,
@@ -197,6 +233,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             embedding_model=settings.embedding_model,
             cost_tracker=getattr(app.state, "cost_tracker", None),
             model_router=getattr(app.state, "model_router", None),
+            reranker=reranker,
+            reranker_top_k=settings.reranker_top_k,
+            grader=grader,
         )
     else:
         pool = create_pool(settings.database_url, settings.db_pool_min, settings.db_pool_max)
@@ -233,6 +272,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 max_requests=settings.rate_limit_per_minute,
                 window_seconds=60,
             )
+
+        # Create retrieval enhancements (reranker, grader) if enabled
+        reranker, grader = _create_retrieval_enhancements(settings)
+
         app.state.orchestrator = OrchestratorAgent(
             api_key=llm_adapter.api_key or "",
             provider=llm_adapter.provider,
@@ -247,6 +290,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             embedding_model=settings.embedding_model,
             cost_tracker=getattr(app.state, "cost_tracker", None),
             model_router=getattr(app.state, "model_router", None),
+            reranker=reranker,
+            reranker_top_k=settings.reranker_top_k,
+            grader=grader,
         )
 
     app.state.a2a_manager = A2ASessionManager(

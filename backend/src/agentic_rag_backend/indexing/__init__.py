@@ -7,6 +7,12 @@ from .graphiti_ingestion import (
     EpisodeIngestionResult,
     EPISODE_ENTITY_TYPES,
 )
+from .contextual import (
+    ContextualChunkEnricher,
+    DocumentContext,
+    EnrichedChunk,
+    create_contextual_enricher,
+)
 
 __all__ = [
     # Crawler
@@ -22,4 +28,9 @@ __all__ = [
     "ingest_document_as_episode",
     "EpisodeIngestionResult",
     "EPISODE_ENTITY_TYPES",
+    # Epic 12: Contextual Retrieval
+    "ContextualChunkEnricher",
+    "DocumentContext",
+    "EnrichedChunk",
+    "create_contextual_enricher",
 ]

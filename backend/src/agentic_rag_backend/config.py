@@ -11,11 +11,26 @@ from dotenv import load_dotenv
 import structlog
 
 
+def get_bool_env(key: str, default: str = "false") -> bool:
+    """Parse a boolean environment variable.
+
+    Args:
+        key: Environment variable name
+        default: Default value if not set (default: "false")
+
+    Returns:
+        True if value is "true", "1", or "yes" (case-insensitive), False otherwise
+    """
+    return os.getenv(key, default).strip().lower() in {"true", "1", "yes"}
+
+
 # Search configuration constants
 DEFAULT_SEARCH_RESULTS = 5
 MAX_SEARCH_RESULTS = 100
 LLM_PROVIDERS = {"openai", "openrouter", "ollama", "anthropic", "gemini"}
 EMBEDDING_PROVIDERS = {"openai", "openrouter", "ollama", "gemini", "voyage"}
+RERANKER_PROVIDERS = {"cohere", "flashrank"}
+FALLBACK_STRATEGIES = {"web_search", "expanded_query", "alternate_index"}
 DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 
@@ -100,6 +115,23 @@ class Settings:
     routing_simple_max_score: int
     routing_complex_min_score: int
     trace_encryption_key: str
+    # Epic 12 - Advanced Retrieval (Reranking)
+    reranker_enabled: bool
+    reranker_provider: str
+    reranker_model: str
+    reranker_top_k: int
+    cohere_api_key: Optional[str]
+    # Epic 12 - Advanced Retrieval (Contextual Retrieval)
+    contextual_retrieval_enabled: bool
+    contextual_model: str
+    contextual_prompt_caching: bool
+    contextual_reindex_batch_size: int
+    # Epic 12 - Advanced Retrieval (Corrective RAG Grader)
+    grader_enabled: bool
+    grader_threshold: float
+    grader_fallback_enabled: bool
+    grader_fallback_strategy: str
+    tavily_api_key: Optional[str]
 
 
 def load_settings() -> Settings:
@@ -426,6 +458,34 @@ def load_settings() -> Settings:
             f"than ROUTING_SIMPLE_MAX_SCORE ({routing_simple_max_score})."
         )
 
+    # Epic 12 - Reranker configuration
+    reranker_enabled = get_bool_env("RERANKER_ENABLED", "false")
+    reranker_provider = os.getenv("RERANKER_PROVIDER", "flashrank").strip().lower()
+    if reranker_enabled and reranker_provider not in RERANKER_PROVIDERS:
+        raise ValueError(
+            f"RERANKER_PROVIDER must be one of: {', '.join(sorted(RERANKER_PROVIDERS))}. "
+            f"Got {reranker_provider!r}."
+        )
+    # Default models per provider
+    default_reranker_models = {
+        "cohere": "rerank-v3.5",
+        "flashrank": "ms-marco-MiniLM-L-12-v2",
+    }
+    reranker_model = os.getenv(
+        "RERANKER_MODEL", default_reranker_models.get(reranker_provider, "")
+    )
+    try:
+        reranker_top_k = int(os.getenv("RERANKER_TOP_K", "10"))
+    except ValueError:
+        reranker_top_k = 10
+    if reranker_top_k < 1:
+        raise ValueError("RERANKER_TOP_K must be >= 1.")
+    cohere_api_key = os.getenv("COHERE_API_KEY")
+    if reranker_enabled and reranker_provider == "cohere" and not cohere_api_key:
+        raise ValueError(
+            "COHERE_API_KEY is required when RERANKER_ENABLED=true and RERANKER_PROVIDER=cohere."
+        )
+
     trace_key = os.getenv("TRACE_ENCRYPTION_KEY")
     if trace_key:
         try:
@@ -444,6 +504,28 @@ def load_settings() -> Settings:
         raise ValueError(
             "TRACE_ENCRYPTION_KEY must be set for non-development environments."
         )
+
+    # Epic 12 - Contextual Retrieval settings
+    contextual_retrieval_enabled = get_bool_env("CONTEXTUAL_RETRIEVAL_ENABLED", "false")
+    contextual_model = os.getenv("CONTEXTUAL_MODEL", "claude-3-haiku-20240307")
+    contextual_prompt_caching = get_bool_env("CONTEXTUAL_PROMPT_CACHING", "true")
+    try:
+        contextual_reindex_batch_size = int(os.getenv("CONTEXTUAL_REINDEX_BATCH_SIZE", "100"))
+    except ValueError:
+        contextual_reindex_batch_size = 100
+
+    # Epic 12 - Corrective RAG Grader settings
+    grader_enabled = get_bool_env("GRADER_ENABLED", "false")
+    try:
+        grader_threshold = float(os.getenv("GRADER_THRESHOLD", "0.5"))
+        grader_threshold = max(0.0, min(1.0, grader_threshold))  # Clamp to 0.0-1.0
+    except ValueError:
+        grader_threshold = 0.5
+    grader_fallback_enabled = get_bool_env("GRADER_FALLBACK_ENABLED", "true")
+    grader_fallback_strategy = os.getenv("GRADER_FALLBACK_STRATEGY", "web_search")
+    if grader_fallback_strategy not in FALLBACK_STRATEGIES:
+        grader_fallback_strategy = "web_search"
+    tavily_api_key = os.getenv("TAVILY_API_KEY")
 
     return Settings(
         app_env=app_env,
@@ -520,6 +602,23 @@ def load_settings() -> Settings:
         routing_simple_max_score=routing_simple_max_score,
         routing_complex_min_score=routing_complex_min_score,
         trace_encryption_key=trace_encryption_key,
+        # Epic 12 - Reranker settings
+        reranker_enabled=reranker_enabled,
+        reranker_provider=reranker_provider,
+        reranker_model=reranker_model,
+        reranker_top_k=reranker_top_k,
+        cohere_api_key=cohere_api_key,
+        # Epic 12 - Contextual Retrieval settings
+        contextual_retrieval_enabled=contextual_retrieval_enabled,
+        contextual_model=contextual_model,
+        contextual_prompt_caching=contextual_prompt_caching,
+        contextual_reindex_batch_size=contextual_reindex_batch_size,
+        # Epic 12 - Corrective RAG Grader settings
+        grader_enabled=grader_enabled,
+        grader_threshold=grader_threshold,
+        grader_fallback_enabled=grader_fallback_enabled,
+        grader_fallback_strategy=grader_fallback_strategy,
+        tavily_api_key=tavily_api_key,
     )
 
 

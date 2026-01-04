@@ -22,6 +22,18 @@ from .temporal_retrieval import (
     EpisodeChange,
 )
 
+# Epic 12 - Advanced Retrieval (Reranking)
+from .reranking import (
+    RerankerClient,
+    RerankerProviderAdapter,
+    RerankerProviderType,
+    RerankedHit,
+    CohereRerankerClient,
+    FlashRankRerankerClient,
+    create_reranker_client,
+    get_reranker_adapter,
+)
+
 __all__ = [
     # Epic 3 - Graph traversal and vector search
     "GraphEdge",
@@ -44,4 +56,13 @@ __all__ = [
     "TemporalEdge",
     "KnowledgeChangesResult",
     "EpisodeChange",
+    # Epic 12 - Reranking
+    "RerankerClient",
+    "RerankerProviderAdapter",
+    "RerankerProviderType",
+    "RerankedHit",
+    "CohereRerankerClient",
+    "FlashRankRerankerClient",
+    "create_reranker_client",
+    "get_reranker_adapter",
 ]

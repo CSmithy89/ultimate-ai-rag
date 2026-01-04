@@ -15,7 +15,13 @@ from ..db.neo4j import Neo4jClient
 from ..db.postgres import PostgresClient
 from ..embeddings import DEFAULT_EMBEDDING_MODEL, EmbeddingGenerator
 from ..llm.providers import EmbeddingProviderAdapter, EmbeddingProviderType
-from ..retrieval import GraphTraversalService, VectorSearchService
+from ..retrieval import (
+    GraphTraversalService,
+    VectorSearchService,
+    RerankerClient,
+    RerankedHit,
+)
+from ..retrieval.grader import RetrievalGrader, RetrievalHit
 from ..retrieval.constants import (
     DEFAULT_ENTITY_LIMIT,
     DEFAULT_MAX_HOPS,
@@ -108,6 +114,9 @@ class OrchestratorAgent:
         graph_entity_limit: int | None = None,
         retrieval_timeout_seconds: float | None = None,
         retrieval_cache_ttl_seconds: float | None = None,
+        reranker: RerankerClient | None = None,
+        reranker_top_k: int = 10,
+        grader: RetrievalGrader | None = None,
     ) -> None:
         self._api_key = api_key
         self._provider = provider
@@ -122,6 +131,9 @@ class OrchestratorAgent:
         self._agents: dict[str, Any] = {}
         self._vector_search: VectorSearchService | None = None
         self._graph_traversal: GraphTraversalService | None = None
+        self._reranker = reranker
+        self._reranker_top_k = reranker_top_k
+        self._grader = grader
         if postgres:
             # Create embedding generator using provider adapter
             embedding_adapter = EmbeddingProviderAdapter(
@@ -438,11 +450,148 @@ class OrchestratorAgent:
                 events.append((EventType.OBSERVATION, error_note))
             logger.warning("vector_search_failed", error=str(exc))
             return []
+
         observation = f"Vector hits: {len(hits)}"
         if self._logger and trajectory_id:
             await self._logger.log_observation(tenant_id, trajectory_id, observation)
         else:
             events.append((EventType.OBSERVATION, observation))
+
+        # Epic 12: Apply reranking if enabled
+        if self._reranker and hits:
+            rerank_thought = f"Reranking {len(hits)} results with {self._reranker.get_model()}"
+            thoughts.append(rerank_thought)
+            if self._logger and trajectory_id:
+                await self._logger.log_thought(tenant_id, trajectory_id, rerank_thought)
+            else:
+                events.append((EventType.THOUGHT, rerank_thought))
+
+            rerank_action = "Run cross-encoder reranking"
+            if self._logger and trajectory_id:
+                await self._logger.log_action(tenant_id, trajectory_id, rerank_action)
+            else:
+                events.append((EventType.ACTION, rerank_action))
+
+            # Log pre-rerank scores
+            pre_rerank_scores = [f"{hit.content[:50]}... ({hit.similarity:.3f})" for hit in hits[:5]]
+            pre_rerank_note = f"Pre-rerank top-5: {pre_rerank_scores}"
+            if self._logger and trajectory_id:
+                await self._logger.log_observation(tenant_id, trajectory_id, pre_rerank_note)
+            else:
+                events.append((EventType.OBSERVATION, pre_rerank_note))
+
+            try:
+                reranked = await self._reranker.rerank(
+                    query=query,
+                    hits=hits,
+                    top_k=self._reranker_top_k,
+                )
+                # Extract hits from reranked results
+                hits = [r.hit for r in reranked]
+
+                # Log post-rerank scores
+                post_rerank_scores = [
+                    f"{r.hit.content[:50]}... ({r.rerank_score:.3f}, was rank {r.original_rank})"
+                    for r in reranked[:5]
+                ]
+                post_rerank_note = f"Post-rerank top-5: {post_rerank_scores}"
+                if self._logger and trajectory_id:
+                    await self._logger.log_observation(tenant_id, trajectory_id, post_rerank_note)
+                else:
+                    events.append((EventType.OBSERVATION, post_rerank_note))
+
+                rerank_observation = f"Reranked to {len(hits)} results"
+                if self._logger and trajectory_id:
+                    await self._logger.log_observation(tenant_id, trajectory_id, rerank_observation)
+                else:
+                    events.append((EventType.OBSERVATION, rerank_observation))
+
+            except Exception as exc:
+                rerank_error = f"Reranking failed, using original order: {exc}"
+                thoughts.append(rerank_error)
+                if self._logger and trajectory_id:
+                    await self._logger.log_observation(tenant_id, trajectory_id, rerank_error)
+                else:
+                    events.append((EventType.OBSERVATION, rerank_error))
+                logger.warning("reranking_failed", error=str(exc))
+                # Continue with original hits on reranking failure
+
+        # Epic 12: Apply CRAG grading if enabled
+        if self._grader and hits:
+            grader_thought = f"Grading retrieval quality with {self._grader.get_model()}"
+            thoughts.append(grader_thought)
+            if self._logger and trajectory_id:
+                await self._logger.log_thought(tenant_id, trajectory_id, grader_thought)
+            else:
+                events.append((EventType.THOUGHT, grader_thought))
+
+            grader_action = "Run CRAG grader evaluation"
+            if self._logger and trajectory_id:
+                await self._logger.log_action(tenant_id, trajectory_id, grader_action)
+            else:
+                events.append((EventType.ACTION, grader_action))
+
+            try:
+                # Convert VectorHit to RetrievalHit for grader
+                grader_hits = [
+                    RetrievalHit(
+                        content=hit.content,
+                        score=hit.similarity,
+                        metadata=hit.metadata,
+                    )
+                    for hit in hits
+                ]
+
+                grader_result, fallback_hits = await self._grader.grade_and_fallback(
+                    query=query,
+                    hits=grader_hits,
+                    tenant_id=tenant_id,
+                )
+
+                grade_observation = (
+                    f"Grade: {grader_result.score:.3f} "
+                    f"(threshold: {grader_result.threshold}, "
+                    f"passed: {grader_result.passed}, "
+                    f"grading_time: {grader_result.grading_time_ms}ms)"
+                )
+                if self._logger and trajectory_id:
+                    await self._logger.log_observation(tenant_id, trajectory_id, grade_observation)
+                else:
+                    events.append((EventType.OBSERVATION, grade_observation))
+
+                # If fallback was triggered, log it and append fallback hits
+                if grader_result.fallback_triggered and fallback_hits:
+                    fallback_note = (
+                        f"Fallback triggered ({grader_result.fallback_strategy.value}): "
+                        f"added {len(fallback_hits)} additional results"
+                    )
+                    thoughts.append(fallback_note)
+                    if self._logger and trajectory_id:
+                        await self._logger.log_observation(tenant_id, trajectory_id, fallback_note)
+                    else:
+                        events.append((EventType.OBSERVATION, fallback_note))
+
+                    # Convert fallback RetrievalHit back to VectorHit format
+                    for fh in fallback_hits:
+                        fallback_vector_hit = VectorHit(
+                            document_id=fh.metadata.get("url", "fallback") if fh.metadata else "fallback",
+                            chunk_index=0,
+                            content=fh.content,
+                            similarity=fh.score or 0.0,
+                            metadata=fh.metadata,
+                        )
+                        hits.append(fallback_vector_hit)
+
+            except Exception as exc:
+                grader_error = f"Grading failed, continuing with ungraded results: {exc}"
+                thoughts.append(grader_error)
+                if self._logger and trajectory_id:
+                    await self._logger.log_observation(tenant_id, trajectory_id, grader_error)
+                else:
+                    events.append((EventType.OBSERVATION, grader_error))
+                logger.warning("grading_failed", error=str(exc))
+                # Continue with original hits on grading failure
+
         return hits
 
     def _build_evidence(
