@@ -13,6 +13,15 @@ from .contextual import (
     EnrichedChunk,
     create_contextual_enricher,
 )
+from .fallback_providers import (
+    CrawlResult,
+    CrawlProvider,
+    ApifyProvider,
+    BrightDataProvider,
+    FallbackCrawler,
+    SimpleCrawlProvider,
+    create_fallback_crawler,
+)
 
 __all__ = [
     # Crawler
@@ -33,4 +42,12 @@ __all__ = [
     "DocumentContext",
     "EnrichedChunk",
     "create_contextual_enricher",
+    # Epic 13: Fallback Providers
+    "CrawlResult",
+    "CrawlProvider",
+    "ApifyProvider",
+    "BrightDataProvider",
+    "FallbackCrawler",
+    "SimpleCrawlProvider",
+    "create_fallback_crawler",
 ]
