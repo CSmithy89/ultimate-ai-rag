@@ -7,15 +7,20 @@ improves retrieval accuracy by 35-67% by preserving document context.
 Reference: https://www.anthropic.com/news/contextual-retrieval
 """
 
+from __future__ import annotations
+
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 import structlog
 import tiktoken
 
 from .chunker import ChunkData
+
+if TYPE_CHECKING:
+    from ..config import Settings
 
 logger = structlog.get_logger(__name__)
 
@@ -128,7 +133,7 @@ class ContextualChunkEnricher:
         self._api_key = api_key
         self._provider = provider
         self._base_url = base_url
-        self._client = None
+        self._client: Any | None = None
         self._initialized = False
 
         logger.info(
@@ -159,12 +164,11 @@ class ContextualChunkEnricher:
             try:
                 import openai
 
-                # Use custom base_url for OpenRouter or other OpenAI-compatible providers
-                client_kwargs = {"api_key": self._api_key}
+                api_key = self._api_key or ""
                 if self._base_url:
-                    client_kwargs["base_url"] = self._base_url
-
-                self._client = openai.AsyncOpenAI(**client_kwargs)
+                    self._client = openai.AsyncOpenAI(api_key=api_key, base_url=self._base_url)
+                else:
+                    self._client = openai.AsyncOpenAI(api_key=api_key)
                 self._initialized = True
                 logger.info(
                     "openai_client_initialized",
@@ -194,6 +198,9 @@ class ContextualChunkEnricher:
             Tuple of (generated context, latency in ms)
         """
         await self._ensure_client()
+        client = self._client
+        if client is None:
+            raise RuntimeError("Contextual enricher client not initialized.")
 
         # Build document header for context
         doc_header = ""
@@ -237,7 +244,10 @@ class ContextualChunkEnricher:
 
     async def _generate_anthropic(self, prompt: str) -> str:
         """Generate context using Anthropic API with optional caching."""
-        messages = [{"role": "user", "content": prompt}]
+        client = self._client
+        if client is None:
+            raise RuntimeError("Contextual enricher client not initialized.")
+        messages: list[dict[str, object]] = [{"role": "user", "content": prompt}]
 
         # Use prompt caching if enabled (cache the document part)
         if self._use_prompt_caching:
@@ -266,7 +276,7 @@ class ContextualChunkEnricher:
                     }
                 ]
 
-        response = await self._client.messages.create(
+        response = await client.messages.create(
             model=self._model,
             max_tokens=150,  # Context should be succinct
             messages=messages,
@@ -281,7 +291,10 @@ class ContextualChunkEnricher:
 
     async def _generate_openai(self, prompt: str) -> str:
         """Generate context using OpenAI API."""
-        response = await self._client.chat.completions.create(
+        client = self._client
+        if client is None:
+            raise RuntimeError("Contextual enricher client not initialized.")
+        response = await client.chat.completions.create(
             model=self._model,
             max_tokens=150,
             messages=[{"role": "user", "content": prompt}],
@@ -393,7 +406,7 @@ class ContextualChunkEnricher:
 
 
 def create_contextual_enricher(
-    settings: "Settings",
+    settings: Settings,
 ) -> Optional[ContextualChunkEnricher]:
     """Create a contextual enricher from settings if enabled.
 
@@ -403,8 +416,6 @@ def create_contextual_enricher(
     Returns:
         ContextualChunkEnricher if enabled, None otherwise
     """
-    from ..config import Settings  # Avoid circular import
-
     if not settings.contextual_retrieval_enabled:
         return None
 

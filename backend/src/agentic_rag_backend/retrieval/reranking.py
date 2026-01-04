@@ -16,11 +16,13 @@ Usage:
     reranked = await client.rerank(query, hits, top_k=10)
 """
 
+from __future__ import annotations
+
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 import structlog
 from tenacity import (
@@ -33,6 +35,9 @@ from tenacity import (
 from .types import VectorHit
 
 logger = structlog.get_logger(__name__)
+
+if TYPE_CHECKING:
+    from ..config import Settings
 
 
 class RerankerProviderType(str, Enum):
@@ -276,7 +281,7 @@ def create_reranker_client(adapter: RerankerProviderAdapter) -> RerankerClient:
         raise ValueError(f"Unsupported reranker provider: {adapter.provider}")
 
 
-def get_reranker_adapter(settings: "Settings") -> RerankerProviderAdapter:
+def get_reranker_adapter(settings: Settings) -> RerankerProviderAdapter:
     """Create reranker adapter from settings.
 
     Args:
@@ -285,8 +290,6 @@ def get_reranker_adapter(settings: "Settings") -> RerankerProviderAdapter:
     Returns:
         RerankerProviderAdapter configured from settings
     """
-    from ..config import Settings  # Avoid circular import at runtime
-
     try:
         provider = RerankerProviderType(settings.reranker_provider)
     except ValueError:

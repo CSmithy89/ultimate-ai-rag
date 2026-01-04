@@ -76,11 +76,9 @@ class User:
 
     def test_parse_unsupported_language(self, parser):
         """Test parsing with unsupported language returns None."""
-        # Try a language that might not be in the parser
-        result = parser.parse_string("code", Language("jsx"))
+        tree = parser.parse_string("code", Language.JSX)
 
-        # JSX might not be supported by default parser
-        # Just verify it doesn't crash
+        assert tree is None
 
 
 class TestFindNodesByType:

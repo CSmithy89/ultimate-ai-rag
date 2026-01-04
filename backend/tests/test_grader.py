@@ -1,15 +1,11 @@
 """Unit tests for the Corrective RAG Grader module."""
 
 import os
-import sys
-from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from agentic_rag_backend.retrieval.grader import (
-    BaseFallbackHandler,
-    BaseGrader,
     CrossEncoderGrader,
     ExpandedQueryFallback,
     FallbackStrategy,

@@ -393,6 +393,7 @@ class CodebaseIndexer:
                     description=f"{relationship.source_type} {relationship.source_name}",
                 )
 
+        target_id: str | None
         if relationship.target_type == "module":
             target_id = self._make_entity_id("module", relationship.target_name)
             await self.neo4j.create_entity(
@@ -420,6 +421,9 @@ class CodebaseIndexer:
                     entity_type=self._map_symbol_type(symbol_type) if symbol_type else "CodeSymbol",
                     description=f"{relationship.target_type} {relationship.target_name}",
                 )
+
+        if target_id is None:
+            return False
 
         return await self.neo4j.create_relationship(
             source_id=source_id,

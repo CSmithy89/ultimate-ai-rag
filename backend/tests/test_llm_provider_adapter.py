@@ -7,10 +7,7 @@ import importlib.util
 import pytest
 
 from agentic_rag_backend.config import load_settings
-from agentic_rag_backend.llm.providers import (
-    UnsupportedLLMProviderError,
-    get_llm_adapter,
-)
+from agentic_rag_backend.llm.providers import get_llm_adapter
 from tests.test_utils import set_core_env
 
 

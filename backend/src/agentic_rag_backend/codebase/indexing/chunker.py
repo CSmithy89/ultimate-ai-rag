@@ -123,7 +123,7 @@ class CodeChunker:
             ]
 
         chunks: list[CodeChunk] = []
-        current_lines = []
+        current_lines: list[str] = []
         current_len = 0
         chunk_start_line = line_start
         line_cursor = line_start

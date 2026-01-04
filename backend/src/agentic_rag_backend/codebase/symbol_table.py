@@ -162,7 +162,7 @@ class SymbolTable:
             List of symbols defined in the file
         """
         names = self._files.get(file_path, set())
-        symbols = []
+        symbols: list[CodeSymbol] = []
         for name in names:
             symbols.extend(
                 s for s in self._symbols[name] if s.file_path == file_path
@@ -178,7 +178,7 @@ class SymbolTable:
         Returns:
             List of symbols matching the type
         """
-        result = []
+        result: list[CodeSymbol] = []
         for symbols in self._symbols.values():
             result.extend(s for s in symbols if s.type == symbol_type)
         return result

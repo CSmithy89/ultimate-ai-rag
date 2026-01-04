@@ -225,6 +225,15 @@ async def example() -> None:
   - Apify/Brightdata fallback for anti-bot protected sites
   - Crawl configuration profiles (fast/thorough/stealth)
 
+### Epic 15: Codebase Intelligence
+- Status: Complete
+- Stories: 2/2 completed
+- Key Features:
+  - AST-based hallucination detection with symbol/path/import/API validation
+  - Codebase RAG indexing with pgvector embeddings and Neo4j relationships
+  - New endpoints: `/api/v1/codebase/validate-response`, `/api/v1/codebase/index`, `/api/v1/codebase/search`
+  - Configurable CODEBASE_* settings for detection and indexing
+
 ## Roadmap
 
 ### Upcoming Epics
@@ -232,7 +241,7 @@ async def example() -> None:
 | Epic | Focus | Status |
 |------|-------|--------|
 | **Epic 14** | MCP Wrapper Architecture | Backlog |
-| **Epic 15** | Codebase Intelligence | Backlog |
+| **Epic 15** | Codebase Intelligence | Complete |
 | **Epic 16** | Framework Agnosticism | Backlog |
 | **Epic 17** | CLI & Deployment | Backlog |
 | **Epic 18** | Enhanced Documentation | Backlog |

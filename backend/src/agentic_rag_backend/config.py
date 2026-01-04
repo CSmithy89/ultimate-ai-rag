@@ -269,6 +269,8 @@ def load_settings() -> Settings:
             llm_model_id = openai_model_id
         if not openai_model_id:
             openai_model_id = llm_model_id
+    llm_model_id = llm_model_id or "gpt-4o-mini"
+    openai_model_id = openai_model_id or llm_model_id
 
     min_pool_size = 1
     try:
@@ -495,6 +497,8 @@ def load_settings() -> Settings:
             "EMBEDDING_PROVIDER must be one of: openai, openrouter, ollama, gemini, voyage."
         )
 
+    llm_api_key: Optional[str]
+    llm_base_url: Optional[str]
     if llm_provider == "openai":
         llm_api_key = openai_api_key
         llm_base_url = openai_base_url or None
@@ -512,6 +516,8 @@ def load_settings() -> Settings:
         llm_base_url = None
 
     # Derive embedding API credentials based on embedding_provider
+    embedding_api_key: Optional[str]
+    embedding_base_url: Optional[str]
     if embedding_provider == "openai":
         embedding_api_key = openai_api_key
         embedding_base_url = openai_base_url or None

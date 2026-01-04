@@ -1,7 +1,6 @@
 """Tests for YouTube transcript ingestion module."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
-import sys
+from unittest.mock import MagicMock, patch
 
 import pytest
 

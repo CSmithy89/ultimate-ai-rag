@@ -161,8 +161,9 @@ async def fetch_transcript(
 
     try:
         # Run blocking API call in thread pool for async compatibility
+        list_transcripts = getattr(YouTubeTranscriptApi, "list_transcripts")
         transcript_list = await asyncio.to_thread(
-            YouTubeTranscriptApi.list_transcripts,
+            list_transcripts,
             video_id,
         )
 
@@ -192,6 +193,7 @@ async def fetch_transcript(
 
         result = YouTubeTranscriptResult(
             video_id=video_id,
+            title=None,
             language=transcript.language_code,
             is_generated=transcript.is_generated,
             segments=segments,

@@ -1,10 +1,8 @@
 """Tests for codebase API endpoints."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
-
-from fastapi.testclient import TestClient
 
 
 # Mock the codebase module to avoid tree-sitter dependency in tests
@@ -104,7 +102,6 @@ class TestResponseModels:
         """Test HallucinationReportResponse model."""
         from agentic_rag_backend.api.routes.codebase import (
             HallucinationReportResponse,
-            ValidationResultResponse,
         )
 
         report = HallucinationReportResponse(

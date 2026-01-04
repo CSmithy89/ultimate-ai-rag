@@ -8,10 +8,9 @@ Tests the new CrawlerService implementation using Crawl4AI for:
 - Proxy configuration
 """
 
-import asyncio
 from datetime import datetime, timezone
 from typing import Any, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 import pytest
 
 from agentic_rag_backend.indexing.crawler import (
@@ -198,7 +197,7 @@ class MockAsyncWebCrawler:
             url=url,
             success=True,
             markdown="# Test Page\n\nContent for " + url,
-            html=f"<html><head><title>Test</title></head><body><h1>Test Page</h1></body></html>",
+            html="<html><head><title>Test</title></head><body><h1>Test Page</h1></body></html>",
         )
 
     async def arun_many(

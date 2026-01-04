@@ -272,7 +272,6 @@ class TestConfigIntegration:
 
     def test_reranker_disabled_by_default(self) -> None:
         """Test that reranker is disabled by default in config."""
-        import os
         from agentic_rag_backend.config import RERANKER_PROVIDERS
 
         # Verify default is disabled (relies on config.py logic)

@@ -9,49 +9,81 @@ import asyncio
 import inspect
 import logging
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 import structlog
 
+from ..models.entity_types import ENTITY_TYPES, EDGE_TYPE_MAPPINGS
+
+if TYPE_CHECKING:
+    from graphiti_core import Graphiti as GraphitiType
+    from graphiti_core.llm_client import OpenAIClient as OpenAIClientType
+    from graphiti_core.embedder import OpenAIEmbedder as OpenAIEmbedderType
+else:
+    GraphitiType = Any
+    OpenAIClientType = Any
+    OpenAIEmbedderType = Any
+
+GraphitiImpl: type[Any] | None
+OpenAIClientImpl: type[Any] | None
+OpenAIEmbedderImpl: type[Any] | None
+
 try:
-    from graphiti_core import Graphiti
-    from graphiti_core.llm_client import OpenAIClient
-    from graphiti_core.embedder import OpenAIEmbedder
+    from graphiti_core import Graphiti as GraphitiImpl
+    from graphiti_core.llm_client import OpenAIClient as OpenAIClientImpl
+    from graphiti_core.embedder import OpenAIEmbedder as OpenAIEmbedderImpl
 
     GRAPHITI_AVAILABLE = True
 except ImportError:
     GRAPHITI_AVAILABLE = False
-    Graphiti = None  # type: ignore
-    OpenAIClient = None  # type: ignore
-    OpenAIEmbedder = None  # type: ignore
+    GraphitiImpl = None
+    OpenAIClientImpl = None
+    OpenAIEmbedderImpl = None
 
-try:  # pragma: no cover - optional provider clients
-    from graphiti_core.llm_client import OpenAIGenericClient
-except ImportError:  # pragma: no cover - optional provider clients
-    OpenAIGenericClient = None  # type: ignore
+Graphiti: Any = GraphitiImpl
+OpenAIClient: Any = OpenAIClientImpl
+OpenAIEmbedder: Any = OpenAIEmbedderImpl
 
-try:  # pragma: no cover - optional provider clients
-    from graphiti_core.llm_client import AnthropicClient
-except ImportError:  # pragma: no cover - optional provider clients
-    AnthropicClient = None  # type: ignore
+OpenAIGenericClient: type[Any] | None
+AnthropicClient: type[Any] | None
+GeminiClient: type[Any] | None
+GeminiEmbedder: type[Any] | None
+VoyageAIEmbedder: type[Any] | None
 
-try:  # pragma: no cover - optional provider clients
-    from graphiti_core.llm_client import GeminiClient
-except ImportError:  # pragma: no cover - optional provider clients
-    GeminiClient = None  # type: ignore
+if GRAPHITI_AVAILABLE:  # pragma: no cover - optional provider clients
+    graphiti_llm_client: Any | None
+    try:
+        from graphiti_core import llm_client as graphiti_llm_client
+    except ImportError:
+        graphiti_llm_client = None
 
-# Embedder imports for multi-provider support
-try:  # pragma: no cover - optional embedder clients
-    from graphiti_core.embedder import GeminiEmbedder
-except ImportError:  # pragma: no cover - optional embedder clients
-    GeminiEmbedder = None  # type: ignore
+    if graphiti_llm_client:
+        OpenAIGenericClient = getattr(graphiti_llm_client, "OpenAIGenericClient", None)
+        AnthropicClient = getattr(graphiti_llm_client, "AnthropicClient", None)
+        GeminiClient = getattr(graphiti_llm_client, "GeminiClient", None)
+    else:
+        OpenAIGenericClient = None
+        AnthropicClient = None
+        GeminiClient = None
 
-try:  # pragma: no cover - optional embedder clients
-    from graphiti_core.embedder import VoyageAIEmbedder
-except ImportError:  # pragma: no cover - optional embedder clients
-    VoyageAIEmbedder = None  # type: ignore
+    graphiti_embedder: Any | None
+    try:
+        from graphiti_core import embedder as graphiti_embedder
+    except ImportError:
+        graphiti_embedder = None
 
-from ..models.entity_types import ENTITY_TYPES, EDGE_TYPE_MAPPINGS
+    if graphiti_embedder:
+        GeminiEmbedder = getattr(graphiti_embedder, "GeminiEmbedder", None)
+        VoyageAIEmbedder = getattr(graphiti_embedder, "VoyageAIEmbedder", None)
+    else:
+        GeminiEmbedder = None
+        VoyageAIEmbedder = None
+else:
+    OpenAIGenericClient = None
+    AnthropicClient = None
+    GeminiClient = None
+    GeminiEmbedder = None
+    VoyageAIEmbedder = None
 
 logger = logging.getLogger(__name__)
 struct_logger = structlog.get_logger(__name__)
@@ -133,12 +165,12 @@ class GraphitiClient:
         self._embedding_base_url = embedding_base_url
         self.embedding_model = embedding_model
         self.llm_model = llm_model
-        self._client: Optional[Graphiti] = None
+        self._client: Any | None = None
         self._state = ConnectionState.NEW
         self._connect_lock = asyncio.Lock()
 
     @property
-    def client(self) -> Graphiti:
+    def client(self) -> Any:
         """Get the underlying Graphiti client.
 
         Returns:
@@ -202,7 +234,7 @@ class GraphitiClient:
                     if component_cls is None:
                         raise RuntimeError("Graphiti client component not available.")
                     try:
-                        params = inspect.signature(component_cls).parameters
+                        params = dict(inspect.signature(component_cls).parameters)
                         accepts_kwargs = any(
                             param.kind == inspect.Parameter.VAR_KEYWORD
                             for param in params.values()
@@ -219,7 +251,7 @@ class GraphitiClient:
                         kwargs["model_id"] = model
                     elif "id" in params:
                         kwargs["id"] = model
-                    else:
+                    elif accepts_kwargs:
                         kwargs["model"] = model
                     if base_url:
                         if "base_url" in params or accepts_kwargs:
@@ -302,6 +334,8 @@ class GraphitiClient:
                 self._llm_api_key = None
                 self._embedding_api_key = None
 
+                if Graphiti is None:
+                    raise RuntimeError("Graphiti client is not available.")
                 # Initialize Graphiti with custom configuration
                 self._client = Graphiti(
                     uri=self.uri,

@@ -72,6 +72,12 @@ class FileScanner:
             return True
 
         for pattern in self.exclude_patterns:
+            if Path(rel_path).match(pattern):
+                return True
+            collapsed = pattern.replace("**/", "").replace("/**", "").strip("/")
+            if collapsed and not any(ch in collapsed for ch in ("*", "?", "[")):
+                if f"/{collapsed}/" in f"/{rel_path}/" or rel_path.startswith(f"{collapsed}/"):
+                    return True
             if pattern.endswith("/"):
                 prefix = pattern[:-1]
                 if rel_path.startswith(prefix) or f"/{prefix}/" in f"/{rel_path}/":

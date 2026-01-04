@@ -20,8 +20,6 @@ from .symbol_table import SymbolTable
 from .types import (
     CodeSymbol,
     HallucinationReport,
-    Language,
-    SymbolType,
     ValidationResult,
     get_language_for_file,
 )
