@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story Context File: 15-2 Implement Codebase RAG Context
+  Generated: 2026-01-04
+  Epic: 15 - Codebase Intelligence
+
+  Purpose: Provides codebase context needed to implement indexing + retrieval.
+-->
+<story-context>
+  <story-summary>
+    <id>15-2</id>
+    <title>Implement Codebase RAG Context</title>
+    <status>ready-for-dev</status>
+    <priority>High</priority>
+    <complexity>High (5-7 days estimated)</complexity>
+    <objective>
+      Index source repositories into pgvector + Neo4j and expose
+      search endpoints that return grounded code context.
+    </objective>
+  </story-summary>
+
+  <architecture-context>
+    <decision name="reuse-story-15-1-symbols">
+      <description>Reuse SymbolExtractor + SymbolTable for code indexing</description>
+      <rationale>
+        Story 15-1 already provides tree-sitter parsing and symbol extraction.
+        Reusing avoids duplicate AST logic and keeps codebase intelligence unified.
+      </rationale>
+    </decision>
+    <decision name="pgvector-for-code-chunks">
+      <description>Store code chunks in existing pgvector chunks table</description>
+      <rationale>
+        The platform already indexes document chunks via pgvector; code chunks can
+        reuse the same schema with metadata tagging (source_type=codebase).
+      </rationale>
+    </decision>
+    <decision name="neo4j-relationships">
+      <description>Store CALLS/IMPORTS/DEFINED_IN relationships in Neo4j</description>
+      <rationale>
+        The knowledge graph is the canonical relationship store; code links can
+        be queried alongside other entities via existing graph APIs.
+      </rationale>
+    </decision>
+  </architecture-context>
+
+  <relevant-files>
+    <file path="backend/src/agentic_rag_backend/codebase/" purpose="Codebase intelligence module from Story 15-1" />
+    <file path="backend/src/agentic_rag_backend/indexing/chunker.py" purpose="Chunking utilities for pgvector ingestion" />
+    <file path="backend/src/agentic_rag_backend/embeddings.py" purpose="Embedding generation for chunk content" />
+    <file path="backend/src/agentic_rag_backend/db/postgres.py" purpose="create_document/create_chunk/search_similar_chunks" />
+    <file path="backend/src/agentic_rag_backend/db/neo4j.py" purpose="Entity and relationship creation in graph" />
+    <file path="backend/src/agentic_rag_backend/retrieval/vector_search.py" purpose="Vector search service over pgvector chunks" />
+    <file path="backend/src/agentic_rag_backend/api/routes/codebase.py" purpose="Codebase API routes (extend with /index and /search)" />
+    <file path="backend/src/agentic_rag_backend/config.py" purpose="Add CODEBASE_* RAG settings" />
+    <file path=".env.example" purpose="Document new CODEBASE_* env vars" />
+  </relevant-files>
+</story-context>

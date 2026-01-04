@@ -204,12 +204,12 @@ development_status:
   # DECISION: REMOVED video/image processing (YouTube transcript covers 90%+ of RAG needs)
   # DECISION: FOCUS on codebase intelligence as developer platform differentiator
   # TECH SPEC: _bmad-output/epics/epic-15-tech-spec.md (2026-01-04)
-  epic-15: contexted
+  epic-15: done
   # REMOVED: 15-1-implement-full-video-ingestion-clip-whisper
   # REMOVED: 15-2-implement-image-ingestion
-  15-1-implement-codebase-hallucination-detector: backlog
+  15-1-implement-codebase-hallucination-detector: done
   # AST-based symbol validation, file path verification, API endpoint matching
-  15-2-implement-codebase-rag-context: backlog
+  15-2-implement-codebase-rag-context: done
   # Index repository as knowledge, symbol extraction for context (NEW)
   epic-15-retrospective: optional
 

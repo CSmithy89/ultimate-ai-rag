@@ -18,6 +18,12 @@ DEFAULT_ALLOWED_RELATIONSHIPS = (
     "PART_OF",
     "USES",
     "RELATED_TO",
+    "CALLS",
+    "IMPORTS",
+    "EXTENDS",
+    "IMPLEMENTS",
+    "DEFINED_IN",
+    "USES_TYPE",
 )
 TERM_SAFE_PATTERN = re.compile(r"^[a-z0-9_-]{2,}$")
 
@@ -245,7 +251,19 @@ class Neo4jClient:
             True if relationship was created, False otherwise
         """
         # Validate relationship type to prevent injection
-        valid_types = {"MENTIONS", "AUTHORED_BY", "PART_OF", "USES", "RELATED_TO"}
+        valid_types = {
+            "MENTIONS",
+            "AUTHORED_BY",
+            "PART_OF",
+            "USES",
+            "RELATED_TO",
+            "CALLS",
+            "IMPORTS",
+            "EXTENDS",
+            "IMPLEMENTS",
+            "DEFINED_IN",
+            "USES_TYPE",
+        }
         if relationship_type not in valid_types:
             logger.warning(
                 "invalid_relationship_type",
@@ -397,6 +415,56 @@ class Neo4jClient:
                 return [dict(r["e"]) for r in records]
         except Neo4jDriverError as e:
             raise Neo4jError("get_entities_by_type", str(e)) from e
+
+    async def get_entity_relationships(
+        self,
+        entity_id: str,
+        tenant_id: str,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """
+        Fetch outgoing relationships for an entity.
+
+        Args:
+            entity_id: Entity UUID
+            tenant_id: Tenant identifier
+            limit: Maximum relationships to return
+
+        Returns:
+            List of relationship dictionaries with target data
+        """
+        try:
+            async with self.driver.session() as session:
+                result = await session.run(
+                    """
+                    MATCH (source:Entity {id: $id, tenant_id: $tenant_id})-[r]->(target:Entity)
+                    WHERE target.tenant_id = $tenant_id
+                    RETURN type(r) as type,
+                           target.id as target_id,
+                           target.name as target_name,
+                           target.type as target_type,
+                           r.confidence as confidence,
+                           r.description as description
+                    LIMIT $limit
+                    """,
+                    id=entity_id,
+                    tenant_id=tenant_id,
+                    limit=limit,
+                )
+                records = await result.data()
+                return [
+                    {
+                        "type": record.get("type"),
+                        "target_id": record.get("target_id"),
+                        "target_name": record.get("target_name"),
+                        "target_type": record.get("target_type"),
+                        "confidence": record.get("confidence"),
+                        "description": record.get("description"),
+                    }
+                    for record in records
+                ]
+        except Neo4jDriverError as e:
+            raise Neo4jError("get_entity_relationships", str(e)) from e
 
     async def create_document_node(
         self,
