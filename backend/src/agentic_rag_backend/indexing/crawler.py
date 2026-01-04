@@ -376,15 +376,18 @@ class CrawlerService:
 
         self.page_timeout_ms = page_timeout_ms
 
-        # Validate timeout configuration
-        wait_timeout_ms = self.wait_timeout * 1000
-        if wait_timeout_ms > self.page_timeout_ms:
+        # Validate and auto-clamp timeout configuration
+        # wait_timeout must be less than page_timeout to avoid guaranteed failures
+        max_wait_timeout_s = (self.page_timeout_ms - 1000) / 1000  # Leave 1s buffer
+        if self.wait_timeout > max_wait_timeout_s:
+            original_wait_timeout = self.wait_timeout
+            self.wait_timeout = max(1.0, max_wait_timeout_s)  # Clamp to safe value
             logger.warning(
-                "wait_timeout_exceeds_page_timeout",
-                wait_timeout_s=self.wait_timeout,
-                wait_timeout_ms=wait_timeout_ms,
+                "wait_timeout_clamped",
+                original_wait_timeout_s=original_wait_timeout,
+                clamped_wait_timeout_s=self.wait_timeout,
                 page_timeout_ms=self.page_timeout_ms,
-                recommendation="wait_timeout should be less than page_timeout",
+                reason="wait_timeout exceeded page_timeout, auto-clamped",
             )
 
         self._crawler: Optional[AsyncWebCrawler] = None
@@ -534,13 +537,25 @@ class CrawlerService:
                 markdown_content = str(result.markdown) if result.markdown else ""
 
         if not markdown_content:
-            # Fallback: if no markdown, we might have HTML
+            # Fallback: if no markdown, try to convert HTML
             if hasattr(result, 'html') and result.html:
-                logger.debug("no_markdown_falling_back_to_html", url=result.url)
-                # Return None for now - we expect Crawl4AI to provide markdown
+                logger.debug("no_markdown_converting_from_html", url=result.url)
+                try:
+                    from markdownify import markdownify
+                    markdown_content = markdownify(result.html, heading_style="ATX")
+                    if not markdown_content or not markdown_content.strip():
+                        logger.warning("html_to_markdown_empty", url=result.url)
+                        return None
+                except Exception as e:
+                    logger.warning(
+                        "html_to_markdown_failed",
+                        url=result.url,
+                        error=str(e),
+                    )
+                    return None
+            else:
+                logger.warning("no_content_extracted", url=result.url)
                 return None
-            logger.warning("no_content_extracted", url=result.url)
-            return None
 
         # Extract title from markdown or HTML
         title = extract_title_from_markdown(markdown_content)

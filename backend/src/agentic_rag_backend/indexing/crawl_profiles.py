@@ -33,6 +33,11 @@ class CrawlProfile:
     Configuration profile for web crawling.
 
     Frozen dataclass ensures profiles are immutable after creation.
+
+    Rate limit values:
+    - fast: 5.0 req/s - Below typical rate limit thresholds for static sites
+    - thorough: 2.0 req/s - Balanced for SPAs with JS rendering
+    - stealth: 0.5 req/s - Slow to avoid triggering bot detection
     """
 
     name: str
@@ -40,11 +45,23 @@ class CrawlProfile:
     headless: bool
     stealth: bool
     max_concurrent: int
-    rate_limit: float  # requests per second
+    rate_limit: float  # requests per second (must be > 0)
     wait_for: Optional[str]  # CSS selector or JavaScript expression to wait for
     wait_timeout: float  # seconds to wait for wait_for condition
     proxy_config: Optional[str]  # proxy URL or None
     cache_enabled: bool
+
+    def __post_init__(self) -> None:
+        """Validate profile configuration."""
+        if self.rate_limit <= 0:
+            raise ValueError(
+                f"rate_limit must be positive, got {self.rate_limit}. "
+                "Use a small value like 0.1 for very slow crawling."
+            )
+        if self.max_concurrent < 1:
+            raise ValueError(
+                f"max_concurrent must be at least 1, got {self.max_concurrent}"
+            )
 
 
 # Pre-defined crawl profiles
