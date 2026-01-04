@@ -7,8 +7,10 @@ which enables:
 - Intelligent caching (unchanged pages not re-fetched)
 - Proxy support for blocked sites
 - 10x throughput improvement (50 pages in <30 seconds)
+- Profile-based configuration (fast, thorough, stealth)
 
 Story 13.3: Migrated from custom httpx crawler to Crawl4AI library.
+Story 13.4: Added crawl configuration profiles for different scenarios.
 """
 
 import asyncio
@@ -23,6 +25,12 @@ import structlog
 from agentic_rag_backend.core.errors import InvalidUrlError
 from agentic_rag_backend.models.documents import CrawledPage
 from agentic_rag_backend.models.ingest import CrawlOptions
+from agentic_rag_backend.indexing.crawl_profiles import (
+    CrawlProfile,
+    get_crawl_profile,
+    get_profile_for_url,
+    apply_proxy_override,
+)
 
 # Crawl4AI imports
 try:
@@ -232,8 +240,10 @@ class CrawlerService:
     - Intelligent caching to avoid re-fetching unchanged pages
     - Proxy support for accessing blocked sites
     - Automatic markdown conversion
+    - Profile-based configuration (fast, thorough, stealth)
 
     Story 13.3: Migrated from httpx to Crawl4AI for 10x throughput improvement.
+    Story 13.4: Added crawl configuration profiles for different scenarios.
     """
 
     def __init__(
@@ -244,6 +254,10 @@ class CrawlerService:
         proxy_url: Optional[str] = None,
         js_wait_seconds: float = DEFAULT_JS_WAIT_SECONDS,
         page_timeout_ms: int = DEFAULT_TIMEOUT,
+        profile: Optional[CrawlProfile] = None,
+        stealth: bool = False,
+        wait_for: Optional[str] = None,
+        wait_timeout: float = 10.0,
     ) -> None:
         """
         Initialize Crawl4AI crawler service.
@@ -255,17 +269,49 @@ class CrawlerService:
             proxy_url: Optional proxy URL (format: "http://user:pass@host:port")
             js_wait_seconds: Seconds to wait for JavaScript rendering (default: 2.0)
             page_timeout_ms: Page load timeout in milliseconds (default: 60000)
+            profile: Optional CrawlProfile to apply (overrides individual settings)
+            stealth: Enable stealth mode for anti-detection (default: False)
+            wait_for: CSS selector or JS expression to wait for before capturing
+            wait_timeout: Timeout in seconds for wait_for condition (default: 10.0)
         """
         if not CRAWL4AI_AVAILABLE:
             raise ImportError(
                 "Crawl4AI is not installed. Install with: pip install crawl4ai"
             )
 
-        self.headless = headless
-        self.max_concurrent = max_concurrent
-        self.cache_enabled = cache_enabled
-        self.proxy_url = proxy_url
-        self.js_wait_seconds = js_wait_seconds
+        # If a profile is provided, use its settings
+        if profile is not None:
+            self.headless = profile.headless
+            self.max_concurrent = profile.max_concurrent
+            self.cache_enabled = profile.cache_enabled
+            self.proxy_url = profile.proxy_config
+            self.stealth = profile.stealth
+            self.wait_for = profile.wait_for
+            self.wait_timeout = profile.wait_timeout
+            # Use profile rate limit to calculate js_wait_seconds if not explicitly set
+            self.js_wait_seconds = js_wait_seconds if js_wait_seconds != DEFAULT_JS_WAIT_SECONDS else max(1.0, 1.0 / profile.rate_limit)
+            self.profile_name = profile.name
+            logger.info(
+                "crawler_profile_applied",
+                profile=profile.name,
+                description=profile.description,
+                headless=self.headless,
+                stealth=self.stealth,
+                max_concurrent=self.max_concurrent,
+                cache_enabled=self.cache_enabled,
+                wait_for=self.wait_for,
+            )
+        else:
+            self.headless = headless
+            self.max_concurrent = max_concurrent
+            self.cache_enabled = cache_enabled
+            self.proxy_url = proxy_url
+            self.js_wait_seconds = js_wait_seconds
+            self.stealth = stealth
+            self.wait_for = wait_for
+            self.wait_timeout = wait_timeout
+            self.profile_name = None
+
         self.page_timeout_ms = page_timeout_ms
 
         self._crawler: Optional[AsyncWebCrawler] = None
@@ -281,6 +327,16 @@ class CrawlerService:
         # Add proxy configuration if provided
         if self.proxy_url:
             config_kwargs["proxy_config"] = {"server": self.proxy_url}
+
+        # Add stealth mode configuration if enabled
+        # Stealth mode helps bypass bot detection
+        if self.stealth:
+            # Use user_agent to appear more like a real browser
+            config_kwargs["user_agent"] = (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+            logger.debug("stealth_mode_enabled", headless=self.headless)
 
         return BrowserConfig(**config_kwargs)
 
@@ -314,6 +370,18 @@ class CrawlerService:
             # Wait for document to be fully loaded
             config_kwargs["delay_before_return_html"] = self.js_wait_seconds
 
+        # Add wait_for condition if specified (from profile or explicit setting)
+        if self.wait_for:
+            config_kwargs["wait_for"] = self.wait_for
+            # Use wait_timeout for the wait condition
+            if self.wait_timeout > 0:
+                config_kwargs["wait_until"] = "domcontentloaded"
+            logger.debug(
+                "wait_for_condition_set",
+                wait_for=self.wait_for,
+                wait_timeout=self.wait_timeout,
+            )
+
         return CrawlerRunConfig(**config_kwargs)
 
     async def __aenter__(self) -> "CrawlerService":
@@ -323,10 +391,13 @@ class CrawlerService:
         await self._crawler.__aenter__()
         logger.info(
             "crawler_initialized",
+            profile=self.profile_name,
             headless=self.headless,
+            stealth=self.stealth,
             max_concurrent=self.max_concurrent,
             cache_enabled=self.cache_enabled,
             proxy_configured=self.proxy_url is not None,
+            wait_for=self.wait_for,
         )
         return self
 
@@ -628,6 +699,9 @@ async def crawl_url(
     cache_enabled: bool = True,
     proxy_url: Optional[str] = None,
     js_wait_seconds: float = DEFAULT_JS_WAIT_SECONDS,
+    profile: Optional[CrawlProfile] = None,
+    profile_name: Optional[str] = None,
+    auto_detect_profile: bool = False,
 ) -> AsyncGenerator[CrawledPage, None]:
     """
     Convenience function for crawling a URL using Crawl4AI.
@@ -642,6 +716,9 @@ async def crawl_url(
         cache_enabled: Enable caching
         proxy_url: Optional proxy URL
         js_wait_seconds: Seconds to wait for JavaScript rendering
+        profile: Optional CrawlProfile instance to use
+        profile_name: Optional profile name (fast, thorough, stealth)
+        auto_detect_profile: If True, auto-detect profile based on URL
 
     Yields:
         CrawledPage objects for each crawled page
@@ -649,12 +726,26 @@ async def crawl_url(
     if options is None:
         options = CrawlOptions(rate_limit=rate_limit)
 
+    # Determine profile to use
+    effective_profile = profile
+    if effective_profile is None and profile_name:
+        effective_profile = get_crawl_profile(profile_name)
+    elif effective_profile is None and auto_detect_profile:
+        detected_name = get_profile_for_url(url)
+        effective_profile = get_crawl_profile(detected_name)
+        logger.info(
+            "crawl_profile_auto_detected",
+            url=url,
+            profile=detected_name,
+        )
+
     async with CrawlerService(
         headless=headless,
         max_concurrent=max_concurrent,
         cache_enabled=cache_enabled,
         proxy_url=proxy_url,
         js_wait_seconds=js_wait_seconds,
+        profile=effective_profile,
     ) as crawler:
         async for page in crawler.crawl(url, max_depth=max_depth, options=options):
             yield page

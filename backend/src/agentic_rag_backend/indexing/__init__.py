@@ -15,6 +15,14 @@ from .crawler import (
     DEFAULT_MAX_CONCURRENT,
     DEFAULT_JS_WAIT_SECONDS,
 )
+from .crawl_profiles import (
+    CrawlProfile,
+    CrawlProfileName,
+    CRAWL_PROFILES,
+    get_crawl_profile,
+    get_profile_for_url,
+    apply_proxy_override,
+)
 from .chunker import chunk_document, chunk_sections, count_tokens, estimate_chunks, ChunkData
 from .graphiti_ingestion import (
     ingest_document_as_episode,
@@ -63,6 +71,13 @@ __all__ = [
     "CRAWL4AI_AVAILABLE",
     "DEFAULT_MAX_CONCURRENT",
     "DEFAULT_JS_WAIT_SECONDS",
+    # Crawl Profiles (Story 13.4: Configuration profiles)
+    "CrawlProfile",
+    "CrawlProfileName",
+    "CRAWL_PROFILES",
+    "get_crawl_profile",
+    "get_profile_for_url",
+    "apply_proxy_override",
     # Chunker
     "chunk_document",
     "chunk_sections",

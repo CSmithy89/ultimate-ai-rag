@@ -86,6 +86,9 @@ class Settings:
     crawl4ai_proxy_url: Optional[str]
     crawl4ai_js_wait_seconds: float
     crawl4ai_page_timeout_ms: int
+    # Story 13.4 - Crawl Configuration Profiles
+    crawl4ai_profile: str
+    crawl4ai_stealth_proxy: Optional[str]
     # Story 4.2 - PDF Document Parsing settings
     docling_table_mode: str
     max_upload_size_mb: int
@@ -268,6 +271,19 @@ def load_settings() -> Settings:
             crawl4ai_page_timeout_ms = 60000
     except ValueError:
         crawl4ai_page_timeout_ms = 60000
+
+    # Story 13.4 - Crawl Configuration Profiles
+    crawl4ai_profile = os.getenv("CRAWL4AI_PROFILE", "fast").strip().lower()
+    valid_profiles = {"fast", "thorough", "stealth"}
+    if crawl4ai_profile not in valid_profiles:
+        logger.warning(
+            "invalid_crawl_profile",
+            profile=crawl4ai_profile,
+            valid_profiles=list(valid_profiles),
+            fallback="fast",
+        )
+        crawl4ai_profile = "fast"
+    crawl4ai_stealth_proxy = os.getenv("CRAWL4AI_STEALTH_PROXY") or None
 
     try:
         max_upload_size_mb = int(os.getenv("MAX_UPLOAD_SIZE_MB", "100"))
@@ -647,6 +663,9 @@ def load_settings() -> Settings:
         crawl4ai_proxy_url=crawl4ai_proxy_url,
         crawl4ai_js_wait_seconds=crawl4ai_js_wait_seconds,
         crawl4ai_page_timeout_ms=crawl4ai_page_timeout_ms,
+        # Story 13.4 - Crawl Configuration Profiles
+        crawl4ai_profile=crawl4ai_profile,
+        crawl4ai_stealth_proxy=crawl4ai_stealth_proxy,
         # Story 4.2 - PDF Document Parsing settings
         docling_table_mode=os.getenv("DOCLING_TABLE_MODE", "accurate"),
         max_upload_size_mb=max_upload_size_mb,
