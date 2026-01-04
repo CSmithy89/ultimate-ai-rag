@@ -228,6 +228,17 @@ class Settings:
     # Epic 13 - Enterprise Ingestion (YouTube Transcripts)
     youtube_preferred_languages: list[str]
     youtube_chunk_duration_seconds: int
+    # Epic 15 - Codebase Intelligence settings
+    codebase_hallucination_threshold: float
+    codebase_detector_mode: str
+    codebase_cache_ttl_seconds: int
+    codebase_rag_enabled: bool
+    codebase_languages: list[str]
+    codebase_exclude_patterns: list[str]
+    codebase_max_chunk_size: int
+    codebase_include_class_context: bool
+    codebase_incremental_indexing: bool
+    codebase_index_cache_ttl_seconds: int
 
 
 def load_settings() -> Settings:
@@ -679,6 +690,52 @@ def load_settings() -> Settings:
     except ValueError:
         youtube_chunk_duration_seconds = 120
 
+    # Epic 15 - Codebase Intelligence settings
+    codebase_hallucination_threshold = get_float_env(
+        "CODEBASE_HALLUCINATION_THRESHOLD", 0.3, min_val=0.0
+    )
+    codebase_hallucination_threshold = min(1.0, codebase_hallucination_threshold)
+    codebase_detector_mode = os.getenv("CODEBASE_DETECTOR_MODE", "warn").lower()
+    if codebase_detector_mode not in {"warn", "block"}:
+        codebase_detector_mode = "warn"
+    codebase_cache_ttl_seconds = get_int_env(
+        "CODEBASE_CACHE_TTL_SECONDS", 3600, min_val=60
+    )
+    codebase_rag_enabled = get_bool_env("CODEBASE_RAG_ENABLED", "false")
+    codebase_languages_raw = os.getenv("CODEBASE_LANGUAGES", "python,typescript,javascript")
+    codebase_languages = [
+        lang.strip().lower()
+        for lang in codebase_languages_raw.split(",")
+        if lang.strip()
+    ]
+    codebase_exclude_default = [
+        "**/node_modules/**",
+        "**/__pycache__/**",
+        "**/venv/**",
+        "**/.venv/**",
+        "**/dist/**",
+        "**/build/**",
+        "**/.git/**",
+    ]
+    codebase_exclude_raw = os.getenv("CODEBASE_EXCLUDE_PATTERNS")
+    if codebase_exclude_raw:
+        try:
+            parsed = json.loads(codebase_exclude_raw)
+            if isinstance(parsed, list):
+                codebase_exclude_patterns = [str(p) for p in parsed]
+            else:
+                codebase_exclude_patterns = codebase_exclude_default
+        except (json.JSONDecodeError, ValueError):
+            codebase_exclude_patterns = codebase_exclude_default
+    else:
+        codebase_exclude_patterns = codebase_exclude_default
+    codebase_max_chunk_size = get_int_env("CODEBASE_MAX_CHUNK_SIZE", 1000, min_val=200)
+    codebase_include_class_context = get_bool_env("CODEBASE_INCLUDE_CLASS_CONTEXT", "true")
+    codebase_incremental_indexing = get_bool_env("CODEBASE_INCREMENTAL_INDEXING", "true")
+    codebase_index_cache_ttl_seconds = get_int_env(
+        "CODEBASE_INDEX_CACHE_TTL_SECONDS", 86400, min_val=60
+    )
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -791,6 +848,17 @@ def load_settings() -> Settings:
         # Epic 13 - YouTube Transcript settings
         youtube_preferred_languages=youtube_preferred_languages,
         youtube_chunk_duration_seconds=youtube_chunk_duration_seconds,
+        # Epic 15 - Codebase Intelligence settings
+        codebase_hallucination_threshold=codebase_hallucination_threshold,
+        codebase_detector_mode=codebase_detector_mode,
+        codebase_cache_ttl_seconds=codebase_cache_ttl_seconds,
+        codebase_rag_enabled=codebase_rag_enabled,
+        codebase_languages=codebase_languages,
+        codebase_exclude_patterns=codebase_exclude_patterns,
+        codebase_max_chunk_size=codebase_max_chunk_size,
+        codebase_include_class_context=codebase_include_class_context,
+        codebase_incremental_indexing=codebase_incremental_indexing,
+        codebase_index_cache_ttl_seconds=codebase_index_cache_ttl_seconds,
     )
 
 

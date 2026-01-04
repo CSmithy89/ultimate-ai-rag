@@ -29,6 +29,7 @@ from .api.routes import (
     a2a_router,
     ag_ui_router,
     ops_router,
+    codebase_router,
 )
 from .api.routes.ingest import limiter as slowapi_limiter
 from .api.utils import rate_limit_exceeded
@@ -376,6 +377,7 @@ def create_app() -> FastAPI:
     app.include_router(a2a_router, prefix="/api/v1")  # Epic 7: A2A collaboration
     app.include_router(ag_ui_router, prefix="/api/v1")  # Epic 7: AG-UI universal
     app.include_router(ops_router, prefix="/api/v1")  # Epic 8: Ops dashboard
+    app.include_router(codebase_router, prefix="/api/v1")  # Epic 15: Codebase intelligence
 
     return app
 
