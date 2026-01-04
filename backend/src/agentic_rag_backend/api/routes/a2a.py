@@ -12,7 +12,8 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+import jsonschema
 import structlog
 
 from ...api.utils import build_meta, rate_limit_exceeded
@@ -77,6 +78,18 @@ class CapabilityModel(BaseModel):
     parameters_schema: dict[str, Any] = Field(default_factory=dict)
     returns_schema: dict[str, Any] = Field(default_factory=dict)
     estimated_duration_ms: Optional[int] = Field(None, ge=0)
+
+    @field_validator("parameters_schema", "returns_schema")
+    @classmethod
+    def validate_json_schema(cls, v: dict[str, Any]) -> dict[str, Any]:
+        """Validate that the schema is a valid JSON Schema."""
+        if not v:
+            return v
+        try:
+            jsonschema.Draft7Validator.check_schema(v)
+        except jsonschema.SchemaError as exc:
+            raise ValueError(f"Invalid JSON Schema: {exc.message}") from exc
+        return v
 
 
 class RegisterAgentRequest(BaseModel):

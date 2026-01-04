@@ -115,6 +115,8 @@ class TaskDelegationManager:
         self._lock = Lock()
         self._semaphore = asyncio.Semaphore(self._config.max_concurrent_tasks)
         self._cleanup_task: Optional[asyncio.Task[None]] = None
+        # Shared HTTP client for connection pooling
+        self._http_client: httpx.AsyncClient | None = None
 
     # ==================== Redis Persistence ====================
 
@@ -179,6 +181,22 @@ class TaskDelegationManager:
             logger.warning("a2a_result_load_failed", task_id=task_id, error=str(exc))
             return None
 
+    # ==================== HTTP Client Management ====================
+
+    def _get_http_client(self) -> httpx.AsyncClient:
+        """Get or create the shared HTTP client for connection pooling."""
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(
+                timeout=self._config.http_timeout_seconds
+            )
+        return self._http_client
+
+    async def close(self) -> None:
+        """Close the HTTP client and release resources."""
+        if self._http_client is not None:
+            await self._http_client.aclose()
+            self._http_client = None
+
     # ==================== Task Execution ====================
 
     async def _send_task_to_agent(
@@ -197,28 +215,28 @@ class TaskDelegationManager:
         """
         start_time = time.monotonic()
         try:
-            async with httpx.AsyncClient(timeout=self._config.http_timeout_seconds) as client:
-                url = f"{endpoint_url.rstrip('/')}/api/v1/a2a/execute"
-                response = await client.post(
-                    url,
-                    json=request.to_dict(),
-                    headers={
-                        "Content-Type": "application/json",
-                        "X-Tenant-ID": request.tenant_id,
-                    },
-                )
-                response.raise_for_status()
-                data = response.json()
+            client = self._get_http_client()
+            url = f"{endpoint_url.rstrip('/')}/api/v1/a2a/execute"
+            response = await client.post(
+                url,
+                json=request.to_dict(),
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Tenant-ID": request.tenant_id,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
 
-                execution_time_ms = int((time.monotonic() - start_time) * 1000)
+            execution_time_ms = int((time.monotonic() - start_time) * 1000)
 
-                return TaskResult(
-                    task_id=request.task_id,
-                    status=TaskStatus.COMPLETED,
-                    result=data.get("result"),
-                    execution_time_ms=execution_time_ms,
-                    tenant_id=request.tenant_id,
-                )
+            return TaskResult(
+                task_id=request.task_id,
+                status=TaskStatus.COMPLETED,
+                result=data.get("result"),
+                execution_time_ms=execution_time_ms,
+                tenant_id=request.tenant_id,
+            )
         except httpx.TimeoutException as exc:
             return TaskResult(
                 task_id=request.task_id,
@@ -240,7 +258,7 @@ class TaskDelegationManager:
             return TaskResult(
                 task_id=request.task_id,
                 status=TaskStatus.FAILED,
-                error=f"HTTP error {exc.response.status_code} from target agent",
+                error="Downstream agent request failed",
                 execution_time_ms=int((time.monotonic() - start_time) * 1000),
                 tenant_id=request.tenant_id,
             )
