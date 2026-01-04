@@ -205,3 +205,42 @@ async def example() -> None:
   - Embedding token usage tracking for cost monitoring
   - Multi-provider configuration with LLM_PROVIDER and base URL overrides
   - Provider adapters for OpenAI-compatible LLM clients
+
+### Epic 12: Advanced Retrieval (Archon Upgrade)
+- Status: Complete
+- Stories: 3/3 completed
+- Key Features:
+  - Cross-encoder reranking with Cohere and FlashRank providers
+  - Contextual retrieval chunking with prompt caching for 90% cost reduction
+  - Corrective RAG (CRAG) grader agent with web search fallback (Tavily)
+  - Configurable via `RERANKER_ENABLED`, `CONTEXTUAL_RETRIEVAL_ENABLED`, `GRADER_ENABLED`
+- Documentation: `docs/guides/advanced-retrieval-configuration.md`
+
+### Epic 13: Enterprise Ingestion
+- Status: Complete
+- Stories: 4/4 completed
+- Key Features:
+  - Crawl4AI library migration for JS rendering and parallel crawling
+  - YouTube transcript API ingestion for video content
+  - Apify/Brightdata fallback for anti-bot protected sites
+  - Crawl configuration profiles (fast/thorough/stealth)
+
+## Roadmap
+
+### Upcoming Epics
+
+| Epic | Focus | Status |
+|------|-------|--------|
+| **Epic 14** | MCP Wrapper Architecture | Backlog |
+| **Epic 15** | Codebase Intelligence | Backlog |
+| **Epic 16** | Framework Agnosticism | Backlog |
+| **Epic 17** | CLI & Deployment | Backlog |
+| **Epic 18** | Enhanced Documentation | Backlog |
+| **Epic 19** | Advanced Retrieval Intelligence | Backlog |
+
+Epic 19 includes competitive features from analysis of Mem0, Zep, GraphRAG, LightRAG, Cognee, and RAGFlow:
+- Memory scopes (user/session/agent)
+- Community detection for graph intelligence
+- Dual-level retrieval (low/high)
+- Parent-child chunk hierarchy
+- Retrieval quality benchmarks and Prometheus metrics
