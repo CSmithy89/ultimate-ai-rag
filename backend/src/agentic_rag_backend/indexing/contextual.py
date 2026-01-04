@@ -18,6 +18,9 @@ from .chunker import ChunkData
 
 logger = structlog.get_logger(__name__)
 
+# Configuration constants
+MAX_DOCUMENT_CONTEXT_CHARS = 6000  # Maximum document content for context generation
+
 # Default context generation prompt with cache-friendly structure
 CONTEXT_GENERATION_PROMPT = """<document>
 {document_content}
@@ -145,10 +148,10 @@ class ContextualChunkEnricher:
         if document_context.summary:
             doc_header += f"Summary: {document_context.summary}\n"
 
-        # Truncate document content if too long (keep first 6000 chars for context)
+        # Truncate document content if too long for context window
         doc_content = document_context.full_content
-        if len(doc_content) > 6000:
-            doc_content = doc_content[:6000] + "... [truncated]"
+        if len(doc_content) > MAX_DOCUMENT_CONTEXT_CHARS:
+            doc_content = doc_content[:MAX_DOCUMENT_CONTEXT_CHARS] + "... [truncated]"
 
         full_doc = doc_header + doc_content if doc_header else doc_content
 

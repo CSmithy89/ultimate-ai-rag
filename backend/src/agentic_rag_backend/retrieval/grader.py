@@ -7,18 +7,23 @@ The grader uses a lightweight approach (cross-encoder or simple heuristics) rath
 than full LLM calls to minimize latency and cost.
 """
 
+import asyncio
 import math
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 import structlog
 
 from agentic_rag_backend.config import Settings
 
 logger = structlog.get_logger(__name__)
+
+# Grader configuration constants
+MAX_CROSS_ENCODER_HITS = 10  # Maximum hits to evaluate with cross-encoder
+CONTENT_LENGTH_NORMALIZATION = 1000  # Characters for content length heuristic
 
 
 class FallbackStrategy(str, Enum):
@@ -133,8 +138,9 @@ class HeuristicGrader(BaseGrader):
         else:
             # If no scores available, use content length heuristic
             # (longer content = potentially more relevant)
+            # NOTE: This is a simple heuristic that may not hold for all use cases
             avg_length = sum(len(h.content) for h in top_hits) / len(top_hits)
-            score = min(1.0, avg_length / 1000.0)  # Normalize by 1000 chars
+            score = min(1.0, avg_length / CONTENT_LENGTH_NORMALIZATION)
 
         passed = score >= threshold
         grading_time_ms = int((time.perf_counter() - start_time) * 1000)
@@ -211,11 +217,11 @@ class CrossEncoderGrader(BaseGrader):
 
         self._ensure_model()
 
-        # Create query-document pairs
-        pairs = [(query, hit.content) for hit in hits[:10]]  # Limit to top 10
+        # Create query-document pairs (limit to avoid excessive compute)
+        pairs = [(query, hit.content) for hit in hits[:MAX_CROSS_ENCODER_HITS]]
 
-        # Score with cross-encoder
-        scores = self._model.predict(pairs)
+        # Score with cross-encoder (run in thread to avoid blocking event loop)
+        scores = await asyncio.to_thread(self._model.predict, pairs)
 
         # Handle edge case of empty scores (shouldn't happen but be defensive)
         if len(scores) == 0:
@@ -352,11 +358,14 @@ class ExpandedQueryFallback(BaseFallbackHandler):
     with the expanded queries.
     """
 
-    def __init__(self, retrieval_func=None):
+    def __init__(
+        self,
+        retrieval_func: Optional[Callable[[str], Awaitable[list[RetrievalHit]]]] = None,
+    ):
         """Initialize the expanded query fallback.
 
         Args:
-            retrieval_func: Function to call for retrieval with expanded query
+            retrieval_func: Async function to call for retrieval with expanded query
         """
         self.retrieval_func = retrieval_func
 

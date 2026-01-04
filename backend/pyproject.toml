@@ -42,6 +42,9 @@ dependencies = [
   # Epic 12 - Advanced Retrieval (Reranking)
   "cohere>=5.0",
   "FlashRank>=0.2.0",
+  # Epic 12 - Advanced Retrieval (Corrective RAG Grader - optional)
+  "tavily-python>=0.3.0",
+  "sentence-transformers>=2.0.0",
 ]
 
 [project.scripts]
