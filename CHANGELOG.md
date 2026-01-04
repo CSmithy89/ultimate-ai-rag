@@ -1,5 +1,20 @@
 # Changelog
 
+## [Epic 15] - Codebase Intelligence - 2026-01-04
+
+### Added
+- AST-based hallucination detection with symbol, path, import, and API validation
+- Codebase RAG indexing pipeline with pgvector embeddings and Neo4j relationships
+- Codebase API endpoints for validation, indexing, search, and cache management (`/api/v1/codebase/...`)
+- CODEBASE_* configuration flags for detection, indexing, and chunking behavior
+- Dependency-aware import validation via repo manifests (pyproject/requirements/package.json)
+
+### Changed
+- None
+
+### Fixed
+- None
+
 ## [Epic 11] - Code Cleanup & Migration - 2025-12-31
 
 ### Added
