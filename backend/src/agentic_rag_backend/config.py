@@ -132,6 +132,13 @@ class Settings:
     grader_fallback_enabled: bool
     grader_fallback_strategy: str
     tavily_api_key: Optional[str]
+    # Epic 13 - Enterprise Ingestion (Fallback Providers)
+    crawl_fallback_enabled: bool
+    crawl_fallback_providers: list[str]
+    apify_api_token: Optional[str]
+    brightdata_username: Optional[str]
+    brightdata_password: Optional[str]
+    brightdata_zone: str
 
 
 def load_settings() -> Settings:
@@ -527,6 +534,22 @@ def load_settings() -> Settings:
         grader_fallback_strategy = "web_search"
     tavily_api_key = os.getenv("TAVILY_API_KEY")
 
+    # Epic 13 - Crawl Fallback settings
+    crawl_fallback_enabled = get_bool_env("CRAWL_FALLBACK_ENABLED", "true")
+    crawl_fallback_providers_raw = os.getenv(
+        "CRAWL_FALLBACK_PROVIDERS", '["apify", "brightdata"]'
+    )
+    try:
+        crawl_fallback_providers = json.loads(crawl_fallback_providers_raw)
+        if not isinstance(crawl_fallback_providers, list):
+            crawl_fallback_providers = ["apify", "brightdata"]
+    except (json.JSONDecodeError, ValueError):
+        crawl_fallback_providers = ["apify", "brightdata"]
+    apify_api_token = os.getenv("APIFY_API_TOKEN")
+    brightdata_username = os.getenv("BRIGHTDATA_USERNAME")
+    brightdata_password = os.getenv("BRIGHTDATA_PASSWORD")
+    brightdata_zone = os.getenv("BRIGHTDATA_ZONE", "scraping_browser")
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -619,6 +642,13 @@ def load_settings() -> Settings:
         grader_fallback_enabled=grader_fallback_enabled,
         grader_fallback_strategy=grader_fallback_strategy,
         tavily_api_key=tavily_api_key,
+        # Epic 13 - Crawl Fallback settings
+        crawl_fallback_enabled=crawl_fallback_enabled,
+        crawl_fallback_providers=crawl_fallback_providers,
+        apify_api_token=apify_api_token,
+        brightdata_username=brightdata_username,
+        brightdata_password=brightdata_password,
+        brightdata_zone=brightdata_zone,
     )
 
 

@@ -1,0 +1,697 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context story="13-1-integrate-apify-brightdata-fallback">
+
+  <project-rules>
+    <!-- Key conventions from project-context.md -->
+
+    <naming-conventions>
+      <python>
+        <rule type="functions">snake_case (e.g., get_document_chunks, crawl_with_fallback)</rule>
+        <rule type="classes">PascalCase (e.g., CrawlProvider, FallbackCrawler, ApifyProvider)</rule>
+        <rule type="constants">SCREAMING_SNAKE (e.g., DEFAULT_RATE_LIMIT, MAX_RETRY_ATTEMPTS)</rule>
+        <rule type="files">snake_case.py (e.g., fallback_providers.py)</rule>
+      </python>
+    </naming-conventions>
+
+    <error-handling>
+      <pattern>Use structured errors extending AppError with RFC 7807 Problem Details</pattern>
+      <example>
+        <code><![CDATA[
+from agentic_rag_backend.core.errors import AppError, ErrorCode
+
+class CrawlError(AppError):
+    """Error during crawling operation."""
+    def __init__(self, url: str, reason: str) -> None:
+        super().__init__(
+            code=ErrorCode.CRAWL_FAILED,
+            message=f"Crawl failed: {reason}",
+            status=500,
+            details={"url": url},
+        )
+        ]]></code>
+      </example>
+    </error-handling>
+
+    <logging>
+      <pattern>Use structlog for all logging with structured key-value pairs</pattern>
+      <example>
+        <code><![CDATA[
+import structlog
+logger = structlog.get_logger(__name__)
+
+logger.info("provider_selected", provider="apify", url=url, reason="primary_blocked")
+logger.warning("fallback_crawl_failed", provider="BrightDataProvider", url=url, error=str(e))
+        ]]></code>
+      </example>
+    </logging>
+
+    <validation>
+      <pattern>Use Pydantic models for all data validation</pattern>
+      <example>
+        <code><![CDATA[
+from pydantic import BaseModel, Field
+from typing import Optional
+
+class CrawlResult(BaseModel):
+    url: str = Field(..., description="Crawled URL")
+    content: str = Field(..., description="Page content")
+    status_code: int = Field(..., description="HTTP status code")
+    error: Optional[str] = Field(default=None, description="Error message if any")
+        ]]></code>
+      </example>
+    </validation>
+
+    <retry-pattern>
+      <pattern>Use tenacity for async retry with exponential backoff and jitter</pattern>
+      <example>
+        <code><![CDATA[
+from tenacity import retry, stop_after_attempt, wait_exponential_jitter, retry_if_exception_type
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
+)
+async def fetch_with_retry(url: str) -> httpx.Response:
+    ...
+        ]]></code>
+      </example>
+    </retry-pattern>
+
+    <configuration>
+      <pattern>All settings loaded from environment variables via config.py Settings dataclass</pattern>
+      <pattern>Use Optional types with defaults for optional settings</pattern>
+      <pattern>Validate settings on load, raise ValueError for invalid config</pattern>
+    </configuration>
+
+  </project-rules>
+
+  <architecture>
+    <!-- Relevant architecture decisions from architecture.md -->
+
+    <technology-stack>
+      <backend>
+        <runtime>Python 3.12+</runtime>
+        <framework>FastAPI</framework>
+        <package-manager>uv</package-manager>
+        <http-client>httpx (existing dependency)</http-client>
+        <validation>Pydantic</validation>
+        <logging>structlog</logging>
+      </backend>
+    </technology-stack>
+
+    <data-flow>
+      <description>Fallback providers integrate into the existing crawl pipeline:</description>
+      <flow>
+        1. CrawlWorker receives job from Redis Stream
+        2. CrawlerService attempts primary crawl
+        3. If blocked/failed, FallbackCrawler tries Apify then BrightData
+        4. CrawlResult returned with provider_used metadata
+        5. Content queued for parse.jobs stream
+      </flow>
+    </data-flow>
+
+    <module-structure>
+      <location>backend/src/agentic_rag_backend/indexing/</location>
+      <new-file>fallback_providers.py</new-file>
+      <description>
+        New module for fallback provider implementations.
+        Contains CrawlResult model, CrawlProvider ABC, concrete provider classes,
+        and FallbackCrawler orchestrator.
+      </description>
+    </module-structure>
+
+    <observability>
+      <pattern>All provider decisions must be logged with structlog</pattern>
+      <metrics>Track fallback usage counts for cost monitoring</metrics>
+      <fields>provider_used, fallback_reason, url, elapsed_time</fields>
+    </observability>
+
+  </architecture>
+
+  <technical-spec>
+    <!-- Story 13-1 specific technical details from epic-13-tech-spec.md -->
+
+    <goal>Provide fallback crawling when primary crawl (Crawl4AI/httpx) is blocked by anti-bot systems.</goal>
+
+    <adapter-pattern>
+      <abstract-base-class>
+        <code><![CDATA[
+from abc import ABC, abstractmethod
+from typing import Optional
+from pydantic import BaseModel
+
+class CrawlResult(BaseModel):
+    """Unified result from any crawl provider."""
+    url: str
+    content: str
+    status_code: int
+    error: Optional[str] = None
+    provider: Optional[str] = None  # Track which provider succeeded
+
+class CrawlProvider(ABC):
+    """Abstract base class for crawl providers."""
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Provider name for logging and tracking."""
+        pass
+
+    @abstractmethod
+    async def crawl(self, url: str, options: dict) -> CrawlResult:
+        """Crawl a single URL and return content."""
+        pass
+
+    @abstractmethod
+    async def crawl_many(self, urls: list[str], options: dict) -> list[CrawlResult]:
+        """Crawl multiple URLs (can be sequential or parallel)."""
+        pass
+        ]]></code>
+      </abstract-base-class>
+
+      <apify-provider>
+        <description>Uses Apify Web Scraper actor API for general crawling</description>
+        <api-endpoint>https://api.apify.com/v2</api-endpoint>
+        <authentication>API token via APIFY_API_TOKEN env var</authentication>
+        <actor>apify/web-scraper (general purpose) or apify/cheerio-scraper (lightweight)</actor>
+        <features>
+          - JavaScript rendering
+          - Proxy rotation built-in
+          - Automatic anti-bot bypass
+        </features>
+      </apify-provider>
+
+      <brightdata-provider>
+        <description>Uses BrightData Scraping Browser via proxy URL</description>
+        <proxy-url>http://{username}:{password}@brd.superproxy.io:33335</proxy-url>
+        <authentication>Username/password via BRIGHTDATA_USERNAME, BRIGHTDATA_PASSWORD env vars</authentication>
+        <zone>Configurable via BRIGHTDATA_ZONE (default: scraping_browser)</zone>
+        <features>
+          - Full browser rendering
+          - Fingerprint evasion
+          - CAPTCHA solving
+        </features>
+      </brightdata-provider>
+    </adapter-pattern>
+
+    <fallback-chain>
+      <code><![CDATA[
+class FallbackCrawler:
+    """Crawler with automatic fallback to paid providers."""
+
+    def __init__(
+        self,
+        primary: CrawlProvider,
+        fallbacks: list[CrawlProvider],
+        max_retries: int = 2,
+    ):
+        self.primary = primary
+        self.fallbacks = fallbacks
+        self.max_retries = max_retries
+
+    async def crawl_with_fallback(
+        self,
+        url: str,
+        options: dict
+    ) -> tuple[CrawlResult, str]:
+        """
+        Attempt primary crawl, fall back to alternatives on failure.
+
+        Returns:
+            Tuple of (CrawlResult, provider_name)
+
+        Raises:
+            CrawlError: If all providers fail
+        """
+        # Try primary first
+        try:
+            result = await self.primary.crawl(url, options)
+            if self._is_success(result):
+                return result, self.primary.name
+        except Exception as e:
+            logger.warning("primary_crawl_failed", url=url, error=str(e))
+
+        # Try fallbacks in order
+        for fallback in self.fallbacks:
+            try:
+                result = await fallback.crawl(url, options)
+                if self._is_success(result):
+                    logger.info(
+                        "fallback_crawl_succeeded",
+                        provider=fallback.name,
+                        url=url,
+                    )
+                    return result, fallback.name
+            except Exception as e:
+                logger.warning(
+                    "fallback_crawl_failed",
+                    provider=fallback.name,
+                    url=url,
+                    error=str(e),
+                )
+
+        raise CrawlError(url, "All providers failed")
+
+    def _is_success(self, result: CrawlResult) -> bool:
+        """Check if crawl result indicates success."""
+        return (
+            result.status_code == 200
+            and result.error is None
+            and len(result.content.strip()) > 0
+        )
+      ]]></code>
+    </fallback-chain>
+
+    <error-detection>
+      <description>Patterns that should trigger fallback:</description>
+      <patterns>
+        <pattern code="403">HTTP 403 Forbidden</pattern>
+        <pattern code="429">HTTP 429 Rate Limited</pattern>
+        <pattern code="captcha">Captcha detection in response body (keywords: captcha, challenge, verify)</pattern>
+        <pattern code="timeout">Connection timeout</pattern>
+        <pattern code="blocked">Empty or blocked content patterns (e.g., "access denied", "blocked")</pattern>
+      </patterns>
+    </error-detection>
+
+    <acceptance-criteria>
+      <criterion id="1">When primary crawl fails/blocked and fallback providers configured, ingestion routes to Apify or BrightData</criterion>
+      <criterion id="2">On successful fallback, provider selection and fallback reason are logged</criterion>
+      <criterion id="3">Credentials configured via environment variables</criterion>
+      <criterion id="4">System automatically tries fallback providers on blocked/403/captcha</criterion>
+      <criterion id="5">Fallback usage is tracked for cost monitoring</criterion>
+    </acceptance-criteria>
+
+  </technical-spec>
+
+  <existing-code>
+    <!-- Relevant existing code files and their purposes -->
+
+    <file path="backend/src/agentic_rag_backend/indexing/crawler.py">
+      <purpose>Current httpx-based crawler implementation (NOT using Crawl4AI library)</purpose>
+      <relevant-sections>
+        <section name="CrawlerService">
+          Main crawler class with crawl_page() and crawl() methods.
+          Uses httpx.AsyncClient for HTTP requests.
+          Implements rate limiting, robots.txt compliance.
+        </section>
+        <section name="CrawledPage model">
+          Used by models/documents.py - contains url, title, content, content_hash, links
+        </section>
+        <section name="compute_content_hash">
+          SHA-256 hashing function for content deduplication
+        </section>
+        <section name="html_to_markdown">
+          Converts HTML to markdown using BeautifulSoup + markdownify
+        </section>
+      </relevant-sections>
+      <integration-point>
+        FallbackCrawler should wrap CrawlerService as the "primary" provider,
+        with ApifyProvider and BrightDataProvider as fallbacks.
+      </integration-point>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/indexing/workers/crawl_worker.py">
+      <purpose>Async worker consuming crawl jobs from Redis Streams</purpose>
+      <relevant-sections>
+        <section name="CrawlWorker.__init__">
+          Creates CrawlerService() instance - this is where FallbackCrawler integration will happen
+        </section>
+        <section name="process_job">
+          Main job processing method - updates job status, calls crawler, queues results
+        </section>
+      </relevant-sections>
+      <integration-point>
+        After Story 13-1 is complete, crawl_worker.py will be updated (in Story 13-3 or integration task)
+        to use FallbackCrawler instead of direct CrawlerService.
+        For now, Story 13-1 focuses on creating the fallback_providers.py module.
+      </integration-point>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/config.py">
+      <purpose>Configuration management - Settings dataclass loaded from environment</purpose>
+      <relevant-sections>
+        <section name="Settings dataclass">
+          All application settings. New fields must be added here.
+          Currently has crawl4ai_rate_limit: float for crawl rate limiting.
+        </section>
+        <section name="load_settings()">
+          Function that parses environment variables and constructs Settings.
+          Follow existing patterns for new settings.
+        </section>
+        <section name="get_settings()">
+          Cached settings accessor using @lru_cache
+        </section>
+      </relevant-sections>
+      <new-fields-required>
+        <field name="crawl_fallback_enabled" type="bool" env="CRAWL_FALLBACK_ENABLED" default="True"/>
+        <field name="crawl_fallback_providers" type="list[str]" env="CRAWL_FALLBACK_PROVIDERS" default='["apify", "brightdata"]'/>
+        <field name="apify_api_token" type="Optional[str]" env="APIFY_API_TOKEN" default="None"/>
+        <field name="brightdata_username" type="Optional[str]" env="BRIGHTDATA_USERNAME" default="None"/>
+        <field name="brightdata_password" type="Optional[str]" env="BRIGHTDATA_PASSWORD" default="None"/>
+        <field name="brightdata_zone" type="str" env="BRIGHTDATA_ZONE" default="scraping_browser"/>
+      </new-fields-required>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/core/errors.py">
+      <purpose>Structured error classes with RFC 7807 support</purpose>
+      <relevant-sections>
+        <section name="ErrorCode enum">
+          Standardized error codes. CRAWL_FAILED already exists.
+        </section>
+        <section name="CrawlError">
+          Already exists - use for crawl failures
+        </section>
+        <section name="AppError base class">
+          Base class with to_problem_detail() method
+        </section>
+      </relevant-sections>
+      <note>CrawlError already exists and can be reused. No new error classes needed.</note>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/models/documents.py">
+      <purpose>Pydantic models for documents</purpose>
+      <relevant-sections>
+        <section name="CrawledPage">
+          Model for crawled page data - url, title, content, content_hash, links
+        </section>
+      </relevant-sections>
+      <note>
+        CrawlResult in fallback_providers.py is a simpler model for provider responses.
+        CrawledPage is the downstream model used by the full pipeline.
+        Provider results should be convertible to CrawledPage format.
+      </note>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/indexing/__init__.py">
+      <purpose>Package exports for indexing module</purpose>
+      <required-updates>
+        Add exports for new fallback provider classes after implementation:
+        - CrawlResult
+        - CrawlProvider
+        - ApifyProvider
+        - BrightDataProvider
+        - FallbackCrawler
+        - create_fallback_crawler (factory function)
+      </required-updates>
+    </file>
+
+  </existing-code>
+
+  <implementation-guidance>
+    <!-- Step-by-step implementation guidance -->
+
+    <step number="1" task="Create fallback_providers.py module">
+      <file>backend/src/agentic_rag_backend/indexing/fallback_providers.py</file>
+      <actions>
+        <action>Define CrawlResult Pydantic model</action>
+        <action>Define CrawlProvider abstract base class</action>
+        <action>Implement ApifyProvider class</action>
+        <action>Implement BrightDataProvider class</action>
+        <action>Implement FallbackCrawler class with fallback chain logic</action>
+        <action>Add factory function create_fallback_crawler() that reads config and builds providers</action>
+      </actions>
+      <code-structure><![CDATA[
+"""Fallback crawl providers for anti-bot bypass."""
+
+from abc import ABC, abstractmethod
+from typing import Optional
+import httpx
+import structlog
+from pydantic import BaseModel, Field
+from tenacity import retry, stop_after_attempt, wait_exponential_jitter
+
+from agentic_rag_backend.config import get_settings
+from agentic_rag_backend.core.errors import CrawlError
+
+logger = structlog.get_logger(__name__)
+
+
+class CrawlResult(BaseModel):
+    """Unified result from any crawl provider."""
+    url: str = Field(..., description="Crawled URL")
+    content: str = Field(..., description="Page content (HTML or markdown)")
+    status_code: int = Field(..., description="HTTP status code")
+    error: Optional[str] = Field(default=None, description="Error message if any")
+    provider: Optional[str] = Field(default=None, description="Provider that succeeded")
+
+
+class CrawlProvider(ABC):
+    """Abstract base class for crawl providers."""
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Provider name for logging."""
+        pass
+
+    @abstractmethod
+    async def crawl(self, url: str, options: dict | None = None) -> CrawlResult:
+        """Crawl a single URL."""
+        pass
+
+    async def crawl_many(self, urls: list[str], options: dict | None = None) -> list[CrawlResult]:
+        """Crawl multiple URLs. Default: sequential."""
+        results = []
+        for url in urls:
+            results.append(await self.crawl(url, options))
+        return results
+
+
+class ApifyProvider(CrawlProvider):
+    """Apify Web Scraper provider."""
+    # Implementation...
+
+
+class BrightDataProvider(CrawlProvider):
+    """BrightData Scraping Browser provider."""
+    # Implementation...
+
+
+class FallbackCrawler:
+    """Crawler with automatic fallback to paid providers."""
+    # Implementation...
+
+
+def create_fallback_crawler() -> FallbackCrawler:
+    """Factory function to create FallbackCrawler from config."""
+    # Implementation...
+      ]]></code-structure>
+    </step>
+
+    <step number="2" task="Add configuration settings">
+      <file>backend/src/agentic_rag_backend/config.py</file>
+      <actions>
+        <action>Add new fields to Settings dataclass</action>
+        <action>Add environment variable parsing in load_settings()</action>
+        <action>Parse JSON array for CRAWL_FALLBACK_PROVIDERS</action>
+        <action>Validate provider names are known</action>
+      </actions>
+      <settings-to-add><![CDATA[
+# In Settings dataclass (after crawl4ai_rate_limit):
+# Story 13-1 - Fallback Provider settings
+crawl_fallback_enabled: bool
+crawl_fallback_providers: list[str]
+apify_api_token: Optional[str]
+brightdata_username: Optional[str]
+brightdata_password: Optional[str]
+brightdata_zone: str
+
+# In load_settings() function:
+# Parse crawl fallback settings
+crawl_fallback_enabled_raw = os.getenv("CRAWL_FALLBACK_ENABLED", "true").strip().lower()
+crawl_fallback_enabled = crawl_fallback_enabled_raw in {"true", "1", "yes"}
+
+crawl_fallback_providers_raw = os.getenv("CRAWL_FALLBACK_PROVIDERS", '["apify", "brightdata"]')
+try:
+    crawl_fallback_providers = json.loads(crawl_fallback_providers_raw)
+    if not isinstance(crawl_fallback_providers, list):
+        crawl_fallback_providers = ["apify", "brightdata"]
+except json.JSONDecodeError:
+    crawl_fallback_providers = ["apify", "brightdata"]
+
+apify_api_token = os.getenv("APIFY_API_TOKEN")
+brightdata_username = os.getenv("BRIGHTDATA_USERNAME")
+brightdata_password = os.getenv("BRIGHTDATA_PASSWORD")
+brightdata_zone = os.getenv("BRIGHTDATA_ZONE", "scraping_browser")
+      ]]></settings-to-add>
+    </step>
+
+    <step number="3" task="Implement ApifyProvider">
+      <details>
+        <api-docs>https://docs.apify.com/api/v2</api-docs>
+        <actor-id>apify/web-scraper or apify/cheerio-scraper</actor-id>
+        <flow>
+          1. Call actor run endpoint with URL
+          2. Poll for completion or use sync endpoint
+          3. Fetch dataset results
+          4. Extract HTML/text content
+        </flow>
+        <endpoints>
+          - POST https://api.apify.com/v2/acts/{actorId}/runs - Start actor
+          - GET https://api.apify.com/v2/actor-runs/{runId} - Check status
+          - GET https://api.apify.com/v2/datasets/{datasetId}/items - Get results
+        </endpoints>
+        <sync-option>
+          Use waitForFinish=60 query param for synchronous execution (simpler)
+        </sync-option>
+      </details>
+    </step>
+
+    <step number="4" task="Implement BrightDataProvider">
+      <details>
+        <approach>Use BrightData as a proxy with httpx</approach>
+        <proxy-format>http://{username}:{password}@brd.superproxy.io:33335</proxy-format>
+        <implementation>
+          <code><![CDATA[
+async def crawl(self, url: str, options: dict | None = None) -> CrawlResult:
+    proxy_url = f"http://{self.username}:{self.password}@brd.superproxy.io:33335"
+
+    async with httpx.AsyncClient(proxies=proxy_url, timeout=60.0) as client:
+        response = await client.get(url, headers={"User-Agent": self.user_agent})
+        return CrawlResult(
+            url=url,
+            content=response.text,
+            status_code=response.status_code,
+            provider=self.name,
+        )
+          ]]></code>
+        </implementation>
+        <note>BrightData handles JS rendering and anti-bot at proxy level</note>
+      </details>
+    </step>
+
+    <step number="5" task="Implement logging and tracking">
+      <requirements>
+        <requirement id="AC2">Log provider selection and fallback reason</requirement>
+        <requirement id="AC5">Track fallback usage for cost monitoring</requirement>
+      </requirements>
+      <logging-points>
+        <point event="primary_crawl_attempt" fields="url"/>
+        <point event="primary_crawl_failed" fields="url, error, status_code"/>
+        <point event="fallback_triggered" fields="url, provider, reason"/>
+        <point event="fallback_crawl_succeeded" fields="url, provider, elapsed_ms"/>
+        <point event="fallback_crawl_failed" fields="url, provider, error"/>
+        <point event="all_providers_failed" fields="url, providers_tried"/>
+      </logging-points>
+      <tracking>
+        Use structlog fields for all metrics.
+        Cost monitoring can aggregate logs by provider field.
+      </tracking>
+    </step>
+
+    <step number="6" task="Add tests">
+      <file>backend/tests/test_fallback_providers.py</file>
+      <test-categories>
+        <category name="unit">
+          - Test CrawlResult model validation
+          - Test ApifyProvider with mocked HTTP responses
+          - Test BrightDataProvider with mocked HTTP responses
+          - Test FallbackCrawler chain logic
+          - Test factory function with various configs
+        </category>
+        <category name="integration">
+          - Test fallback chain with mock providers
+          - Test configuration loading
+          - Test error handling and logging
+        </category>
+      </test-categories>
+      <mocking-approach>
+        Use respx or httpx mock transport to mock HTTP responses.
+        Do NOT make real API calls in unit tests.
+      </mocking-approach>
+    </step>
+
+    <step number="7" task="Update module exports">
+      <file>backend/src/agentic_rag_backend/indexing/__init__.py</file>
+      <exports>
+        - CrawlResult
+        - CrawlProvider
+        - ApifyProvider
+        - BrightDataProvider
+        - FallbackCrawler
+        - create_fallback_crawler
+      </exports>
+    </step>
+
+  </implementation-guidance>
+
+  <dependencies>
+    <!-- External APIs, packages, environment variables -->
+
+    <python-packages>
+      <package name="httpx" status="existing">Async HTTP client for API calls</package>
+      <package name="pydantic" status="existing">Data validation and models</package>
+      <package name="structlog" status="existing">Structured logging</package>
+      <package name="tenacity" status="existing">Retry logic with backoff</package>
+    </python-packages>
+
+    <no-new-dependencies>
+      Per tech spec: "No new Python dependencies required. Uses httpx (existing) for Apify and BrightData API calls."
+    </no-new-dependencies>
+
+    <environment-variables>
+      <variable name="CRAWL_FALLBACK_ENABLED" type="bool" default="true">
+        Enable/disable fallback provider functionality
+      </variable>
+      <variable name="CRAWL_FALLBACK_PROVIDERS" type="json-array" default='["apify", "brightdata"]'>
+        Ordered list of fallback providers to try
+      </variable>
+      <variable name="APIFY_API_TOKEN" type="string" required-when="apify in providers">
+        Apify API authentication token
+      </variable>
+      <variable name="BRIGHTDATA_USERNAME" type="string" required-when="brightdata in providers">
+        BrightData customer username (format: brd-customer-xxx)
+      </variable>
+      <variable name="BRIGHTDATA_PASSWORD" type="string" required-when="brightdata in providers">
+        BrightData password
+      </variable>
+      <variable name="BRIGHTDATA_ZONE" type="string" default="scraping_browser">
+        BrightData zone for proxy selection
+      </variable>
+    </environment-variables>
+
+    <external-apis>
+      <api name="Apify">
+        <base-url>https://api.apify.com/v2</base-url>
+        <docs>https://docs.apify.com/api/v2</docs>
+        <auth-method>Bearer token in header or query param</auth-method>
+        <rate-limits>Depends on plan (free tier: limited)</rate-limits>
+        <cost>Pay per actor compute unit</cost>
+      </api>
+      <api name="BrightData">
+        <proxy-url>brd.superproxy.io:33335</proxy-url>
+        <docs>https://docs.brightdata.com/scraping-browser</docs>
+        <auth-method>Proxy authentication (username:password)</auth-method>
+        <cost>Pay per GB bandwidth</cost>
+      </api>
+    </external-apis>
+
+  </dependencies>
+
+  <files-to-create>
+    <file path="backend/src/agentic_rag_backend/indexing/fallback_providers.py">
+      Main module with provider implementations
+    </file>
+    <file path="backend/tests/test_fallback_providers.py">
+      Unit and integration tests for fallback providers
+    </file>
+  </files-to-create>
+
+  <files-to-modify>
+    <file path="backend/src/agentic_rag_backend/config.py">
+      Add new Settings fields and load_settings() logic
+    </file>
+    <file path="backend/src/agentic_rag_backend/indexing/__init__.py">
+      Add exports for new classes
+    </file>
+  </files-to-modify>
+
+  <out-of-scope>
+    <item>Integration with crawl_worker.py (covered in Story 13-3)</item>
+    <item>Migration to actual Crawl4AI library (covered in Story 13-3)</item>
+    <item>Crawl profiles (covered in Story 13-4)</item>
+    <item>YouTube ingestion (covered in Story 13-2)</item>
+  </out-of-scope>
+
+</story-context>
