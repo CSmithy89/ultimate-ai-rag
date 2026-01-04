@@ -437,9 +437,15 @@ class A2AAgentRegistry:
                     *[self._load_agent(aid) for aid in missing_ids],
                     return_exceptions=True,
                 )
-                for agent in loaded_agents:
+                for agent_id, agent in zip(missing_ids, loaded_agents):
                     if isinstance(agent, AgentRegistration):
                         self._agents[agent.agent_id] = agent
+                    elif isinstance(agent, Exception):
+                        logger.warning(
+                            "a2a_agent_parallel_load_failed",
+                            agent_id=agent_id,
+                            error=str(agent),
+                        )
 
             # Filter by tenant
             tenant_agents = [

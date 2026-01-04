@@ -507,7 +507,17 @@ class TaskDelegationManager:
             )
 
         # Persist result outside the lock to avoid blocking other operations
+        # Check if task already completed to avoid overwriting completion result
         if result_to_persist:
+            existing = await self._load_result(task_id)
+            if existing and existing.status == TaskStatus.COMPLETED:
+                # Task completed between removal and cancellation - don't overwrite
+                logger.info(
+                    "a2a_task_cancel_skipped_completed",
+                    task_id=task_id,
+                    tenant_id=tenant_id,
+                )
+                return False
             await self._persist_result(result_to_persist)
             logger.info("a2a_task_cancelled", task_id=task_id, tenant_id=tenant_id)
 

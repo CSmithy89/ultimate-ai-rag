@@ -619,7 +619,10 @@ async def execute_incoming_task(
                         for hit in hits
                     ]
                 }
-            return {"results": [], "error": "Vector search service not available"}
+            raise A2AServiceUnavailableError(
+                service="vector_search",
+                reason="Vector search service not initialized",
+            )
         else:
             raise ValueError(f"Unknown capability: {capability}")
 
