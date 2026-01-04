@@ -40,3 +40,27 @@
 ## Security & Configuration Tips
 - Copy `.env.example` to `.env` and set provider keys (see `README.md`).
 - `TRACE_ENCRYPTION_KEY` is required outside dev/test environments.
+
+## Error Code Conventions
+
+All API errors follow RFC 7807 Problem Details format. Error codes use these naming patterns:
+
+| Domain | Pattern | Example |
+|--------|---------|---------|
+| General | `SCREAMING_SNAKE` | `VALIDATION_ERROR`, `NOT_FOUND` |
+| A2A Protocol | `A2A_*` | `A2A_AGENT_NOT_FOUND`, `A2A_TASK_TIMEOUT` |
+| MCP Protocol | `MCP_*` | `MCP_TOOL_NOT_FOUND`, `MCP_AUTH_FAILED` |
+| Retrieval | `RETRIEVAL_*` | `RETRIEVAL_FAILED`, `RETRIEVAL_TIMEOUT` |
+| Ingestion | `INGESTION_*` | `INGESTION_FAILED`, `INGESTION_QUOTA_EXCEEDED` |
+
+Error classes extend `AppError` from `core/errors.py` and include:
+- `code`: Error code enum value
+- `message`: Human-readable description
+- `status`: HTTP status code (400, 401, 403, 404, 500, 503)
+- `details`: Optional dict with contextual data
+
+When adding new error codes:
+1. Add to `ErrorCode` enum in `core/errors.py`
+2. Create corresponding `*Error` class extending `AppError`
+3. Add to `ERROR_CODE_TO_STATUS` mapping if non-standard status
+4. Document in this section if protocol-specific
