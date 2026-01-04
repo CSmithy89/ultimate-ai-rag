@@ -124,22 +124,10 @@ def get_crawl_profile(name: str) -> CrawlProfile:
 
 
 # Domain heuristics for auto-detection
-# Maps domain patterns to suggested profiles
-_DOMAIN_PROFILE_HINTS: dict[str, str] = {
-    # Documentation sites (usually static, fast profile)
-    "docs.": "fast",
-    "documentation.": "fast",
-    "readthedocs.": "fast",
-    "gitbook.": "fast",
-    "docusaurus.": "fast",
-    ".github.io": "fast",
-    "wiki.": "fast",
-    # SPA frameworks (need thorough profile)
-    "app.": "thorough",
-    "dashboard.": "thorough",
-    "console.": "thorough",
-    "portal.": "thorough",
-    # Bot-protected sites (need stealth profile)
+# Organized by match priority: exact domains > suffixes > prefixes
+
+# Exact domain matches (highest priority) - checked first
+_EXACT_DOMAIN_PROFILES: dict[str, str] = {
     "linkedin.com": "stealth",
     "facebook.com": "stealth",
     "twitter.com": "stealth",
@@ -152,14 +140,37 @@ _DOMAIN_PROFILE_HINTS: dict[str, str] = {
     "google.com": "stealth",
 }
 
+# Domain suffix matches (e.g., ".github.io")
+_SUFFIX_DOMAIN_PROFILES: dict[str, str] = {
+    ".github.io": "fast",
+}
+
+# Subdomain prefix matches (lowest priority, e.g., "docs.")
+_PREFIX_DOMAIN_PROFILES: dict[str, str] = {
+    "docs.": "fast",
+    "documentation.": "fast",
+    "readthedocs.": "fast",
+    "gitbook.": "fast",
+    "docusaurus.": "fast",
+    "wiki.": "fast",
+    "app.": "thorough",
+    "dashboard.": "thorough",
+    "console.": "thorough",
+    "portal.": "thorough",
+}
+
 
 def get_profile_for_url(url: str) -> str:
     """
     Auto-detect the appropriate crawl profile based on URL domain heuristics.
 
     This function analyzes the URL's domain to suggest the most appropriate
-    crawl profile. It uses pattern matching against known domains and
-    subdomains to make intelligent suggestions.
+    crawl profile. Uses prioritized matching:
+    1. Exact domain matches (e.g., google.com) - highest priority
+    2. Domain suffix matches (e.g., .github.io)
+    3. Subdomain prefix matches (e.g., docs.) - lowest priority
+
+    This ensures docs.google.com matches google.com (stealth) not docs. (fast).
 
     Args:
         url: URL to analyze
@@ -174,41 +185,48 @@ def get_profile_for_url(url: str) -> str:
         'thorough'
         >>> get_profile_for_url("https://linkedin.com/jobs")
         'stealth'
+        >>> get_profile_for_url("https://docs.google.com")  # google.com takes priority
+        'stealth'
     """
     try:
         parsed = urlparse(url)
         domain = parsed.netloc.lower()
-        full_url = url.lower()
 
-        # Check for exact domain matches first (most specific)
-        for pattern, profile in _DOMAIN_PROFILE_HINTS.items():
-            if domain.endswith(pattern) or domain == pattern.lstrip("."):
+        # Priority 1: Check exact domain matches (most specific)
+        # e.g., "google.com" matches "google.com" or "www.google.com" or "docs.google.com"
+        for exact_domain, profile in _EXACT_DOMAIN_PROFILES.items():
+            if domain == exact_domain or domain.endswith("." + exact_domain):
                 logger.debug(
                     "crawl_profile_auto_detected",
                     url=url,
-                    pattern=pattern,
+                    match_type="exact_domain",
+                    pattern=exact_domain,
                     suggested_profile=profile,
                 )
                 return profile
 
-        # Check for subdomain prefixes
-        for pattern, profile in _DOMAIN_PROFILE_HINTS.items():
-            if pattern.endswith(".") and domain.startswith(pattern):
+        # Priority 2: Check domain suffix matches
+        # e.g., ".github.io" matches "example.github.io"
+        for suffix, profile in _SUFFIX_DOMAIN_PROFILES.items():
+            if domain.endswith(suffix):
                 logger.debug(
                     "crawl_profile_auto_detected",
                     url=url,
-                    pattern=pattern,
+                    match_type="suffix",
+                    pattern=suffix,
                     suggested_profile=profile,
                 )
                 return profile
 
-        # Check for patterns in full URL
-        for pattern, profile in _DOMAIN_PROFILE_HINTS.items():
-            if pattern in full_url:
+        # Priority 3: Check subdomain prefix matches (lowest priority)
+        # e.g., "docs." matches "docs.python.org"
+        for prefix, profile in _PREFIX_DOMAIN_PROFILES.items():
+            if domain.startswith(prefix):
                 logger.debug(
                     "crawl_profile_auto_detected",
                     url=url,
-                    pattern=pattern,
+                    match_type="prefix",
+                    pattern=prefix,
                     suggested_profile=profile,
                 )
                 return profile
@@ -217,7 +235,8 @@ def get_profile_for_url(url: str) -> str:
         logger.debug(
             "crawl_profile_auto_detected",
             url=url,
-            pattern="default",
+            match_type="default",
+            pattern=None,
             suggested_profile="thorough",
         )
         return "thorough"

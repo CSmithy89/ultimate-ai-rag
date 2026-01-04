@@ -248,6 +248,20 @@ class TestGetProfileForUrl:
         assert get_profile_for_url("http://docs.example.com") == "fast"
         assert get_profile_for_url("http://linkedin.com") == "stealth"
 
+    def test_exact_domain_takes_priority_over_prefix(self):
+        """Test that exact domain matches take priority over prefix matches.
+
+        This ensures docs.google.com matches google.com (stealth) not docs. (fast).
+        """
+        # Exact domain should win over prefix
+        assert get_profile_for_url("https://docs.google.com") == "stealth"
+        assert get_profile_for_url("https://console.google.com") == "stealth"
+        assert get_profile_for_url("https://app.amazon.com") == "stealth"
+
+        # But prefix should still work for non-protected domains
+        assert get_profile_for_url("https://docs.python.org") == "fast"
+        assert get_profile_for_url("https://console.aws.example.com") == "thorough"
+
 
 class TestApplyProxyOverride:
     """Tests for apply_proxy_override function."""

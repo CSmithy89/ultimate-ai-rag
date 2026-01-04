@@ -10,6 +10,9 @@ from typing import Optional, cast
 from dotenv import load_dotenv
 import structlog
 
+# Initialize logger early for use in helper functions
+_config_logger = structlog.get_logger("agentic_rag_backend.config")
+
 
 def get_bool_env(key: str, default: str = "false") -> bool:
     """Parse a boolean environment variable.
@@ -35,12 +38,29 @@ def get_int_env(key: str, default: int, min_val: Optional[int] = None) -> int:
     Returns:
         Parsed integer value, or default if parsing fails or value < min_val
     """
+    raw_value = os.getenv(key)
+    if raw_value is None:
+        return default
     try:
-        value = int(os.getenv(key, str(default)))
+        value = int(raw_value)
         if min_val is not None and value < min_val:
+            _config_logger.warning(
+                "config_value_below_minimum",
+                key=key,
+                value=value,
+                min_val=min_val,
+                using_default=default,
+            )
             return default
         return value
     except ValueError:
+        _config_logger.warning(
+            "config_parse_error",
+            key=key,
+            raw_value=raw_value,
+            expected_type="int",
+            using_default=default,
+        )
         return default
 
 
@@ -55,12 +75,29 @@ def get_float_env(key: str, default: float, min_val: Optional[float] = None) -> 
     Returns:
         Parsed float value, or default if parsing fails or value < min_val
     """
+    raw_value = os.getenv(key)
+    if raw_value is None:
+        return default
     try:
-        value = float(os.getenv(key, str(default)))
+        value = float(raw_value)
         if min_val is not None and value < min_val:
+            _config_logger.warning(
+                "config_value_below_minimum",
+                key=key,
+                value=value,
+                min_val=min_val,
+                using_default=default,
+            )
             return default
         return value
     except ValueError:
+        _config_logger.warning(
+            "config_parse_error",
+            key=key,
+            raw_value=raw_value,
+            expected_type="float",
+            using_default=default,
+        )
         return default
 
 
