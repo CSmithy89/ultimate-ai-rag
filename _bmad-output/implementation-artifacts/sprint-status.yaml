@@ -319,4 +319,14 @@ development_status:
   19-G3-add-crossencoder-model-preloading: backlog
   19-G4-support-custom-normalization-strategies: backlog
 
+  # --- Group H: Additional Competitive Features ---
+  # Origin: Qdrant, RAGFlow competitive analysis
+  19-H1-implement-sparse-vector-search-bm42: backlog
+  19-H2-implement-cross-language-query: backlog
+  19-H3-implement-external-data-source-sync: backlog
+  # Confluence, S3, Notion, Google Drive, Discord
+  19-H4-implement-voice-io: backlog
+  19-H5-implement-colbert-reranking: backlog
+  19-H6-implement-visual-workflow-editor: backlog
+
   epic-19-retrospective: optional

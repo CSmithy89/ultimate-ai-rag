@@ -268,6 +268,89 @@ retrieval_latency_seconds histogram
 
 ---
 
+### Group H: Additional Competitive Features (Party Mode Analysis)
+
+#### Story 19-H1: Implement Sparse Vector Search (BM42/BM25)
+
+**Origin:** Qdrant BM42 pure vector hybrid search
+
+**Objective:** Add sparse vector hybrid search for keyword precision.
+
+**Acceptance Criteria:**
+- Sparse embeddings generated alongside dense
+- Hybrid scoring combines sparse + dense
+- Configuration for sparse weight
+- Improved exact keyword matching
+
+#### Story 19-H2: Implement Cross-Language Query Support
+
+**Origin:** RAGFlow cross-language query (2025-05)
+
+**Objective:** Support queries in different languages than documents.
+
+**Acceptance Criteria:**
+- Query language detection
+- Cross-lingual embedding model option
+- Translation fallback for unsupported pairs
+- Language metadata in results
+
+#### Story 19-H3: Implement External Data Source Sync
+
+**Origin:** RAGFlow data synchronization (2025-11)
+
+**Objective:** Sync documents from external sources automatically.
+
+**Sources:**
+- Confluence
+- Amazon S3
+- Notion
+- Google Drive
+- Discord channels
+
+**Acceptance Criteria:**
+- Sync connectors for at least 3 sources
+- Incremental sync (only new/changed docs)
+- Scheduled sync jobs
+- Sync status dashboard
+
+#### Story 19-H4: Implement Voice I/O
+
+**Origin:** RAGFlow voice input/output (2025-12)
+
+**Objective:** Support voice-based interaction.
+
+**Acceptance Criteria:**
+- Speech-to-text for queries
+- Text-to-speech for responses
+- Streaming voice output
+- Voice activity detection
+
+#### Story 19-H5: Implement ColBERT Late Interaction Reranking
+
+**Origin:** Qdrant ColBERT integration
+
+**Objective:** Add ColBERT as alternative reranking model.
+
+**Acceptance Criteria:**
+- ColBERT model integration
+- Configurable via RERANKER_PROVIDER=colbert
+- Token-level interaction scoring
+- Benchmark comparison vs cross-encoder
+
+#### Story 19-H6: Implement Visual Workflow Editor
+
+**Origin:** RAGFlow DAG-based workflow editor
+
+**Objective:** Provide visual interface for building retrieval pipelines.
+
+**Acceptance Criteria:**
+- Drag-and-drop component placement
+- Pipeline validation
+- Export/import pipeline configs
+- Real-time preview
+
+---
+
 ### Group F: Epic 12 Code Review Carry-Forward
 
 #### Story 19-F1: Add Full Retrieval Pipeline Integration Test
@@ -414,7 +497,7 @@ GRADER_PRELOAD_MODEL=true|false  # Default: false
 4. **Phase 4 (Graph):** 19-B1, 19-B3 (compete with GraphRAG)
 5. **Phase 5 (Excellence):** 19-C1, 19-C2, 19-C4 (differentiation)
 6. **Phase 6 (Polish):** 19-G*, 19-F3-F5 (code review items)
-7. **Phase 7 (Advanced):** 19-D*, 19-E*, 19-B2 (optional)
+7. **Phase 7 (Advanced):** 19-D*, 19-E*, 19-B2, 19-H* (optional/future)
 
 ---
 
