@@ -189,6 +189,14 @@ class Settings:
     a2a_max_sessions_per_tenant: int
     a2a_max_sessions_total: int
     a2a_max_messages_per_session: int
+    # Epic 14 - Enhanced A2A Protocol settings
+    a2a_enabled: bool
+    a2a_agent_id: str
+    a2a_endpoint_url: str
+    a2a_heartbeat_interval_seconds: int
+    a2a_heartbeat_timeout_seconds: int
+    a2a_task_default_timeout_seconds: int
+    a2a_task_max_retries: int
     # Epic 7 - MCP settings
     mcp_tool_timeout_seconds: float
     mcp_tool_timeout_overrides: dict[str, float]
@@ -411,6 +419,15 @@ def load_settings() -> Settings:
         a2a_max_messages_per_session = int(os.getenv("A2A_MAX_MESSAGES_PER_SESSION", "1000"))
     except ValueError:
         a2a_max_messages_per_session = 1000
+
+    # Epic 14 - Enhanced A2A Protocol settings
+    a2a_enabled = get_bool_env("A2A_ENABLED", "true")
+    a2a_agent_id = os.getenv("A2A_AGENT_ID", "agentic-rag-001")
+    a2a_endpoint_url = os.getenv("A2A_ENDPOINT_URL", "http://localhost:8000")
+    a2a_heartbeat_interval_seconds = get_int_env("A2A_HEARTBEAT_INTERVAL_SECONDS", 30, min_val=5)
+    a2a_heartbeat_timeout_seconds = get_int_env("A2A_HEARTBEAT_TIMEOUT_SECONDS", 60, min_val=10)
+    a2a_task_default_timeout_seconds = get_int_env("A2A_TASK_DEFAULT_TIMEOUT_SECONDS", 300, min_val=1)
+    a2a_task_max_retries = get_int_env("A2A_TASK_MAX_RETRIES", 3, min_val=0)
 
     try:
         mcp_tool_timeout_seconds = float(os.getenv("MCP_TOOL_TIMEOUT_SECONDS", "30"))
@@ -852,6 +869,14 @@ def load_settings() -> Settings:
         a2a_max_sessions_per_tenant=a2a_max_sessions_per_tenant,
         a2a_max_sessions_total=a2a_max_sessions_total,
         a2a_max_messages_per_session=a2a_max_messages_per_session,
+        # Epic 14 - Enhanced A2A Protocol settings
+        a2a_enabled=a2a_enabled,
+        a2a_agent_id=a2a_agent_id,
+        a2a_endpoint_url=a2a_endpoint_url,
+        a2a_heartbeat_interval_seconds=a2a_heartbeat_interval_seconds,
+        a2a_heartbeat_timeout_seconds=a2a_heartbeat_timeout_seconds,
+        a2a_task_default_timeout_seconds=a2a_task_default_timeout_seconds,
+        a2a_task_max_retries=a2a_task_max_retries,
         # Epic 7 - MCP settings
         mcp_tool_timeout_seconds=mcp_tool_timeout_seconds,
         mcp_tool_timeout_overrides=mcp_tool_timeout_overrides,

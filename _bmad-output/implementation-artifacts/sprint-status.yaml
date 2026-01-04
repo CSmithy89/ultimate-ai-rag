@@ -195,10 +195,10 @@ development_status:
   # DECISION: WRAP Graphiti MCP, don't duplicate - extend with RAG-specific tools
   # TECH SPEC: _bmad-output/epics/epic-14-tech-spec.md (2026-01-04)
   # See: docs/guides/mcp-wrapper-architecture.md
-  epic-14: in-progress
+  epic-14: done
   14-1-expose-rag-engine-via-mcp-server: done
   # Wraps Graphiti MCP + adds: vector_search, ingest_url, ingest_pdf, ingest_youtube, query_with_reranking
-  14-2-implement-robust-a2a-protocol: backlog
+  14-2-implement-robust-a2a-protocol: done
   epic-14-retrospective: optional
 
   # Epic 15: Codebase Intelligence (RENAMED - was Multimodal & Codebase)
