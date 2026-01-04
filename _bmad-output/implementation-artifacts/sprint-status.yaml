@@ -329,4 +329,23 @@ development_status:
   19-H5-implement-colbert-reranking: backlog
   19-H6-implement-visual-workflow-editor: backlog
 
+  # --- Group I: Epic 13 Code Review Carry-Forward ---
+  # Origin: gemini-code-assist and coderabbitai reviews (2026-01-04)
+  # PRIORITY: MEDIUM
+  19-I1-externalize-crawl-profile-domain-matching: backlog
+  # Move _EXACT_DOMAIN_PROFILES etc. to JSON/YAML config for easier updates
+  19-I2-add-dynamic-user-agent-rotation: backlog
+  # Replace hardcoded Chrome 131 with fake-useragent or configurable list
+  19-I3-add-crawler-legacy-alias-deprecation-warnings: backlog
+  # extract_links/extract_title aliases should warn and document migration
+  # PRIORITY: LOW
+  19-I4-add-profile-magic-number-documentation: backlog
+  # Document rationale for rate_limit=5.0, max_concurrent=10, etc.
+  19-I5-optimize-beautifulsoup-async-parsing: backlog
+  # Consider async HTML parsing for large documents
+  19-I6-add-visited-set-bloom-filter: backlog
+  # For crawls >10k pages, use bloom filter instead of set()
+  19-I7-implement-config-validation-fail-fast: backlog
+  # Consider ValueError instead of warning for invalid profiles in prod
+
   epic-19-retrospective: optional
