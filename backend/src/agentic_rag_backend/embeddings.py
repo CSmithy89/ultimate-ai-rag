@@ -10,7 +10,7 @@ Supports:
 
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, cast
 from uuid import UUID
 
 import structlog
@@ -81,13 +81,17 @@ class OpenAIEmbeddingClient(EmbeddingClient):
         base_url: Optional[str] = None,
         timeout: float = 30.0,
     ) -> None:
-        client_kwargs: dict[str, object] = {
-            "api_key": api_key or "",
-            "timeout": timeout,
-        }
         if base_url:
-            client_kwargs["base_url"] = base_url
-        self.client = AsyncOpenAI(**client_kwargs)
+            self.client = AsyncOpenAI(
+                api_key=api_key or "",
+                timeout=timeout,
+                base_url=base_url,
+            )
+        else:
+            self.client = AsyncOpenAI(
+                api_key=api_key or "",
+                timeout=timeout,
+            )
         self.model = model
         logger.info("openai_embedding_client_initialized", model=model)
 
@@ -160,7 +164,13 @@ class GeminiEmbeddingClient(EmbeddingClient):
                     model=self.model,
                     contents=text,
                 )
-                embeddings.append(result.embedding.values)
+                embedding_payload = getattr(result, "embedding", None)
+                if embedding_payload is None:
+                    embedding_payload = getattr(result, "embeddings", None)
+                if embedding_payload is None:
+                    raise EmbeddingError("Gemini embedding response missing embedding data.", batch_size=1)
+                vector = embedding_payload.values if hasattr(embedding_payload, "values") else embedding_payload
+                embeddings.append([float(x) for x in vector])
             return embeddings
         except Exception as e:
             raise EmbeddingError(str(e), batch_size=len(texts)) from e
@@ -205,7 +215,7 @@ class VoyageEmbeddingClient(EmbeddingClient):
                 texts=texts,
                 model=self.model,
             )
-            return [e for e in result.embeddings]
+            return [[float(x) for x in embedding] for embedding in result.embeddings]
         except Exception as e:
             raise EmbeddingError(str(e), batch_size=len(texts)) from e
 
@@ -278,7 +288,8 @@ class EmbeddingGenerator:
         """
         self._client = client
         self._cost_tracker = cost_tracker
-        self._model = model or getattr(client, 'model', DEFAULT_EMBEDDING_MODEL)
+        inferred_model = getattr(client, "model", DEFAULT_EMBEDDING_MODEL)
+        self._model: str = model or cast(str, inferred_model)
         self._dimension = client.get_dimension()
         logger.info(
             "embedding_generator_initialized",

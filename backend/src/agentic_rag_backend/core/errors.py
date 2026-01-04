@@ -36,6 +36,10 @@ class ErrorCode(str, Enum):
     CHUNKING_FAILED = "chunking_failed"
     # Epic 5 - Graphiti Ingestion error codes
     INGESTION_FAILED = "ingestion_failed"
+    # Epic 15 - Codebase Intelligence error codes
+    CODEBASE_VALIDATION_FAILED = "codebase_validation_failed"
+    CODEBASE_INDEX_FAILED = "codebase_index_failed"
+    HALLUCINATION_DETECTED = "hallucination_detected"
 
 
 class AppError(Exception):
@@ -353,4 +357,59 @@ class IngestionError(AppError):
             message=f"Episode ingestion failed: {reason}",
             status=500,
             details={"document_id": document_id},
+        )
+
+
+# Epic 15 - Codebase Intelligence Errors
+
+
+class CodebaseValidationError(AppError):
+    """Error during codebase response validation."""
+
+    def __init__(self, reason: str, details: Optional[dict[str, Any]] = None) -> None:
+        super().__init__(
+            code=ErrorCode.CODEBASE_VALIDATION_FAILED,
+            message=f"Codebase validation failed: {reason}",
+            status=400,
+            details=details,
+        )
+
+
+class CodebaseIndexError(AppError):
+    """Error during codebase repository indexing."""
+
+    def __init__(self, repo_path: str, reason: str) -> None:
+        super().__init__(
+            code=ErrorCode.CODEBASE_INDEX_FAILED,
+            message=f"Repository indexing failed: {reason}",
+            status=500,
+            details={"repo_path": repo_path},
+        )
+
+
+class HallucinationError(AppError):
+    """Error when hallucination threshold exceeded in block mode."""
+
+    def __init__(
+        self,
+        invalid_count: int,
+        total_count: int,
+        threshold: float,
+        invalid_symbols: Optional[list[dict[str, Any]]] = None,
+    ) -> None:
+        ratio = invalid_count / total_count if total_count > 0 else 0
+        details: dict[str, Any] = {
+            "invalid_count": invalid_count,
+            "total_count": total_count,
+            "ratio": ratio,
+            "threshold": threshold,
+        }
+        if invalid_symbols:
+            details["invalid_symbols"] = invalid_symbols
+        super().__init__(
+            code=ErrorCode.HALLUCINATION_DETECTED,
+            message=f"Response blocked: {invalid_count}/{total_count} hallucinated references "
+                    f"({ratio:.1%} exceeds {threshold:.1%} threshold)",
+            status=422,
+            details=details,
         )

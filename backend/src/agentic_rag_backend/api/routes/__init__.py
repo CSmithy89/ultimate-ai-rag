@@ -8,6 +8,7 @@ from .mcp import router as mcp_router
 from .a2a import router as a2a_router
 from .ag_ui import router as ag_ui_router
 from .ops import router as ops_router
+from .codebase import router as codebase_router
 
 __all__ = [
     "ingest_router",
@@ -18,4 +19,5 @@ __all__ = [
     "a2a_router",
     "ag_ui_router",
     "ops_router",
+    "codebase_router",
 ]

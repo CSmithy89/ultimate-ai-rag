@@ -13,7 +13,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 import structlog
 
@@ -184,7 +184,7 @@ class CrossEncoderGrader(BaseGrader):
             model_name: Name of the cross-encoder model to use
         """
         self.model_name = model_name
-        self._model = None  # Lazy loading
+        self._model: Any | None = None  # Lazy loading
 
     def _ensure_model(self):
         """Lazily load the cross-encoder model."""
@@ -216,12 +216,15 @@ class CrossEncoderGrader(BaseGrader):
             )
 
         self._ensure_model()
+        model = self._model
+        if model is None:
+            raise RuntimeError("Cross-encoder model not initialized.")
 
         # Create query-document pairs (limit to avoid excessive compute)
         pairs = [(query, hit.content) for hit in hits[:MAX_CROSS_ENCODER_HITS]]
 
         # Score with cross-encoder (run in thread to avoid blocking event loop)
-        scores = await asyncio.to_thread(self._model.predict, pairs)
+        scores = await asyncio.to_thread(model.predict, pairs)
 
         # Handle edge case of empty scores (shouldn't happen but be defensive)
         if len(scores) == 0:
@@ -297,7 +300,7 @@ class WebSearchFallback(BaseFallbackHandler):
         """
         self.api_key = api_key
         self.max_results = max_results
-        self._client = None  # Lazy loading
+        self._client: Any | None = None  # Lazy loading
 
     def _ensure_client(self):
         """Lazily initialize Tavily client."""
@@ -323,11 +326,14 @@ class WebSearchFallback(BaseFallbackHandler):
             List of retrieval hits from web search
         """
         self._ensure_client()
+        client = self._client
+        if client is None:
+            raise RuntimeError("Tavily client not initialized.")
 
         try:
             # Wrap synchronous Tavily call in asyncio.to_thread to avoid blocking event loop
             response = await asyncio.to_thread(
-                self._client.search,
+                client.search,
                 query=query,
                 max_results=self.max_results,
                 search_depth="basic",
@@ -490,7 +496,7 @@ def create_grader(settings: Settings) -> Optional[RetrievalGrader]:
     grader = HeuristicGrader(top_k=5)
 
     # Create fallback handler based on strategy
-    fallback_handler = None
+    fallback_handler: Optional[BaseFallbackHandler] = None
     fallback_strategy = FallbackStrategy(settings.grader_fallback_strategy)
 
     if settings.grader_fallback_enabled:

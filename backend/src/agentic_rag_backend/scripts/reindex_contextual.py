@@ -13,7 +13,6 @@ import argparse
 import asyncio
 import sys
 import time
-from typing import Optional
 from uuid import UUID
 
 import structlog
@@ -360,7 +359,7 @@ async def reindex_all(
     )
 
     # Cleanup database connection
-    await postgres.close()
+    await postgres.disconnect()
 
 
 def main() -> None:

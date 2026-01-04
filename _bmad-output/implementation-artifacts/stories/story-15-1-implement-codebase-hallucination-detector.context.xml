@@ -1,0 +1,494 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story Context File: 15-1 Implement Codebase Hallucination Detector
+  Generated: 2026-01-04
+  Epic: 15 - Codebase Intelligence
+
+  Purpose: Provides all codebase context needed to implement this story.
+  Usage: Load this file before implementing story tasks.
+-->
+<story-context>
+  <story-summary>
+    <id>15-1</id>
+    <title>Implement Codebase Hallucination Detector</title>
+    <status>ready-for-dev</status>
+    <priority>High</priority>
+    <complexity>Medium-High (4-5 days estimated)</complexity>
+    <objective>
+      Build an AST-based validation system that detects LLM responses referencing
+      non-existent code symbols, files, or API endpoints. This enables developers
+      to trust that code suggestions reference real elements in their codebase.
+    </objective>
+    <key-deliverables>
+      <deliverable>Symbol extraction using tree-sitter (Python, TypeScript, JavaScript)</deliverable>
+      <deliverable>Symbol table with name/qualified-name/file indexes</deliverable>
+      <deliverable>Validators for symbols, file paths, API endpoints, and imports</deliverable>
+      <deliverable>HallucinationDetector class orchestrating all validation</deliverable>
+      <deliverable>Redis caching for symbol tables with tenant isolation</deliverable>
+      <deliverable>API endpoint at POST /api/v1/codebase/validate-response</deliverable>
+      <deliverable>Configurable modes: warn (annotate) or block (reject)</deliverable>
+    </key-deliverables>
+  </story-summary>
+
+  <architecture-context>
+    <decision name="technology-choice">
+      <description>Use tree-sitter for AST parsing with Python fallback</description>
+      <rationale>
+        - Multi-language support (Python, TypeScript, JavaScript)
+        - Incremental parsing capability for performance
+        - CST provides exact source positions for error reporting
+        - Well-maintained grammars with community support
+      </rationale>
+    </decision>
+
+    <decision name="module-location">
+      <description>Create new codebase/ module under backend/src/agentic_rag_backend/</description>
+      <structure>
+        codebase/
+        ├── __init__.py
+        ├── types.py               # SymbolType, CodeSymbol, ValidationResult, HallucinationReport
+        ├── symbol_table.py        # SymbolTable class with indexes
+        ├── parser.py              # Tree-sitter AST wrapper
+        ├── detector.py            # Main HallucinationDetector class
+        ├── extractors/
+        │   ├── __init__.py
+        │   ├── base.py            # BaseSymbolExtractor abstract class
+        │   ├── python_extractor.py
+        │   └── typescript_extractor.py
+        └── validators/
+            ├── __init__.py
+            ├── symbol_validator.py
+            ├── path_validator.py
+            └── api_validator.py
+      </structure>
+    </decision>
+
+    <decision name="storage-integration">
+      <description>Use existing Redis for symbol table caching</description>
+      <pattern>
+        - Cache key format: codebase:{tenant_id}:symbol_table:{repo_hash}
+        - TTL configurable via HALLUCINATION_DETECTOR_CACHE_TTL_SECONDS (default: 3600)
+        - Serialize symbol table using JSON for portability
+      </pattern>
+    </decision>
+
+    <decision name="multi-tenancy">
+      <description>Every symbol table MUST be isolated by tenant_id</description>
+      <requirement>
+        Symbol tables are built per-tenant and cached with tenant_id prefix.
+        All validation API calls require tenant_id query parameter.
+      </requirement>
+    </decision>
+  </architecture-context>
+
+  <existing-patterns>
+    <!-- Error Handling Pattern (from core/errors.py) -->
+    <pattern name="error-handling">
+      <description>RFC 7807 Problem Details for API errors</description>
+      <example-file>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/src/agentic_rag_backend/core/errors.py</example-file>
+      <code-snippet language="python"><![CDATA[
+class ErrorCode(str, Enum):
+    """Standardized error codes for the application."""
+    VALIDATION_ERROR = "validation_error"
+    # Add new codes for Epic 15:
+    # SYMBOL_NOT_FOUND = "symbol_not_found"
+    # AST_PARSE_FAILED = "ast_parse_failed"
+    # HALLUCINATION_DETECTED = "hallucination_detected"
+
+class AppError(Exception):
+    """
+    Structured application error following RFC 7807 Problem Details.
+    """
+    def __init__(
+        self,
+        code: ErrorCode,
+        message: str,
+        status: int = 500,
+        details: Optional[dict[str, Any]] = None,
+    ) -> None:
+        self.code = code
+        self.message = message
+        self.status = status
+        self.details = details or {}
+        super().__init__(message)
+
+    def to_problem_detail(self, instance: str) -> dict[str, Any]:
+        """Convert error to RFC 7807 Problem Details format."""
+        problem = {
+            "type": f"https://api.example.com/errors/{self.code.value.replace('_', '-')}",
+            "title": self.code.value.replace("_", " ").title(),
+            "status": self.status,
+            "detail": self.message,
+            "instance": instance,
+        }
+        if self.details:
+            problem["errors"] = self.details
+        return problem
+]]></code-snippet>
+    </pattern>
+
+    <!-- Configuration Pattern (from config.py) -->
+    <pattern name="configuration">
+      <description>Settings dataclass with environment variable loading</description>
+      <example-file>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/src/agentic_rag_backend/config.py</example-file>
+      <code-snippet language="python"><![CDATA[
+# Add to Settings dataclass:
+@dataclass(frozen=True)
+class Settings:
+    # ... existing fields ...
+    # Epic 15 - Codebase Hallucination Detector
+    hallucination_detector_enabled: bool
+    hallucination_detector_mode: str  # "warn" or "block"
+    hallucination_detector_languages: list[str]
+    hallucination_detector_confidence_threshold: float
+    hallucination_detector_cache_ttl_seconds: int
+
+# In load_settings():
+hallucination_detector_enabled = get_bool_env("HALLUCINATION_DETECTOR_ENABLED", "false")
+hallucination_detector_mode = os.getenv("HALLUCINATION_DETECTOR_MODE", "warn").strip().lower()
+if hallucination_detector_mode not in {"warn", "block"}:
+    logger.warning("invalid_detector_mode", mode=hallucination_detector_mode, fallback="warn")
+    hallucination_detector_mode = "warn"
+hallucination_detector_languages_raw = os.getenv("HALLUCINATION_DETECTOR_LANGUAGES", "python,typescript,javascript")
+hallucination_detector_languages = [lang.strip() for lang in hallucination_detector_languages_raw.split(",")]
+hallucination_detector_confidence_threshold = get_float_env("HALLUCINATION_DETECTOR_CONFIDENCE_THRESHOLD", 0.7, min_val=0.0)
+hallucination_detector_cache_ttl_seconds = get_int_env("HALLUCINATION_DETECTOR_CACHE_TTL_SECONDS", 3600, min_val=60)
+]]></code-snippet>
+    </pattern>
+
+    <!-- API Router Pattern (from api/routes/ingest.py) -->
+    <pattern name="api-router">
+      <description>FastAPI router with rate limiting and dependency injection</description>
+      <example-file>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/src/agentic_rag_backend/api/routes/ingest.py</example-file>
+      <code-snippet language="python"><![CDATA[
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+logger = structlog.get_logger(__name__)
+
+limiter = Limiter(key_func=get_remote_address)
+
+router = APIRouter(prefix="/codebase", tags=["codebase"])
+
+class Meta(BaseModel):
+    """Response metadata."""
+    requestId: str
+    timestamp: str
+
+class SuccessResponse(BaseModel):
+    """Standard success response wrapper."""
+    data: Any
+    meta: Meta
+
+def success_response(data: Any) -> dict[str, Any]:
+    """Wrap data in standard success response format."""
+    return {
+        "data": data,
+        "meta": {
+            "requestId": str(uuid4()),
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        },
+    }
+
+# Dependency injection pattern:
+async def get_redis(request: Request) -> RedisClient:
+    """Get Redis client from app.state."""
+    return request.app.state.redis_client
+]]></code-snippet>
+    </pattern>
+
+    <!-- Redis Client Pattern (from db/redis.py) -->
+    <pattern name="redis-client">
+      <description>Async Redis client with connection management</description>
+      <example-file>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/src/agentic_rag_backend/db/redis.py</example-file>
+      <code-snippet language="python"><![CDATA[
+import redis.asyncio as redis
+from agentic_rag_backend.core.errors import RedisError
+
+class RedisClient:
+    """Redis client with Streams support for async job processing."""
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+        self._client: Optional[redis.Redis] = None
+
+    async def connect(self) -> None:
+        if self._client is None:
+            self._client = redis.from_url(self.url, encoding="utf-8", decode_responses=False)
+
+    async def disconnect(self) -> None:
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
+
+    @property
+    def client(self) -> redis.Redis:
+        if self._client is None:
+            raise RedisError("connection", "Redis client not connected")
+        return self._client
+
+# For symbol table caching, add methods like:
+async def cache_symbol_table(self, tenant_id: str, repo_path: str, data: bytes, ttl: int) -> None:
+    key = f"codebase:{tenant_id}:symbol_table:{hashlib.sha256(repo_path.encode()).hexdigest()[:16]}"
+    await self.client.setex(key, ttl, data)
+
+async def get_cached_symbol_table(self, tenant_id: str, repo_path: str) -> Optional[bytes]:
+    key = f"codebase:{tenant_id}:symbol_table:{hashlib.sha256(repo_path.encode()).hexdigest()[:16]}"
+    return await self.client.get(key)
+]]></code-snippet>
+    </pattern>
+
+    <!-- Pydantic Models Pattern (from models/) -->
+    <pattern name="pydantic-models">
+      <description>Pydantic BaseModel with validation</description>
+      <example-file>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/src/agentic_rag_backend/models/documents.py</example-file>
+      <code-snippet language="python"><![CDATA[
+from pydantic import BaseModel, Field
+from typing import Optional
+from enum import Enum
+
+# Pattern for Enum types:
+class SymbolType(str, Enum):
+    FUNCTION = "function"
+    METHOD = "method"
+    CLASS = "class"
+    # etc.
+
+# Pattern for request/response models:
+class ValidateResponseRequest(BaseModel):
+    response_text: str = Field(..., description="LLM response to validate")
+    repo_path: Optional[str] = Field(None, description="Repository path (uses default if not set)")
+    mode: str = Field("warn", description="Detection mode: warn or block")
+
+class ValidateResponseResponse(BaseModel):
+    valid: bool
+    confidence: float
+    total_checked: int
+    invalid_count: int
+    invalid_symbols: list[dict]
+    suggestions: list[dict]
+    processing_time_ms: int
+]]></code-snippet>
+    </pattern>
+
+    <!-- Test Pattern (from tests/conftest.py) -->
+    <pattern name="testing">
+      <description>pytest fixtures and async test patterns</description>
+      <example-file>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/tests/conftest.py</example-file>
+      <code-snippet language="python"><![CDATA[
+import os
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+# Set environment variables BEFORE imports
+os.environ.setdefault("OPENAI_API_KEY", "test-key")
+os.environ.setdefault("DATABASE_URL", "postgresql://localhost/test")
+# etc.
+
+@pytest.fixture
+def sample_tenant_id():
+    """Provide a sample tenant ID."""
+    return uuid4()
+
+@pytest.fixture
+def mock_redis():
+    """Mock Redis client for testing."""
+    redis_mock = AsyncMock()
+    redis_mock.get.return_value = None
+    redis_mock.setex.return_value = True
+    return redis_mock
+
+# For codebase tests, create fixtures like:
+@pytest.fixture
+def sample_python_code():
+    return '''
+class UserService:
+    def create_user(self, name: str) -> User:
+        return User(name=name)
+'''
+
+@pytest.fixture
+def sample_symbol_table(sample_tenant_id):
+    from agentic_rag_backend.codebase.symbol_table import SymbolTable
+    from agentic_rag_backend.codebase.types import CodeSymbol, SymbolType, SymbolScope
+
+    table = SymbolTable(str(sample_tenant_id), "/test/repo")
+    table.add(CodeSymbol(
+        name="create_user",
+        type=SymbolType.METHOD,
+        scope=SymbolScope.CLASS,
+        file_path="services/user.py",
+        line_start=3,
+        line_end=5,
+        parent="UserService",
+    ))
+    return table
+]]></code-snippet>
+    </pattern>
+  </existing-patterns>
+
+  <integration-points>
+    <integration name="main-app-registration">
+      <file>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/src/agentic_rag_backend/main.py</file>
+      <description>Register codebase router in create_app()</description>
+      <code-snippet language="python"><![CDATA[
+# In imports at top:
+from .api.routes.codebase import router as codebase_router
+
+# In create_app() function, add:
+app.include_router(codebase_router, prefix="/api/v1")  # Epic 15: Codebase
+]]></code-snippet>
+    </integration>
+
+    <integration name="routes-init">
+      <file>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/src/agentic_rag_backend/api/routes/__init__.py</file>
+      <description>Export codebase router</description>
+      <code-snippet language="python"><![CDATA[
+from .codebase import router as codebase_router
+
+__all__ = [
+    # ... existing exports ...
+    "codebase_router",
+]
+]]></code-snippet>
+    </integration>
+
+    <integration name="redis-client-extension">
+      <file>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/src/agentic_rag_backend/db/redis.py</file>
+      <description>Add symbol table caching methods (or create separate codebase cache module)</description>
+    </integration>
+  </integration-points>
+
+  <file-references>
+    <file path="/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/src/agentic_rag_backend/core/errors.py" purpose="Error handling patterns - add new ErrorCode entries for codebase errors" />
+    <file path="/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/src/agentic_rag_backend/config.py" purpose="Configuration - add hallucination detector settings" />
+    <file path="/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/src/agentic_rag_backend/db/redis.py" purpose="Redis client - pattern for caching" />
+    <file path="/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/src/agentic_rag_backend/api/routes/ingest.py" purpose="API route pattern - success_response, dependency injection" />
+    <file path="/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/src/agentic_rag_backend/main.py" purpose="App lifespan - register codebase router" />
+    <file path="/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/src/agentic_rag_backend/api/routes/__init__.py" purpose="Route exports" />
+    <file path="/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/tests/conftest.py" purpose="Test fixtures pattern" />
+    <file path="/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/tests/indexing/test_chunker.py" purpose="Unit test structure example" />
+    <file path="/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/pyproject.toml" purpose="Add new dependencies" />
+    <file path="/home/chris/projects/work/Agentic Rag and Graphrag with copilot/.env.example" purpose="Document new environment variables" />
+  </file-references>
+
+  <dependencies>
+    <new-dependencies>
+      <dependency name="tree-sitter" version=">=0.23.0" purpose="Core AST parser" />
+      <dependency name="tree-sitter-python" version=">=0.23.0" purpose="Python grammar" />
+      <dependency name="tree-sitter-javascript" version=">=0.23.0" purpose="JavaScript grammar" />
+      <dependency name="tree-sitter-typescript" version=">=0.23.0" purpose="TypeScript grammar" />
+      <dependency name="gitignore-parser" version=">=0.1.11" purpose=".gitignore pattern parsing (for Story 15-2, optional for 15-1)" />
+    </new-dependencies>
+    <pyproject-addition><![CDATA[
+# Add to backend/pyproject.toml dependencies:
+dependencies = [
+  # ... existing deps ...
+  # Epic 15 - Codebase Intelligence
+  "tree-sitter>=0.23.0",
+  "tree-sitter-python>=0.23.0",
+  "tree-sitter-javascript>=0.23.0",
+  "tree-sitter-typescript>=0.23.0",
+  "gitignore-parser>=0.1.11",
+]
+]]></pyproject-addition>
+  </dependencies>
+
+  <configuration>
+    <env-variables>
+      <variable name="HALLUCINATION_DETECTOR_ENABLED" type="bool" default="false" description="Enable/disable hallucination detection" />
+      <variable name="HALLUCINATION_DETECTOR_MODE" type="string" default="warn" description="Detection mode: warn (annotate) or block (reject)" />
+      <variable name="HALLUCINATION_DETECTOR_LANGUAGES" type="string" default="python,typescript,javascript" description="Comma-separated list of languages to support" />
+      <variable name="HALLUCINATION_DETECTOR_CONFIDENCE_THRESHOLD" type="float" default="0.7" description="Minimum confidence to report (0.0-1.0)" />
+      <variable name="HALLUCINATION_DETECTOR_CACHE_TTL_SECONDS" type="int" default="3600" description="Symbol table cache TTL in seconds" />
+    </env-variables>
+    <env-example-addition><![CDATA[
+# Epic 15 - Codebase Hallucination Detector
+HALLUCINATION_DETECTOR_ENABLED=false
+HALLUCINATION_DETECTOR_MODE=warn
+HALLUCINATION_DETECTOR_LANGUAGES=python,typescript,javascript
+HALLUCINATION_DETECTOR_CONFIDENCE_THRESHOLD=0.7
+HALLUCINATION_DETECTOR_CACHE_TTL_SECONDS=3600
+]]></env-example-addition>
+  </configuration>
+
+  <testing-patterns>
+    <test-structure>
+      Create test files under backend/tests/codebase/:
+      - test_types.py           - Test type definitions and validation
+      - test_symbol_table.py    - Test symbol table operations
+      - test_parser.py          - Test AST parsing for Python/TypeScript
+      - test_python_extractor.py - Test Python symbol extraction
+      - test_typescript_extractor.py - Test TypeScript symbol extraction
+      - test_symbol_validator.py - Test symbol validation logic
+      - test_path_validator.py  - Test file path validation
+      - test_api_validator.py   - Test OpenAPI endpoint validation
+      - test_detector.py        - Test main detector orchestration
+
+      Create integration tests under backend/tests/api/routes/:
+      - test_codebase.py        - Test API endpoints
+    </test-structure>
+    <test-markers>
+      Use @pytest.mark.integration for integration tests
+      Use @pytest.mark.benchmark for performance tests
+    </test-markers>
+    <performance-requirements>
+      - Validation must complete in less than 100ms (P95) for typical responses (less than 5000 chars)
+      - Symbol extraction for 1000 LOC file should complete under 50ms
+    </performance-requirements>
+  </testing-patterns>
+
+  <implementation-phases>
+    <phase number="1" name="Core Types and Symbol Table" estimated-days="1">
+      <task>Create codebase/ module structure with __init__.py files</task>
+      <task>Implement types.py with SymbolType, SymbolScope, CodeSymbol, ValidationResult, HallucinationReport</task>
+      <task>Implement symbol_table.py with add, lookup, lookup_qualified, find_similar methods</task>
+      <task>Write unit tests for types and symbol_table</task>
+    </phase>
+    <phase number="2" name="AST Parser and Extractors" estimated-days="1">
+      <task>Install tree-sitter dependencies</task>
+      <task>Implement parser.py with ASTParser class</task>
+      <task>Implement extractors/base.py with BaseSymbolExtractor abstract class</task>
+      <task>Implement extractors/python_extractor.py</task>
+      <task>Implement extractors/typescript_extractor.py</task>
+      <task>Write unit tests for parser and extractors</task>
+    </phase>
+    <phase number="3" name="Validators" estimated-days="1">
+      <task>Implement validators/symbol_validator.py</task>
+      <task>Implement validators/path_validator.py</task>
+      <task>Implement validators/api_validator.py (OpenAPI spec matching)</task>
+      <task>Write unit tests for all validators</task>
+    </phase>
+    <phase number="4" name="Detector and Integration" estimated-days="1">
+      <task>Implement detector.py with HallucinationDetector class</task>
+      <task>Add Redis caching for symbol tables</task>
+      <task>Create api/routes/codebase.py with validate-response endpoint</task>
+      <task>Add configuration to config.py</task>
+      <task>Register router in main.py and routes/__init__.py</task>
+      <task>Write integration tests</task>
+    </phase>
+    <phase number="5" name="Testing and Documentation" estimated-days="1">
+      <task>Complete unit test coverage (greater than 80%)</task>
+      <task>Run integration tests</task>
+      <task>Performance benchmarks</task>
+      <task>Update .env.example with new environment variables</task>
+      <task>Update pyproject.toml with new dependencies</task>
+    </phase>
+  </implementation-phases>
+
+  <acceptance-criteria-checklist>
+    <criterion id="AC-1">Symbol validation - function names validated against symbol table with suggestions</criterion>
+    <criterion id="AC-2">Class validation - classes validated with type mismatch detection</criterion>
+    <criterion id="AC-3">File path validation - paths validated against filesystem with suggestions</criterion>
+    <criterion id="AC-4">API endpoint validation - endpoints validated against OpenAPI spec when available</criterion>
+    <criterion id="AC-5">Import statement validation - local imports validated, external assumed valid with low confidence</criterion>
+    <criterion id="AC-6">Detector modes - warn mode annotates, block mode rejects with HTTP 422</criterion>
+    <criterion id="AC-7">Performance - less than 100ms P95 for typical responses</criterion>
+    <criterion id="AC-8">Symbol table caching - Redis cache with configurable TTL</criterion>
+    <criterion id="AC-9">Multi-tenancy - symbol tables isolated by tenant_id</criterion>
+    <criterion id="AC-10">API endpoint - POST /api/v1/codebase/validate-response available</criterion>
+  </acceptance-criteria-checklist>
+</story-context>

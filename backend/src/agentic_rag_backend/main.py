@@ -29,6 +29,7 @@ from .api.routes import (
     a2a_router,
     ag_ui_router,
     ops_router,
+    codebase_router,
 )
 from .api.routes.ingest import limiter as slowapi_limiter
 from .api.utils import rate_limit_exceeded
@@ -215,6 +216,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             max_requests=settings.rate_limit_per_minute,
             window_seconds=60,
         )
+        app.state.codebase_index_limiter = InMemoryRateLimiter(
+            max_requests=settings.codebase_index_rate_limit_max,
+            window_seconds=settings.codebase_index_rate_limit_window_seconds,
+        )
         app.state.redis = None
         # Create retrieval enhancements (reranker, grader) if enabled
         reranker, grader = _create_retrieval_enhancements(settings)
@@ -266,11 +271,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 window_seconds=60,
                 key_prefix=settings.rate_limit_redis_prefix,
             )
+            app.state.codebase_index_limiter = RedisRateLimiter(
+                client=redis_client,
+                max_requests=settings.codebase_index_rate_limit_max,
+                window_seconds=settings.codebase_index_rate_limit_window_seconds,
+                key_prefix=f"{settings.rate_limit_redis_prefix}:codebase-index",
+            )
         else:
             app.state.redis = None
             app.state.rate_limiter = InMemoryRateLimiter(
                 max_requests=settings.rate_limit_per_minute,
                 window_seconds=60,
+            )
+            app.state.codebase_index_limiter = InMemoryRateLimiter(
+                max_requests=settings.codebase_index_rate_limit_max,
+                window_seconds=settings.codebase_index_rate_limit_window_seconds,
             )
 
         # Create retrieval enhancements (reranker, grader) if enabled
@@ -376,6 +391,7 @@ def create_app() -> FastAPI:
     app.include_router(a2a_router, prefix="/api/v1")  # Epic 7: A2A collaboration
     app.include_router(ag_ui_router, prefix="/api/v1")  # Epic 7: AG-UI universal
     app.include_router(ops_router, prefix="/api/v1")  # Epic 8: Ops dashboard
+    app.include_router(codebase_router, prefix="/api/v1")  # Epic 15: Codebase intelligence
 
     return app
 

@@ -19,7 +19,6 @@ from ..retrieval import (
     GraphTraversalService,
     VectorSearchService,
     RerankerClient,
-    RerankedHit,
 )
 from ..retrieval.grader import RetrievalGrader, RetrievalHit
 from ..retrieval.constants import (
@@ -208,7 +207,7 @@ class OrchestratorAgent:
             )
 
         try:
-            params = inspect.signature(model_cls).parameters
+            params = dict(inspect.signature(model_cls).parameters)
         except (TypeError, ValueError):  # pragma: no cover - fallback path
             params = {}
 
@@ -561,8 +560,13 @@ class OrchestratorAgent:
 
                 # If fallback was triggered, log it and append fallback hits
                 if grader_result.fallback_triggered and fallback_hits:
+                    strategy = (
+                        grader_result.fallback_strategy.value
+                        if grader_result.fallback_strategy
+                        else "unknown"
+                    )
                     fallback_note = (
-                        f"Fallback triggered ({grader_result.fallback_strategy.value}): "
+                        f"Fallback triggered ({strategy}): "
                         f"added {len(fallback_hits)} additional results"
                     )
                     thoughts.append(fallback_note)
@@ -574,8 +578,8 @@ class OrchestratorAgent:
                     # Convert fallback RetrievalHit back to VectorHit format
                     for fh in fallback_hits:
                         fallback_vector_hit = VectorHit(
+                            chunk_id="fallback:0",
                             document_id=fh.metadata.get("url", "fallback") if fh.metadata else "fallback",
-                            chunk_index=0,
                             content=fh.content,
                             similarity=fh.score or 0.0,
                             metadata=fh.metadata,

@@ -5,6 +5,7 @@ import os
 import secrets
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 from typing import Optional, cast
 
 from dotenv import load_dotenv
@@ -228,6 +229,22 @@ class Settings:
     # Epic 13 - Enterprise Ingestion (YouTube Transcripts)
     youtube_preferred_languages: list[str]
     youtube_chunk_duration_seconds: int
+    # Epic 15 - Codebase Intelligence settings
+    codebase_hallucination_threshold: float
+    codebase_detector_mode: str
+    codebase_cache_ttl_seconds: int
+    codebase_symbol_table_max_symbols: int
+    codebase_index_rate_limit_max: int
+    codebase_index_rate_limit_window_seconds: int
+    codebase_detection_slow_ms: int
+    codebase_allowed_base_path: Optional[str]
+    codebase_rag_enabled: bool
+    codebase_languages: list[str]
+    codebase_exclude_patterns: list[str]
+    codebase_max_chunk_size: int
+    codebase_include_class_context: bool
+    codebase_incremental_indexing: bool
+    codebase_index_cache_ttl_seconds: int
 
 
 def load_settings() -> Settings:
@@ -258,6 +275,8 @@ def load_settings() -> Settings:
             llm_model_id = openai_model_id
         if not openai_model_id:
             openai_model_id = llm_model_id
+    llm_model_id = llm_model_id or "gpt-4o-mini"
+    openai_model_id = openai_model_id or llm_model_id
 
     min_pool_size = 1
     try:
@@ -484,6 +503,8 @@ def load_settings() -> Settings:
             "EMBEDDING_PROVIDER must be one of: openai, openrouter, ollama, gemini, voyage."
         )
 
+    llm_api_key: Optional[str]
+    llm_base_url: Optional[str]
     if llm_provider == "openai":
         llm_api_key = openai_api_key
         llm_base_url = openai_base_url or None
@@ -501,6 +522,8 @@ def load_settings() -> Settings:
         llm_base_url = None
 
     # Derive embedding API credentials based on embedding_provider
+    embedding_api_key: Optional[str]
+    embedding_base_url: Optional[str]
     if embedding_provider == "openai":
         embedding_api_key = openai_api_key
         embedding_base_url = openai_base_url or None
@@ -679,6 +702,84 @@ def load_settings() -> Settings:
     except ValueError:
         youtube_chunk_duration_seconds = 120
 
+    # Epic 15 - Codebase Intelligence settings
+    raw_hallucination_threshold = os.getenv("CODEBASE_HALLUCINATION_THRESHOLD")
+    if raw_hallucination_threshold is None:
+        codebase_hallucination_threshold = 0.3
+    else:
+        try:
+            codebase_hallucination_threshold = float(raw_hallucination_threshold)
+        except ValueError as exc:
+            raise ValueError(
+                "CODEBASE_HALLUCINATION_THRESHOLD must be a float between 0.0 and 1.0."
+            ) from exc
+        if not 0.0 <= codebase_hallucination_threshold <= 1.0:
+            raise ValueError(
+                "CODEBASE_HALLUCINATION_THRESHOLD must be between 0.0 and 1.0."
+            )
+    codebase_detector_mode = os.getenv("CODEBASE_DETECTOR_MODE", "warn").lower()
+    if codebase_detector_mode not in {"warn", "block"}:
+        raise ValueError("CODEBASE_DETECTOR_MODE must be 'warn' or 'block'.")
+    codebase_cache_ttl_seconds = get_int_env(
+        "CODEBASE_CACHE_TTL_SECONDS", 3600, min_val=60
+    )
+    codebase_symbol_table_max_symbols = get_int_env(
+        "CODEBASE_SYMBOL_TABLE_MAX_SYMBOLS", 200000, min_val=0
+    )
+    codebase_index_rate_limit_max = get_int_env(
+        "CODEBASE_INDEX_RATE_LIMIT_MAX", 10, min_val=1
+    )
+    codebase_index_rate_limit_window_seconds = get_int_env(
+        "CODEBASE_INDEX_RATE_LIMIT_WINDOW_SECONDS", 3600, min_val=60
+    )
+    codebase_detection_slow_ms = get_int_env(
+        "CODEBASE_DETECTION_SLOW_MS", 2000, min_val=0
+    )
+    codebase_allowed_base_path = os.getenv("CODEBASE_ALLOWED_BASE_PATH")
+    if codebase_allowed_base_path:
+        base_path = Path(codebase_allowed_base_path)
+        if not base_path.is_absolute():
+            raise ValueError("CODEBASE_ALLOWED_BASE_PATH must be an absolute path.")
+        if not base_path.exists():
+            raise ValueError(
+                f"CODEBASE_ALLOWED_BASE_PATH does not exist: {codebase_allowed_base_path}"
+            )
+        codebase_allowed_base_path = str(base_path.resolve())
+    codebase_rag_enabled = get_bool_env("CODEBASE_RAG_ENABLED", "false")
+    codebase_languages_raw = os.getenv("CODEBASE_LANGUAGES", "python,typescript,javascript")
+    codebase_languages = [
+        lang.strip().lower()
+        for lang in codebase_languages_raw.split(",")
+        if lang.strip()
+    ]
+    codebase_exclude_default = [
+        "**/node_modules/**",
+        "**/__pycache__/**",
+        "**/venv/**",
+        "**/.venv/**",
+        "**/dist/**",
+        "**/build/**",
+        "**/.git/**",
+    ]
+    codebase_exclude_raw = os.getenv("CODEBASE_EXCLUDE_PATTERNS")
+    if codebase_exclude_raw:
+        try:
+            parsed = json.loads(codebase_exclude_raw)
+            if isinstance(parsed, list):
+                codebase_exclude_patterns = [str(p) for p in parsed]
+            else:
+                codebase_exclude_patterns = codebase_exclude_default
+        except (json.JSONDecodeError, ValueError):
+            codebase_exclude_patterns = codebase_exclude_default
+    else:
+        codebase_exclude_patterns = codebase_exclude_default
+    codebase_max_chunk_size = get_int_env("CODEBASE_MAX_CHUNK_SIZE", 1000, min_val=200)
+    codebase_include_class_context = get_bool_env("CODEBASE_INCLUDE_CLASS_CONTEXT", "true")
+    codebase_incremental_indexing = get_bool_env("CODEBASE_INCREMENTAL_INDEXING", "true")
+    codebase_index_cache_ttl_seconds = get_int_env(
+        "CODEBASE_INDEX_CACHE_TTL_SECONDS", 86400, min_val=60
+    )
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -791,6 +892,22 @@ def load_settings() -> Settings:
         # Epic 13 - YouTube Transcript settings
         youtube_preferred_languages=youtube_preferred_languages,
         youtube_chunk_duration_seconds=youtube_chunk_duration_seconds,
+        # Epic 15 - Codebase Intelligence settings
+        codebase_hallucination_threshold=codebase_hallucination_threshold,
+        codebase_detector_mode=codebase_detector_mode,
+        codebase_cache_ttl_seconds=codebase_cache_ttl_seconds,
+        codebase_symbol_table_max_symbols=codebase_symbol_table_max_symbols,
+        codebase_index_rate_limit_max=codebase_index_rate_limit_max,
+        codebase_index_rate_limit_window_seconds=codebase_index_rate_limit_window_seconds,
+        codebase_detection_slow_ms=codebase_detection_slow_ms,
+        codebase_allowed_base_path=codebase_allowed_base_path,
+        codebase_rag_enabled=codebase_rag_enabled,
+        codebase_languages=codebase_languages,
+        codebase_exclude_patterns=codebase_exclude_patterns,
+        codebase_max_chunk_size=codebase_max_chunk_size,
+        codebase_include_class_context=codebase_include_class_context,
+        codebase_incremental_indexing=codebase_incremental_indexing,
+        codebase_index_cache_ttl_seconds=codebase_index_cache_ttl_seconds,
     )
 
 

@@ -4,7 +4,7 @@ Story 13-4: Implement crawl configuration profiles.
 """
 
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch
 
 from agentic_rag_backend.indexing.crawl_profiles import (
     CrawlProfile,

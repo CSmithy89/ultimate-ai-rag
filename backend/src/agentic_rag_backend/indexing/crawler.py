@@ -13,13 +13,12 @@ Story 13.3: Migrated from custom httpx crawler to Crawl4AI library.
 Story 13.4: Added crawl configuration profiles for different scenarios.
 """
 
-import asyncio
 import hashlib
 import ipaddress
 import os
 import re
 from datetime import datetime, timezone
-from typing import AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Optional
 from urllib.parse import urljoin, urlparse
 
 import structlog
@@ -31,7 +30,6 @@ from agentic_rag_backend.indexing.crawl_profiles import (
     CrawlProfile,
     get_crawl_profile,
     get_profile_for_url,
-    apply_proxy_override,
 )
 
 # Crawl4AI imports
@@ -42,12 +40,12 @@ try:
     CRAWL4AI_AVAILABLE = True
 except ImportError:
     CRAWL4AI_AVAILABLE = False
-    AsyncWebCrawler = None  # type: ignore
-    BrowserConfig = None  # type: ignore
-    CrawlerRunConfig = None  # type: ignore
-    CacheMode = None  # type: ignore
-    MemoryAdaptiveDispatcher = None  # type: ignore
-    SemaphoreDispatcher = None  # type: ignore
+    AsyncWebCrawler = Any
+    BrowserConfig = Any
+    CrawlerRunConfig = Any
+    CacheMode = Any
+    MemoryAdaptiveDispatcher = Any
+    SemaphoreDispatcher = Any
 
 
 logger = structlog.get_logger(__name__)
@@ -339,6 +337,7 @@ class CrawlerService:
             )
 
         # If a profile is provided, use its settings
+        self.profile_name: Optional[str]
         if profile is not None:
             self.headless = profile.headless
             self.max_concurrent = profile.max_concurrent
@@ -395,7 +394,7 @@ class CrawlerService:
 
     def _create_browser_config(self) -> "BrowserConfig":
         """Create BrowserConfig for Crawl4AI."""
-        config_kwargs = {
+        config_kwargs: dict[str, object] = {
             "headless": self.headless,
             "verbose": False,
         }

@@ -4,8 +4,7 @@ Story 13.3: Updated tests for Crawl4AI migration.
 Tests helper functions and CrawlerService with Crawl4AI backend.
 """
 
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -20,7 +19,6 @@ from agentic_rag_backend.indexing.crawler import (
     normalize_url,
     CRAWL4AI_AVAILABLE,
 )
-from agentic_rag_backend.models.documents import CrawledPage
 from agentic_rag_backend.models.ingest import CrawlOptions
 from agentic_rag_backend.core.errors import InvalidUrlError
 
