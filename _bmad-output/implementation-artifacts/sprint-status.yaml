@@ -282,45 +282,18 @@ development_status:
   epic-18-retrospective: optional
 
   # ==========================================
-  # Epic 19: Advanced Retrieval Intelligence
-  # ORIGIN: Party Mode Competitive Analysis + Epic 12 Retro Carry-Forward (2026-01-04)
-  # COMPETITORS: Mem0, Zep, MS GraphRAG, LightRAG, Cognee, RAGFlow
+  # Epic 19: Quality Foundation & Tech Debt Resolution
+  # ORIGIN: Epic 12, 13, 14 Retrospective Carry-Forward + Quality Gates
+  # SPLIT: 2026-01-05 - Competitive features moved to Epic 20
   # See: epic-19-tech-spec.md
   # ==========================================
   epic-19: backlog
 
-  # --- Group A: Memory Platform (Compete with Mem0) ---
-  19-A1-implement-memory-scopes: backlog
-  # Config: MEMORY_SCOPES_ENABLED, MEMORY_DEFAULT_SCOPE (user|session|agent)
-  19-A2-implement-memory-consolidation: backlog
-
-  # --- Group B: Graph Intelligence (Compete with MS GraphRAG) ---
-  19-B1-implement-community-detection: backlog
-  # Config: COMMUNITY_DETECTION_ENABLED, COMMUNITY_ALGORITHM (louvain|leiden)
-  19-B2-implement-lazyrag-pattern: backlog
-  # Defer summarization to query time for 99% indexing cost reduction
-  19-B3-implement-global-local-query-routing: backlog
-
-  # --- Group C: Retrieval Excellence (Differentiation) ---
-  19-C1-implement-graph-based-rerankers: backlog
-  # Zep-style: episode-mentions, node-distance, hybrid
-  19-C2-implement-dual-level-retrieval: backlog
-  # LightRAG-style: low-level (entities) + high-level (themes)
-  19-C3-implement-parent-child-chunk-hierarchy: backlog
-  # Small-to-big retrieval pattern
+  # --- Group C (Partial): Quality Observability ---
   19-C4-implement-retrieval-quality-benchmarks: backlog
   # MRR@K, NDCG@K, Precision@K, Recall@K
   19-C5-implement-prometheus-retrieval-metrics: backlog
   # Grafana dashboards + alerts
-
-  # --- Group D: Document Intelligence (RAGFlow Approach) ---
-  19-D1-enhance-table-layout-extraction: backlog
-  19-D2-implement-multimodal-ingestion: backlog
-  # Images, Office docs, formulas
-
-  # --- Group E: Advanced Features (Cognee-Inspired) ---
-  19-E1-implement-ontology-support: backlog
-  19-E2-implement-self-improving-feedback-loop: backlog
 
   # --- Group F: Epic 12 Code Review Carry-Forward ---
   # PRIORITY: HIGH
@@ -338,16 +311,6 @@ development_status:
   19-G2-make-context-generation-prompt-configurable: backlog
   19-G3-add-crossencoder-model-preloading: backlog
   19-G4-support-custom-normalization-strategies: backlog
-
-  # --- Group H: Additional Competitive Features ---
-  # Origin: Qdrant, RAGFlow competitive analysis
-  19-H1-implement-sparse-vector-search-bm42: backlog
-  19-H2-implement-cross-language-query: backlog
-  19-H3-implement-external-data-source-sync: backlog
-  # Confluence, S3, Notion, Google Drive, Discord
-  19-H4-implement-voice-io: backlog
-  19-H5-implement-colbert-reranking: backlog
-  19-H6-implement-visual-workflow-editor: backlog
 
   # --- Group I: Epic 13 Code Review Carry-Forward ---
   # Origin: gemini-code-assist and coderabbitai reviews (2026-01-04)
@@ -391,3 +354,54 @@ development_status:
   # Dedicated PDF parsing with Docling instead of generic text ingestion flow
 
   epic-19-retrospective: optional
+
+  # ==========================================
+  # Epic 20: Advanced Retrieval Intelligence
+  # ORIGIN: Party Mode Competitive Analysis (2026-01-04)
+  # SPLIT: 2026-01-05 - Competitive features from original Epic 19
+  # COMPETITORS: Mem0, Zep, MS GraphRAG, LightRAG, Cognee, RAGFlow
+  # DEPENDS ON: Epic 19 (Quality Foundation must complete first)
+  # See: epic-20-tech-spec.md
+  # ==========================================
+  epic-20: backlog
+
+  # --- Group A: Memory Platform (Compete with Mem0) ---
+  20-A1-implement-memory-scopes: backlog
+  # Config: MEMORY_SCOPES_ENABLED, MEMORY_DEFAULT_SCOPE (user|session|agent)
+  20-A2-implement-memory-consolidation: backlog
+
+  # --- Group B: Graph Intelligence (Compete with MS GraphRAG) ---
+  20-B1-implement-community-detection: backlog
+  # Config: COMMUNITY_DETECTION_ENABLED, COMMUNITY_ALGORITHM (louvain|leiden)
+  20-B2-implement-lazyrag-pattern: backlog
+  # Defer summarization to query time for 99% indexing cost reduction
+  20-B3-implement-global-local-query-routing: backlog
+
+  # --- Group C (Partial): Retrieval Excellence Features ---
+  20-C1-implement-graph-based-rerankers: backlog
+  # Zep-style: episode-mentions, node-distance, hybrid
+  20-C2-implement-dual-level-retrieval: backlog
+  # LightRAG-style: low-level (entities) + high-level (themes)
+  20-C3-implement-parent-child-chunk-hierarchy: backlog
+  # Small-to-big retrieval pattern
+
+  # --- Group D: Document Intelligence (RAGFlow Approach) ---
+  20-D1-enhance-table-layout-extraction: backlog
+  20-D2-implement-multimodal-ingestion: backlog
+  # Images, Office docs, formulas
+
+  # --- Group E: Advanced Features (Cognee-Inspired) ---
+  20-E1-implement-ontology-support: backlog
+  20-E2-implement-self-improving-feedback-loop: backlog
+
+  # --- Group H: Additional Competitive Features ---
+  # Origin: Qdrant, RAGFlow competitive analysis
+  20-H1-implement-sparse-vector-search-bm42: backlog
+  20-H2-implement-cross-language-query: backlog
+  20-H3-implement-external-data-source-sync: backlog
+  # Confluence, S3, Notion, Google Drive, Discord
+  20-H4-implement-voice-io: backlog
+  20-H5-implement-colbert-reranking: backlog
+  20-H6-implement-visual-workflow-editor: backlog
+
+  epic-20-retrospective: optional
