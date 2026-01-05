@@ -287,7 +287,7 @@ development_status:
   # SPLIT: 2026-01-05 - Competitive features moved to Epic 20
   # See: epic-19-tech-spec.md
   # ==========================================
-  epic-19: contexted
+  epic-19: done
 
   # --- Group C (Partial): Quality Observability ---
   19-C4-implement-retrieval-quality-benchmarks: done
@@ -307,38 +307,38 @@ development_status:
   19-F5-add-contextual-retrieval-cost-logging: done
 
   # --- Group G: Epic 12 Retro Future Enhancements ---
-  19-G1-add-reranking-result-caching: backlog
-  19-G2-make-context-generation-prompt-configurable: backlog
-  19-G3-add-crossencoder-model-preloading: backlog
-  19-G4-support-custom-normalization-strategies: backlog
+  19-G1-add-reranking-result-caching: done
+  19-G2-make-context-generation-prompt-configurable: done
+  19-G3-add-crossencoder-model-preloading: done
+  19-G4-support-custom-normalization-strategies: done
 
   # --- Group I: Epic 13 Code Review Carry-Forward ---
   # Origin: gemini-code-assist and coderabbitai reviews (2026-01-04)
   # PRIORITY: MEDIUM
-  19-I1-externalize-crawl-profile-domain-matching: backlog
+  19-I1-externalize-crawl-profile-domain-matching: done
   # Move _EXACT_DOMAIN_PROFILES etc. to JSON/YAML config for easier updates
-  19-I2-add-dynamic-user-agent-rotation: backlog
+  19-I2-add-dynamic-user-agent-rotation: done
   # Replace hardcoded Chrome 131 with fake-useragent or configurable list
-  19-I3-add-crawler-legacy-alias-deprecation-warnings: backlog
+  19-I3-add-crawler-legacy-alias-deprecation-warnings: done
   # extract_links/extract_title aliases should warn and document migration
   # PRIORITY: LOW
-  19-I4-add-profile-magic-number-documentation: backlog
+  19-I4-add-profile-magic-number-documentation: done
   # Document rationale for rate_limit=5.0, max_concurrent=10, etc.
-  19-I5-optimize-beautifulsoup-async-parsing: backlog
+  19-I5-optimize-beautifulsoup-async-parsing: done
   # Consider async HTML parsing for large documents
-  19-I6-add-visited-set-bloom-filter: backlog
+  19-I6-add-visited-set-bloom-filter: done
   # For crawls >10k pages, use bloom filter instead of set()
-  19-I7-implement-config-validation-fail-fast: backlog
+  19-I7-implement-config-validation-fail-fast: done
   # Consider ValueError instead of warning for invalid profiles in prod
-  19-I8-implement-crawl-many-error-recovery: backlog
+  19-I8-implement-crawl-many-error-recovery: done
   # Return partial results on failure, add URL context to error logs
-  19-I9-implement-rate-limiting-enforcement: backlog
+  19-I9-implement-rate-limiting-enforcement: done
   # Currently advisory-only, add actual rate limiting (not just js_wait)
-  19-I10-add-fallback-provider-key-validation: backlog
+  19-I10-add-fallback-provider-key-validation: done
   # Validate APIFY/BRIGHTDATA keys when crawl_fallback_enabled=true
-  19-I11-document-large-crawl-memory-implications: backlog
+  19-I11-document-large-crawl-memory-implications: done
   # Document memory usage for >100 page crawls, recommend streaming
-  19-I12-add-profile-auto-detection-examples: backlog
+  19-I12-add-profile-auto-detection-examples: done
   # Add usage examples to get_profile_for_url() docstring
 
   # --- Group J: Epic 14 Retro Carry-Forward ---
@@ -350,7 +350,7 @@ development_status:
   19-J2-add-endpoint-spec-compliance-tests: done
   # Validate endpoint paths and capabilities match story specs
   # PRIORITY: LOW
-  19-J3-implement-dedicated-pdf-parsing-tool: backlog
+  19-J3-implement-dedicated-pdf-parsing-tool: done
   # Dedicated PDF parsing with Docling instead of generic text ingestion flow
 
   epic-19-retrospective: optional

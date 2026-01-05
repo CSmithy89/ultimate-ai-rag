@@ -234,20 +234,30 @@ async def example() -> None:
   - New endpoints: `/api/v1/codebase/validate-response`, `/api/v1/codebase/index`, `/api/v1/codebase/search`
   - Configurable CODEBASE_* settings for detection and indexing
 
+### Epic 19: Quality Foundation & Tech Debt Resolution
+- Status: Complete
+- Stories: 13/13 completed
+- Key Features:
+  - Externalized crawl profile mappings with YAML config and tuning guides
+  - Configurable user-agent rotation strategies for crawling
+  - Deprecated crawler aliases with migration guidance
+  - Async HTML parsing for large documents and crawl-many error recovery
+  - Bloom filter visited sets and enforced crawl rate limiting
+  - Strict crawl config and fallback credential validation
+  - Docling-based MCP PDF ingestion with page-level chunking
+  - New crawler operational guides (profiles, memory, parsing)
+
 ## Roadmap
 
 ### Upcoming Epics
 
 | Epic | Focus | Status |
 |------|-------|--------|
-| **Epic 14** | MCP Wrapper Architecture | Backlog |
-| **Epic 15** | Codebase Intelligence | Complete |
-| **Epic 16** | Framework Agnosticism | Backlog |
-| **Epic 17** | CLI & Deployment | Backlog |
-| **Epic 18** | Enhanced Documentation | Backlog |
-| **Epic 19** | Advanced Retrieval Intelligence | Backlog |
+| **Epic 17** | Developer Experience, CLI & Framework Integration | Backlog |
+| **Epic 18** | Enhanced Documentation & DevOps | Backlog |
+| **Epic 20** | Advanced Retrieval Intelligence | Backlog |
 
-Epic 19 includes competitive features from analysis of Mem0, Zep, GraphRAG, LightRAG, Cognee, and RAGFlow:
+Epic 20 includes competitive features from analysis of Mem0, Zep, GraphRAG, LightRAG, Cognee, and RAGFlow:
 - Memory scopes (user/session/agent)
 - Community detection for graph intelligence
 - Dual-level retrieval (low/high)

@@ -251,7 +251,7 @@ class TestCrawlerService:
                 html="<html><head><title>Test</title></head><body><p>Content</p></body></html>",
             )
 
-            page = crawler._convert_result_to_crawled_page(result, depth=0)
+            page = await crawler._convert_result_to_crawled_page(result, depth=0)
 
             assert page is not None
             assert page.url == "https://example.com/page"
@@ -271,7 +271,7 @@ class TestCrawlerService:
                 error_message="Connection failed",
             )
 
-            page = crawler._convert_result_to_crawled_page(result, depth=0)
+            page = await crawler._convert_result_to_crawled_page(result, depth=0)
             assert page is None
 
 

@@ -3,7 +3,7 @@ name = "agentic-rag-backend"
 version = "0.1.0"
 description = "Backend API for the Agentic RAG + GraphRAG system."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
   "agno==2.3.21",
   "fastapi==0.111.0",
@@ -39,6 +39,7 @@ dependencies = [
   # Epic 11 - HTML parsing for markdown conversion
   "beautifulsoup4>=4.14.3",
   "markdownify>=1.2.2",
+  "pyyaml>=6.0",
   # Epic 12 - Advanced Retrieval (Reranking)
   "cohere>=5.0",
   "FlashRank>=0.2.0",
@@ -48,10 +49,10 @@ dependencies = [
   # Epic 13 - Enterprise Ingestion (YouTube Transcripts)
   "youtube-transcript-api>=0.6.0",
   # Epic 15 - Codebase Intelligence (Hallucination Detection)
-  "tree-sitter>=0.25.2,<0.26.0",
-  "tree-sitter-python>=0.25.2,<0.26.0",
-  "tree-sitter-javascript>=0.25.2,<0.26.0",
-  "tree-sitter-typescript>=0.25.2,<0.26.0",
+  "tree-sitter>=0.25.0,<0.26.0",
+  "tree-sitter-python>=0.25.0,<0.26.0",
+  "tree-sitter-javascript>=0.25.0,<0.26.0",
+  "tree-sitter-typescript>=0.23.2,<0.26.0",
   "gitignore-parser>=0.1.11",
   # Story 19-C5 - Prometheus Observability
   "prometheus-client>=0.20.0",

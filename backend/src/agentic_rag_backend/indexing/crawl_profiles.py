@@ -9,11 +9,14 @@ Provides pre-defined profiles for common crawling scenarios:
 """
 
 from dataclasses import dataclass, replace
+import os
+from pathlib import Path
 from enum import Enum
 from typing import Optional
 from urllib.parse import urlparse
 
 import structlog
+import yaml
 
 
 logger = structlog.get_logger(__name__)
@@ -71,10 +74,10 @@ CRAWL_PROFILES: dict[str, CrawlProfile] = {
         description="High-speed crawling for static documentation sites",
         headless=True,
         stealth=False,
-        max_concurrent=10,
-        rate_limit=5.0,
+        max_concurrent=10,  # Balanced default: parallelism without overloading typical docs sites.
+        rate_limit=5.0,  # Keeps per-host request rate below common 10 rps limits.
         wait_for=None,
-        wait_timeout=5.0,
+        wait_timeout=5.0,  # Short wait for static content; avoids unnecessary delay.
         proxy_config=None,
         cache_enabled=True,
     ),
@@ -83,10 +86,10 @@ CRAWL_PROFILES: dict[str, CrawlProfile] = {
         description="For SPAs with dynamic content, waits for JavaScript rendering",
         headless=True,
         stealth=False,
-        max_concurrent=5,
-        rate_limit=2.0,
+        max_concurrent=5,  # Lower concurrency to reduce load on JS-heavy pages.
+        rate_limit=2.0,  # Slower rate for dynamic content and stability.
         wait_for="css:body",
-        wait_timeout=15.0,
+        wait_timeout=15.0,  # Longer wait to allow SPA hydration.
         proxy_config=None,
         cache_enabled=True,
     ),
@@ -95,10 +98,10 @@ CRAWL_PROFILES: dict[str, CrawlProfile] = {
         description="For bot-protected sites with anti-detection measures",
         headless=False,  # Non-headless mode is less detectable
         stealth=True,
-        max_concurrent=3,
-        rate_limit=0.5,  # Slower to avoid triggering rate limits
+        max_concurrent=3,  # Conservative concurrency for stealth targets.
+        rate_limit=0.5,  # Slow rate to reduce detection risk.
         wait_for=None,
-        wait_timeout=30.0,
+        wait_timeout=30.0,  # Extra buffer for sites with heavy defenses.
         proxy_config=None,  # Can be overridden via settings
         cache_enabled=False,  # Disable cache to ensure fresh content
     ),
@@ -140,41 +143,91 @@ def get_crawl_profile(name: str) -> CrawlProfile:
     return profile
 
 
+_DEFAULT_DOMAIN_PROFILE_RULES: dict[str, dict[str, str]] = {
+    "exact": {
+        "linkedin.com": "stealth",
+        "facebook.com": "stealth",
+        "twitter.com": "stealth",
+        "x.com": "stealth",
+        "instagram.com": "stealth",
+        "cloudflare.com": "stealth",
+        "indeed.com": "stealth",
+        "glassdoor.com": "stealth",
+        "amazon.com": "stealth",
+        "google.com": "stealth",
+    },
+    "suffix": {
+        ".github.io": "fast",
+    },
+    "prefix": {
+        "docs.": "fast",
+        "documentation.": "fast",
+        "readthedocs.": "fast",
+        "gitbook.": "fast",
+        "docusaurus.": "fast",
+        "wiki.": "fast",
+        "app.": "thorough",
+        "dashboard.": "thorough",
+        "console.": "thorough",
+        "portal.": "thorough",
+    },
+}
+_DOMAIN_RULES_PATH = Path(os.getenv("CRAWL_PROFILE_CONFIG_PATH", "config/crawl-profiles.yaml"))
+
+
+def _load_domain_profile_rules() -> dict[str, dict[str, str]]:
+    path = _DOMAIN_RULES_PATH
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("domain rules must be a YAML mapping")
+
+        valid_profiles = {profile.value for profile in CrawlProfileName}
+
+        def _clean_rules(value: object, rule_type: str) -> dict[str, str]:
+            if not isinstance(value, dict):
+                raise ValueError(f"{rule_type} rules must be a YAML mapping")
+            cleaned: dict[str, str] = {}
+            for pattern, profile in value.items():
+                if not isinstance(pattern, str) or not isinstance(profile, str):
+                    logger.warning(
+                        "crawl_profile_rules_invalid_entry",
+                        rule_type=rule_type,
+                        pattern=pattern,
+                        profile=profile,
+                    )
+                    continue
+                profile_name = profile.strip().lower()
+                if profile_name not in valid_profiles:
+                    logger.warning(
+                        "crawl_profile_rules_invalid_profile",
+                        rule_type=rule_type,
+                        pattern=pattern,
+                        profile=profile,
+                    )
+                    continue
+                cleaned[pattern.strip().lower()] = profile_name
+            return cleaned
+
+        exact_rules = _clean_rules(raw.get("exact", {}), "exact")
+        suffix_rules = _clean_rules(raw.get("suffix", {}), "suffix")
+        prefix_rules = _clean_rules(raw.get("prefix", {}), "prefix")
+        return {"exact": exact_rules, "suffix": suffix_rules, "prefix": prefix_rules}
+    except Exception as exc:
+        logger.warning(
+            "crawl_profile_rules_load_failed",
+            path=str(path),
+            error=str(exc),
+        )
+        return _DEFAULT_DOMAIN_PROFILE_RULES
+
+
 # Domain heuristics for auto-detection
 # Organized by match priority: exact domains > suffixes > prefixes
-
-# Exact domain matches (highest priority) - checked first
-_EXACT_DOMAIN_PROFILES: dict[str, str] = {
-    "linkedin.com": "stealth",
-    "facebook.com": "stealth",
-    "twitter.com": "stealth",
-    "x.com": "stealth",
-    "instagram.com": "stealth",
-    "cloudflare.com": "stealth",
-    "indeed.com": "stealth",
-    "glassdoor.com": "stealth",
-    "amazon.com": "stealth",
-    "google.com": "stealth",
-}
-
-# Domain suffix matches (e.g., ".github.io")
-_SUFFIX_DOMAIN_PROFILES: dict[str, str] = {
-    ".github.io": "fast",
-}
-
-# Subdomain prefix matches (lowest priority, e.g., "docs.")
-_PREFIX_DOMAIN_PROFILES: dict[str, str] = {
-    "docs.": "fast",
-    "documentation.": "fast",
-    "readthedocs.": "fast",
-    "gitbook.": "fast",
-    "docusaurus.": "fast",
-    "wiki.": "fast",
-    "app.": "thorough",
-    "dashboard.": "thorough",
-    "console.": "thorough",
-    "portal.": "thorough",
-}
+_DOMAIN_RULES = _load_domain_profile_rules()
+_EXACT_DOMAIN_PROFILES = _DOMAIN_RULES.get("exact", {})
+_SUFFIX_DOMAIN_PROFILES = _DOMAIN_RULES.get("suffix", {})
+_PREFIX_DOMAIN_PROFILES = _DOMAIN_RULES.get("prefix", {})
 
 
 def get_profile_for_url(url: str) -> str:
@@ -202,6 +255,10 @@ def get_profile_for_url(url: str) -> str:
         'thorough'
         >>> get_profile_for_url("https://linkedin.com/jobs")
         'stealth'
+        >>> get_profile_for_url("https://example.github.io/docs")
+        'fast'
+        >>> get_profile_for_url("https://example.com")
+        'thorough'
         >>> get_profile_for_url("https://docs.google.com")  # google.com takes priority
         'stealth'
     """

@@ -13,11 +13,18 @@ Story 13.3: Migrated from custom httpx crawler to Crawl4AI library.
 Story 13.4: Added crawl configuration profiles for different scenarios.
 """
 
+import asyncio
 import hashlib
 import ipaddress
+import itertools
 import os
+import random
 import re
+import threading
+import warnings
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 from urllib.parse import urljoin, urlparse
 
@@ -31,6 +38,7 @@ from agentic_rag_backend.indexing.crawl_profiles import (
     get_crawl_profile,
     get_profile_for_url,
 )
+from agentic_rag_backend.indexing.bloom_filter import BloomFilter
 
 # Crawl4AI imports
 try:
@@ -57,9 +65,116 @@ DEFAULT_TIMEOUT = 60000  # milliseconds (Crawl4AI uses ms)
 DEFAULT_USER_AGENT = (
     "AgenticRAG-Crawler/1.0 (+https://github.com/example/agentic-rag)"
 )
+DEFAULT_USER_AGENT_LIST_PATH = "config/user-agents.txt"
+DEFAULT_USER_AGENT_STRATEGY = "rotate"
 DEFAULT_MAX_CONCURRENT = 10  # Maximum concurrent crawl sessions
 DEFAULT_JS_WAIT_SECONDS = 2.0  # Wait for JavaScript to render
 DEFAULT_MAX_PAGES = 1000  # Maximum pages to crawl in a single session
+ASYNC_HTML_PARSE_THRESHOLD_BYTES = 1_000_000
+
+
+_USER_AGENT_POOL: Optional[list[str]] = None
+_USER_AGENT_CYCLE: Optional[itertools.cycle] = None
+_USER_AGENT_LOCK = threading.Lock()
+
+
+def _get_user_agent_strategy() -> str:
+    strategy = os.getenv("CRAWLER_USER_AGENT_STRATEGY", DEFAULT_USER_AGENT_STRATEGY).strip().lower()
+    if strategy not in {"rotate", "random", "static"}:
+        logger.warning(
+            "user_agent_strategy_invalid",
+            strategy=strategy,
+            fallback=DEFAULT_USER_AGENT_STRATEGY,
+        )
+        strategy = DEFAULT_USER_AGENT_STRATEGY
+    return strategy
+
+
+def _load_user_agent_pool() -> list[str]:
+    global _USER_AGENT_POOL, _USER_AGENT_CYCLE
+    if _USER_AGENT_POOL is not None:
+        return _USER_AGENT_POOL
+
+    with _USER_AGENT_LOCK:
+        if _USER_AGENT_POOL is not None:
+            return _USER_AGENT_POOL
+
+        list_path = Path(
+            os.getenv("CRAWLER_USER_AGENT_LIST_PATH", DEFAULT_USER_AGENT_LIST_PATH)
+        )
+        pool: list[str] = []
+        try:
+            if list_path.exists():
+                for line in list_path.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    pool.append(line)
+        except Exception as exc:
+            logger.warning(
+                "user_agent_list_load_failed",
+                path=str(list_path),
+                error=str(exc),
+            )
+
+        if len(pool) < 10:
+            logger.warning(
+                "user_agent_list_too_small",
+                path=str(list_path),
+                count=len(pool),
+                minimum=10,
+            )
+
+        if not pool:
+            pool = [DEFAULT_USER_AGENT]
+
+        _USER_AGENT_POOL = pool
+        _USER_AGENT_CYCLE = itertools.cycle(pool)
+        return pool
+
+
+def _select_user_agent() -> tuple[str, str, str]:
+    strategy = _get_user_agent_strategy()
+
+    pool = _load_user_agent_pool()
+    use_fake = os.getenv("CRAWLER_USER_AGENT_USE_FAKE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if strategy == "static":
+        static_ua = os.getenv("CRAWL4AI_USER_AGENT")
+        if static_ua:
+            return static_ua, strategy, "static-env"
+        return pool[0], strategy, "static-pool"
+
+    if strategy == "random":
+        if use_fake:
+            try:
+                from fake_useragent import UserAgent
+
+                return UserAgent().random, strategy, "fake-useragent"
+            except Exception as exc:
+                logger.warning(
+                    "user_agent_fake_failed",
+                    error=str(exc),
+                )
+        return random.choice(pool), strategy, "random-pool"
+
+    if _USER_AGENT_CYCLE is None:
+        _load_user_agent_pool()
+    if _USER_AGENT_CYCLE is None:
+        logger.warning(
+            "user_agent_cycle_unavailable",
+            fallback="static-pool",
+        )
+        return pool[0], strategy, "static-pool"
+    return next(_USER_AGENT_CYCLE), strategy, "rotate-pool"
+
+
+def _should_rotate_user_agent() -> bool:
+    return _get_user_agent_strategy() in {"rotate", "random"}
 
 
 def sanitize_proxy_url(proxy_url: Optional[str]) -> Optional[str]:
@@ -287,6 +402,16 @@ def extract_title_from_html(html: str) -> Optional[str]:
     return None
 
 
+def get_links(html: str, base_url: str) -> list[str]:
+    """Canonical link extraction helper (HTML)."""
+    return extract_links_from_html(html, base_url)
+
+
+def get_title(html: str) -> Optional[str]:
+    """Canonical title extraction helper (HTML)."""
+    return extract_title_from_html(html)
+
+
 class CrawlerService:
     """
     Crawl4AI-powered web crawler service.
@@ -374,6 +499,7 @@ class CrawlerService:
             self.profile_name = None
 
         self.page_timeout_ms = page_timeout_ms
+        self.user_agent: Optional[str] = None
 
         # Validate and auto-clamp timeout configuration
         # wait_timeout must be less than page_timeout to avoid guaranteed failures
@@ -392,7 +518,11 @@ class CrawlerService:
         self._crawler: Optional[AsyncWebCrawler] = None
         self._browser_config: Optional[BrowserConfig] = None
 
-    def _create_browser_config(self) -> "BrowserConfig":
+    def _create_browser_config(
+        self,
+        user_agent_override: Optional[str] = None,
+        log_selection: bool = True,
+    ) -> "BrowserConfig":
         """Create BrowserConfig for Crawl4AI."""
         config_kwargs: dict[str, object] = {
             "headless": self.headless,
@@ -406,15 +536,26 @@ class CrawlerService:
         # Add stealth mode configuration if enabled
         # Stealth mode helps bypass bot detection
         if self.stealth:
-            # Use current Chrome user agent to appear more like a real browser
-            # Chrome 130+ is recommended to avoid bot detection flags
-            user_agent = os.getenv(
-                "CRAWL4AI_USER_AGENT",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-            )
+            if user_agent_override:
+                user_agent = user_agent_override
+                strategy = "override"
+                source = "override"
+            else:
+                user_agent, strategy, source = _select_user_agent()
             config_kwargs["user_agent"] = user_agent
-            logger.debug("stealth_mode_enabled", headless=self.headless, user_agent=user_agent[:50])
+            self.user_agent = user_agent
+            log_fn = logger.info if log_selection else logger.debug
+            log_fn(
+                "crawler_user_agent_selected",
+                strategy=strategy,
+                source=source,
+                user_agent=user_agent[:80],
+            )
+            logger.debug(
+                "stealth_mode_enabled",
+                headless=self.headless,
+                user_agent=user_agent[:50],
+            )
 
         return BrowserConfig(**config_kwargs)
 
@@ -463,6 +604,22 @@ class CrawlerService:
 
         return CrawlerRunConfig(**config_kwargs)
 
+    @asynccontextmanager
+    async def _temporary_crawler(
+        self,
+        user_agent: str,
+    ) -> AsyncGenerator["AsyncWebCrawler", None]:
+        browser_config = self._create_browser_config(
+            user_agent_override=user_agent,
+            log_selection=False,
+        )
+        crawler = AsyncWebCrawler(config=browser_config)
+        await crawler.__aenter__()
+        try:
+            yield crawler
+        finally:
+            await crawler.__aexit__(None, None, None)
+
     async def __aenter__(self) -> "CrawlerService":
         """Async context manager entry - initialize browser."""
         self._browser_config = self._create_browser_config()
@@ -500,7 +657,30 @@ class CrawlerService:
                 self._crawler = None
         logger.info("crawler_shutdown", profile=self.profile_name)
 
-    def _convert_result_to_crawled_page(
+    async def _extract_title_from_html(
+        self,
+        html: str,
+        use_async: bool,
+    ) -> Optional[str]:
+        if not html:
+            return None
+        if use_async:
+            return await asyncio.to_thread(extract_title_from_html, html)
+        return extract_title_from_html(html)
+
+    async def _extract_links_from_html(
+        self,
+        html: str,
+        base_url: str,
+        use_async: bool,
+    ) -> list[str]:
+        if not html:
+            return []
+        if use_async:
+            return await asyncio.to_thread(extract_links_from_html, html, base_url)
+        return extract_links_from_html(html, base_url)
+
+    async def _convert_result_to_crawled_page(
         self,
         result,
         depth: int = 0,
@@ -556,15 +736,30 @@ class CrawlerService:
                 logger.warning("no_content_extracted", url=result.url)
                 return None
 
+        html_content = result.html if hasattr(result, 'html') and result.html else ""
+        html_bytes = len(html_content.encode("utf-8")) if html_content else 0
+        use_async_parse = html_bytes >= ASYNC_HTML_PARSE_THRESHOLD_BYTES
+        if use_async_parse:
+            logger.info(
+                "async_html_parse_enabled",
+                url=result.url,
+                size_bytes=html_bytes,
+                threshold_bytes=ASYNC_HTML_PARSE_THRESHOLD_BYTES,
+            )
+
         # Extract title from markdown or HTML
         title = extract_title_from_markdown(markdown_content)
-        if not title and hasattr(result, 'html') and result.html:
-            title = extract_title_from_html(result.html)
+        if not title and html_content:
+            title = await self._extract_title_from_html(html_content, use_async_parse)
 
         # Extract links from HTML if available, otherwise from markdown
-        links = []
-        if hasattr(result, 'html') and result.html:
-            links = extract_links_from_html(result.html, result.url)
+        links: list[str] = []
+        if html_content:
+            links = await self._extract_links_from_html(
+                html_content,
+                result.url,
+                use_async_parse,
+            )
         else:
             links = extract_links_from_markdown(markdown_content, result.url)
 
@@ -603,8 +798,24 @@ class CrawlerService:
 
         try:
             config = self._create_crawler_config(wait_for_js=True)
-            result = await self._crawler.arun(url=url, config=config)
-            return self._convert_result_to_crawled_page(result, depth=0)
+            user_agent_override = None
+            if self.stealth and _should_rotate_user_agent():
+                user_agent_override, _, _ = _select_user_agent()
+            logger.debug(
+                "crawl_page_started",
+                url=url,
+                user_agent=(
+                    user_agent_override[:80]
+                    if user_agent_override
+                    else (self.user_agent[:80] if self.user_agent else None)
+                ),
+            )
+            if user_agent_override:
+                async with self._temporary_crawler(user_agent_override) as crawler:
+                    result = await crawler.arun(url=url, config=config)
+            else:
+                result = await self._crawler.arun(url=url, config=config)
+            return await self._convert_result_to_crawled_page(result, depth=0)
 
         except Exception as e:
             logger.error("crawl_page_error", url=url, error=str(e))
@@ -615,6 +826,8 @@ class CrawlerService:
         urls: list[str],
         stream: bool = False,
         max_pages: int = DEFAULT_MAX_PAGES,
+        on_error: str = "fail_fast",
+        rate_limit: Optional[float] = None,
         tenant_id: Optional[str] = None,
     ) -> AsyncGenerator[CrawledPage, None]:
         """
@@ -627,6 +840,8 @@ class CrawlerService:
             urls: List of URLs to crawl
             stream: If True, yield results as they complete. If False, wait for all.
             max_pages: Maximum number of pages to crawl (memory safeguard)
+            on_error: "fail_fast" to raise on first failure, "continue" to skip failures
+            rate_limit: Requests per second when rate limiting is enforced
             tenant_id: Optional tenant ID for multi-tenancy tracking
 
         Yields:
@@ -645,6 +860,17 @@ class CrawlerService:
 
         if not valid_urls:
             return
+
+        if on_error not in {"fail_fast", "continue"}:
+            logger.warning(
+                "crawl_many_invalid_on_error",
+                on_error=on_error,
+                fallback="fail_fast",
+            )
+            on_error = "fail_fast"
+
+        success_count = 0
+        failed: list[tuple[str, str]] = []
 
         # Enforce max_pages limit to prevent unbounded memory usage
         if len(valid_urls) > max_pages:
@@ -689,36 +915,103 @@ class CrawlerService:
             url_count=len(valid_urls),
             max_concurrent=self.max_concurrent,
             stream=stream,
+            user_agent=(self.user_agent[:80] if self.user_agent else None),
+            rate_limit=rate_limit,
         )
 
         try:
-            if stream:
-                # Streaming mode - yield results as they complete
-                async for result in await self._crawler.arun_many(
-                    urls=valid_urls,
-                    config=config,
-                    dispatcher=dispatcher,
-                ):
-                    page = self._convert_result_to_crawled_page(result, depth=0, tenant_id=tenant_id)
-                    if page:
-                        yield page
-            else:
-                # Batch mode - wait for all results
-                results = await self._crawler.arun_many(
-                    urls=valid_urls,
-                    config=config,
-                    dispatcher=dispatcher,
+            batch_size = len(valid_urls)
+            batch_delay = 0.0
+            if rate_limit is not None and rate_limit > 0:
+                batch_size = max(1, int(rate_limit))
+                batch_delay = batch_size / rate_limit
+                logger.info(
+                    "crawl_many_rate_limit_enabled",
+                    rate_limit=rate_limit,
+                    batch_size=batch_size,
+                    batch_delay_seconds=batch_delay,
                 )
-                for result in results:
-                    page = self._convert_result_to_crawled_page(result, depth=0, tenant_id=tenant_id)
+
+            async def _iter_results(results_iterable: Any) -> AsyncGenerator[Any, None]:
+                if hasattr(results_iterable, "__aiter__"):
+                    async for item in results_iterable:
+                        yield item
+                else:
+                    for item in results_iterable:
+                        yield item
+
+            async def _iter_crawl_results(batch_urls: list[str]) -> AsyncGenerator[Any, None]:
+                if self.stealth and _should_rotate_user_agent():
+                    user_agent, _, _ = _select_user_agent()
+                    async with self._temporary_crawler(user_agent) as crawler:
+                        results = await crawler.arun_many(
+                            urls=batch_urls,
+                            config=config,
+                            dispatcher=dispatcher,
+                        )
+                        async for result in _iter_results(results):
+                            yield result
+                else:
+                    results = await self._crawler.arun_many(
+                        urls=batch_urls,
+                        config=config,
+                        dispatcher=dispatcher,
+                    )
+                    async for result in _iter_results(results):
+                        yield result
+
+            async def _process_results(results_iterable: Any) -> AsyncGenerator[CrawledPage, None]:
+                nonlocal success_count
+                async for result in _iter_results(results_iterable):
+                    if not result.success:
+                        error_message = result.error_message or "crawl_failed"
+                        failed.append((result.url, error_message))
+                        logger.warning(
+                            "crawl_many_item_failed",
+                            url=result.url,
+                            error=error_message,
+                        )
+                        if on_error == "fail_fast":
+                            raise RuntimeError(
+                                f"crawl_many failed for {result.url}: {error_message}"
+                            )
+                        continue
+                    page = await self._convert_result_to_crawled_page(
+                        result,
+                        depth=0,
+                        tenant_id=tenant_id,
+                    )
                     if page:
+                        success_count += 1
                         yield page
+                    else:
+                        failed.append((result.url, "conversion_failed"))
+                        if on_error == "fail_fast":
+                            raise RuntimeError(
+                                f"crawl_many conversion failed for {result.url}"
+                            )
+
+            for batch_index in range(0, len(valid_urls), batch_size):
+                batch_urls = valid_urls[batch_index:batch_index + batch_size]
+                async for page in _process_results(_iter_crawl_results(batch_urls)):
+                    yield page
+
+                if batch_delay > 0 and batch_index + batch_size < len(valid_urls):
+                    await asyncio.sleep(batch_delay)
 
         except Exception as e:
             logger.error("crawl_many_error", error=str(e))
-            raise
+            if on_error == "fail_fast":
+                raise
 
-        logger.info("crawl_many_completed", url_count=len(valid_urls))
+        logger.info(
+            "crawl_many_completed",
+            url_count=len(valid_urls),
+            success_count=success_count,
+            failure_count=len(failed),
+            partial=len(failed) > 0,
+            on_error=on_error,
+        )
 
     async def crawl(
         self,
@@ -754,7 +1047,32 @@ class CrawlerService:
 
         options = options or CrawlOptions()
 
-        visited: set[str] = set()
+        bloom_threshold = int(
+            os.getenv("CRAWLER_BLOOM_FILTER_THRESHOLD", "10000")
+        )
+        bloom_error_rate = float(
+            os.getenv("CRAWLER_BLOOM_FILTER_ERROR_RATE", "0.001")
+        )
+        if max_pages >= bloom_threshold:
+            try:
+                visited: set[str] | BloomFilter = BloomFilter(
+                    capacity=max_pages,
+                    error_rate=bloom_error_rate,
+                )
+                logger.info(
+                    "crawl_bloom_filter_enabled",
+                    threshold=bloom_threshold,
+                    capacity=max_pages,
+                    error_rate=bloom_error_rate,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "crawl_bloom_filter_failed",
+                    error=str(exc),
+                )
+                visited = set()
+        else:
+            visited = set()
         current_level: list[str] = [start_url]
         pages_crawled = 0
 
@@ -807,7 +1125,13 @@ class CrawlerService:
             # Crawl all URLs at this depth in parallel
             next_level: list[str] = []
 
-            async for page in self.crawl_many(urls_to_crawl, stream=True, max_pages=remaining_budget, tenant_id=tenant_id):
+            async for page in self.crawl_many(
+                urls_to_crawl,
+                stream=True,
+                max_pages=remaining_budget,
+                rate_limit=options.rate_limit,
+                tenant_id=tenant_id,
+            ):
                 page.depth = depth
                 pages_crawled += 1
                 yield page
@@ -923,6 +1247,33 @@ async def crawl_url(
             yield page
 
 
-# Legacy compatibility aliases
-extract_links = extract_links_from_html
-extract_title = extract_title_from_html
+def extract_links(html: str, base_url: str) -> list[str]:
+    warnings.warn(
+        "extract_links() is deprecated; use get_links() instead. "
+        "Will be removed in v2.0.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    logger.warning(
+        "crawler_deprecated_alias_used",
+        alias="extract_links",
+        replacement="get_links",
+        removal_version="v2.0",
+    )
+    return get_links(html, base_url)
+
+
+def extract_title(html: str) -> Optional[str]:
+    warnings.warn(
+        "extract_title() is deprecated; use get_title() instead. "
+        "Will be removed in v2.0.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    logger.warning(
+        "crawler_deprecated_alias_used",
+        alias="extract_title",
+        replacement="get_title",
+        removal_version="v2.0",
+    )
+    return get_title(html)

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story 19-I1: Externalize crawl profile domain matching
+  Context file for implementation
+  Generated: 2026-01-03
+-->
+<story-context>
+  <metadata>
+    <story-id>19-I1</story-id>
+    <epic>19 - Quality Foundation &amp; Tech Debt Resolution</epic>
+    <title>Externalize crawl profile domain matching</title>
+    <status>done</status>
+    <priority>Medium</priority>
+  </metadata>
+
+  <module-structure>
+    <files-to-create>
+      <file path="config/crawl-profiles.yaml" purpose="Domain profile rules config" />
+    </files-to-create>
+    <files-to-modify>
+      <file path="backend/src/agentic_rag_backend/indexing/crawl_profiles.py" change="Load domain rules from config" />
+      <file path="backend/tests/test_crawl_profiles.py" change="Keep domain matching tests passing" />
+    </files-to-modify>
+  </module-structure>
+
+  <references>
+    <ref path="_bmad-output/implementation-artifacts/epic-19-tech-spec.md" section="Group I / 19-I1" />
+  </references>
+</story-context>

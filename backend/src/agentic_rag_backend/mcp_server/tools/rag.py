@@ -9,6 +9,7 @@ Story 14-1: Expose RAG Engine via MCP Server
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -27,6 +28,7 @@ from ...retrieval.reranking import (
 from ...retrieval.types import VectorHit
 from ...indexing.youtube_ingestion import ingest_youtube_video, YouTubeIngestionError
 from ...indexing.crawler import crawl_url, is_valid_url
+from ...indexing.parser import parse_pdf
 from ...models.documents import UnifiedDocument, DocumentMetadata, SourceType
 from ...config import get_settings
 
@@ -35,9 +37,39 @@ logger = structlog.get_logger(__name__)
 # Default timeout values (can be overridden via MCP_TOOL_TIMEOUT_OVERRIDES)
 DEFAULT_INGEST_URL_TIMEOUT = 120.0  # seconds
 DEFAULT_INGEST_YOUTUBE_TIMEOUT = 60.0  # seconds
+DEFAULT_INGEST_PDF_TIMEOUT = 120.0  # seconds
 
 # Maximum content size to prevent DoS attacks (1MB)
 MAX_CONTENT_SIZE = 1_000_000
+
+
+def _build_pdf_page_chunks(parsed_doc) -> dict[int, list[str]]:
+    pages: dict[int, list[str]] = {}
+
+    def add(page_number: int, text: str) -> None:
+        if text and text.strip():
+            pages.setdefault(page_number, []).append(text.strip())
+
+    for section in parsed_doc.sections:
+        if section.heading:
+            add(
+                section.page_number,
+                f"{'#' * section.level} {section.heading}",
+            )
+        add(section.page_number, section.content)
+
+    for table in parsed_doc.tables:
+        if table.caption:
+            add(table.page_number, f"**{table.caption}**")
+        add(table.page_number, table.markdown)
+
+    for footnote in parsed_doc.footnotes:
+        add(
+            footnote.page_number,
+            f"*Footnote [{footnote.reference}]* {footnote.content}",
+        )
+
+    return pages
 
 
 def _get_tool_timeout(tool_name: str, default_timeout: float) -> float:
@@ -573,6 +605,177 @@ def create_ingest_text_tool(
     )
 
 
+def create_ingest_pdf_tool(
+    graphiti_client: GraphitiClient,
+) -> MCPToolSpec:
+    """Create the rag.ingest_pdf tool."""
+
+    async def handler(arguments: dict[str, Any]) -> dict[str, Any]:
+        from uuid import UUID
+        import hashlib
+        from ...indexing.graphiti_ingestion import ingest_document_as_episode
+
+        tenant_id = arguments.get("tenant_id", "")
+        _validate_tenant_id(tenant_id)
+
+        file_path = arguments.get("file_path", "")
+        if not file_path:
+            raise MCPError(
+                code=MCPErrorCode.INVALID_PARAMS,
+                message="file_path is required",
+            )
+
+        table_mode = arguments.get("table_mode", "accurate")
+        if table_mode not in {"accurate", "fast"}:
+            raise MCPError(
+                code=MCPErrorCode.INVALID_PARAMS,
+                message="table_mode must be 'accurate' or 'fast'",
+            )
+
+        chunk_by_page = bool(arguments.get("chunk_by_page", False))
+
+        settings = get_settings()
+        base_dir = Path(settings.temp_upload_dir).expanduser().resolve()
+        path = Path(file_path)
+        if not path.is_absolute():
+            path = base_dir / path
+        try:
+            resolved_path = path.resolve()
+        except Exception as exc:
+            raise MCPError(
+                code=MCPErrorCode.INVALID_PARAMS,
+                message="file_path is invalid",
+                data={"file_path": file_path},
+            ) from exc
+        if not resolved_path.is_relative_to(base_dir):
+            raise MCPError(
+                code=MCPErrorCode.INVALID_PARAMS,
+                message="file_path must be under the configured upload directory",
+                data={"file_path": file_path, "base_dir": str(base_dir)},
+            )
+        if not resolved_path.exists():
+            raise MCPError(
+                code=MCPErrorCode.INVALID_PARAMS,
+                message="file_path does not exist",
+                data={"file_path": file_path},
+            )
+        if not resolved_path.is_file():
+            raise MCPError(
+                code=MCPErrorCode.INVALID_PARAMS,
+                message="file_path must be a file",
+                data={"file_path": file_path},
+            )
+
+        tenant_uuid = UUID(tenant_id)
+        document_id = uuid4()
+
+        try:
+            parsed_doc = await asyncio.to_thread(
+                parse_pdf,
+                resolved_path,
+                document_id,
+                tenant_uuid,
+                table_mode,
+            )
+        except Exception as exc:
+            raise MCPError(
+                code=MCPErrorCode.TOOL_EXECUTION_ERROR,
+                message=f"PDF parsing failed: {exc}",
+            ) from exc
+
+        chunks_ingested = 0
+        errors: list[dict[str, Any]] = []
+
+        if chunk_by_page:
+            page_chunks = _build_pdf_page_chunks(parsed_doc)
+            for page_number, parts in sorted(page_chunks.items()):
+                content = "\n\n".join(parts).strip()
+                if not content:
+                    continue
+                content_hash = hashlib.sha256(content.encode()).hexdigest()
+                metadata = DocumentMetadata(
+                    title=parsed_doc.metadata.title,
+                    page_count=parsed_doc.page_count,
+                    extra={
+                        "page_number": page_number,
+                        "filename": parsed_doc.filename,
+                    },
+                )
+                doc = UnifiedDocument(
+                    id=uuid4(),
+                    tenant_id=tenant_uuid,
+                    source_type=SourceType.PDF,
+                    filename=parsed_doc.filename,
+                    content=content,
+                    content_hash=content_hash,
+                    metadata=metadata,
+                )
+                try:
+                    await ingest_document_as_episode(
+                        graphiti_client=graphiti_client,
+                        document=doc,
+                    )
+                    chunks_ingested += 1
+                except Exception as exc:
+                    errors.append(
+                        {"page_number": page_number, "error": str(exc)}
+                    )
+        else:
+            unified_doc = parsed_doc.to_unified_document()
+            try:
+                await ingest_document_as_episode(
+                    graphiti_client=graphiti_client,
+                    document=unified_doc,
+                )
+                chunks_ingested = 1
+            except Exception as exc:
+                errors.append({"error": str(exc)})
+
+        return {
+            "tenant_id": tenant_id,
+            "file_path": file_path,
+            "page_count": parsed_doc.page_count,
+            "chunk_by_page": chunk_by_page,
+            "chunks_ingested": chunks_ingested,
+            "errors": errors if errors else None,
+        }
+
+    timeout = _get_tool_timeout("rag.ingest_pdf", DEFAULT_INGEST_PDF_TIMEOUT)
+
+    return MCPToolSpec(
+        name="rag.ingest_pdf",
+        description=(
+            "Parse a PDF with Docling and ingest its content into the knowledge graph."
+        ),
+        input_schema=create_tool_input_schema(
+            properties={
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant ID (UUID format)",
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the PDF file on the server",
+                },
+                "table_mode": {
+                    "type": "string",
+                    "description": "Docling table extraction mode (accurate|fast)",
+                    "default": "accurate",
+                },
+                "chunk_by_page": {
+                    "type": "boolean",
+                    "description": "If true, ingest one chunk per page",
+                    "default": False,
+                },
+            },
+            required=["tenant_id", "file_path"],
+        ),
+        handler=handler,
+        category="rag",
+        timeout_seconds=timeout,
+    )
+
+
 def create_query_with_reranking_tool(
     vector_service: VectorSearchService,
     reranker: RerankerClient,
@@ -783,6 +986,7 @@ def register_rag_tools(
     # Always register ingestion tools
     ingestion_tools = [
         create_ingest_url_tool(graphiti_client),
+        create_ingest_pdf_tool(graphiti_client),
         create_ingest_youtube_tool(graphiti_client),
         create_ingest_text_tool(graphiti_client),
     ]

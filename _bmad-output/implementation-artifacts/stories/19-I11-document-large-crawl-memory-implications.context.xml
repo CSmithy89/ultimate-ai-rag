@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story 19-I11: Document large crawl memory implications
+  Context file for implementation
+  Generated: 2026-01-03
+-->
+<story-context>
+  <metadata>
+    <story-id>19-I11</story-id>
+    <epic>19 - Quality Foundation &amp; Tech Debt Resolution</epic>
+    <title>Document large crawl memory implications</title>
+    <status>done</status>
+    <priority>Low</priority>
+  </metadata>
+
+  <module-structure>
+    <files-to-create>
+      <file path="docs/guides/crawler-memory-usage.md" purpose="Large crawl memory guidance" />
+    </files-to-create>
+  </module-structure>
+
+  <references>
+    <ref path="_bmad-output/implementation-artifacts/epic-19-tech-spec.md" section="Group I / 19-I11" />
+  </references>
+</story-context>

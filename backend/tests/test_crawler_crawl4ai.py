@@ -304,7 +304,7 @@ class TestCrawlerService:
                 html="<html><head><title>My Title</title></head><body><a href='/other'>Link</a></body></html>",
             )
 
-            page = crawler._convert_result_to_crawled_page(result, depth=1)
+            page = await crawler._convert_result_to_crawled_page(result, depth=1)
 
             assert page is not None
             assert page.url == "https://example.com/page"
@@ -327,7 +327,7 @@ class TestCrawlerService:
                 error_message="Connection timeout",
             )
 
-            page = crawler._convert_result_to_crawled_page(result, depth=0)
+            page = await crawler._convert_result_to_crawled_page(result, depth=0)
 
             assert page is None
 
@@ -345,7 +345,7 @@ class TestCrawlerService:
                 html="",
             )
 
-            page = crawler._convert_result_to_crawled_page(result, depth=0)
+            page = await crawler._convert_result_to_crawled_page(result, depth=0)
 
             assert page is None
 
