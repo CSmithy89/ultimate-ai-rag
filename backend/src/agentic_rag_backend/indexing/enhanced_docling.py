@@ -37,6 +37,10 @@ DEFAULT_TABLE_EXTRACTION = True
 DEFAULT_PRESERVE_LAYOUT = True
 DEFAULT_TABLE_AS_MARKDOWN = True
 
+# Table size limits to prevent DoS attacks
+MAX_TABLE_ROWS = 10000
+MAX_TABLE_COLS = 1000
+
 
 @dataclass
 class Position:
@@ -469,6 +473,7 @@ class EnhancedDoclingParser:
         file_path: Path,
         document_id: UUID,
         tenant_id: UUID,
+        allowed_base_path: Optional[Path] = None,
     ) -> DocumentLayout:
         """Parse document and extract full layout.
 
@@ -476,19 +481,48 @@ class EnhancedDoclingParser:
         It extracts all structural elements including tables, sections,
         figures, and footnotes.
 
+        IMPORTANT: Callers MUST verify tenant authorization before calling.
+        This module does not perform authorization checks.
+
         Args:
             file_path: Path to document file
             document_id: Document identifier
             tenant_id: Tenant identifier
+            allowed_base_path: Optional base directory for path traversal protection
 
         Returns:
             DocumentLayout with all extracted content
 
         Raises:
+            ValueError: If tenant_id is invalid or file_path fails validation
+            FileNotFoundError: If file does not exist
             ImportError: If Docling is not installed
             Exception: If parsing fails
         """
         start_time = time.perf_counter()
+
+        # Validate tenant_id - must be non-null for multi-tenancy
+        if tenant_id is None:
+            raise ValueError("tenant_id is required for multi-tenancy")
+
+        # Validate file path exists and is a file
+        if not file_path.exists():
+            raise FileNotFoundError(f"Document not found: {file_path}")
+        if not file_path.is_file():
+            raise ValueError(f"Path is not a file: {file_path}")
+
+        # Path traversal protection - validate file is within allowed directory
+        if allowed_base_path is not None:
+            resolved_path = file_path.resolve()
+            resolved_base = allowed_base_path.resolve()
+            if not str(resolved_path).startswith(str(resolved_base)):
+                logger.warning(
+                    "path_traversal_attempt",
+                    file_path=str(file_path),
+                    allowed_base=str(allowed_base_path),
+                    tenant_id=str(tenant_id),
+                )
+                raise ValueError(f"Path traversal not allowed: {file_path}")
 
         logger.info(
             "enhanced_parse_started",
@@ -755,6 +789,18 @@ class EnhancedDoclingParser:
                         col_idx = getattr(cell, "col_index", 0)
                         max_row = max(max_row, row_idx)
                         max_col = max(max_col, col_idx)
+
+                    # Check table size limits to prevent DoS
+                    if max_row > MAX_TABLE_ROWS or max_col > MAX_TABLE_COLS:
+                        logger.warning(
+                            "table_size_exceeded",
+                            table_index=table_index,
+                            rows=max_row,
+                            cols=max_col,
+                            max_rows=MAX_TABLE_ROWS,
+                            max_cols=MAX_TABLE_COLS,
+                        )
+                        return None
 
                     # Initialize grid
                     grid: list[list[str]] = [

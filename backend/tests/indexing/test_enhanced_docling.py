@@ -8,6 +8,8 @@ This module tests the enhanced_docling module including:
 - Configuration and feature flags
 """
 
+from pathlib import Path
+
 import pytest
 from uuid import UUID
 
@@ -746,6 +748,105 @@ class TestEdgeCases:
         )
         # Should not break markdown
         assert "x > 5 && y < 10" in table.markdown
+
+
+class TestSecurityValidation:
+    """Tests for security validation features."""
+
+    def test_parse_document_requires_tenant_id(self, tmp_path: Path) -> None:
+        """Test that parse_document requires tenant_id."""
+        parser = EnhancedDoclingParser()
+        test_file = tmp_path / "test.pdf"
+        test_file.write_bytes(b"%PDF-1.4 test")
+
+        with pytest.raises(ValueError, match="tenant_id is required"):
+            parser.parse_document(
+                file_path=test_file,
+                document_id=UUID("12345678-1234-1234-1234-123456789012"),
+                tenant_id=None,  # type: ignore
+            )
+
+    def test_parse_document_validates_file_exists(self, tmp_path: Path) -> None:
+        """Test that parse_document validates file exists."""
+        parser = EnhancedDoclingParser()
+        missing_file = tmp_path / "nonexistent.pdf"
+
+        with pytest.raises(FileNotFoundError, match="Document not found"):
+            parser.parse_document(
+                file_path=missing_file,
+                document_id=UUID("12345678-1234-1234-1234-123456789012"),
+                tenant_id=UUID("12345678-1234-1234-1234-123456789013"),
+            )
+
+    def test_parse_document_validates_is_file(self, tmp_path: Path) -> None:
+        """Test that parse_document validates path is a file."""
+        parser = EnhancedDoclingParser()
+        # tmp_path is a directory, not a file
+
+        with pytest.raises(ValueError, match="Path is not a file"):
+            parser.parse_document(
+                file_path=tmp_path,
+                document_id=UUID("12345678-1234-1234-1234-123456789012"),
+                tenant_id=UUID("12345678-1234-1234-1234-123456789013"),
+            )
+
+    def test_parse_document_path_traversal_protection(self, tmp_path: Path) -> None:
+        """Test that parse_document prevents path traversal."""
+        parser = EnhancedDoclingParser()
+
+        # Create allowed directory and file outside it
+        allowed_dir = tmp_path / "allowed"
+        allowed_dir.mkdir()
+        outside_file = tmp_path / "outside.pdf"
+        outside_file.write_bytes(b"%PDF-1.4 test")
+
+        with pytest.raises(ValueError, match="Path traversal not allowed"):
+            parser.parse_document(
+                file_path=outside_file,
+                document_id=UUID("12345678-1234-1234-1234-123456789012"),
+                tenant_id=UUID("12345678-1234-1234-1234-123456789013"),
+                allowed_base_path=allowed_dir,
+            )
+
+    def test_parse_document_allows_file_in_base_path(self, tmp_path: Path) -> None:
+        """Test that parse_document allows files within base path."""
+        parser = EnhancedDoclingParser()
+
+        # Create file inside allowed directory
+        allowed_dir = tmp_path / "allowed"
+        allowed_dir.mkdir()
+        inside_file = allowed_dir / "doc.pdf"
+        inside_file.write_bytes(b"%PDF-1.4 test")
+
+        # Should not raise - but will fail later at Docling import
+        # We're just testing the path validation passes
+        try:
+            parser.parse_document(
+                file_path=inside_file,
+                document_id=UUID("12345678-1234-1234-1234-123456789012"),
+                tenant_id=UUID("12345678-1234-1234-1234-123456789013"),
+                allowed_base_path=allowed_dir,
+            )
+        except ImportError:
+            # Expected - Docling not installed in test env
+            pass
+        except Exception as e:
+            # Path validation passed, Docling parsing failed (expected)
+            assert "Document not found" not in str(e)
+            assert "Path traversal" not in str(e)
+
+
+class TestTableSizeLimits:
+    """Tests for table size limit protection."""
+
+    def test_table_size_constants_defined(self) -> None:
+        """Test that table size limit constants are defined."""
+        from agentic_rag_backend.indexing.enhanced_docling import (
+            MAX_TABLE_ROWS,
+            MAX_TABLE_COLS,
+        )
+        assert MAX_TABLE_ROWS == 10000
+        assert MAX_TABLE_COLS == 1000
 
 
 class TestMultiTenancy:
