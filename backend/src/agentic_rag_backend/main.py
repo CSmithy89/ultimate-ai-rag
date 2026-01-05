@@ -20,6 +20,7 @@ import structlog
 from .agents.orchestrator import OrchestratorAgent
 from .retrieval import create_reranker_client, get_reranker_adapter
 from .retrieval.grader import create_grader
+from .retrieval.reranking import init_reranker_cache, get_reranker_cache
 from .api.routes import (
     ingest_router,
     knowledge_router,
@@ -63,18 +64,32 @@ def _should_skip_graphiti() -> bool:
 def _create_retrieval_enhancements(settings: Settings) -> tuple:
     """Create reranker and grader instances based on settings.
 
+    Story 19-G1: Initializes the reranker cache if enabled.
+    Story 19-G3: Model preloading is handled by the reranker/grader constructors.
+
     Returns:
         Tuple of (reranker, grader) - either may be None if disabled
     """
     reranker = None
     if settings.reranker_enabled:
         try:
+            # Story 19-G1: Initialize reranker cache
+            reranker_cache = init_reranker_cache(settings)
+            struct_logger.info(
+                "reranker_cache_initialized",
+                enabled=settings.reranker_cache_enabled,
+                ttl_seconds=settings.reranker_cache_ttl_seconds,
+                max_size=settings.reranker_cache_max_size,
+            )
+
+            # Story 19-G3: Preloading is handled in get_reranker_adapter
             reranker_adapter = get_reranker_adapter(settings)
             reranker = create_reranker_client(reranker_adapter)
             struct_logger.info(
                 "reranker_enabled",
                 provider=settings.reranker_provider,
                 model=settings.reranker_model,
+                preload=settings.reranker_preload_model,
             )
         except Exception as e:
             struct_logger.warning("reranker_init_failed", error=str(e))
@@ -86,6 +101,8 @@ def _create_retrieval_enhancements(settings: Settings) -> tuple:
             model=grader.get_model(),
             threshold=settings.grader_threshold,
             fallback_enabled=settings.grader_fallback_enabled,
+            preload=settings.grader_preload_model,
+            normalization_strategy=settings.grader_normalization_strategy,
         )
 
     return reranker, grader

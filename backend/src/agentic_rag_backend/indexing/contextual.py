@@ -102,7 +102,7 @@ def truncate_to_tokens(text: str, max_tokens: int) -> str:
 
 
 # Default context generation prompt with cache-friendly structure
-CONTEXT_GENERATION_PROMPT = """<document>
+DEFAULT_CONTEXT_GENERATION_PROMPT = """<document>
 {document_content}
 </document>
 
@@ -112,6 +112,94 @@ Here is the chunk we want to situate within the whole document:
 </chunk>
 
 Please give a short succinct context to situate this chunk within the overall document for the purposes of improving search retrieval of the chunk. Answer only with the succinct context and nothing else."""
+
+# Required placeholders in custom prompts
+REQUIRED_PLACEHOLDERS = {"{document}", "{chunk}"}
+
+# Cached prompt for runtime use
+_cached_prompt: Optional[str] = None
+
+
+def load_contextual_prompt(prompt_path: Optional[str] = None) -> str:
+    """Load the contextual retrieval prompt from a file or use the default.
+
+    Story 19-G2: Supports loading prompt from a configurable file path.
+
+    The template must contain two placeholders:
+    - {document} or {document_content}: Will be replaced with the document content
+    - {chunk} or {chunk_content}: Will be replaced with the chunk content
+
+    Args:
+        prompt_path: Optional path to a custom prompt file. If None, uses default.
+
+    Returns:
+        The prompt template string
+
+    Note:
+        If the file cannot be loaded or the template is invalid, falls back to
+        the default prompt with a warning.
+    """
+    global _cached_prompt
+
+    # If no custom path provided, use default
+    if not prompt_path:
+        logger.debug("contextual_prompt_using_default")
+        return DEFAULT_CONTEXT_GENERATION_PROMPT
+
+    # Try to load from file
+    try:
+        from pathlib import Path
+        path = Path(prompt_path)
+
+        if not path.exists():
+            logger.warning(
+                "contextual_prompt_file_not_found",
+                path=prompt_path,
+                using_default=True,
+            )
+            return DEFAULT_CONTEXT_GENERATION_PROMPT
+
+        template = path.read_text(encoding="utf-8")
+
+        # Validate template has required placeholders
+        # Accept either {document}/{chunk} or {document_content}/{chunk_content}
+        has_document = "{document}" in template or "{document_content}" in template
+        has_chunk = "{chunk}" in template or "{chunk_content}" in template
+
+        if not has_document or not has_chunk:
+            logger.warning(
+                "contextual_prompt_invalid_template",
+                path=prompt_path,
+                has_document=has_document,
+                has_chunk=has_chunk,
+                hint="Template must contain {document}/{document_content} and {chunk}/{chunk_content} placeholders",
+                using_default=True,
+            )
+            return DEFAULT_CONTEXT_GENERATION_PROMPT
+
+        # Normalize placeholder names to match our internal format
+        template = template.replace("{document}", "{document_content}")
+        template = template.replace("{chunk}", "{chunk_content}")
+
+        logger.info(
+            "contextual_prompt_loaded_from_file",
+            path=prompt_path,
+            template_length=len(template),
+        )
+        return template
+
+    except Exception as e:
+        logger.warning(
+            "contextual_prompt_load_error",
+            path=prompt_path,
+            error=str(e),
+            using_default=True,
+        )
+        return DEFAULT_CONTEXT_GENERATION_PROMPT
+
+
+# Alias for backward compatibility
+CONTEXT_GENERATION_PROMPT = DEFAULT_CONTEXT_GENERATION_PROMPT
 
 
 @dataclass
@@ -222,6 +310,7 @@ class ContextualChunkEnricher:
         api_key: Optional[str] = None,
         provider: str = "anthropic",
         base_url: Optional[str] = None,
+        prompt_path: Optional[str] = None,
     ) -> None:
         """Initialize the contextual enricher.
 
@@ -231,6 +320,7 @@ class ContextualChunkEnricher:
             api_key: API key for the LLM provider
             provider: LLM provider (anthropic, openai, openrouter)
             base_url: Custom base URL for OpenAI-compatible providers (e.g., OpenRouter)
+            prompt_path: Optional path to custom prompt file (Story 19-G2)
         """
         self._model = model
         self._use_prompt_caching = use_prompt_caching
@@ -239,6 +329,8 @@ class ContextualChunkEnricher:
         self._base_url = base_url
         self._client: Any | None = None
         self._initialized = False
+        # Story 19-G2: Load prompt from configurable path
+        self._prompt_template = load_contextual_prompt(prompt_path)
 
         logger.info(
             "contextual_enricher_created",
@@ -246,6 +338,7 @@ class ContextualChunkEnricher:
             provider=provider,
             prompt_caching=use_prompt_caching,
             base_url=base_url,
+            custom_prompt=prompt_path is not None,
         )
 
     async def _ensure_client(self) -> None:
@@ -321,7 +414,8 @@ class ContextualChunkEnricher:
 
         full_doc = doc_header + doc_content if doc_header else doc_content
 
-        prompt = CONTEXT_GENERATION_PROMPT.format(
+        # Story 19-G2: Use configurable prompt template
+        prompt = self._prompt_template.format(
             document_content=full_doc,
             chunk_content=chunk_content,
         )
@@ -767,4 +861,6 @@ def create_contextual_enricher(
         api_key=api_key,
         provider=provider,
         base_url=base_url,
+        # Story 19-G2: Pass configurable prompt path
+        prompt_path=settings.contextual_retrieval_prompt_path,
     )

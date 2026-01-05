@@ -268,6 +268,45 @@ Labels:
 
 
 # =============================================================================
+# Story 19-G1: Reranker Cache Metrics
+# =============================================================================
+
+RERANKER_CACHE_HITS_TOTAL = Counter(
+    "reranker_cache_hits_total",
+    "Total cache hits for reranker result caching",
+    labelnames=["tenant_id"],
+    registry=_registry,
+)
+"""Counter for reranker cache hits.
+
+Labels:
+    tenant_id: Tenant identifier for multi-tenancy
+"""
+
+RERANKER_CACHE_MISSES_TOTAL = Counter(
+    "reranker_cache_misses_total",
+    "Total cache misses for reranker result caching",
+    labelnames=["tenant_id"],
+    registry=_registry,
+)
+"""Counter for reranker cache misses.
+
+Labels:
+    tenant_id: Tenant identifier for multi-tenancy
+"""
+
+RERANKER_CACHE_SIZE = Gauge(
+    "reranker_cache_size",
+    "Current number of entries in the reranker cache",
+    registry=_registry,
+)
+"""Gauge for reranker cache size.
+
+No labels as this is a global cache metric.
+"""
+
+
+# =============================================================================
 # Helper Functions
 # =============================================================================
 
@@ -507,3 +546,35 @@ def record_contextual_enrichment(
         model=model,
         tenant_id=tenant_id,
     ).observe(latency_seconds)
+
+
+# =============================================================================
+# Story 19-G1: Reranker Cache Helper Functions
+# =============================================================================
+
+
+def record_reranker_cache_hit(tenant_id: str) -> None:
+    """Record a reranker cache hit.
+
+    Args:
+        tenant_id: Tenant identifier
+    """
+    RERANKER_CACHE_HITS_TOTAL.labels(tenant_id=tenant_id).inc()
+
+
+def record_reranker_cache_miss(tenant_id: str) -> None:
+    """Record a reranker cache miss.
+
+    Args:
+        tenant_id: Tenant identifier
+    """
+    RERANKER_CACHE_MISSES_TOTAL.labels(tenant_id=tenant_id).inc()
+
+
+def set_reranker_cache_size(size: int) -> None:
+    """Set the current reranker cache size.
+
+    Args:
+        size: Current number of entries in the cache
+    """
+    RERANKER_CACHE_SIZE.set(size)

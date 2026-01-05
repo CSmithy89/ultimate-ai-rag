@@ -261,6 +261,17 @@ class Settings:
     # Story 19-C5 - Prometheus Observability settings
     prometheus_enabled: bool
     prometheus_path: str
+    # Story 19-G1 - Reranking Cache settings
+    reranker_cache_enabled: bool
+    reranker_cache_ttl_seconds: int
+    reranker_cache_max_size: int
+    # Story 19-G2 - Contextual Retrieval Prompt Path
+    contextual_retrieval_prompt_path: Optional[str]
+    # Story 19-G3 - Model Preloading settings
+    grader_preload_model: bool
+    reranker_preload_model: bool
+    # Story 19-G4 - Score Normalization settings
+    grader_normalization_strategy: str
 
 
 def load_settings() -> Settings:
@@ -827,6 +838,30 @@ def load_settings() -> Settings:
         "CODEBASE_INDEX_CACHE_TTL_SECONDS", 86400, min_val=60
     )
 
+    # Story 19-G1 - Reranking Cache settings
+    reranker_cache_enabled = get_bool_env("RERANKER_CACHE_ENABLED", "false")
+    reranker_cache_ttl_seconds = get_int_env("RERANKER_CACHE_TTL_SECONDS", 300, min_val=1)
+    reranker_cache_max_size = get_int_env("RERANKER_CACHE_MAX_SIZE", 1000, min_val=1)
+
+    # Story 19-G2 - Contextual Retrieval Prompt Path
+    contextual_retrieval_prompt_path = os.getenv("CONTEXTUAL_RETRIEVAL_PROMPT_PATH") or None
+
+    # Story 19-G3 - Model Preloading settings
+    grader_preload_model = get_bool_env("GRADER_PRELOAD_MODEL", "false")
+    reranker_preload_model = get_bool_env("RERANKER_PRELOAD_MODEL", "false")
+
+    # Story 19-G4 - Score Normalization settings
+    grader_normalization_strategy = os.getenv("GRADER_NORMALIZATION_STRATEGY", "min_max").strip().lower()
+    valid_normalization_strategies = {"min_max", "z_score", "softmax", "percentile"}
+    if grader_normalization_strategy not in valid_normalization_strategies:
+        logger.warning(
+            "invalid_normalization_strategy",
+            strategy=grader_normalization_strategy,
+            valid_strategies=list(valid_normalization_strategies),
+            fallback="min_max",
+        )
+        grader_normalization_strategy = "min_max"
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -971,6 +1006,17 @@ def load_settings() -> Settings:
         # Story 19-C5 - Prometheus Observability settings
         prometheus_enabled=get_bool_env("PROMETHEUS_ENABLED", "false"),
         prometheus_path=os.getenv("PROMETHEUS_PATH", "/metrics"),
+        # Story 19-G1 - Reranking Cache settings
+        reranker_cache_enabled=reranker_cache_enabled,
+        reranker_cache_ttl_seconds=reranker_cache_ttl_seconds,
+        reranker_cache_max_size=reranker_cache_max_size,
+        # Story 19-G2 - Contextual Retrieval Prompt Path
+        contextual_retrieval_prompt_path=contextual_retrieval_prompt_path,
+        # Story 19-G3 - Model Preloading settings
+        grader_preload_model=grader_preload_model,
+        reranker_preload_model=reranker_preload_model,
+        # Story 19-G4 - Score Normalization settings
+        grader_normalization_strategy=grader_normalization_strategy,
     )
 
 
