@@ -341,7 +341,10 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     """Convert HTTPException errors to RFC 7807 Problem Details responses."""
     status_code = exc.status_code
-    title = HTTPStatus(status_code).phrase if status_code in HTTPStatus else "HTTP Error"
+    try:
+        title = HTTPStatus(status_code).phrase
+    except ValueError:
+        title = "HTTP Error"
     detail = exc.detail
     if not isinstance(detail, str):
         detail = json.dumps(detail)

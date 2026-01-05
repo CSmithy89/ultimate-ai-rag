@@ -502,4 +502,3 @@ class TestConfigIntegration:
         with patch.dict(os.environ, env_vars, clear=True):
             with pytest.raises(ValueError):
                 load_settings()
-            assert settings.crawl4ai_stealth_proxy is None

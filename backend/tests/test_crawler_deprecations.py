@@ -6,12 +6,12 @@ from agentic_rag_backend.indexing import crawler
 
 
 def test_extract_links_warns_and_returns_links():
-    html = '<a href="https://example.com">Example</a>'
+    html = '<a href="/path">Example</a>'
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", DeprecationWarning)
-        links = crawler.extract_links(html, "https://base.example")
+        links = crawler.extract_links(html, "https://example.com")
 
-    assert "https://example.com" in links
+    assert "https://example.com/path" in links
     assert any(w.category is DeprecationWarning for w in caught)
 
 
