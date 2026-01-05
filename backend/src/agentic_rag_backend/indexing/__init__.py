@@ -85,6 +85,25 @@ from .enhanced_docling import (
     DEFAULT_PRESERVE_LAYOUT,
     DEFAULT_TABLE_AS_MARKDOWN,
 )
+# Epic 20 - Multimodal Ingestion (Story 20-D2)
+from .multimodal import (
+    DocumentType,
+    ExtractedCell,
+    ExtractedSheet,
+    ExtractedSlide,
+    WordContent,
+    ExcelContent,
+    PowerPointContent,
+    MultimodalIngestionResult,
+    OfficeParser,
+    MultimodalIngester,
+    MultimodalIngestionAdapter,
+    get_multimodal_ingestion_adapter,
+    DEFAULT_MULTIMODAL_ENABLED,
+    DEFAULT_OFFICE_DOCS_ENABLED,
+    EXTENSION_TYPE_MAP,
+    MIME_TYPE_MAP,
+)
 
 __all__ = [
     # Crawler (Story 13.3: Crawl4AI migration)
@@ -167,4 +186,21 @@ __all__ = [
     "DEFAULT_TABLE_EXTRACTION",
     "DEFAULT_PRESERVE_LAYOUT",
     "DEFAULT_TABLE_AS_MARKDOWN",
+    # Epic 20: Multimodal Ingestion (Story 20-D2)
+    "DocumentType",
+    "ExtractedCell",
+    "ExtractedSheet",
+    "ExtractedSlide",
+    "WordContent",
+    "ExcelContent",
+    "PowerPointContent",
+    "MultimodalIngestionResult",
+    "OfficeParser",
+    "MultimodalIngester",
+    "MultimodalIngestionAdapter",
+    "get_multimodal_ingestion_adapter",
+    "DEFAULT_MULTIMODAL_ENABLED",
+    "DEFAULT_OFFICE_DOCS_ENABLED",
+    "EXTENSION_TYPE_MAP",
+    "MIME_TYPE_MAP",
 ]

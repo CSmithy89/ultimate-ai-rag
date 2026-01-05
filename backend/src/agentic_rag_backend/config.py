@@ -341,6 +341,9 @@ class Settings:
     docling_table_extraction: bool
     docling_preserve_layout: bool
     docling_table_as_markdown: bool
+    # Story 20-D2 - Multimodal Ingestion
+    multimodal_ingestion_enabled: bool
+    office_docs_enabled: bool
 
 
 def load_settings() -> Settings:
@@ -1160,6 +1163,10 @@ def load_settings() -> Settings:
     docling_preserve_layout = get_bool_env("DOCLING_PRESERVE_LAYOUT", "true")
     docling_table_as_markdown = get_bool_env("DOCLING_TABLE_AS_MARKDOWN", "true")
 
+    # Story 20-D2 - Multimodal Ingestion settings
+    multimodal_ingestion_enabled = get_bool_env("MULTIMODAL_INGESTION_ENABLED", "false")
+    office_docs_enabled = get_bool_env("OFFICE_DOCS_ENABLED", "true")
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1373,6 +1380,9 @@ def load_settings() -> Settings:
         docling_table_extraction=docling_table_extraction,
         docling_preserve_layout=docling_preserve_layout,
         docling_table_as_markdown=docling_table_as_markdown,
+        # Story 20-D2 - Multimodal Ingestion
+        multimodal_ingestion_enabled=multimodal_ingestion_enabled,
+        office_docs_enabled=office_docs_enabled,
     )
 
 
