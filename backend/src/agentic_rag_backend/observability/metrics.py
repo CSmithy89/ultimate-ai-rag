@@ -5,11 +5,17 @@ including counters, histograms, and gauges for monitoring retrieval quality and
 performance.
 
 All metrics include a tenant_id label for multi-tenant analysis.
+
+By default, tenant_id values are normalized to reduce cardinality. Configure via:
+- METRICS_TENANT_LABEL_MODE: full | hash | global (default: global)
+- METRICS_TENANT_LABEL_BUCKETS: number of hash buckets (default: 100)
 """
 
 from __future__ import annotations
 
 from contextlib import contextmanager
+import hashlib
+import os
 from typing import Generator
 
 from prometheus_client import (
@@ -25,6 +31,34 @@ logger = structlog.get_logger(__name__)
 
 # Default registry (can be overridden for testing)
 _registry: CollectorRegistry = REGISTRY
+
+
+def _get_tenant_label_mode() -> str:
+    return os.getenv("METRICS_TENANT_LABEL_MODE", "global").strip().lower()
+
+
+def _get_tenant_label_bucket_count() -> int:
+    raw = os.getenv("METRICS_TENANT_LABEL_BUCKETS", "100")
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 100
+
+
+def normalize_tenant_label(tenant_id: str) -> str:
+    """Normalize tenant_id label to reduce cardinality."""
+    if not tenant_id:
+        return "unknown"
+
+    mode = _get_tenant_label_mode()
+    if mode == "full":
+        return tenant_id
+    if mode == "hash":
+        bucket_count = _get_tenant_label_bucket_count()
+        digest = hashlib.sha256(tenant_id.encode("utf-8")).hexdigest()
+        bucket = int(digest[:8], 16) % bucket_count
+        return f"bucket-{bucket}"
+    return "global"
 
 
 def get_metrics_registry() -> CollectorRegistry:
@@ -321,9 +355,10 @@ def record_retrieval_request(
         strategy: Retrieval strategy used (vector|graph|hybrid)
         tenant_id: Tenant identifier
     """
+    tenant_label = normalize_tenant_label(tenant_id)
     RETRIEVAL_REQUESTS_TOTAL.labels(
         strategy=strategy,
-        tenant_id=tenant_id,
+        tenant_id=tenant_label,
     ).inc()
 
 
@@ -337,9 +372,10 @@ def record_retrieval_fallback(
         reason: Reason for fallback (low_score|empty_results|timeout)
         tenant_id: Tenant identifier
     """
+    tenant_label = normalize_tenant_label(tenant_id)
     RETRIEVAL_FALLBACK_TRIGGERED_TOTAL.labels(
         reason=reason,
-        tenant_id=tenant_id,
+        tenant_id=tenant_label,
     ).inc()
 
 
@@ -353,9 +389,10 @@ def record_grader_evaluation(
         result: Evaluation result (pass|fail|fallback)
         tenant_id: Tenant identifier
     """
+    tenant_label = normalize_tenant_label(tenant_id)
     GRADER_EVALUATIONS_TOTAL.labels(
         result=result,
-        tenant_id=tenant_id,
+        tenant_id=tenant_label,
     ).inc()
 
 
@@ -373,10 +410,11 @@ def record_retrieval_latency(
         tenant_id: Tenant identifier
         duration_seconds: Duration in seconds
     """
+    tenant_label = normalize_tenant_label(tenant_id)
     RETRIEVAL_LATENCY_SECONDS.labels(
         strategy=strategy,
         phase=phase,
-        tenant_id=tenant_id,
+        tenant_id=tenant_label,
     ).observe(duration_seconds)
 
 
@@ -394,8 +432,9 @@ def record_reranking_improvement(
     """
     if pre_score > 0:
         ratio = post_score / pre_score
+        tenant_label = normalize_tenant_label(tenant_id)
         RERANKING_IMPROVEMENT_RATIO.labels(
-            tenant_id=tenant_id,
+            tenant_id=tenant_label,
         ).observe(ratio)
 
 
@@ -411,9 +450,10 @@ def record_grader_score(
         tenant_id: Tenant identifier
         score: Grader score (0.0-1.0)
     """
+    tenant_label = normalize_tenant_label(tenant_id)
     GRADER_SCORE.labels(
         model=model,
-        tenant_id=tenant_id,
+        tenant_id=tenant_label,
     ).observe(score)
 
 
@@ -431,10 +471,11 @@ def set_retrieval_precision(
         tenant_id: Tenant identifier
         precision: Precision value (0.0-1.0)
     """
+    tenant_label = normalize_tenant_label(tenant_id)
     RETRIEVAL_PRECISION.labels(
         strategy=strategy,
         k=str(k),
-        tenant_id=tenant_id,
+        tenant_id=tenant_label,
     ).set(precision)
 
 
@@ -452,10 +493,11 @@ def set_retrieval_recall(
         tenant_id: Tenant identifier
         recall: Recall value (0.0-1.0)
     """
+    tenant_label = normalize_tenant_label(tenant_id)
     RETRIEVAL_RECALL.labels(
         strategy=strategy,
         k=str(k),
-        tenant_id=tenant_id,
+        tenant_id=tenant_label,
     ).set(recall)
 
 
@@ -469,11 +511,12 @@ def track_active_retrieval(tenant_id: str) -> Generator[None, None, None]:
     Yields:
         None
     """
-    ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_id).inc()
+    tenant_label = normalize_tenant_label(tenant_id)
+    ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_label).inc()
     try:
         yield
     finally:
-        ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_id).dec()
+        ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_label).dec()
 
 
 # =============================================================================
@@ -505,46 +548,47 @@ def record_contextual_enrichment(
         chunks_enriched: Number of chunks enriched
         latency_seconds: Total latency in seconds
     """
+    tenant_label = normalize_tenant_label(tenant_id)
     # Token usage
     CONTEXTUAL_ENRICHMENT_TOKENS_TOTAL.labels(
         type="input",
         model=model,
-        tenant_id=tenant_id,
+        tenant_id=tenant_label,
     ).inc(input_tokens)
 
     CONTEXTUAL_ENRICHMENT_TOKENS_TOTAL.labels(
         type="output",
         model=model,
-        tenant_id=tenant_id,
+        tenant_id=tenant_label,
     ).inc(output_tokens)
 
     # Cost
     CONTEXTUAL_ENRICHMENT_COST_USD_TOTAL.labels(
         model=model,
-        tenant_id=tenant_id,
+        tenant_id=tenant_label,
     ).inc(cost_usd)
 
     # Cache metrics
     CONTEXTUAL_ENRICHMENT_CACHE_HITS_TOTAL.labels(
         model=model,
-        tenant_id=tenant_id,
+        tenant_id=tenant_label,
     ).inc(cache_hits)
 
     CONTEXTUAL_ENRICHMENT_CACHE_MISSES_TOTAL.labels(
         model=model,
-        tenant_id=tenant_id,
+        tenant_id=tenant_label,
     ).inc(cache_misses)
 
     # Chunks
     CONTEXTUAL_ENRICHMENT_CHUNKS_TOTAL.labels(
         model=model,
-        tenant_id=tenant_id,
+        tenant_id=tenant_label,
     ).inc(chunks_enriched)
 
     # Latency
     CONTEXTUAL_ENRICHMENT_LATENCY_SECONDS.labels(
         model=model,
-        tenant_id=tenant_id,
+        tenant_id=tenant_label,
     ).observe(latency_seconds)
 
 
@@ -559,7 +603,8 @@ def record_reranker_cache_hit(tenant_id: str) -> None:
     Args:
         tenant_id: Tenant identifier
     """
-    RERANKER_CACHE_HITS_TOTAL.labels(tenant_id=tenant_id).inc()
+    tenant_label = normalize_tenant_label(tenant_id)
+    RERANKER_CACHE_HITS_TOTAL.labels(tenant_id=tenant_label).inc()
 
 
 def record_reranker_cache_miss(tenant_id: str) -> None:
@@ -568,7 +613,8 @@ def record_reranker_cache_miss(tenant_id: str) -> None:
     Args:
         tenant_id: Tenant identifier
     """
-    RERANKER_CACHE_MISSES_TOTAL.labels(tenant_id=tenant_id).inc()
+    tenant_label = normalize_tenant_label(tenant_id)
+    RERANKER_CACHE_MISSES_TOTAL.labels(tenant_id=tenant_label).inc()
 
 
 def set_reranker_cache_size(size: int) -> None:
