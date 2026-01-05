@@ -15,9 +15,12 @@ Story 13.4: Added crawl configuration profiles for different scenarios.
 
 import hashlib
 import ipaddress
+import itertools
 import os
+import random
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 from urllib.parse import urljoin, urlparse
 
@@ -57,9 +60,96 @@ DEFAULT_TIMEOUT = 60000  # milliseconds (Crawl4AI uses ms)
 DEFAULT_USER_AGENT = (
     "AgenticRAG-Crawler/1.0 (+https://github.com/example/agentic-rag)"
 )
+DEFAULT_USER_AGENT_LIST_PATH = "config/user-agents.txt"
+DEFAULT_USER_AGENT_STRATEGY = "rotate"
 DEFAULT_MAX_CONCURRENT = 10  # Maximum concurrent crawl sessions
 DEFAULT_JS_WAIT_SECONDS = 2.0  # Wait for JavaScript to render
 DEFAULT_MAX_PAGES = 1000  # Maximum pages to crawl in a single session
+
+
+_USER_AGENT_POOL: Optional[list[str]] = None
+_USER_AGENT_CYCLE: Optional[itertools.cycle] = None
+
+
+def _load_user_agent_pool() -> list[str]:
+    global _USER_AGENT_POOL, _USER_AGENT_CYCLE
+    if _USER_AGENT_POOL is not None:
+        return _USER_AGENT_POOL
+
+    list_path = Path(
+        os.getenv("CRAWLER_USER_AGENT_LIST_PATH", DEFAULT_USER_AGENT_LIST_PATH)
+    )
+    pool: list[str] = []
+    try:
+        if list_path.exists():
+            for line in list_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                pool.append(line)
+    except Exception as exc:
+        logger.warning(
+            "user_agent_list_load_failed",
+            path=str(list_path),
+            error=str(exc),
+        )
+
+    if len(pool) < 10:
+        logger.warning(
+            "user_agent_list_too_small",
+            path=str(list_path),
+            count=len(pool),
+            minimum=10,
+        )
+
+    if not pool:
+        pool = [DEFAULT_USER_AGENT]
+
+    _USER_AGENT_POOL = pool
+    _USER_AGENT_CYCLE = itertools.cycle(pool)
+    return pool
+
+
+def _select_user_agent() -> tuple[str, str, str]:
+    strategy = os.getenv("CRAWLER_USER_AGENT_STRATEGY", DEFAULT_USER_AGENT_STRATEGY).strip().lower()
+    if strategy not in {"rotate", "random", "static"}:
+        logger.warning(
+            "user_agent_strategy_invalid",
+            strategy=strategy,
+            fallback=DEFAULT_USER_AGENT_STRATEGY,
+        )
+        strategy = DEFAULT_USER_AGENT_STRATEGY
+
+    pool = _load_user_agent_pool()
+    use_fake = os.getenv("CRAWLER_USER_AGENT_USE_FAKE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if strategy == "static":
+        static_ua = os.getenv("CRAWL4AI_USER_AGENT")
+        if static_ua:
+            return static_ua, strategy, "static-env"
+        return pool[0], strategy, "static-pool"
+
+    if strategy == "random":
+        if use_fake:
+            try:
+                from fake_useragent import UserAgent
+
+                return UserAgent().random, strategy, "fake-useragent"
+            except Exception as exc:
+                logger.warning(
+                    "user_agent_fake_failed",
+                    error=str(exc),
+                )
+        return random.choice(pool), strategy, "random-pool"
+
+    if _USER_AGENT_CYCLE is None:
+        _load_user_agent_pool()
+    assert _USER_AGENT_CYCLE is not None
+    return next(_USER_AGENT_CYCLE), strategy, "rotate-pool"
 
 
 def sanitize_proxy_url(proxy_url: Optional[str]) -> Optional[str]:
@@ -374,6 +464,7 @@ class CrawlerService:
             self.profile_name = None
 
         self.page_timeout_ms = page_timeout_ms
+        self.user_agent: Optional[str] = None
 
         # Validate and auto-clamp timeout configuration
         # wait_timeout must be less than page_timeout to avoid guaranteed failures
@@ -406,15 +497,20 @@ class CrawlerService:
         # Add stealth mode configuration if enabled
         # Stealth mode helps bypass bot detection
         if self.stealth:
-            # Use current Chrome user agent to appear more like a real browser
-            # Chrome 130+ is recommended to avoid bot detection flags
-            user_agent = os.getenv(
-                "CRAWL4AI_USER_AGENT",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-            )
+            user_agent, strategy, source = _select_user_agent()
             config_kwargs["user_agent"] = user_agent
-            logger.debug("stealth_mode_enabled", headless=self.headless, user_agent=user_agent[:50])
+            self.user_agent = user_agent
+            logger.info(
+                "crawler_user_agent_selected",
+                strategy=strategy,
+                source=source,
+                user_agent=user_agent[:80],
+            )
+            logger.debug(
+                "stealth_mode_enabled",
+                headless=self.headless,
+                user_agent=user_agent[:50],
+            )
 
         return BrowserConfig(**config_kwargs)
 
@@ -603,6 +699,11 @@ class CrawlerService:
 
         try:
             config = self._create_crawler_config(wait_for_js=True)
+            logger.debug(
+                "crawl_page_started",
+                url=url,
+                user_agent=(self.user_agent[:80] if self.user_agent else None),
+            )
             result = await self._crawler.arun(url=url, config=config)
             return self._convert_result_to_crawled_page(result, depth=0)
 
@@ -689,6 +790,7 @@ class CrawlerService:
             url_count=len(valid_urls),
             max_concurrent=self.max_concurrent,
             stream=stream,
+            user_agent=(self.user_agent[:80] if self.user_agent else None),
         )
 
         try:

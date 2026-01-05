@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story 19-I2: Add dynamic user-agent rotation
+  Context file for implementation
+  Generated: 2026-01-03
+-->
+<story-context>
+  <metadata>
+    <story-id>19-I2</story-id>
+    <epic>19 - Quality Foundation &amp; Tech Debt Resolution</epic>
+    <title>Add dynamic user-agent rotation</title>
+    <status>ready-for-dev</status>
+    <priority>Medium</priority>
+  </metadata>
+
+  <module-structure>
+    <files-to-create>
+      <file path="config/user-agents.txt" purpose="Default user-agent list" />
+    </files-to-create>
+    <files-to-modify>
+      <file path="backend/src/agentic_rag_backend/indexing/crawler.py" change="Strategy-based user-agent selection" />
+      <file path=".env.example" change="Document new user-agent settings" />
+    </files-to-modify>
+  </module-structure>
+
+  <references>
+    <ref path="_bmad-output/implementation-artifacts/epic-19-tech-spec.md" section="Group I / 19-I2" />
+  </references>
+</story-context>

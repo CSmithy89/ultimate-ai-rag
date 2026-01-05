@@ -317,7 +317,7 @@ development_status:
   # PRIORITY: MEDIUM
   19-I1-externalize-crawl-profile-domain-matching: done
   # Move _EXACT_DOMAIN_PROFILES etc. to JSON/YAML config for easier updates
-  19-I2-add-dynamic-user-agent-rotation: backlog
+  19-I2-add-dynamic-user-agent-rotation: done
   # Replace hardcoded Chrome 131 with fake-useragent or configurable list
   19-I3-add-crawler-legacy-alias-deprecation-warnings: backlog
   # extract_links/extract_title aliases should warn and document migration
