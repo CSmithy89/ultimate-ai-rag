@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any, Optional, TYPE_CHECKING
 
 import structlog
@@ -23,6 +24,43 @@ if TYPE_CHECKING:
     from ..config import Settings
 
 logger = structlog.get_logger(__name__)
+
+
+# =============================================================================
+# Model Pricing Configuration (USD per 1K tokens)
+# =============================================================================
+# Default pricing for contextual retrieval models. Can be overridden via config.
+# Anthropic pricing includes cache read/write costs for prompt caching.
+DEFAULT_CONTEXTUAL_PRICING: dict[str, dict[str, Decimal]] = {
+    # Anthropic Claude 3 Haiku (default for contextual retrieval)
+    "claude-3-haiku-20240307": {
+        "input_per_1k": Decimal("0.00025"),
+        "output_per_1k": Decimal("0.00125"),
+        "cache_write_per_1k": Decimal("0.0003"),  # 20% premium for cache write
+        "cache_read_per_1k": Decimal("0.00003"),  # 90% discount for cache read
+    },
+    # Anthropic Claude 3.5 Haiku
+    "claude-3-5-haiku-20241022": {
+        "input_per_1k": Decimal("0.001"),
+        "output_per_1k": Decimal("0.005"),
+        "cache_write_per_1k": Decimal("0.00125"),
+        "cache_read_per_1k": Decimal("0.0001"),
+    },
+    # OpenAI GPT-4o-mini
+    "gpt-4o-mini": {
+        "input_per_1k": Decimal("0.00015"),
+        "output_per_1k": Decimal("0.0006"),
+        "cache_write_per_1k": Decimal("0"),  # No cache pricing for OpenAI
+        "cache_read_per_1k": Decimal("0"),
+    },
+    # OpenAI GPT-4o
+    "gpt-4o": {
+        "input_per_1k": Decimal("0.0025"),
+        "output_per_1k": Decimal("0.01"),
+        "cache_write_per_1k": Decimal("0"),
+        "cache_read_per_1k": Decimal("0"),
+    },
+}
 
 # Configuration constants
 MAX_DOCUMENT_CONTEXT_TOKENS = 2000  # Maximum tokens for document context (more accurate than chars)
@@ -77,6 +115,42 @@ Please give a short succinct context to situate this chunk within the overall do
 
 
 @dataclass
+class ContextualUsageStats:
+    """Token usage and cost statistics for a single context generation call."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_creation_input_tokens: int = 0  # Anthropic: tokens written to cache
+    cache_read_input_tokens: int = 0  # Anthropic: tokens read from cache
+    is_cache_hit: bool = False  # True if cache was used for this request
+
+    @property
+    def total_tokens(self) -> int:
+        """Total tokens used (input + output)."""
+        return self.input_tokens + self.output_tokens
+
+
+@dataclass
+class ContextualCostEstimate:
+    """Cost estimate for contextual retrieval operations."""
+
+    input_cost_usd: Decimal = Decimal("0")
+    output_cost_usd: Decimal = Decimal("0")
+    cache_write_cost_usd: Decimal = Decimal("0")
+    cache_read_cost_usd: Decimal = Decimal("0")
+
+    @property
+    def total_cost_usd(self) -> Decimal:
+        """Total estimated cost in USD."""
+        return (
+            self.input_cost_usd
+            + self.output_cost_usd
+            + self.cache_write_cost_usd
+            + self.cache_read_cost_usd
+        )
+
+
+@dataclass
 class EnrichedChunk:
     """A chunk enriched with contextual information."""
 
@@ -88,6 +162,36 @@ class EnrichedChunk:
     start_char: int
     end_char: int
     context_generation_ms: float
+    usage_stats: Optional[ContextualUsageStats] = None
+
+
+@dataclass
+class AggregatedContextualStats:
+    """Aggregated statistics for a batch of contextual enrichment calls."""
+
+    chunks_enriched: int = 0
+    model: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
+    cache_hits: int = 0
+    cache_misses: int = 0
+    estimated_cost_usd: Decimal = Decimal("0")
+    total_latency_ms: float = 0.0
+
+    @property
+    def total_tokens(self) -> int:
+        """Total tokens used (input + output)."""
+        return self.input_tokens + self.output_tokens
+
+    @property
+    def cache_hit_rate(self) -> float:
+        """Cache hit rate as a percentage (0.0 to 1.0)."""
+        total = self.cache_hits + self.cache_misses
+        if total == 0:
+            return 0.0
+        return self.cache_hits / total
 
 
 @dataclass
@@ -187,7 +291,7 @@ class ContextualChunkEnricher:
         self,
         chunk_content: str,
         document_context: DocumentContext,
-    ) -> tuple[str, float]:
+    ) -> tuple[str, float, ContextualUsageStats]:
         """Generate context for a single chunk.
 
         Args:
@@ -195,7 +299,7 @@ class ContextualChunkEnricher:
             document_context: Document-level context (title, summary, full content)
 
         Returns:
-            Tuple of (generated context, latency in ms)
+            Tuple of (generated context, latency in ms, usage stats)
         """
         await self._ensure_client()
         client = self._client
@@ -223,12 +327,13 @@ class ContextualChunkEnricher:
         )
 
         start_time = time.perf_counter()
+        usage_stats = ContextualUsageStats()
 
         try:
             if self._provider == "anthropic":
-                context = await self._generate_anthropic(prompt)
+                context, usage_stats = await self._generate_anthropic(prompt)
             else:
-                context = await self._generate_openai(prompt)
+                context, usage_stats = await self._generate_openai(prompt)
         except Exception as e:
             logger.warning(
                 "context_generation_failed",
@@ -240,10 +345,14 @@ class ContextualChunkEnricher:
 
         latency_ms = (time.perf_counter() - start_time) * 1000
 
-        return context, latency_ms
+        return context, latency_ms, usage_stats
 
-    async def _generate_anthropic(self, prompt: str) -> str:
-        """Generate context using Anthropic API with optional caching."""
+    async def _generate_anthropic(self, prompt: str) -> tuple[str, ContextualUsageStats]:
+        """Generate context using Anthropic API with optional caching.
+
+        Returns:
+            Tuple of (generated context, usage stats with cache info)
+        """
         client = self._client
         if client is None:
             raise RuntimeError("Contextual enricher client not initialized.")
@@ -282,15 +391,36 @@ class ContextualChunkEnricher:
             messages=messages,
         )
 
+        # Extract usage statistics from response
+        usage = getattr(response, "usage", None)
+        usage_stats = ContextualUsageStats()
+
+        if usage:
+            usage_stats.input_tokens = getattr(usage, "input_tokens", 0)
+            usage_stats.output_tokens = getattr(usage, "output_tokens", 0)
+            # Anthropic cache-specific fields
+            usage_stats.cache_creation_input_tokens = getattr(
+                usage, "cache_creation_input_tokens", 0
+            )
+            usage_stats.cache_read_input_tokens = getattr(
+                usage, "cache_read_input_tokens", 0
+            )
+            # Consider it a cache hit if any tokens were read from cache
+            usage_stats.is_cache_hit = usage_stats.cache_read_input_tokens > 0
+
         # Defensive check for empty response
         if not response.content:
             logger.warning("anthropic_empty_response", model=self._model)
-            return ""
+            return "", usage_stats
 
-        return response.content[0].text.strip()
+        return response.content[0].text.strip(), usage_stats
 
-    async def _generate_openai(self, prompt: str) -> str:
-        """Generate context using OpenAI API."""
+    async def _generate_openai(self, prompt: str) -> tuple[str, ContextualUsageStats]:
+        """Generate context using OpenAI API.
+
+        Returns:
+            Tuple of (generated context, usage stats)
+        """
         client = self._client
         if client is None:
             raise RuntimeError("Contextual enricher client not initialized.")
@@ -300,12 +430,24 @@ class ContextualChunkEnricher:
             messages=[{"role": "user", "content": prompt}],
         )
 
+        # Extract usage statistics from response
+        usage = getattr(response, "usage", None)
+        usage_stats = ContextualUsageStats()
+
+        if usage:
+            usage_stats.input_tokens = getattr(usage, "prompt_tokens", 0)
+            usage_stats.output_tokens = getattr(usage, "completion_tokens", 0)
+            # OpenAI doesn't have cache fields, but set them to 0 for consistency
+            usage_stats.cache_creation_input_tokens = 0
+            usage_stats.cache_read_input_tokens = 0
+            usage_stats.is_cache_hit = False
+
         # Defensive check for empty response
         if not response.choices or not response.choices[0].message.content:
             logger.warning("openai_empty_response", model=self._model)
-            return ""
+            return "", usage_stats
 
-        return response.choices[0].message.content.strip()
+        return response.choices[0].message.content.strip(), usage_stats
 
     async def enrich_chunk(
         self,
@@ -319,9 +461,9 @@ class ContextualChunkEnricher:
             document_context: Document-level context
 
         Returns:
-            EnrichedChunk with context prepended
+            EnrichedChunk with context prepended and usage stats
         """
-        context, latency_ms = await self.generate_context(
+        context, latency_ms, usage_stats = await self.generate_context(
             chunk.content,
             document_context,
         )
@@ -345,6 +487,7 @@ class ContextualChunkEnricher:
             start_char=chunk.start_char,
             end_char=chunk.end_char,
             context_generation_ms=latency_ms,
+            usage_stats=usage_stats,
         )
 
     async def enrich_chunks(
@@ -352,7 +495,8 @@ class ContextualChunkEnricher:
         chunks: list[ChunkData],
         document_context: DocumentContext,
         max_concurrency: int = 5,
-    ) -> list[EnrichedChunk]:
+        tenant_id: Optional[str] = None,
+    ) -> tuple[list[EnrichedChunk], AggregatedContextualStats]:
         """Enrich multiple chunks with contextual information.
 
         Uses asyncio.gather() for parallel processing with rate limiting
@@ -362,12 +506,13 @@ class ContextualChunkEnricher:
             chunks: List of chunks to enrich
             document_context: Document-level context
             max_concurrency: Maximum concurrent API calls (default: 5)
+            tenant_id: Optional tenant identifier for multi-tenant metrics
 
         Returns:
-            List of EnrichedChunk objects in the same order as input
+            Tuple of (list of EnrichedChunk, aggregated stats)
         """
         if not chunks:
-            return []
+            return [], AggregatedContextualStats(model=self._model)
 
         start_time = time.perf_counter()
 
@@ -384,21 +529,184 @@ class ContextualChunkEnricher:
         )
 
         total_latency_ms = (time.perf_counter() - start_time) * 1000
-        avg_context_gen_ms = (
-            sum(e.context_generation_ms for e in enriched) / len(enriched)
-            if enriched else 0
-        )
 
+        # Aggregate usage statistics across all chunks
+        aggregated = self._aggregate_stats(list(enriched), total_latency_ms)
+
+        # Calculate cost estimate
+        cost_estimate = self._calculate_cost(aggregated)
+
+        # Log with the required format for contextual_retrieval
         logger.info(
-            "chunks_enriched",
-            chunk_count=len(chunks),
+            "contextual_retrieval",
+            chunks_enriched=aggregated.chunks_enriched,
+            model=aggregated.model,
+            input_tokens=aggregated.input_tokens,
+            output_tokens=aggregated.output_tokens,
+            estimated_cost_usd=float(cost_estimate.total_cost_usd),
+            cache_hits=aggregated.cache_hits,
+            cache_misses=aggregated.cache_misses,
+            cache_hit_rate=round(aggregated.cache_hit_rate, 3),
             total_latency_ms=round(total_latency_ms, 2),
-            avg_context_gen_ms=round(avg_context_gen_ms, 2),
-            max_concurrency=max_concurrency,
-            model=self._model,
+            tenant_id=tenant_id,
         )
 
-        return list(enriched)
+        # Emit Prometheus metrics if available
+        self._emit_prometheus_metrics(aggregated, cost_estimate, tenant_id)
+
+        return list(enriched), aggregated
+
+    def _aggregate_stats(
+        self,
+        enriched_chunks: list[EnrichedChunk],
+        total_latency_ms: float,
+    ) -> AggregatedContextualStats:
+        """Aggregate usage statistics from enriched chunks.
+
+        Args:
+            enriched_chunks: List of enriched chunks with usage stats
+            total_latency_ms: Total latency for the batch
+
+        Returns:
+            Aggregated statistics for the batch
+        """
+        stats = AggregatedContextualStats(
+            chunks_enriched=len(enriched_chunks),
+            model=self._model,
+            total_latency_ms=total_latency_ms,
+        )
+
+        for chunk in enriched_chunks:
+            if chunk.usage_stats:
+                stats.input_tokens += chunk.usage_stats.input_tokens
+                stats.output_tokens += chunk.usage_stats.output_tokens
+                stats.cache_creation_input_tokens += chunk.usage_stats.cache_creation_input_tokens
+                stats.cache_read_input_tokens += chunk.usage_stats.cache_read_input_tokens
+
+                if chunk.usage_stats.is_cache_hit:
+                    stats.cache_hits += 1
+                else:
+                    stats.cache_misses += 1
+
+        return stats
+
+    def _calculate_cost(
+        self,
+        stats: AggregatedContextualStats,
+    ) -> ContextualCostEstimate:
+        """Calculate cost estimate for aggregated stats.
+
+        Args:
+            stats: Aggregated usage statistics
+
+        Returns:
+            Cost estimate breakdown
+        """
+        pricing = DEFAULT_CONTEXTUAL_PRICING.get(self._model)
+        if not pricing:
+            # Use a generic fallback pricing if model not found
+            logger.debug(
+                "contextual_pricing_not_found",
+                model=self._model,
+                using_fallback=True,
+            )
+            pricing = {
+                "input_per_1k": Decimal("0.001"),
+                "output_per_1k": Decimal("0.002"),
+                "cache_write_per_1k": Decimal("0"),
+                "cache_read_per_1k": Decimal("0"),
+            }
+
+        # Calculate costs
+        input_cost = (Decimal(stats.input_tokens) / Decimal(1000)) * pricing["input_per_1k"]
+        output_cost = (Decimal(stats.output_tokens) / Decimal(1000)) * pricing["output_per_1k"]
+        cache_write_cost = (
+            Decimal(stats.cache_creation_input_tokens) / Decimal(1000)
+        ) * pricing["cache_write_per_1k"]
+        cache_read_cost = (
+            Decimal(stats.cache_read_input_tokens) / Decimal(1000)
+        ) * pricing["cache_read_per_1k"]
+
+        estimate = ContextualCostEstimate(
+            input_cost_usd=input_cost,
+            output_cost_usd=output_cost,
+            cache_write_cost_usd=cache_write_cost,
+            cache_read_cost_usd=cache_read_cost,
+        )
+
+        # Update the aggregated stats with the total cost
+        stats.estimated_cost_usd = estimate.total_cost_usd
+
+        return estimate
+
+    def _emit_prometheus_metrics(
+        self,
+        stats: AggregatedContextualStats,
+        cost: ContextualCostEstimate,
+        tenant_id: Optional[str],
+    ) -> None:
+        """Emit Prometheus metrics for contextual retrieval.
+
+        Args:
+            stats: Aggregated usage statistics
+            cost: Cost estimate
+            tenant_id: Optional tenant identifier
+        """
+        try:
+            from ..observability.metrics import (
+                CONTEXTUAL_ENRICHMENT_TOKENS_TOTAL,
+                CONTEXTUAL_ENRICHMENT_COST_USD_TOTAL,
+                CONTEXTUAL_ENRICHMENT_CACHE_HITS_TOTAL,
+                CONTEXTUAL_ENRICHMENT_CACHE_MISSES_TOTAL,
+                CONTEXTUAL_ENRICHMENT_CHUNKS_TOTAL,
+            )
+
+            tenant = tenant_id or "default"
+
+            # Token counters
+            CONTEXTUAL_ENRICHMENT_TOKENS_TOTAL.labels(
+                type="input",
+                model=self._model,
+                tenant_id=tenant,
+            ).inc(stats.input_tokens)
+
+            CONTEXTUAL_ENRICHMENT_TOKENS_TOTAL.labels(
+                type="output",
+                model=self._model,
+                tenant_id=tenant,
+            ).inc(stats.output_tokens)
+
+            # Cost counter
+            CONTEXTUAL_ENRICHMENT_COST_USD_TOTAL.labels(
+                model=self._model,
+                tenant_id=tenant,
+            ).inc(float(cost.total_cost_usd))
+
+            # Cache counters
+            CONTEXTUAL_ENRICHMENT_CACHE_HITS_TOTAL.labels(
+                model=self._model,
+                tenant_id=tenant,
+            ).inc(stats.cache_hits)
+
+            CONTEXTUAL_ENRICHMENT_CACHE_MISSES_TOTAL.labels(
+                model=self._model,
+                tenant_id=tenant,
+            ).inc(stats.cache_misses)
+
+            # Chunks counter
+            CONTEXTUAL_ENRICHMENT_CHUNKS_TOTAL.labels(
+                model=self._model,
+                tenant_id=tenant,
+            ).inc(stats.chunks_enriched)
+
+        except ImportError:
+            # Prometheus metrics not available, skip silently
+            pass
+        except Exception as e:
+            logger.debug(
+                "contextual_prometheus_metrics_error",
+                error=str(e),
+            )
 
     def get_model(self) -> str:
         """Get the model name used for context generation."""

@@ -302,7 +302,7 @@ development_status:
   19-F2-add-multi-tenancy-enforcement-tests: done
   # PRIORITY: MEDIUM
   19-F3-make-crossencoder-grader-model-selectable: done
-  19-F4-make-heuristic-content-length-weight-configurable: backlog
+  19-F4-make-heuristic-content-length-weight-configurable: done
   # PRIORITY: LOW
   19-F5-add-contextual-retrieval-cost-logging: backlog
 

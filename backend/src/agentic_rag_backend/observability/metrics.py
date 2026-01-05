@@ -183,6 +183,91 @@ Labels:
 
 
 # =============================================================================
+# Contextual Retrieval Metrics (Story 19-F5)
+# =============================================================================
+
+CONTEXTUAL_ENRICHMENT_TOKENS_TOTAL = Counter(
+    "contextual_enrichment_tokens_total",
+    "Total tokens used for contextual enrichment",
+    labelnames=["type", "model", "tenant_id"],
+    registry=_registry,
+)
+"""Counter for contextual enrichment token usage.
+
+Labels:
+    type: Token type (input|output)
+    model: Model used for enrichment (e.g., claude-3-haiku)
+    tenant_id: Tenant identifier for multi-tenancy
+"""
+
+CONTEXTUAL_ENRICHMENT_COST_USD_TOTAL = Counter(
+    "contextual_enrichment_cost_usd_total",
+    "Total estimated cost in USD for contextual enrichment",
+    labelnames=["model", "tenant_id"],
+    registry=_registry,
+)
+"""Counter for contextual enrichment cost.
+
+Labels:
+    model: Model used for enrichment
+    tenant_id: Tenant identifier for multi-tenancy
+"""
+
+CONTEXTUAL_ENRICHMENT_CACHE_HITS_TOTAL = Counter(
+    "contextual_enrichment_cache_hits_total",
+    "Total cache hits for prompt caching in contextual enrichment",
+    labelnames=["model", "tenant_id"],
+    registry=_registry,
+)
+"""Counter for prompt cache hits.
+
+Labels:
+    model: Model used for enrichment
+    tenant_id: Tenant identifier for multi-tenancy
+"""
+
+CONTEXTUAL_ENRICHMENT_CACHE_MISSES_TOTAL = Counter(
+    "contextual_enrichment_cache_misses_total",
+    "Total cache misses for prompt caching in contextual enrichment",
+    labelnames=["model", "tenant_id"],
+    registry=_registry,
+)
+"""Counter for prompt cache misses.
+
+Labels:
+    model: Model used for enrichment
+    tenant_id: Tenant identifier for multi-tenancy
+"""
+
+CONTEXTUAL_ENRICHMENT_CHUNKS_TOTAL = Counter(
+    "contextual_enrichment_chunks_total",
+    "Total chunks enriched with contextual retrieval",
+    labelnames=["model", "tenant_id"],
+    registry=_registry,
+)
+"""Counter for enriched chunks.
+
+Labels:
+    model: Model used for enrichment
+    tenant_id: Tenant identifier for multi-tenancy
+"""
+
+CONTEXTUAL_ENRICHMENT_LATENCY_SECONDS = Histogram(
+    "contextual_enrichment_latency_seconds",
+    "Latency for contextual enrichment operations in seconds",
+    labelnames=["model", "tenant_id"],
+    buckets=LATENCY_BUCKETS,
+    registry=_registry,
+)
+"""Histogram for contextual enrichment latency.
+
+Labels:
+    model: Model used for enrichment
+    tenant_id: Tenant identifier for multi-tenancy
+"""
+
+
+# =============================================================================
 # Helper Functions
 # =============================================================================
 
@@ -350,3 +435,75 @@ def track_active_retrieval(tenant_id: str) -> Generator[None, None, None]:
         yield
     finally:
         ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_id).dec()
+
+
+# =============================================================================
+# Contextual Retrieval Helper Functions
+# =============================================================================
+
+
+def record_contextual_enrichment(
+    model: str,
+    tenant_id: str,
+    input_tokens: int,
+    output_tokens: int,
+    cost_usd: float,
+    cache_hits: int,
+    cache_misses: int,
+    chunks_enriched: int,
+    latency_seconds: float,
+) -> None:
+    """Record contextual enrichment metrics.
+
+    Args:
+        model: Model used for enrichment (e.g., claude-3-haiku-20240307)
+        tenant_id: Tenant identifier
+        input_tokens: Number of input tokens used
+        output_tokens: Number of output tokens generated
+        cost_usd: Estimated cost in USD
+        cache_hits: Number of cache hits (Anthropic prompt caching)
+        cache_misses: Number of cache misses
+        chunks_enriched: Number of chunks enriched
+        latency_seconds: Total latency in seconds
+    """
+    # Token usage
+    CONTEXTUAL_ENRICHMENT_TOKENS_TOTAL.labels(
+        type="input",
+        model=model,
+        tenant_id=tenant_id,
+    ).inc(input_tokens)
+
+    CONTEXTUAL_ENRICHMENT_TOKENS_TOTAL.labels(
+        type="output",
+        model=model,
+        tenant_id=tenant_id,
+    ).inc(output_tokens)
+
+    # Cost
+    CONTEXTUAL_ENRICHMENT_COST_USD_TOTAL.labels(
+        model=model,
+        tenant_id=tenant_id,
+    ).inc(cost_usd)
+
+    # Cache metrics
+    CONTEXTUAL_ENRICHMENT_CACHE_HITS_TOTAL.labels(
+        model=model,
+        tenant_id=tenant_id,
+    ).inc(cache_hits)
+
+    CONTEXTUAL_ENRICHMENT_CACHE_MISSES_TOTAL.labels(
+        model=model,
+        tenant_id=tenant_id,
+    ).inc(cache_misses)
+
+    # Chunks
+    CONTEXTUAL_ENRICHMENT_CHUNKS_TOTAL.labels(
+        model=model,
+        tenant_id=tenant_id,
+    ).inc(chunks_enriched)
+
+    # Latency
+    CONTEXTUAL_ENRICHMENT_LATENCY_SECONDS.labels(
+        model=model,
+        tenant_id=tenant_id,
+    ).observe(latency_seconds)

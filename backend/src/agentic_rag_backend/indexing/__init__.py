@@ -33,6 +33,10 @@ from .contextual import (
     ContextualChunkEnricher,
     DocumentContext,
     EnrichedChunk,
+    ContextualUsageStats,
+    ContextualCostEstimate,
+    AggregatedContextualStats,
+    DEFAULT_CONTEXTUAL_PRICING,
     create_contextual_enricher,
 )
 from .fallback_providers import (
@@ -92,6 +96,10 @@ __all__ = [
     "ContextualChunkEnricher",
     "DocumentContext",
     "EnrichedChunk",
+    "ContextualUsageStats",
+    "ContextualCostEstimate",
+    "AggregatedContextualStats",
+    "DEFAULT_CONTEXTUAL_PRICING",
     "create_contextual_enricher",
     # Epic 13: Fallback Providers
     "CrawlResult",
