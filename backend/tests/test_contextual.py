@@ -4,6 +4,7 @@ Tests the ContextualChunkEnricher class and integration with the indexing pipeli
 """
 
 import sys
+from decimal import Decimal
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,6 +13,10 @@ from agentic_rag_backend.indexing.contextual import (
     ContextualChunkEnricher,
     DocumentContext,
     EnrichedChunk,
+    ContextualUsageStats,
+    ContextualCostEstimate,
+    AggregatedContextualStats,
+    DEFAULT_CONTEXTUAL_PRICING,
     create_contextual_enricher,
     CONTEXT_GENERATION_PROMPT,
 )
@@ -163,6 +168,13 @@ class TestContextualChunkEnricher:
 
         mock_response = MagicMock()
         mock_response.content = [MagicMock(text="This chunk discusses API authentication.")]
+        # Add usage stats to mock response
+        mock_usage = MagicMock()
+        mock_usage.input_tokens = 100
+        mock_usage.output_tokens = 25
+        mock_usage.cache_creation_input_tokens = 0
+        mock_usage.cache_read_input_tokens = 0
+        mock_response.usage = mock_usage
 
         mock_anthropic = MagicMock()
         mock_client = AsyncMock()
@@ -176,13 +188,15 @@ class TestContextualChunkEnricher:
                 full_content="REST APIs are...",
             )
 
-            context, latency = await enricher.generate_context(
+            context, latency, usage_stats = await enricher.generate_context(
                 "Authentication uses OAuth 2.0",
                 doc_context,
             )
 
             assert context == "This chunk discusses API authentication."
             assert latency > 0
+            assert usage_stats.input_tokens == 100
+            assert usage_stats.output_tokens == 25
             mock_client.messages.create.assert_called_once()
 
     @pytest.mark.asyncio
@@ -197,6 +211,13 @@ class TestContextualChunkEnricher:
 
         mock_response = MagicMock()
         mock_response.content = [MagicMock(text="Cached context response")]
+        # Add usage stats with cache hit
+        mock_usage = MagicMock()
+        mock_usage.input_tokens = 50
+        mock_usage.output_tokens = 20
+        mock_usage.cache_creation_input_tokens = 0
+        mock_usage.cache_read_input_tokens = 80  # Cache hit
+        mock_response.usage = mock_usage
 
         mock_anthropic = MagicMock()
         mock_client = AsyncMock()
@@ -210,7 +231,7 @@ class TestContextualChunkEnricher:
                 full_content="Test doc content",
             )
 
-            await enricher.generate_context("Test chunk", doc_context)
+            context, latency, usage_stats = await enricher.generate_context("Test chunk", doc_context)
 
             call_args = mock_client.messages.create.call_args
             messages = call_args.kwargs["messages"]
@@ -218,6 +239,9 @@ class TestContextualChunkEnricher:
             assert isinstance(messages[0]["content"], list)
             assert len(messages[0]["content"]) == 2
             assert messages[0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+            # Verify cache hit was detected
+            assert usage_stats.is_cache_hit is True
+            assert usage_stats.cache_read_input_tokens == 80
 
     @pytest.mark.asyncio
     async def test_generate_context_openai(self):
@@ -230,6 +254,11 @@ class TestContextualChunkEnricher:
 
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="OpenAI context"))]
+        # Add usage stats for OpenAI
+        mock_usage = MagicMock()
+        mock_usage.prompt_tokens = 120
+        mock_usage.completion_tokens = 30
+        mock_response.usage = mock_usage
 
         mock_openai = MagicMock()
         mock_client = AsyncMock()
@@ -243,10 +272,13 @@ class TestContextualChunkEnricher:
                 full_content="Content here",
             )
 
-            context, latency = await enricher.generate_context("Chunk text", doc_context)
+            context, latency, usage_stats = await enricher.generate_context("Chunk text", doc_context)
 
             assert context == "OpenAI context"
             assert latency > 0
+            assert usage_stats.input_tokens == 120
+            assert usage_stats.output_tokens == 30
+            assert usage_stats.is_cache_hit is False  # OpenAI doesn't have cache
 
     @pytest.mark.asyncio
     async def test_generate_context_graceful_degradation(self):
@@ -269,11 +301,14 @@ class TestContextualChunkEnricher:
                 full_content="Content",
             )
 
-            context, latency = await enricher.generate_context("Chunk", doc_context)
+            context, latency, usage_stats = await enricher.generate_context("Chunk", doc_context)
 
             # Should return empty string on failure, not raise
             assert context == ""
             assert latency > 0
+            # Usage stats should be empty on failure
+            assert usage_stats.input_tokens == 0
+            assert usage_stats.output_tokens == 0
 
     @pytest.mark.asyncio
     async def test_enrich_chunk(self):
@@ -286,6 +321,12 @@ class TestContextualChunkEnricher:
 
         mock_response = MagicMock()
         mock_response.content = [MagicMock(text="This describes OAuth flow")]
+        mock_usage = MagicMock()
+        mock_usage.input_tokens = 150
+        mock_usage.output_tokens = 20
+        mock_usage.cache_creation_input_tokens = 0
+        mock_usage.cache_read_input_tokens = 0
+        mock_response.usage = mock_usage
 
         mock_anthropic = MagicMock()
         mock_client = AsyncMock()
@@ -315,10 +356,14 @@ class TestContextualChunkEnricher:
             assert "This describes OAuth flow" in enriched.enriched_content
             assert enriched.context == "This describes OAuth flow"
             assert enriched.chunk_index == 0
+            # Verify usage stats are included
+            assert enriched.usage_stats is not None
+            assert enriched.usage_stats.input_tokens == 150
+            assert enriched.usage_stats.output_tokens == 20
 
     @pytest.mark.asyncio
     async def test_enrich_chunks_multiple(self):
-        """Test enriching multiple chunks."""
+        """Test enriching multiple chunks with aggregated stats."""
         enricher = ContextualChunkEnricher(
             model="claude-3-haiku-20240307",
             api_key="test-key",
@@ -327,6 +372,13 @@ class TestContextualChunkEnricher:
 
         mock_response = MagicMock()
         mock_response.content = [MagicMock(text="Generated context")]
+        # Add usage stats per call
+        mock_usage = MagicMock()
+        mock_usage.input_tokens = 100
+        mock_usage.output_tokens = 25
+        mock_usage.cache_creation_input_tokens = 50
+        mock_usage.cache_read_input_tokens = 0  # First call is cache miss
+        mock_response.usage = mock_usage
 
         mock_anthropic = MagicMock()
         mock_client = AsyncMock()
@@ -351,12 +403,21 @@ class TestContextualChunkEnricher:
                 full_content="Full content",
             )
 
-            enriched_chunks = await enricher.enrich_chunks(chunks, doc_context)
+            enriched_chunks, aggregated_stats = await enricher.enrich_chunks(
+                chunks, doc_context, tenant_id="test-tenant"
+            )
 
             assert len(enriched_chunks) == 3
             for i, enriched in enumerate(enriched_chunks):
                 assert enriched.chunk_index == i
                 assert enriched.context == "Generated context"
+
+            # Verify aggregated stats
+            assert aggregated_stats.chunks_enriched == 3
+            assert aggregated_stats.model == "claude-3-haiku-20240307"
+            assert aggregated_stats.input_tokens == 300  # 100 * 3
+            assert aggregated_stats.output_tokens == 75  # 25 * 3
+            assert aggregated_stats.cache_creation_input_tokens == 150  # 50 * 3
 
     @pytest.mark.asyncio
     async def test_document_content_truncation(self):
@@ -370,6 +431,12 @@ class TestContextualChunkEnricher:
 
         mock_response = MagicMock()
         mock_response.content = [MagicMock(text="Context")]
+        mock_usage = MagicMock()
+        mock_usage.input_tokens = 100
+        mock_usage.output_tokens = 10
+        mock_usage.cache_creation_input_tokens = 0
+        mock_usage.cache_read_input_tokens = 0
+        mock_response.usage = mock_usage
 
         mock_anthropic = MagicMock()
         mock_client = AsyncMock()
@@ -476,3 +543,195 @@ class TestContextGenerationPrompt:
         assert "</chunk>" in CONTEXT_GENERATION_PROMPT
         assert "{document_content}" in CONTEXT_GENERATION_PROMPT
         assert "{chunk_content}" in CONTEXT_GENERATION_PROMPT
+
+
+# =============================================================================
+# Story 19-F5: Contextual Retrieval Cost Logging Tests
+# =============================================================================
+
+
+class TestContextualUsageStats:
+    """Tests for ContextualUsageStats dataclass."""
+
+    def test_usage_stats_defaults(self):
+        """Test default values for usage stats."""
+        stats = ContextualUsageStats()
+        assert stats.input_tokens == 0
+        assert stats.output_tokens == 0
+        assert stats.cache_creation_input_tokens == 0
+        assert stats.cache_read_input_tokens == 0
+        assert stats.is_cache_hit is False
+
+    def test_usage_stats_total_tokens(self):
+        """Test total tokens calculation."""
+        stats = ContextualUsageStats(
+            input_tokens=100,
+            output_tokens=25,
+        )
+        assert stats.total_tokens == 125
+
+    def test_usage_stats_cache_hit_detection(self):
+        """Test cache hit detection based on cache read tokens."""
+        # Cache miss (no cache read tokens)
+        stats_miss = ContextualUsageStats(
+            input_tokens=100,
+            output_tokens=25,
+            cache_read_input_tokens=0,
+        )
+        assert stats_miss.is_cache_hit is False
+
+        # Cache hit (has cache read tokens)
+        stats_hit = ContextualUsageStats(
+            input_tokens=100,
+            output_tokens=25,
+            cache_read_input_tokens=80,
+            is_cache_hit=True,
+        )
+        assert stats_hit.is_cache_hit is True
+
+
+class TestContextualCostEstimate:
+    """Tests for ContextualCostEstimate dataclass."""
+
+    def test_cost_estimate_defaults(self):
+        """Test default values for cost estimate."""
+        cost = ContextualCostEstimate()
+        assert cost.input_cost_usd == Decimal("0")
+        assert cost.output_cost_usd == Decimal("0")
+        assert cost.cache_write_cost_usd == Decimal("0")
+        assert cost.cache_read_cost_usd == Decimal("0")
+        assert cost.total_cost_usd == Decimal("0")
+
+    def test_cost_estimate_total_calculation(self):
+        """Test total cost calculation."""
+        cost = ContextualCostEstimate(
+            input_cost_usd=Decimal("0.002"),
+            output_cost_usd=Decimal("0.001"),
+            cache_write_cost_usd=Decimal("0.0003"),
+            cache_read_cost_usd=Decimal("0.00005"),
+        )
+        assert cost.total_cost_usd == Decimal("0.00335")
+
+
+class TestAggregatedContextualStats:
+    """Tests for AggregatedContextualStats dataclass."""
+
+    def test_aggregated_stats_defaults(self):
+        """Test default values for aggregated stats."""
+        stats = AggregatedContextualStats()
+        assert stats.chunks_enriched == 0
+        assert stats.model == ""
+        assert stats.input_tokens == 0
+        assert stats.output_tokens == 0
+        assert stats.cache_hits == 0
+        assert stats.cache_misses == 0
+        assert stats.estimated_cost_usd == Decimal("0")
+
+    def test_aggregated_stats_total_tokens(self):
+        """Test total tokens calculation."""
+        stats = AggregatedContextualStats(
+            input_tokens=1000,
+            output_tokens=250,
+        )
+        assert stats.total_tokens == 1250
+
+    def test_aggregated_stats_cache_hit_rate(self):
+        """Test cache hit rate calculation."""
+        # No cache operations
+        stats_empty = AggregatedContextualStats()
+        assert stats_empty.cache_hit_rate == 0.0
+
+        # 50% hit rate
+        stats_50 = AggregatedContextualStats(
+            cache_hits=5,
+            cache_misses=5,
+        )
+        assert stats_50.cache_hit_rate == 0.5
+
+        # 100% hit rate
+        stats_100 = AggregatedContextualStats(
+            cache_hits=10,
+            cache_misses=0,
+        )
+        assert stats_100.cache_hit_rate == 1.0
+
+
+class TestCostCalculation:
+    """Tests for cost calculation functionality."""
+
+    def test_cost_calculation_with_known_model(self):
+        """Test cost calculation with a model in the pricing table."""
+        enricher = ContextualChunkEnricher(
+            model="claude-3-haiku-20240307",
+            api_key="test-key",
+            provider="anthropic",
+        )
+
+        stats = AggregatedContextualStats(
+            chunks_enriched=10,
+            model="claude-3-haiku-20240307",
+            input_tokens=1000,
+            output_tokens=200,
+            cache_creation_input_tokens=500,
+            cache_read_input_tokens=300,
+        )
+
+        cost = enricher._calculate_cost(stats)
+
+        # Verify cost breakdown using known pricing
+        # claude-3-haiku: input=$0.00025/1k, output=$0.00125/1k,
+        # cache_write=$0.0003/1k, cache_read=$0.00003/1k
+        expected_input = Decimal("1000") / Decimal("1000") * Decimal("0.00025")
+        expected_output = Decimal("200") / Decimal("1000") * Decimal("0.00125")
+        expected_cache_write = Decimal("500") / Decimal("1000") * Decimal("0.0003")
+        expected_cache_read = Decimal("300") / Decimal("1000") * Decimal("0.00003")
+
+        assert cost.input_cost_usd == expected_input
+        assert cost.output_cost_usd == expected_output
+        assert cost.cache_write_cost_usd == expected_cache_write
+        assert cost.cache_read_cost_usd == expected_cache_read
+
+    def test_cost_calculation_with_unknown_model(self):
+        """Test cost calculation with a model not in the pricing table."""
+        enricher = ContextualChunkEnricher(
+            model="unknown-model-xyz",
+            api_key="test-key",
+            provider="anthropic",
+        )
+
+        stats = AggregatedContextualStats(
+            chunks_enriched=5,
+            model="unknown-model-xyz",
+            input_tokens=500,
+            output_tokens=100,
+        )
+
+        # Should not raise, uses fallback pricing
+        cost = enricher._calculate_cost(stats)
+        assert cost.total_cost_usd > Decimal("0")
+
+
+class TestDefaultContextualPricing:
+    """Tests for default pricing configuration."""
+
+    def test_haiku_pricing_exists(self):
+        """Test that Claude 3 Haiku pricing is configured."""
+        assert "claude-3-haiku-20240307" in DEFAULT_CONTEXTUAL_PRICING
+        pricing = DEFAULT_CONTEXTUAL_PRICING["claude-3-haiku-20240307"]
+        assert "input_per_1k" in pricing
+        assert "output_per_1k" in pricing
+        assert "cache_write_per_1k" in pricing
+        assert "cache_read_per_1k" in pricing
+
+    def test_gpt4o_mini_pricing_exists(self):
+        """Test that GPT-4o-mini pricing is configured."""
+        assert "gpt-4o-mini" in DEFAULT_CONTEXTUAL_PRICING
+        pricing = DEFAULT_CONTEXTUAL_PRICING["gpt-4o-mini"]
+        assert pricing["input_per_1k"] > Decimal("0")
+        assert pricing["output_per_1k"] > Decimal("0")
+
+    def test_cache_pricing_for_openai(self):
+        """Test that OpenAI models have zero cache pricing (not supported)."""
+        pricing = DEFAULT_CONTEXTUAL_PRICING["gpt-4o-mini"]
+        assert pricing["cache_write_per_1k"] == Decimal("0")
+        assert pricing["cache_read_per_1k"] == Decimal("0")

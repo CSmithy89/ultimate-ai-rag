@@ -19,6 +19,13 @@ from .metrics import (
     RETRIEVAL_PRECISION,
     RETRIEVAL_RECALL,
     ACTIVE_RETRIEVAL_OPERATIONS,
+    # Contextual Retrieval Metrics (Story 19-F5)
+    CONTEXTUAL_ENRICHMENT_TOKENS_TOTAL,
+    CONTEXTUAL_ENRICHMENT_COST_USD_TOTAL,
+    CONTEXTUAL_ENRICHMENT_CACHE_HITS_TOTAL,
+    CONTEXTUAL_ENRICHMENT_CACHE_MISSES_TOTAL,
+    CONTEXTUAL_ENRICHMENT_CHUNKS_TOTAL,
+    CONTEXTUAL_ENRICHMENT_LATENCY_SECONDS,
     # Helper functions
     record_retrieval_request,
     record_retrieval_fallback,
@@ -29,6 +36,7 @@ from .metrics import (
     set_retrieval_precision,
     set_retrieval_recall,
     track_active_retrieval,
+    record_contextual_enrichment,
     get_metrics_registry,
 )
 from .decorators import (
@@ -53,6 +61,13 @@ __all__ = [
     "RETRIEVAL_PRECISION",
     "RETRIEVAL_RECALL",
     "ACTIVE_RETRIEVAL_OPERATIONS",
+    # Contextual Retrieval Metrics (Story 19-F5)
+    "CONTEXTUAL_ENRICHMENT_TOKENS_TOTAL",
+    "CONTEXTUAL_ENRICHMENT_COST_USD_TOTAL",
+    "CONTEXTUAL_ENRICHMENT_CACHE_HITS_TOTAL",
+    "CONTEXTUAL_ENRICHMENT_CACHE_MISSES_TOTAL",
+    "CONTEXTUAL_ENRICHMENT_CHUNKS_TOTAL",
+    "CONTEXTUAL_ENRICHMENT_LATENCY_SECONDS",
     # Helper functions
     "record_retrieval_request",
     "record_retrieval_fallback",
@@ -63,6 +78,7 @@ __all__ = [
     "set_retrieval_precision",
     "set_retrieval_recall",
     "track_active_retrieval",
+    "record_contextual_enrichment",
     "get_metrics_registry",
     # Decorators
     "track_retrieval_operation",
