@@ -33,6 +33,10 @@ from tenacity import (
 )
 
 from .types import VectorHit
+from ..observability.metrics import (
+    record_retrieval_latency,
+    record_reranking_improvement,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -74,6 +78,8 @@ class RerankerClient(ABC):
         query: str,
         hits: list[VectorHit],
         top_k: int = 10,
+        tenant_id: Optional[str] = None,
+        strategy: str = "hybrid",
     ) -> list[RerankedHit]:
         """Rerank vector hits using cross-encoder scoring.
 
@@ -81,6 +87,8 @@ class RerankerClient(ABC):
             query: The search query
             hits: Vector hits to rerank
             top_k: Number of top results to return
+            tenant_id: Tenant identifier for metrics
+            strategy: Retrieval strategy for metrics labeling
 
         Returns:
             Reranked hits with scores, sorted by relevance
@@ -131,6 +139,8 @@ class CohereRerankerClient(RerankerClient):
         query: str,
         hits: list[VectorHit],
         top_k: int = 10,
+        tenant_id: Optional[str] = None,
+        strategy: str = "hybrid",
     ) -> list[RerankedHit]:
         """Rerank using Cohere API."""
         if not hits:
@@ -153,7 +163,8 @@ class CohereRerankerClient(RerankerClient):
             logger.error("cohere_rerank_failed", error=str(e))
             raise
 
-        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        elapsed_seconds = time.perf_counter() - start_time
+        elapsed_ms = elapsed_seconds * 1000
 
         # Map results back to VectorHit objects
         reranked = []
@@ -164,6 +175,24 @@ class CohereRerankerClient(RerankerClient):
                 rerank_score=result.relevance_score,
                 original_rank=original_idx,
             ))
+
+        # Record metrics
+        if tenant_id is not None:
+            record_retrieval_latency(
+                strategy=strategy,
+                phase="rerank",
+                tenant_id=tenant_id,
+                duration_seconds=elapsed_seconds,
+            )
+            # Record improvement ratio if we have results
+            if reranked and hits:
+                pre_score = hits[0].similarity  # Best original score
+                post_score = reranked[0].rerank_score  # Best reranked score
+                record_reranking_improvement(
+                    tenant_id=tenant_id,
+                    pre_score=pre_score,
+                    post_score=post_score,
+                )
 
         logger.info(
             "cohere_rerank_complete",
@@ -206,6 +235,8 @@ class FlashRankRerankerClient(RerankerClient):
         query: str,
         hits: list[VectorHit],
         top_k: int = 10,
+        tenant_id: Optional[str] = None,
+        strategy: str = "hybrid",
     ) -> list[RerankedHit]:
         """Rerank using local FlashRank model."""
         if not hits:
@@ -228,7 +259,8 @@ class FlashRankRerankerClient(RerankerClient):
             logger.error("flashrank_rerank_failed", error=str(e))
             raise
 
-        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        elapsed_seconds = time.perf_counter() - start_time
+        elapsed_ms = elapsed_seconds * 1000
 
         # Map results back to VectorHit objects
         reranked = []
@@ -239,6 +271,24 @@ class FlashRankRerankerClient(RerankerClient):
                 rerank_score=result["score"],
                 original_rank=original_idx,
             ))
+
+        # Record metrics
+        if tenant_id is not None:
+            record_retrieval_latency(
+                strategy=strategy,
+                phase="rerank",
+                tenant_id=tenant_id,
+                duration_seconds=elapsed_seconds,
+            )
+            # Record improvement ratio if we have results
+            if reranked and hits:
+                pre_score = hits[0].similarity  # Best original score
+                post_score = reranked[0].rerank_score  # Best reranked score
+                record_reranking_improvement(
+                    tenant_id=tenant_id,
+                    pre_score=pre_score,
+                    post_score=post_score,
+                )
 
         logger.info(
             "flashrank_rerank_complete",

@@ -253,6 +253,9 @@ class Settings:
     codebase_include_class_context: bool
     codebase_incremental_indexing: bool
     codebase_index_cache_ttl_seconds: int
+    # Story 19-C5 - Prometheus Observability settings
+    prometheus_enabled: bool
+    prometheus_path: str
 
 
 def load_settings() -> Settings:
@@ -933,6 +936,9 @@ def load_settings() -> Settings:
         codebase_include_class_context=codebase_include_class_context,
         codebase_incremental_indexing=codebase_incremental_indexing,
         codebase_index_cache_ttl_seconds=codebase_index_cache_ttl_seconds,
+        # Story 19-C5 - Prometheus Observability settings
+        prometheus_enabled=get_bool_env("PROMETHEUS_ENABLED", "false"),
+        prometheus_path=os.getenv("PROMETHEUS_PATH", "/metrics"),
     )
 
 

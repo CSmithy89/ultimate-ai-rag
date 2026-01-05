@@ -1,0 +1,237 @@
+# Prometheus Alert Rules for Agentic RAG Retrieval Metrics
+#
+# Story 19-C5: Prometheus Retrieval Metrics
+#
+# These rules define alerts for quality degradation (>20% drop) and
+# other important retrieval health indicators.
+#
+# To use, add this file to your Prometheus configuration:
+# rule_files:
+#   - /path/to/prometheus-alerts.yaml
+
+groups:
+  - name: agentic_rag_retrieval_quality
+    interval: 1m
+    rules:
+      # Alert when grader pass rate drops more than 20% compared to baseline
+      - alert: RetrievalQualityDegraded
+        expr: |
+          (
+            sum(rate(grader_evaluations_total{result="pass"}[30m]))
+            / sum(rate(grader_evaluations_total[30m]))
+          ) < 0.8 * (
+            sum(rate(grader_evaluations_total{result="pass"}[24h] offset 1h))
+            / sum(rate(grader_evaluations_total[24h] offset 1h))
+          )
+        for: 10m
+        labels:
+          severity: warning
+          team: rag-platform
+        annotations:
+          summary: "Retrieval quality degraded by more than 20%"
+          description: |
+            The grader pass rate has dropped by more than 20% compared to the
+            24-hour baseline. Current pass rate: {{ $value | humanizePercentage }}
+          runbook_url: "https://docs.example.com/runbooks/retrieval-quality-degraded"
+
+      # Alert when fallback rate is too high
+      - alert: HighFallbackRate
+        expr: |
+          sum(rate(retrieval_fallback_triggered_total[10m]))
+          / sum(rate(retrieval_requests_total[10m])) > 0.3
+        for: 5m
+        labels:
+          severity: warning
+          team: rag-platform
+        annotations:
+          summary: "High retrieval fallback rate detected"
+          description: |
+            More than 30% of retrieval requests are triggering fallback.
+            Current fallback rate: {{ $value | humanizePercentage }}
+          runbook_url: "https://docs.example.com/runbooks/high-fallback-rate"
+
+      # Alert when all retrievals are failing (fallback rate 100%)
+      - alert: RetrievalCompletelyFailing
+        expr: |
+          sum(rate(retrieval_fallback_triggered_total[5m]))
+          / sum(rate(retrieval_requests_total[5m])) > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          team: rag-platform
+        annotations:
+          summary: "Retrieval is completely failing"
+          description: |
+            Nearly all retrieval requests are triggering fallback.
+            This indicates a critical issue with the retrieval pipeline.
+          runbook_url: "https://docs.example.com/runbooks/retrieval-failing"
+
+      # Alert when grader scores are consistently low
+      - alert: LowGraderScores
+        expr: |
+          histogram_quantile(0.50,
+            sum(rate(grader_score_bucket[10m])) by (le)
+          ) < 0.4
+        for: 15m
+        labels:
+          severity: warning
+          team: rag-platform
+        annotations:
+          summary: "Median grader scores are low"
+          description: |
+            The median grader score is below 0.4, indicating poor retrieval quality.
+            Current median score: {{ $value | printf "%.2f" }}
+          runbook_url: "https://docs.example.com/runbooks/low-grader-scores"
+
+  - name: agentic_rag_retrieval_performance
+    interval: 1m
+    rules:
+      # Alert when retrieval latency is too high
+      - alert: HighRetrievalLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(retrieval_latency_seconds_bucket[5m])) by (le)
+          ) > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: rag-platform
+        annotations:
+          summary: "High retrieval latency detected"
+          description: |
+            P95 retrieval latency exceeds 5 seconds.
+            Current P95: {{ $value | humanizeDuration }}
+          runbook_url: "https://docs.example.com/runbooks/high-retrieval-latency"
+
+      # Alert when rerank phase is slow
+      - alert: SlowRerankPhase
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(retrieval_latency_seconds_bucket{phase="rerank"}[5m])) by (le)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          team: rag-platform
+        annotations:
+          summary: "Rerank phase is slow"
+          description: |
+            P95 reranking latency exceeds 2 seconds.
+            Current P95: {{ $value | humanizeDuration }}
+          runbook_url: "https://docs.example.com/runbooks/slow-rerank"
+
+      # Alert when grade phase is slow
+      - alert: SlowGradePhase
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(retrieval_latency_seconds_bucket{phase="grade"}[5m])) by (le)
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: rag-platform
+        annotations:
+          summary: "Grade phase is slow"
+          description: |
+            P95 grading latency exceeds 1 second.
+            Current P95: {{ $value | humanizeDuration }}
+          runbook_url: "https://docs.example.com/runbooks/slow-grade"
+
+      # Alert on high active retrieval operations (potential queue buildup)
+      - alert: HighActiveRetrievalOperations
+        expr: |
+          sum(active_retrieval_operations) > 50
+        for: 5m
+        labels:
+          severity: warning
+          team: rag-platform
+        annotations:
+          summary: "High number of active retrieval operations"
+          description: |
+            More than 50 concurrent retrieval operations are in progress.
+            This may indicate a performance bottleneck.
+            Current count: {{ $value }}
+          runbook_url: "https://docs.example.com/runbooks/high-active-operations"
+
+  - name: agentic_rag_retrieval_strategy
+    interval: 1m
+    rules:
+      # Alert when one strategy is failing more than others
+      - alert: StrategyImbalance
+        expr: |
+          (
+            sum(rate(retrieval_fallback_triggered_total[30m])) by (strategy)
+            / sum(rate(retrieval_requests_total[30m])) by (strategy)
+          ) > 0.5
+        for: 15m
+        labels:
+          severity: warning
+          team: rag-platform
+        annotations:
+          summary: "Retrieval strategy {{ $labels.strategy }} has high fallback rate"
+          description: |
+            The {{ $labels.strategy }} retrieval strategy has a fallback rate
+            exceeding 50%. This may indicate issues with that specific strategy.
+            Current fallback rate: {{ $value | humanizePercentage }}
+          runbook_url: "https://docs.example.com/runbooks/strategy-imbalance"
+
+      # Alert when reranking is not improving results
+      - alert: IneffectiveReranking
+        expr: |
+          histogram_quantile(0.50,
+            sum(rate(reranking_improvement_ratio_bucket[30m])) by (le)
+          ) < 1.0
+        for: 30m
+        labels:
+          severity: info
+          team: rag-platform
+        annotations:
+          summary: "Reranking is not improving results"
+          description: |
+            The median reranking improvement ratio is below 1.0, meaning reranking
+            is not improving (or is degrading) retrieval quality on average.
+            Current median ratio: {{ $value | printf "%.2f" }}
+          runbook_url: "https://docs.example.com/runbooks/ineffective-reranking"
+
+  - name: agentic_rag_retrieval_tenant
+    interval: 1m
+    rules:
+      # Alert when a specific tenant has quality issues
+      - alert: TenantQualityDegraded
+        expr: |
+          (
+            sum(rate(grader_evaluations_total{result="pass"}[30m])) by (tenant_id)
+            / sum(rate(grader_evaluations_total[30m])) by (tenant_id)
+          ) < 0.5
+          and
+          sum(rate(retrieval_requests_total[30m])) by (tenant_id) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+          team: rag-platform
+        annotations:
+          summary: "Tenant {{ $labels.tenant_id }} has degraded retrieval quality"
+          description: |
+            Tenant {{ $labels.tenant_id }} has a grader pass rate below 50%.
+            This may indicate issues with their knowledge base or query patterns.
+            Current pass rate: {{ $value | humanizePercentage }}
+          runbook_url: "https://docs.example.com/runbooks/tenant-quality-degraded"
+
+      # Alert when a tenant's retrieval is slow
+      - alert: TenantHighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(retrieval_latency_seconds_bucket[5m])) by (le, tenant_id)
+          ) > 10
+          and
+          sum(rate(retrieval_requests_total[5m])) by (tenant_id) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          team: rag-platform
+        annotations:
+          summary: "Tenant {{ $labels.tenant_id }} experiencing high latency"
+          description: |
+            Tenant {{ $labels.tenant_id }} has P95 latency exceeding 10 seconds.
+            Current P95: {{ $value | humanizeDuration }}
+          runbook_url: "https://docs.example.com/runbooks/tenant-high-latency"

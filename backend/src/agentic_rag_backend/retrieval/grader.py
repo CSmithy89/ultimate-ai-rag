@@ -18,6 +18,12 @@ from typing import Any, Awaitable, Callable, Optional
 import structlog
 
 from agentic_rag_backend.config import Settings
+from agentic_rag_backend.observability.metrics import (
+    record_grader_evaluation,
+    record_grader_score,
+    record_retrieval_latency,
+    record_retrieval_fallback,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -75,7 +81,12 @@ class BaseGrader(ABC):
 
     @abstractmethod
     async def grade(
-        self, query: str, hits: list[RetrievalHit], threshold: float
+        self,
+        query: str,
+        hits: list[RetrievalHit],
+        threshold: float,
+        tenant_id: Optional[str] = None,
+        strategy: str = "hybrid",
     ) -> GraderResult:
         """Grade the retrieval results for a query.
 
@@ -83,6 +94,8 @@ class BaseGrader(ABC):
             query: The original query string
             hits: List of retrieval hits to grade
             threshold: Score threshold for passing (0.0-1.0)
+            tenant_id: Tenant identifier for metrics
+            strategy: Retrieval strategy for metrics labeling
 
         Returns:
             GraderResult with score and pass/fail status
@@ -111,13 +124,34 @@ class HeuristicGrader(BaseGrader):
         self.top_k = top_k
 
     async def grade(
-        self, query: str, hits: list[RetrievalHit], threshold: float
+        self,
+        query: str,
+        hits: list[RetrievalHit],
+        threshold: float,
+        tenant_id: Optional[str] = None,
+        strategy: str = "hybrid",
     ) -> GraderResult:
         """Grade using average retrieval score of top-k hits."""
         start_time = time.perf_counter()
 
         if not hits:
             grading_time_ms = int((time.perf_counter() - start_time) * 1000)
+            elapsed_seconds = grading_time_ms / 1000
+            # Record metrics for empty results
+            if tenant_id is not None:
+                record_retrieval_latency(
+                    strategy=strategy,
+                    phase="grade",
+                    tenant_id=tenant_id,
+                    duration_seconds=elapsed_seconds,
+                )
+                record_grader_evaluation(result="fallback", tenant_id=tenant_id)
+                record_grader_score(
+                    model=self.get_model(),
+                    tenant_id=tenant_id,
+                    score=0.0,
+                )
+                record_retrieval_fallback(reason="empty_results", tenant_id=tenant_id)
             return GraderResult(
                 score=0.0,
                 passed=False,
@@ -144,6 +178,26 @@ class HeuristicGrader(BaseGrader):
 
         passed = score >= threshold
         grading_time_ms = int((time.perf_counter() - start_time) * 1000)
+        elapsed_seconds = grading_time_ms / 1000
+
+        # Record metrics
+        if tenant_id is not None:
+            record_retrieval_latency(
+                strategy=strategy,
+                phase="grade",
+                tenant_id=tenant_id,
+                duration_seconds=elapsed_seconds,
+            )
+            if passed:
+                record_grader_evaluation(result="pass", tenant_id=tenant_id)
+            else:
+                record_grader_evaluation(result="fail", tenant_id=tenant_id)
+                record_retrieval_fallback(reason="low_score", tenant_id=tenant_id)
+            record_grader_score(
+                model=self.get_model(),
+                tenant_id=tenant_id,
+                score=score,
+            )
 
         logger.debug(
             "heuristic_grader_result",
@@ -200,13 +254,34 @@ class CrossEncoderGrader(BaseGrader):
                 )
 
     async def grade(
-        self, query: str, hits: list[RetrievalHit], threshold: float
+        self,
+        query: str,
+        hits: list[RetrievalHit],
+        threshold: float,
+        tenant_id: Optional[str] = None,
+        strategy: str = "hybrid",
     ) -> GraderResult:
         """Grade using cross-encoder relevance scores."""
         start_time = time.perf_counter()
 
         if not hits:
             grading_time_ms = int((time.perf_counter() - start_time) * 1000)
+            elapsed_seconds = grading_time_ms / 1000
+            # Record metrics for empty results
+            if tenant_id is not None:
+                record_retrieval_latency(
+                    strategy=strategy,
+                    phase="grade",
+                    tenant_id=tenant_id,
+                    duration_seconds=elapsed_seconds,
+                )
+                record_grader_evaluation(result="fallback", tenant_id=tenant_id)
+                record_grader_score(
+                    model=self.get_model(),
+                    tenant_id=tenant_id,
+                    score=0.0,
+                )
+                record_retrieval_fallback(reason="empty_results", tenant_id=tenant_id)
             return GraderResult(
                 score=0.0,
                 passed=False,
@@ -229,6 +304,22 @@ class CrossEncoderGrader(BaseGrader):
         # Handle edge case of empty scores (shouldn't happen but be defensive)
         if len(scores) == 0:
             grading_time_ms = int((time.perf_counter() - start_time) * 1000)
+            elapsed_seconds = grading_time_ms / 1000
+            # Record metrics for empty scores
+            if tenant_id is not None:
+                record_retrieval_latency(
+                    strategy=strategy,
+                    phase="grade",
+                    tenant_id=tenant_id,
+                    duration_seconds=elapsed_seconds,
+                )
+                record_grader_evaluation(result="fallback", tenant_id=tenant_id)
+                record_grader_score(
+                    model=self.get_model(),
+                    tenant_id=tenant_id,
+                    score=0.0,
+                )
+                record_retrieval_fallback(reason="empty_results", tenant_id=tenant_id)
             return GraderResult(
                 score=0.0,
                 passed=False,
@@ -244,6 +335,26 @@ class CrossEncoderGrader(BaseGrader):
 
         passed = score >= threshold
         grading_time_ms = int((time.perf_counter() - start_time) * 1000)
+        elapsed_seconds = grading_time_ms / 1000
+
+        # Record metrics
+        if tenant_id is not None:
+            record_retrieval_latency(
+                strategy=strategy,
+                phase="grade",
+                tenant_id=tenant_id,
+                duration_seconds=elapsed_seconds,
+            )
+            if passed:
+                record_grader_evaluation(result="pass", tenant_id=tenant_id)
+            else:
+                record_grader_evaluation(result="fail", tenant_id=tenant_id)
+                record_retrieval_fallback(reason="low_score", tenant_id=tenant_id)
+            record_grader_score(
+                model=self.get_model(),
+                tenant_id=tenant_id,
+                score=score,
+            )
 
         logger.debug(
             "cross_encoder_grader_result",
@@ -442,7 +553,11 @@ class RetrievalGrader:
         self.fallback_handler = fallback_handler
 
     async def grade_and_fallback(
-        self, query: str, hits: list[RetrievalHit], tenant_id: Optional[str] = None
+        self,
+        query: str,
+        hits: list[RetrievalHit],
+        tenant_id: Optional[str] = None,
+        strategy: str = "hybrid",
     ) -> tuple[GraderResult, list[RetrievalHit]]:
         """Grade retrieval results and execute fallback if needed.
 
@@ -450,11 +565,14 @@ class RetrievalGrader:
             query: The original query string
             hits: List of retrieval hits to grade
             tenant_id: Tenant identifier for multi-tenancy isolation
+            strategy: Retrieval strategy for metrics labeling
 
         Returns:
             Tuple of (GraderResult, list of additional hits from fallback)
         """
-        result = await self.grader.grade(query, hits, self.threshold)
+        result = await self.grader.grade(
+            query, hits, self.threshold, tenant_id=tenant_id, strategy=strategy
+        )
 
         fallback_hits = []
 
