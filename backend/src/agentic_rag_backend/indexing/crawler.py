@@ -13,6 +13,7 @@ Story 13.3: Migrated from custom httpx crawler to Crawl4AI library.
 Story 13.4: Added crawl configuration profiles for different scenarios.
 """
 
+import asyncio
 import hashlib
 import ipaddress
 import itertools
@@ -66,6 +67,7 @@ DEFAULT_USER_AGENT_STRATEGY = "rotate"
 DEFAULT_MAX_CONCURRENT = 10  # Maximum concurrent crawl sessions
 DEFAULT_JS_WAIT_SECONDS = 2.0  # Wait for JavaScript to render
 DEFAULT_MAX_PAGES = 1000  # Maximum pages to crawl in a single session
+ASYNC_HTML_PARSE_THRESHOLD_BYTES = 1_000_000
 
 
 _USER_AGENT_POOL: Optional[list[str]] = None
@@ -607,7 +609,30 @@ class CrawlerService:
                 self._crawler = None
         logger.info("crawler_shutdown", profile=self.profile_name)
 
-    def _convert_result_to_crawled_page(
+    async def _extract_title_from_html(
+        self,
+        html: str,
+        use_async: bool,
+    ) -> Optional[str]:
+        if not html:
+            return None
+        if use_async:
+            return await asyncio.to_thread(extract_title_from_html, html)
+        return extract_title_from_html(html)
+
+    async def _extract_links_from_html(
+        self,
+        html: str,
+        base_url: str,
+        use_async: bool,
+    ) -> list[str]:
+        if not html:
+            return []
+        if use_async:
+            return await asyncio.to_thread(extract_links_from_html, html, base_url)
+        return extract_links_from_html(html, base_url)
+
+    async def _convert_result_to_crawled_page(
         self,
         result,
         depth: int = 0,
@@ -663,15 +688,30 @@ class CrawlerService:
                 logger.warning("no_content_extracted", url=result.url)
                 return None
 
+        html_content = result.html if hasattr(result, 'html') and result.html else ""
+        html_bytes = len(html_content.encode("utf-8")) if html_content else 0
+        use_async_parse = html_bytes >= ASYNC_HTML_PARSE_THRESHOLD_BYTES
+        if use_async_parse:
+            logger.info(
+                "async_html_parse_enabled",
+                url=result.url,
+                size_bytes=html_bytes,
+                threshold_bytes=ASYNC_HTML_PARSE_THRESHOLD_BYTES,
+            )
+
         # Extract title from markdown or HTML
         title = extract_title_from_markdown(markdown_content)
-        if not title and hasattr(result, 'html') and result.html:
-            title = extract_title_from_html(result.html)
+        if not title and html_content:
+            title = await self._extract_title_from_html(html_content, use_async_parse)
 
         # Extract links from HTML if available, otherwise from markdown
-        links = []
-        if hasattr(result, 'html') and result.html:
-            links = extract_links_from_html(result.html, result.url)
+        links: list[str] = []
+        if html_content:
+            links = await self._extract_links_from_html(
+                html_content,
+                result.url,
+                use_async_parse,
+            )
         else:
             links = extract_links_from_markdown(markdown_content, result.url)
 
@@ -716,7 +756,7 @@ class CrawlerService:
                 user_agent=(self.user_agent[:80] if self.user_agent else None),
             )
             result = await self._crawler.arun(url=url, config=config)
-            return self._convert_result_to_crawled_page(result, depth=0)
+            return await self._convert_result_to_crawled_page(result, depth=0)
 
         except Exception as e:
             logger.error("crawl_page_error", url=url, error=str(e))
@@ -812,7 +852,11 @@ class CrawlerService:
                     config=config,
                     dispatcher=dispatcher,
                 ):
-                    page = self._convert_result_to_crawled_page(result, depth=0, tenant_id=tenant_id)
+                    page = await self._convert_result_to_crawled_page(
+                        result,
+                        depth=0,
+                        tenant_id=tenant_id,
+                    )
                     if page:
                         yield page
             else:
@@ -823,7 +867,11 @@ class CrawlerService:
                     dispatcher=dispatcher,
                 )
                 for result in results:
-                    page = self._convert_result_to_crawled_page(result, depth=0, tenant_id=tenant_id)
+                    page = await self._convert_result_to_crawled_page(
+                        result,
+                        depth=0,
+                        tenant_id=tenant_id,
+                    )
                     if page:
                         yield page
 
