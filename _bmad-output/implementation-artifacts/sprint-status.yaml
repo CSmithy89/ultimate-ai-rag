@@ -299,7 +299,7 @@ development_status:
   # PRIORITY: HIGH
   19-F1-add-full-retrieval-pipeline-integration-test: done
   # UPDATED (Epic 14 Retro): Include A2A API endpoint integration tests
-  19-F2-add-multi-tenancy-enforcement-tests: backlog
+  19-F2-add-multi-tenancy-enforcement-tests: done
   # PRIORITY: MEDIUM
   19-F3-make-crossencoder-grader-model-selectable: backlog
   19-F4-make-heuristic-content-length-weight-configurable: backlog
