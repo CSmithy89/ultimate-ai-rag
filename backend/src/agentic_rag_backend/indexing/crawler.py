@@ -768,6 +768,7 @@ class CrawlerService:
         urls: list[str],
         stream: bool = False,
         max_pages: int = DEFAULT_MAX_PAGES,
+        on_error: str = "fail_fast",
         tenant_id: Optional[str] = None,
     ) -> AsyncGenerator[CrawledPage, None]:
         """
@@ -780,6 +781,7 @@ class CrawlerService:
             urls: List of URLs to crawl
             stream: If True, yield results as they complete. If False, wait for all.
             max_pages: Maximum number of pages to crawl (memory safeguard)
+            on_error: "fail_fast" to raise on first failure, "continue" to skip failures
             tenant_id: Optional tenant ID for multi-tenancy tracking
 
         Yields:
@@ -798,6 +800,17 @@ class CrawlerService:
 
         if not valid_urls:
             return
+
+        if on_error not in {"fail_fast", "continue"}:
+            logger.warning(
+                "crawl_many_invalid_on_error",
+                on_error=on_error,
+                fallback="fail_fast",
+            )
+            on_error = "fail_fast"
+
+        success_count = 0
+        failed: list[tuple[str, str]] = []
 
         # Enforce max_pages limit to prevent unbounded memory usage
         if len(valid_urls) > max_pages:
@@ -853,13 +866,33 @@ class CrawlerService:
                     config=config,
                     dispatcher=dispatcher,
                 ):
+                    if not result.success:
+                        error_message = result.error_message or "crawl_failed"
+                        failed.append((result.url, error_message))
+                        logger.warning(
+                            "crawl_many_item_failed",
+                            url=result.url,
+                            error=error_message,
+                        )
+                        if on_error == "fail_fast":
+                            raise RuntimeError(
+                                f"crawl_many failed for {result.url}: {error_message}"
+                            )
+                        continue
                     page = await self._convert_result_to_crawled_page(
                         result,
                         depth=0,
                         tenant_id=tenant_id,
                     )
                     if page:
+                        success_count += 1
                         yield page
+                    else:
+                        failed.append((result.url, "conversion_failed"))
+                        if on_error == "fail_fast":
+                            raise RuntimeError(
+                                f"crawl_many conversion failed for {result.url}"
+                            )
             else:
                 # Batch mode - wait for all results
                 results = await self._crawler.arun_many(
@@ -868,19 +901,47 @@ class CrawlerService:
                     dispatcher=dispatcher,
                 )
                 for result in results:
+                    if not result.success:
+                        error_message = result.error_message or "crawl_failed"
+                        failed.append((result.url, error_message))
+                        logger.warning(
+                            "crawl_many_item_failed",
+                            url=result.url,
+                            error=error_message,
+                        )
+                        if on_error == "fail_fast":
+                            raise RuntimeError(
+                                f"crawl_many failed for {result.url}: {error_message}"
+                            )
+                        continue
                     page = await self._convert_result_to_crawled_page(
                         result,
                         depth=0,
                         tenant_id=tenant_id,
                     )
                     if page:
+                        success_count += 1
                         yield page
+                    else:
+                        failed.append((result.url, "conversion_failed"))
+                        if on_error == "fail_fast":
+                            raise RuntimeError(
+                                f"crawl_many conversion failed for {result.url}"
+                            )
 
         except Exception as e:
             logger.error("crawl_many_error", error=str(e))
-            raise
+            if on_error == "fail_fast":
+                raise
 
-        logger.info("crawl_many_completed", url_count=len(valid_urls))
+        logger.info(
+            "crawl_many_completed",
+            url_count=len(valid_urls),
+            success_count=success_count,
+            failure_count=len(failed),
+            partial=len(failed) > 0,
+            on_error=on_error,
+        )
 
     async def crawl(
         self,

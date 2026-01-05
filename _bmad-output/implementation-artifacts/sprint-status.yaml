@@ -330,7 +330,7 @@ development_status:
   # For crawls >10k pages, use bloom filter instead of set()
   19-I7-implement-config-validation-fail-fast: done
   # Consider ValueError instead of warning for invalid profiles in prod
-  19-I8-implement-crawl-many-error-recovery: backlog
+  19-I8-implement-crawl-many-error-recovery: done
   # Return partial results on failure, add URL context to error logs
   19-I9-implement-rate-limiting-enforcement: backlog
   # Currently advisory-only, add actual rate limiting (not just js_wait)
