@@ -769,6 +769,7 @@ class CrawlerService:
         stream: bool = False,
         max_pages: int = DEFAULT_MAX_PAGES,
         on_error: str = "fail_fast",
+        rate_limit: Optional[float] = None,
         tenant_id: Optional[str] = None,
     ) -> AsyncGenerator[CrawledPage, None]:
         """
@@ -782,6 +783,7 @@ class CrawlerService:
             stream: If True, yield results as they complete. If False, wait for all.
             max_pages: Maximum number of pages to crawl (memory safeguard)
             on_error: "fail_fast" to raise on first failure, "continue" to skip failures
+            rate_limit: Requests per second when rate limiting is enforced
             tenant_id: Optional tenant ID for multi-tenancy tracking
 
         Yields:
@@ -856,78 +858,96 @@ class CrawlerService:
             max_concurrent=self.max_concurrent,
             stream=stream,
             user_agent=(self.user_agent[:80] if self.user_agent else None),
+            rate_limit=rate_limit,
         )
 
         try:
-            if stream:
-                # Streaming mode - yield results as they complete
-                async for result in await self._crawler.arun_many(
-                    urls=valid_urls,
-                    config=config,
-                    dispatcher=dispatcher,
-                ):
-                    if not result.success:
-                        error_message = result.error_message or "crawl_failed"
-                        failed.append((result.url, error_message))
-                        logger.warning(
-                            "crawl_many_item_failed",
-                            url=result.url,
-                            error=error_message,
-                        )
-                        if on_error == "fail_fast":
-                            raise RuntimeError(
-                                f"crawl_many failed for {result.url}: {error_message}"
-                            )
-                        continue
-                    page = await self._convert_result_to_crawled_page(
-                        result,
-                        depth=0,
-                        tenant_id=tenant_id,
-                    )
-                    if page:
-                        success_count += 1
-                        yield page
-                    else:
-                        failed.append((result.url, "conversion_failed"))
-                        if on_error == "fail_fast":
-                            raise RuntimeError(
-                                f"crawl_many conversion failed for {result.url}"
-                            )
-            else:
-                # Batch mode - wait for all results
-                results = await self._crawler.arun_many(
-                    urls=valid_urls,
-                    config=config,
-                    dispatcher=dispatcher,
+            batch_size = len(valid_urls)
+            batch_delay = 0.0
+            if rate_limit is not None and rate_limit > 0:
+                batch_size = max(1, int(rate_limit))
+                batch_delay = batch_size / rate_limit
+                logger.info(
+                    "crawl_many_rate_limit_enabled",
+                    rate_limit=rate_limit,
+                    batch_size=batch_size,
+                    batch_delay_seconds=batch_delay,
                 )
-                for result in results:
-                    if not result.success:
-                        error_message = result.error_message or "crawl_failed"
-                        failed.append((result.url, error_message))
-                        logger.warning(
-                            "crawl_many_item_failed",
-                            url=result.url,
-                            error=error_message,
+
+            for batch_index in range(0, len(valid_urls), batch_size):
+                batch_urls = valid_urls[batch_index:batch_index + batch_size]
+                if stream:
+                    # Streaming mode - yield results as they complete
+                    async for result in await self._crawler.arun_many(
+                        urls=batch_urls,
+                        config=config,
+                        dispatcher=dispatcher,
+                    ):
+                        if not result.success:
+                            error_message = result.error_message or "crawl_failed"
+                            failed.append((result.url, error_message))
+                            logger.warning(
+                                "crawl_many_item_failed",
+                                url=result.url,
+                                error=error_message,
+                            )
+                            if on_error == "fail_fast":
+                                raise RuntimeError(
+                                    f"crawl_many failed for {result.url}: {error_message}"
+                                )
+                            continue
+                        page = await self._convert_result_to_crawled_page(
+                            result,
+                            depth=0,
+                            tenant_id=tenant_id,
                         )
-                        if on_error == "fail_fast":
-                            raise RuntimeError(
-                                f"crawl_many failed for {result.url}: {error_message}"
-                            )
-                        continue
-                    page = await self._convert_result_to_crawled_page(
-                        result,
-                        depth=0,
-                        tenant_id=tenant_id,
+                        if page:
+                            success_count += 1
+                            yield page
+                        else:
+                            failed.append((result.url, "conversion_failed"))
+                            if on_error == "fail_fast":
+                                raise RuntimeError(
+                                    f"crawl_many conversion failed for {result.url}"
+                                )
+                else:
+                    # Batch mode - wait for all results
+                    results = await self._crawler.arun_many(
+                        urls=batch_urls,
+                        config=config,
+                        dispatcher=dispatcher,
                     )
-                    if page:
-                        success_count += 1
-                        yield page
-                    else:
-                        failed.append((result.url, "conversion_failed"))
-                        if on_error == "fail_fast":
-                            raise RuntimeError(
-                                f"crawl_many conversion failed for {result.url}"
+                    for result in results:
+                        if not result.success:
+                            error_message = result.error_message or "crawl_failed"
+                            failed.append((result.url, error_message))
+                            logger.warning(
+                                "crawl_many_item_failed",
+                                url=result.url,
+                                error=error_message,
                             )
+                            if on_error == "fail_fast":
+                                raise RuntimeError(
+                                    f"crawl_many failed for {result.url}: {error_message}"
+                                )
+                            continue
+                        page = await self._convert_result_to_crawled_page(
+                            result,
+                            depth=0,
+                            tenant_id=tenant_id,
+                        )
+                        if page:
+                            success_count += 1
+                            yield page
+                        else:
+                            failed.append((result.url, "conversion_failed"))
+                            if on_error == "fail_fast":
+                                raise RuntimeError(
+                                    f"crawl_many conversion failed for {result.url}"
+                                )
+
+                if batch_delay > 0 and batch_index + batch_size < len(valid_urls):
+                    await asyncio.sleep(batch_delay)
 
         except Exception as e:
             logger.error("crawl_many_error", error=str(e))
@@ -1055,7 +1075,13 @@ class CrawlerService:
             # Crawl all URLs at this depth in parallel
             next_level: list[str] = []
 
-            async for page in self.crawl_many(urls_to_crawl, stream=True, max_pages=remaining_budget, tenant_id=tenant_id):
+            async for page in self.crawl_many(
+                urls_to_crawl,
+                stream=True,
+                max_pages=remaining_budget,
+                rate_limit=options.rate_limit,
+                tenant_id=tenant_id,
+            ):
                 page.depth = depth
                 pages_crawled += 1
                 yield page

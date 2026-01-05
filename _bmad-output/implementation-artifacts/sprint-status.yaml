@@ -332,7 +332,7 @@ development_status:
   # Consider ValueError instead of warning for invalid profiles in prod
   19-I8-implement-crawl-many-error-recovery: done
   # Return partial results on failure, add URL context to error logs
-  19-I9-implement-rate-limiting-enforcement: backlog
+  19-I9-implement-rate-limiting-enforcement: done
   # Currently advisory-only, add actual rate limiting (not just js_wait)
   19-I10-add-fallback-provider-key-validation: backlog
   # Validate APIFY/BRIGHTDATA keys when crawl_fallback_enabled=true
