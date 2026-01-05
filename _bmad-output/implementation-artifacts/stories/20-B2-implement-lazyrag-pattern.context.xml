@@ -1,0 +1,997 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>20-B2</story-id>
+    <title>Implement LazyRAG Pattern</title>
+    <generated>2026-01-05</generated>
+    <status>ready-for-dev</status>
+  </metadata>
+
+  <overview>
+    <summary>
+      LazyRAG is a query-time summarization pattern that defers graph summarization
+      to retrieval time, achieving up to 99% reduction in indexing costs compared
+      to MS GraphRAG's eager summarization approach. The implementation leverages
+      existing Graphiti search for seed entities, Neo4j traversal for subgraph
+      expansion, and the CommunityDetector from Story 20-B1 for optional community context.
+    </summary>
+    <dependencies>
+      <dependency status="completed">Story 20-B1 (Community Detection) - provides CommunityDetector</dependency>
+      <dependency status="available">Epic 5 (Graphiti) - temporal graph storage</dependency>
+      <dependency status="available">Neo4j client - graph traversal</dependency>
+      <dependency status="available">LLM provider adapter - summary generation</dependency>
+    </dependencies>
+  </overview>
+
+  <existing-code-patterns>
+
+    <!-- ========================================= -->
+    <!-- GRAPHITI RETRIEVAL PATTERNS               -->
+    <!-- ========================================= -->
+    <file path="backend/src/agentic_rag_backend/retrieval/graphiti_retrieval.py">
+      <purpose>
+        Existing Graphiti search integration. LazyRAG will use this pattern for
+        finding seed entities via embedding similarity search.
+      </purpose>
+      <key-patterns>
+        <pattern name="graphiti_search">
+          <description>
+            Core search function that wraps Graphiti client search with
+            tenant isolation via group_ids.
+          </description>
+          <code-snippet><![CDATA[
+async def graphiti_search(
+    graphiti_client: GraphitiClient,
+    query: str,
+    tenant_id: str,
+    num_results: int = 5,
+    search_type: Optional[str] = None,
+) -> GraphitiSearchResult:
+    """Search the knowledge graph using Graphiti.
+
+    Args:
+        graphiti_client: Connected Graphiti client
+        query: Search query
+        tenant_id: Tenant identifier for multi-tenancy isolation
+        num_results: Maximum number of results
+        search_type: Search type (defaults to Graphiti default)
+
+    Returns:
+        GraphitiSearchResult with nodes and edges
+    """
+    if not graphiti_client.is_connected:
+        raise Neo4jError("Graphiti client is not connected")
+
+    start_time = time.perf_counter()
+
+    try:
+        search_kwargs: dict[str, Any] = {
+            "query": query,
+            "num_results": num_results,
+            "group_ids": [tenant_id],  # Multi-tenancy filter
+        }
+        if search_type:
+            search_kwargs["search_type"] = search_type
+
+        result = await graphiti_client.client.search(**search_kwargs)
+        # ... process results
+          ]]></code-snippet>
+        </pattern>
+
+        <pattern name="SearchNode-model">
+          <description>
+            Pydantic model for search result nodes. LazyRAG should follow this
+            pattern for entity representation.
+          </description>
+          <code-snippet><![CDATA[
+class SearchNode(BaseModel):
+    """Node from Graphiti search result."""
+
+    uuid: str
+    name: str
+    summary: str
+    labels: list[str]
+    group_id: Optional[str] = None
+
+    @classmethod
+    def from_graphiti(cls, node: Any, tenant_id: str) -> "SearchNode":
+        """Create SearchNode from Graphiti node object."""
+        return cls(
+            uuid=str(node.uuid),
+            name=node.name if hasattr(node, "name") else "",
+            summary=node.summary if hasattr(node, "summary") else "",
+            labels=list(node.labels) if hasattr(node, "labels") else [],
+            group_id=getattr(node, "group_id", None),
+        )
+          ]]></code-snippet>
+        </pattern>
+      </key-patterns>
+    </file>
+
+    <!-- ========================================= -->
+    <!-- COMMUNITY DETECTION (20-B1) INTEGRATION   -->
+    <!-- ========================================= -->
+    <file path="backend/src/agentic_rag_backend/graph/community.py">
+      <purpose>
+        Community detection implementation from Story 20-B1. LazyRAG integrates
+        with CommunityDetector to include community context when LAZY_RAG_USE_COMMUNITIES=true.
+      </purpose>
+      <key-patterns>
+        <pattern name="CommunityDetector-class">
+          <description>
+            Main class for community detection and retrieval. LazyRAG uses
+            get_communities_for_entities() to fetch community context.
+          </description>
+          <code-snippet><![CDATA[
+class CommunityDetector:
+    """Detect and manage entity communities in knowledge graph.
+
+    Uses hierarchical community detection (Louvain or Leiden algorithms)
+    to identify clusters of related entities and generate LLM summaries.
+    """
+
+    def __init__(
+        self,
+        neo4j_client: Neo4jClient,
+        llm_client: Optional[Any] = None,
+        algorithm: CommunityAlgorithm = CommunityAlgorithm.LOUVAIN,
+        min_community_size: int = 3,
+        max_hierarchy_levels: int = 3,
+        summary_model: str = "gpt-4o-mini",
+    ):
+        """Initialize CommunityDetector.
+
+        Args:
+            neo4j_client: Neo4j client for graph operations
+            llm_client: Optional LLM client for summary generation
+            algorithm: Community detection algorithm (louvain or leiden)
+            min_community_size: Minimum entities for a valid community
+            max_hierarchy_levels: Maximum hierarchy depth
+            summary_model: Model to use for summary generation
+        """
+        self._neo4j = neo4j_client
+        self._llm_client = llm_client
+        self.algorithm = algorithm
+        self.min_community_size = min_community_size
+        self.max_hierarchy_levels = max_hierarchy_levels
+        self.summary_model = summary_model
+          ]]></code-snippet>
+        </pattern>
+
+        <pattern name="Community-model">
+          <description>
+            Pydantic model for community data. LazyRAG should use community
+            summaries and keywords for context enrichment.
+          </description>
+          <code-snippet><![CDATA[
+class Community(BaseModel):
+    """A community of related entities in the knowledge graph."""
+
+    id: str
+    name: str
+    level: int = 0
+    tenant_id: str
+    entity_ids: list[str] = []
+    entity_count: int = 0
+    summary: Optional[str] = None
+    keywords: list[str] = []
+    parent_id: Optional[str] = None
+    child_ids: list[str] = []
+    created_at: Optional[datetime] = None
+          ]]></code-snippet>
+        </pattern>
+
+        <pattern name="search_communities">
+          <description>
+            Method to search communities by keyword. Useful for finding
+            relevant communities based on query terms.
+          </description>
+          <code-snippet><![CDATA[
+async def search_communities(
+    self,
+    query: str,
+    tenant_id: str,
+    level: Optional[int] = None,
+    limit: int = 10,
+) -> list[Community]:
+    """Search communities by keyword.
+
+    Performs text search on community names, summaries, and keywords.
+
+    Args:
+        query: Search query
+        tenant_id: Tenant identifier
+        level: Optional filter by hierarchy level
+        limit: Maximum results
+
+    Returns:
+        List of matching Community objects
+    """
+    cypher = """
+    MATCH (c:Community {tenant_id: $tenant_id})
+    WHERE c.name CONTAINS $query
+       OR c.summary CONTAINS $query
+       OR ANY(kw IN c.keywords WHERE kw CONTAINS $query)
+    """
+    if level is not None:
+        cypher += " AND c.level = $level"
+    cypher += " RETURN c ORDER BY c.entity_count DESC LIMIT $limit"
+          ]]></code-snippet>
+        </pattern>
+      </key-patterns>
+    </file>
+
+    <!-- ========================================= -->
+    <!-- NEO4J CLIENT PATTERNS                     -->
+    <!-- ========================================= -->
+    <file path="backend/src/agentic_rag_backend/db/neo4j.py">
+      <purpose>
+        Neo4j client wrapper with connection pooling and health checks.
+        LazyRAG uses this for subgraph traversal queries.
+      </purpose>
+      <key-patterns>
+        <pattern name="Neo4jClient-class">
+          <description>
+            Neo4j client with async support for graph operations.
+          </description>
+          <code-snippet><![CDATA[
+class Neo4jClient:
+    """Neo4j database client with connection pooling."""
+
+    def __init__(
+        self,
+        uri: str,
+        user: str,
+        password: str,
+        pool_size_min: int = 1,
+        pool_size_max: int = 50,
+        acquire_timeout: float = 30.0,
+        connection_timeout: float = 30.0,
+        max_lifetime: int = 3600,
+    ) -> None:
+        """Initialize Neo4j client."""
+        self.uri = uri
+        self.user = user
+        self._driver: Optional[AsyncGraphDatabase.driver] = None
+        # ... connection setup
+
+    async def execute_query(
+        self,
+        query: str,
+        parameters: Optional[dict[str, Any]] = None,
+        database: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Execute a Cypher query and return results."""
+        async with self._driver.session(database=database) as session:
+            result = await session.run(query, parameters or {})
+            return [record.data() async for record in result]
+          ]]></code-snippet>
+        </pattern>
+
+        <pattern name="traversal-query-example">
+          <description>
+            Pattern for relationship traversal in Neo4j. LazyRAG will use
+            similar pattern for N-hop expansion from seed entities.
+          </description>
+          <code-snippet><![CDATA[
+# Example traversal query pattern for LazyRAG subgraph expansion
+EXPANSION_QUERY = """
+MATCH (seed:Entity {id: $seed_id, tenant_id: $tenant_id})
+MATCH path = (seed)-[r*1..$max_hops]-(related:Entity {tenant_id: $tenant_id})
+RETURN DISTINCT
+    related.id AS entity_id,
+    related.name AS name,
+    related.type AS type,
+    related.description AS description,
+    type(r[-1]) AS relationship_type,
+    startNode(r[-1]).id AS source_id,
+    endNode(r[-1]).id AS target_id
+LIMIT $limit
+"""
+          ]]></code-snippet>
+        </pattern>
+      </key-patterns>
+    </file>
+
+    <!-- ========================================= -->
+    <!-- LLM PROVIDER PATTERNS                     -->
+    <!-- ========================================= -->
+    <file path="backend/src/agentic_rag_backend/llm/providers.py">
+      <purpose>
+        LLM provider adapter for multi-provider support. LazyRAG uses
+        this pattern for summary generation with configurable model.
+      </purpose>
+      <key-patterns>
+        <pattern name="LLMProviderAdapter">
+          <description>
+            Adapter for OpenAI-compatible providers. Used for creating
+            LLM clients with proper authentication.
+          </description>
+          <code-snippet><![CDATA[
+@dataclass(frozen=True)
+class LLMProviderAdapter:
+    """Adapter for OpenAI-compatible providers."""
+
+    provider: str
+    api_key: Optional[str]
+    base_url: Optional[str]
+    embedding_api_key: Optional[str]
+    embedding_base_url: Optional[str]
+
+    def openai_kwargs(self) -> dict[str, Any]:
+        """Build kwargs for OpenAI-compatible clients."""
+        if self.provider not in OPENAI_COMPATIBLE_LLM_PROVIDERS:
+            raise UnsupportedLLMProviderError(
+                f"Provider {self.provider!r} is not OpenAI-compatible."
+            )
+        kwargs: dict[str, Any] = {"api_key": self.api_key or ""}
+        if self.base_url:
+            kwargs["base_url"] = self.base_url
+        return kwargs
+
+def get_llm_adapter(settings: Settings) -> LLMProviderAdapter:
+    """Resolve provider adapter for the configured LLM provider."""
+    # ... provider resolution logic
+          ]]></code-snippet>
+        </pattern>
+      </key-patterns>
+    </file>
+
+    <!-- ========================================= -->
+    <!-- RETRIEVAL TYPES                           -->
+    <!-- ========================================= -->
+    <file path="backend/src/agentic_rag_backend/retrieval/types.py">
+      <purpose>
+        Common retrieval type definitions. LazyRAG should follow these
+        patterns for consistency with other retrieval modules.
+      </purpose>
+      <key-patterns>
+        <pattern name="dataclass-types">
+          <description>
+            Frozen dataclass patterns for retrieval results. LazyRAG
+            should follow similar immutable result patterns.
+          </description>
+          <code-snippet><![CDATA[
+@dataclass(frozen=True)
+class VectorHit:
+    chunk_id: str
+    document_id: str
+    content: str
+    similarity: float
+    metadata: Optional[dict[str, Any]] = None
+
+
+@dataclass(frozen=True)
+class GraphNode:
+    id: str
+    name: str
+    type: str
+    description: Optional[str] = None
+    source_chunks: Optional[list[str]] = None
+
+
+@dataclass(frozen=True)
+class GraphEdge:
+    source_id: str
+    target_id: str
+    type: str
+    confidence: Optional[float] = None
+    source_chunk: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class GraphTraversalResult:
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+    paths: list[GraphPath]
+          ]]></code-snippet>
+        </pattern>
+      </key-patterns>
+    </file>
+
+    <!-- ========================================= -->
+    <!-- API ROUTE PATTERNS                        -->
+    <!-- ========================================= -->
+    <file path="backend/src/agentic_rag_backend/api/routes/communities.py">
+      <purpose>
+        Community detection API routes (Story 20-B1). LazyRAG routes should
+        follow identical patterns for consistency.
+      </purpose>
+      <key-patterns>
+        <pattern name="success-response-wrapper">
+          <description>
+            Standard success response format for all API endpoints.
+          </description>
+          <code-snippet><![CDATA[
+class Meta(BaseModel):
+    """Response metadata."""
+
+    requestId: str
+    timestamp: str
+
+
+class SuccessResponse(BaseModel):
+    """Standard success response wrapper."""
+
+    data: Any
+    meta: Meta
+
+
+def success_response(data: Any) -> dict[str, Any]:
+    """Wrap data in standard success response format.
+
+    Args:
+        data: Response data
+
+    Returns:
+        Dictionary with data and meta fields
+    """
+    return {
+        "data": data,
+        "meta": {
+            "requestId": str(uuid4()),
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        },
+    }
+          ]]></code-snippet>
+        </pattern>
+
+        <pattern name="feature-flag-check">
+          <description>
+            Feature flag gating pattern. LazyRAG must check LAZY_RAG_ENABLED.
+          </description>
+          <code-snippet><![CDATA[
+def check_feature_enabled(settings: Settings) -> None:
+    """Check if community detection feature is enabled.
+
+    Raises:
+        HTTPException: 404 if feature is disabled
+    """
+    if not settings.community_detection_enabled:
+        raise HTTPException(
+            status_code=404,
+            detail="Community detection feature is not enabled. Set COMMUNITY_DETECTION_ENABLED=true to enable.",
+        )
+          ]]></code-snippet>
+        </pattern>
+
+        <pattern name="dependency-injection">
+          <description>
+            FastAPI dependency injection for app.state resources.
+          </description>
+          <code-snippet><![CDATA[
+async def get_settings(request: Request) -> Settings:
+    """Get settings from app.state."""
+    return request.app.state.settings
+
+
+async def get_neo4j(request: Request):
+    """Get Neo4j client from app.state."""
+    return getattr(request.app.state, "neo4j", None)
+
+
+async def get_community_detector(request: Request) -> CommunityDetector:
+    """Get or create CommunityDetector from app.state."""
+    settings: Settings = request.app.state.settings
+
+    # Check if we've already created the detector
+    if hasattr(request.app.state, "community_detector"):
+        return request.app.state.community_detector
+
+    neo4j = getattr(request.app.state, "neo4j", None)
+    if not neo4j:
+        raise HTTPException(
+            status_code=503,
+            detail="Neo4j client not available.",
+        )
+    # ... detector creation
+          ]]></code-snippet>
+        </pattern>
+
+        <pattern name="router-definition">
+          <description>
+            API router setup pattern with prefix and tags.
+          </description>
+          <code-snippet><![CDATA[
+router = APIRouter(prefix="/communities", tags=["communities"])
+
+@router.post(
+    "/detect",
+    response_model=SuccessResponse,
+    summary="Trigger community detection",
+    description="Run community detection algorithm on the knowledge graph.",
+)
+async def detect_communities(
+    detection_request: CommunityDetectionRequest,
+    settings: Settings = Depends(get_settings),
+    detector: CommunityDetector = Depends(get_community_detector),
+) -> dict[str, Any]:
+    """Trigger community detection on the knowledge graph."""
+    check_feature_enabled(settings)
+    # ... implementation
+          ]]></code-snippet>
+        </pattern>
+      </key-patterns>
+    </file>
+
+    <!-- ========================================= -->
+    <!-- CONFIGURATION PATTERNS                    -->
+    <!-- ========================================= -->
+    <file path="backend/src/agentic_rag_backend/config.py">
+      <purpose>
+        Application settings with environment variable loading. LazyRAG
+        configuration should follow existing patterns.
+      </purpose>
+      <key-patterns>
+        <pattern name="settings-dataclass">
+          <description>
+            Settings dataclass with all configuration values. New LazyRAG
+            settings should be added here.
+          </description>
+          <code-snippet><![CDATA[
+@dataclass(frozen=True)
+class Settings:
+    """Application settings loaded from environment variables."""
+
+    # ... existing settings ...
+
+    # Story 20-B1 - Community Detection (Graph Intelligence)
+    community_detection_enabled: bool
+    community_algorithm: str
+    community_min_size: int
+    community_max_levels: int
+    community_summary_model: str
+    community_refresh_schedule: str
+
+    # NEW: Story 20-B2 - LazyRAG Pattern
+    # lazy_rag_enabled: bool
+    # lazy_rag_max_entities: int
+    # lazy_rag_max_hops: int
+    # lazy_rag_summary_model: str
+    # lazy_rag_use_communities: bool
+          ]]></code-snippet>
+        </pattern>
+
+        <pattern name="get_bool_env-helper">
+          <description>
+            Helper for parsing boolean environment variables.
+          </description>
+          <code-snippet><![CDATA[
+def get_bool_env(key: str, default: str = "false") -> bool:
+    """Parse a boolean environment variable.
+
+    Args:
+        key: Environment variable name
+        default: Default value if not set (default: "false")
+
+    Returns:
+        True if value is "true", "1", or "yes" (case-insensitive), False otherwise
+    """
+    return os.getenv(key, default).strip().lower() in {"true", "1", "yes"}
+          ]]></code-snippet>
+        </pattern>
+
+        <pattern name="get_int_env-helper">
+          <description>
+            Helper for parsing integer environment variables with min validation.
+          </description>
+          <code-snippet><![CDATA[
+def get_int_env(key: str, default: int, min_val: Optional[int] = None) -> int:
+    """Parse an integer environment variable with optional minimum validation."""
+    raw_value = os.getenv(key)
+    if raw_value is None:
+        return default
+    try:
+        value = int(raw_value)
+        if min_val is not None and value < min_val:
+            _config_logger.warning(
+                "config_value_below_minimum",
+                key=key,
+                value=value,
+                min_val=min_val,
+                using_default=default,
+            )
+            return default
+        return value
+    except ValueError:
+        _config_logger.warning(
+            "config_parse_error",
+            key=key,
+            raw_value=raw_value,
+            expected_type="int",
+            using_default=default,
+        )
+        return default
+          ]]></code-snippet>
+        </pattern>
+      </key-patterns>
+    </file>
+  </existing-code-patterns>
+
+  <!-- ========================================= -->
+  <!-- TEST PATTERNS                             -->
+  <!-- ========================================= -->
+  <test-patterns>
+    <file path="backend/tests/graph/test_community.py">
+      <purpose>
+        Unit tests for CommunityDetector. LazyRAG tests should follow
+        similar patterns for mocking and assertions.
+      </purpose>
+      <key-patterns>
+        <pattern name="mock-neo4j-client">
+          <description>
+            Pattern for mocking Neo4j client with async session.
+          </description>
+          <code-snippet><![CDATA[
+@pytest.fixture
+def mock_neo4j_client():
+    """Create a mock Neo4j client."""
+    client = MagicMock()
+    mock_driver = MagicMock()
+    client.driver = mock_driver
+    return client
+
+
+@pytest.fixture
+def mock_session():
+    """Create a mock Neo4j session."""
+    session = AsyncMock()
+    return session
+          ]]></code-snippet>
+        </pattern>
+
+        <pattern name="async-test-with-mock-session">
+          <description>
+            Pattern for async tests with mocked Neo4j session context manager.
+          </description>
+          <code-snippet><![CDATA[
+@pytest.mark.asyncio
+async def test_build_networkx_graph(self, mock_neo4j_client, sample_nodes, sample_edges):
+    """Test building NetworkX graph from Neo4j data."""
+    # Setup mock session
+    mock_session = AsyncMock()
+
+    # Mock node query result
+    mock_node_result = AsyncMock()
+    mock_node_result.data.return_value = sample_nodes
+
+    # Mock edge query result
+    mock_edge_result = AsyncMock()
+    mock_edge_result.data.return_value = sample_edges
+
+    mock_session.run = AsyncMock(side_effect=[mock_node_result, mock_edge_result])
+
+    # Create async context manager mock
+    mock_driver = MagicMock()
+    mock_driver.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_driver.session.return_value.__aexit__ = AsyncMock(return_value=None)
+    mock_neo4j_client.driver = mock_driver
+
+    detector = CommunityDetector(neo4j_client=mock_neo4j_client)
+    G = await detector._build_networkx_graph("tenant-123")
+
+    # Verify nodes
+    assert len(G.nodes) == 5
+          ]]></code-snippet>
+        </pattern>
+
+        <pattern name="skipif-dependency-pattern">
+          <description>
+            Pattern for skipping tests when optional dependencies are missing.
+          </description>
+          <code-snippet><![CDATA[
+# Skip all tests if networkx not available
+pytestmark = pytest.mark.skipif(
+    not NETWORKX_AVAILABLE,
+    reason="NetworkX not installed",
+)
+          ]]></code-snippet>
+        </pattern>
+      </key-patterns>
+    </file>
+
+    <file path="backend/tests/retrieval/test_graphiti_retrieval.py">
+      <purpose>
+        Unit tests for Graphiti retrieval. LazyRAG tests should follow
+        similar patterns for mocking Graphiti client.
+      </purpose>
+      <key-patterns>
+        <pattern name="mock-graphiti-client">
+          <description>
+            Pattern for mocking Graphiti client with search results.
+          </description>
+          <code-snippet><![CDATA[
+@pytest.fixture
+def mock_graphiti_client(self):
+    """Create a mock GraphitiClient."""
+    client = MagicMock()
+    client.client = MagicMock()
+
+    search_result = MagicMock()
+    search_result.nodes = [
+        _make_mock_node(
+            "node-1", "FastAPI", "Modern web framework for Python", ["TechnicalConcept"]
+        ),
+        _make_mock_node(
+            "node-2", "async/await", "Asynchronous programming pattern", ["CodePattern"]
+        ),
+    ]
+    search_result.edges = [
+        _make_mock_edge(
+            "edge-1", "node-1", "node-2", "USES",
+            "FastAPI uses async/await for handling requests"
+        ),
+    ]
+
+    client.client.search = AsyncMock(return_value=search_result)
+    client.is_connected = True
+    return client
+          ]]></code-snippet>
+        </pattern>
+
+        <pattern name="tenant-isolation-test">
+          <description>
+            Pattern for testing tenant isolation via group_ids.
+          </description>
+          <code-snippet><![CDATA[
+@pytest.mark.asyncio
+async def test_search_uses_tenant_as_group_id(self, mock_graphiti_client):
+    """Should use tenant_id as group_ids for multi-tenancy."""
+    from agentic_rag_backend.retrieval.graphiti_retrieval import graphiti_search
+
+    tenant_id = "my-11111111-1111-1111-1111-11111111111123"
+    await graphiti_search(
+        graphiti_client=mock_graphiti_client,
+        query="test query",
+        tenant_id=tenant_id,
+    )
+
+    call_kwargs = mock_graphiti_client.client.search.call_args[1]
+    assert call_kwargs.get("group_ids") == [tenant_id]
+          ]]></code-snippet>
+        </pattern>
+      </key-patterns>
+    </file>
+  </test-patterns>
+
+  <!-- ========================================= -->
+  <!-- NEO4J CYPHER QUERIES FOR LAZYRAG          -->
+  <!-- ========================================= -->
+  <neo4j-queries>
+    <query name="find-entities-for-community">
+      <description>
+        Query to find which communities contain specific entities.
+        Used when LAZY_RAG_USE_COMMUNITIES=true.
+      </description>
+      <cypher><![CDATA[
+MATCH (e:Entity {tenant_id: $tenant_id})-[:BELONGS_TO]->(c:Community {tenant_id: $tenant_id})
+WHERE e.id IN $entity_ids
+RETURN DISTINCT c.id AS community_id,
+       c.name AS name,
+       c.summary AS summary,
+       c.keywords AS keywords,
+       c.level AS level
+ORDER BY c.level DESC
+      ]]></cypher>
+    </query>
+
+    <query name="expand-subgraph-from-seeds">
+      <description>
+        Query to expand subgraph from seed entities up to N hops.
+        This is the core traversal for LazyRAG subgraph extraction.
+      </description>
+      <cypher><![CDATA[
+MATCH (seed:Entity {tenant_id: $tenant_id})
+WHERE seed.id IN $seed_ids
+MATCH path = (seed)-[r*1..$max_hops]-(related:Entity {tenant_id: $tenant_id})
+WITH DISTINCT related, r, seed
+RETURN
+    related.id AS entity_id,
+    related.name AS name,
+    related.type AS type,
+    related.description AS description,
+    seed.id AS connected_from,
+    [rel IN r | {type: type(rel), properties: properties(rel)}] AS relationships
+LIMIT $limit
+      ]]></cypher>
+    </query>
+
+    <query name="get-entity-details">
+      <description>
+        Query to get detailed entity information for formatting context.
+      </description>
+      <cypher><![CDATA[
+MATCH (e:Entity {tenant_id: $tenant_id})
+WHERE e.id IN $entity_ids
+RETURN e.id AS id,
+       e.name AS name,
+       e.type AS type,
+       e.description AS description,
+       e.summary AS summary
+      ]]></cypher>
+    </query>
+
+    <query name="get-relationships-between-entities">
+      <description>
+        Query to get all relationships between a set of entities.
+      </description>
+      <cypher><![CDATA[
+MATCH (a:Entity {tenant_id: $tenant_id})-[r]->(b:Entity {tenant_id: $tenant_id})
+WHERE a.id IN $entity_ids AND b.id IN $entity_ids
+RETURN a.id AS source_id,
+       type(r) AS relationship_type,
+       r.fact AS fact,
+       b.id AS target_id
+      ]]></cypher>
+    </query>
+  </neo4j-queries>
+
+  <!-- ========================================= -->
+  <!-- IMPLEMENTATION GUIDANCE                   -->
+  <!-- ========================================= -->
+  <implementation-guidance>
+    <file-structure>
+      <description>Recommended file structure for LazyRAG implementation</description>
+      <structure><![CDATA[
+backend/src/agentic_rag_backend/
++-- retrieval/
+|   +-- lazy_rag.py              # NEW: LazyRAGRetriever class
+|   +-- types.py                 # ADD: LazyRAGResult, SummaryResult if needed
++-- api/routes/
+|   +-- lazy_rag.py              # NEW: API routes for /api/v1/lazy-rag/*
++-- config.py                    # ADD: LAZY_RAG_* settings
+
+backend/tests/
++-- retrieval/
+|   +-- test_lazy_rag.py         # NEW: Unit tests
++-- integration/
+|   +-- test_lazy_rag_integration.py  # NEW: Integration tests
+      ]]></structure>
+    </file-structure>
+
+    <configuration-to-add>
+      <description>Configuration variables to add to Settings dataclass and load_settings()</description>
+      <variables><![CDATA[
+# Add to Settings dataclass:
+lazy_rag_enabled: bool
+lazy_rag_max_entities: int
+lazy_rag_max_hops: int
+lazy_rag_summary_model: str
+lazy_rag_use_communities: bool
+
+# Add to load_settings():
+# Story 20-B2 - LazyRAG Pattern
+lazy_rag_enabled = get_bool_env("LAZY_RAG_ENABLED", "false")
+lazy_rag_max_entities = get_int_env("LAZY_RAG_MAX_ENTITIES", 50, min_val=1)
+lazy_rag_max_hops = get_int_env("LAZY_RAG_MAX_HOPS", 2, min_val=1)
+lazy_rag_summary_model = os.getenv("LAZY_RAG_SUMMARY_MODEL", "gpt-4o-mini")
+lazy_rag_use_communities = get_bool_env("LAZY_RAG_USE_COMMUNITIES", "true")
+      ]]></variables>
+    </configuration-to-add>
+
+    <llm-integration-pattern>
+      <description>Pattern for LLM summary generation using existing providers</description>
+      <code-snippet><![CDATA[
+# LazyRAG should use the configured LLM provider via settings
+# Option 1: Use OpenAI client directly (for OpenAI-compatible providers)
+from openai import AsyncOpenAI
+
+async def _generate_summary(
+    self,
+    query: str,
+    entities: list[dict],
+    relationships: list[dict],
+    community_context: Optional[str],
+) -> SummaryResult:
+    """Generate summary using LLM."""
+    # Build prompt
+    prompt = self._build_summary_prompt(query, entities, relationships, community_context)
+
+    # Get LLM adapter from settings
+    adapter = get_llm_adapter(self._settings)
+
+    # Create client (use OpenAI for OpenAI-compatible providers)
+    client = AsyncOpenAI(**adapter.openai_kwargs())
+
+    response = await client.chat.completions.create(
+        model=self._settings.lazy_rag_summary_model,
+        messages=[
+            {"role": "system", "content": "You are a knowledge graph analyst."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.3,
+        max_tokens=1000,
+    )
+
+    return SummaryResult(
+        text=response.choices[0].message.content,
+        confidence=self._estimate_confidence(entities, relationships),
+    )
+      ]]></code-snippet>
+    </llm-integration-pattern>
+
+    <summary-prompt-template>
+      <description>Recommended prompt template for query-time summarization</description>
+      <template><![CDATA[
+Based on the following knowledge graph subset, answer the query.
+
+Query: {query}
+
+Entities ({entity_count} total):
+{entity_context}
+
+Relationships ({relationship_count} total):
+{relationship_context}
+
+{community_context_section}
+
+Instructions:
+1. Provide a comprehensive answer based ONLY on the information above.
+2. Reference specific entities and relationships when relevant.
+3. If the information is insufficient to fully answer the query, indicate what's missing.
+4. Be concise but thorough.
+
+Answer:
+      ]]></template>
+    </summary-prompt-template>
+
+    <confidence-estimation>
+      <description>Algorithm for estimating summary confidence based on coverage</description>
+      <code-snippet><![CDATA[
+def _estimate_confidence(
+    self,
+    query_terms: list[str],
+    entities: list[dict],
+    relationships: list[dict],
+) -> float:
+    """Estimate confidence based on entity coverage of query terms.
+
+    Confidence factors:
+    - Entity count relative to max_entities (higher = more context)
+    - Query term coverage in entity names/descriptions
+    - Relationship density (more relationships = better connected)
+    """
+    if not entities:
+        return 0.0
+
+    # Factor 1: Entity coverage (0.0-0.4)
+    entity_ratio = min(1.0, len(entities) / self.max_entities)
+    entity_score = entity_ratio * 0.4
+
+    # Factor 2: Query term coverage in entities (0.0-0.4)
+    entity_text = " ".join([
+        f"{e.get('name', '')} {e.get('description', '')}"
+        for e in entities
+    ]).lower()
+    terms_found = sum(1 for term in query_terms if term.lower() in entity_text)
+    term_coverage = terms_found / max(1, len(query_terms))
+    term_score = term_coverage * 0.4
+
+    # Factor 3: Relationship density (0.0-0.2)
+    if len(entities) > 1:
+        max_possible_rels = len(entities) * (len(entities) - 1)
+        rel_density = min(1.0, len(relationships) / max(1, max_possible_rels))
+    else:
+        rel_density = 0.0
+    rel_score = rel_density * 0.2
+
+    return round(entity_score + term_score + rel_score, 2)
+      ]]></code-snippet>
+    </confidence-estimation>
+  </implementation-guidance>
+
+  <!-- ========================================= -->
+  <!-- REFERENCES                                -->
+  <!-- ========================================= -->
+  <references>
+    <reference type="story-file">_bmad-output/implementation-artifacts/stories/20-B2-implement-lazyrag-pattern.md</reference>
+    <reference type="tech-spec">_bmad-output/epics/epic-20-tech-spec.md (Group B section)</reference>
+    <reference type="dependency">backend/src/agentic_rag_backend/graph/community.py (20-B1)</reference>
+    <reference type="dependency">backend/src/agentic_rag_backend/retrieval/graphiti_retrieval.py</reference>
+    <reference type="dependency">backend/src/agentic_rag_backend/db/neo4j.py</reference>
+    <reference type="dependency">backend/src/agentic_rag_backend/db/graphiti.py</reference>
+    <reference type="dependency">backend/src/agentic_rag_backend/llm/providers.py</reference>
+    <reference type="external">LazyGraphRAG Paper: https://arxiv.org/abs/2410.10554</reference>
+    <reference type="external">MS GraphRAG: https://github.com/microsoft/graphrag</reference>
+  </references>
+</story-context>

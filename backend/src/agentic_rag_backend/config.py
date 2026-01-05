@@ -304,6 +304,12 @@ class Settings:
     community_max_levels: int
     community_summary_model: str
     community_refresh_schedule: str
+    # Story 20-B2 - LazyRAG Pattern (Query-Time Summarization)
+    lazy_rag_enabled: bool
+    lazy_rag_max_entities: int
+    lazy_rag_max_hops: int
+    lazy_rag_summary_model: str
+    lazy_rag_use_communities: bool
 
 
 def load_settings() -> Settings:
@@ -968,6 +974,13 @@ def load_settings() -> Settings:
     community_summary_model = os.getenv("COMMUNITY_SUMMARY_MODEL", "gpt-4o-mini")
     community_refresh_schedule = os.getenv("COMMUNITY_REFRESH_SCHEDULE", "0 3 * * 0")
 
+    # Story 20-B2 - LazyRAG Pattern (Query-Time Summarization)
+    lazy_rag_enabled = get_bool_env("LAZY_RAG_ENABLED", "false")
+    lazy_rag_max_entities = get_int_env("LAZY_RAG_MAX_ENTITIES", 50, min_val=1)
+    lazy_rag_max_hops = get_int_env("LAZY_RAG_MAX_HOPS", 2, min_val=1)
+    lazy_rag_summary_model = os.getenv("LAZY_RAG_SUMMARY_MODEL", "gpt-4o-mini")
+    lazy_rag_use_communities = get_bool_env("LAZY_RAG_USE_COMMUNITIES", "true")
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1144,6 +1157,12 @@ def load_settings() -> Settings:
         community_max_levels=community_max_levels,
         community_summary_model=community_summary_model,
         community_refresh_schedule=community_refresh_schedule,
+        # Story 20-B2 - LazyRAG Pattern
+        lazy_rag_enabled=lazy_rag_enabled,
+        lazy_rag_max_entities=lazy_rag_max_entities,
+        lazy_rag_max_hops=lazy_rag_max_hops,
+        lazy_rag_summary_model=lazy_rag_summary_model,
+        lazy_rag_use_communities=lazy_rag_use_communities,
     )
 
 

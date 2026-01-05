@@ -374,7 +374,7 @@ development_status:
   # --- Group B: Graph Intelligence (Compete with MS GraphRAG) ---
   20-B1-implement-community-detection: done
   # Config: COMMUNITY_DETECTION_ENABLED, COMMUNITY_ALGORITHM (louvain|leiden)
-  20-B2-implement-lazyrag-pattern: backlog
+  20-B2-implement-lazyrag-pattern: done
   # Defer summarization to query time for 99% indexing cost reduction
   20-B3-implement-global-local-query-routing: backlog
 
