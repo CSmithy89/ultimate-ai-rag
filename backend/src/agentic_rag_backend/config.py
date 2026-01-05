@@ -166,6 +166,7 @@ class Settings:
     crawl4ai_page_timeout_ms: int
     # Story 13.4 - Crawl Configuration Profiles
     crawl4ai_profile: str
+    crawler_strict_validation: bool
     crawl4ai_stealth_proxy: Optional[str]
     # Story 4.2 - PDF Document Parsing settings
     docling_table_mode: str
@@ -381,9 +382,19 @@ def load_settings() -> Settings:
     crawl4ai_page_timeout_ms = get_int_env("CRAWL4AI_PAGE_TIMEOUT_MS", 60000, min_val=1000)
 
     # Story 13.4 - Crawl Configuration Profiles
+    strict_default = "true" if app_env in {"production", "prod"} else "false"
+    crawler_strict_validation = get_bool_env(
+        "CRAWLER_STRICT_VALIDATION",
+        strict_default,
+    )
     crawl4ai_profile = os.getenv("CRAWL4AI_PROFILE", "fast").strip().lower()
     valid_profiles = {"fast", "thorough", "stealth"}
     if crawl4ai_profile not in valid_profiles:
+        if crawler_strict_validation:
+            raise ValueError(
+                f"Invalid crawl profile: {crawl4ai_profile}. "
+                f"Valid profiles: {sorted(valid_profiles)}"
+            )
         logger.warning(
             "invalid_crawl_profile",
             profile=crawl4ai_profile,
@@ -910,6 +921,7 @@ def load_settings() -> Settings:
         crawl4ai_page_timeout_ms=crawl4ai_page_timeout_ms,
         # Story 13.4 - Crawl Configuration Profiles
         crawl4ai_profile=crawl4ai_profile,
+        crawler_strict_validation=crawler_strict_validation,
         crawl4ai_stealth_proxy=crawl4ai_stealth_proxy,
         # Story 4.2 - PDF Document Parsing settings
         docling_table_mode=os.getenv("DOCLING_TABLE_MODE", "accurate"),

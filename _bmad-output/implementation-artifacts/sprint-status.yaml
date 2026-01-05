@@ -328,7 +328,7 @@ development_status:
   # Consider async HTML parsing for large documents
   19-I6-add-visited-set-bloom-filter: done
   # For crawls >10k pages, use bloom filter instead of set()
-  19-I7-implement-config-validation-fail-fast: backlog
+  19-I7-implement-config-validation-fail-fast: done
   # Consider ValueError instead of warning for invalid profiles in prod
   19-I8-implement-crawl-many-error-recovery: backlog
   # Return partial results on failure, add URL context to error logs

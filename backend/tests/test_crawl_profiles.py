@@ -420,4 +420,44 @@ class TestConfigIntegration:
         with patch.dict(os.environ, clean_env, clear=True):
             settings = load_settings()
             assert settings.crawl4ai_profile == "fast"
+
+    def test_invalid_profile_in_dev_falls_back(self):
+        """Test that invalid profile falls back in development."""
+        import os
+        from agentic_rag_backend.config import load_settings
+
+        env_vars = {
+            "APP_ENV": "development",
+            "DATABASE_URL": "postgresql://test:test@localhost/test",
+            "NEO4J_URI": "bolt://localhost:7687",
+            "NEO4J_USER": "neo4j",
+            "NEO4J_PASSWORD": "password",
+            "REDIS_URL": "redis://localhost:6379",
+            "OPENAI_API_KEY": "test-key",
+            "CRAWL4AI_PROFILE": "invalid-profile",
+        }
+
+        with patch.dict(os.environ, env_vars, clear=True):
+            settings = load_settings()
+            assert settings.crawl4ai_profile == "fast"
+
+    def test_invalid_profile_in_prod_raises(self):
+        """Test that invalid profile fails fast in production."""
+        import os
+        from agentic_rag_backend.config import load_settings
+
+        env_vars = {
+            "APP_ENV": "production",
+            "DATABASE_URL": "postgresql://test:test@localhost/test",
+            "NEO4J_URI": "bolt://localhost:7687",
+            "NEO4J_USER": "neo4j",
+            "NEO4J_PASSWORD": "password",
+            "REDIS_URL": "redis://localhost:6379",
+            "OPENAI_API_KEY": "test-key",
+            "CRAWL4AI_PROFILE": "invalid-profile",
+        }
+
+        with patch.dict(os.environ, env_vars, clear=True):
+            with pytest.raises(ValueError):
+                load_settings()
             assert settings.crawl4ai_stealth_proxy is None

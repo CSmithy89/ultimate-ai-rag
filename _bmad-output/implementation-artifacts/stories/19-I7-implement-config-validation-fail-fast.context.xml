@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story 19-I7: Implement config validation fail-fast
+  Context file for implementation
+  Generated: 2026-01-03
+-->
+<story-context>
+  <metadata>
+    <story-id>19-I7</story-id>
+    <epic>19 - Quality Foundation &amp; Tech Debt Resolution</epic>
+    <title>Implement config validation fail-fast</title>
+    <status>ready-for-dev</status>
+    <priority>Low</priority>
+  </metadata>
+
+  <module-structure>
+    <files-to-modify>
+      <file path="backend/src/agentic_rag_backend/config.py" change="Add strict validation" />
+      <file path="backend/tests/test_crawl_profiles.py" change="Add strict validation tests" />
+      <file path=".env.example" change="Document strict validation flag" />
+    </files-to-modify>
+  </module-structure>
+
+  <references>
+    <ref path="_bmad-output/implementation-artifacts/epic-19-tech-spec.md" section="Group I / 19-I7" />
+  </references>
+</story-context>
