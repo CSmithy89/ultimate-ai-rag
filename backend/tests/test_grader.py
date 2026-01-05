@@ -7,12 +7,14 @@ import pytest
 
 from agentic_rag_backend.retrieval.grader import (
     CrossEncoderGrader,
+    DEFAULT_CROSS_ENCODER_MODEL,
     ExpandedQueryFallback,
     FallbackStrategy,
     GraderResult,
     HeuristicGrader,
     RetrievalGrader,
     RetrievalHit,
+    SUPPORTED_GRADER_MODELS,
     WebSearchFallback,
     create_grader,
 )
@@ -166,11 +168,42 @@ class TestCrossEncoderGrader:
         grader = CrossEncoderGrader(model_name="test-model")
         assert grader.model_name == "test-model"
         assert grader._model is None  # Lazy loaded
+        assert grader._loaded_model_name is None
+        assert grader.fallback_to_default is True
 
-    def test_get_model(self):
-        """Test get_model returns model name."""
+    def test_init_custom_fallback(self):
+        """Test cross-encoder grader with custom fallback setting."""
+        grader = CrossEncoderGrader(model_name="test-model", fallback_to_default=False)
+        assert grader.fallback_to_default is False
+
+    def test_get_model_before_loading(self):
+        """Test get_model returns configured model name before loading."""
         grader = CrossEncoderGrader(model_name="test-model")
         assert grader.get_model() == "test-model"
+
+    def test_get_model_after_loading(self):
+        """Test get_model returns loaded model name after loading."""
+        grader = CrossEncoderGrader(model_name="test-model")
+        # Simulate that a different model was loaded (fallback scenario)
+        grader._loaded_model_name = "fallback-model"
+        assert grader.get_model() == "fallback-model"
+
+    def test_default_model_constant(self):
+        """Test default cross-encoder model constant."""
+        assert DEFAULT_CROSS_ENCODER_MODEL == "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+    def test_supported_models_defined(self):
+        """Test that supported models are defined with proper metadata."""
+        assert len(SUPPORTED_GRADER_MODELS) >= 4
+        for model_name, metadata in SUPPORTED_GRADER_MODELS.items():
+            assert "description" in metadata
+            assert "size" in metadata
+            assert "speed" in metadata
+            assert "accuracy" in metadata
+
+    def test_default_model_in_supported_models(self):
+        """Test that default model is in supported models list."""
+        assert DEFAULT_CROSS_ENCODER_MODEL in SUPPORTED_GRADER_MODELS
 
     @pytest.mark.asyncio
     async def test_grade_empty_hits(self):
@@ -181,6 +214,67 @@ class TestCrossEncoderGrader:
         assert result.passed is False
         assert result.score == 0.0
         assert result.fallback_triggered is True
+
+    def test_ensure_model_lazy_loading(self):
+        """Test that _ensure_model is truly lazy."""
+        grader = CrossEncoderGrader(model_name="test-model")
+        # Model should not be loaded at initialization
+        assert grader._model is None
+        assert grader._loaded_model_name is None
+
+    def test_ensure_model_loads_configured_model(self):
+        """Test that _ensure_model loads the configured model."""
+        mock_model = MagicMock()
+        mock_cross_encoder_class = MagicMock(return_value=mock_model)
+        mock_sentence_transformers = MagicMock()
+        mock_sentence_transformers.CrossEncoder = mock_cross_encoder_class
+
+        with patch.dict(
+            "sys.modules", {"sentence_transformers": mock_sentence_transformers}
+        ):
+            grader = CrossEncoderGrader(model_name="custom-model")
+            grader._ensure_model()
+
+            mock_cross_encoder_class.assert_called_once_with("custom-model")
+            assert grader._model == mock_model
+            assert grader._loaded_model_name == "custom-model"
+
+    def test_ensure_model_fallback_on_failure(self):
+        """Test that _ensure_model falls back to default model on failure."""
+        mock_model = MagicMock()
+        mock_cross_encoder_class = MagicMock(
+            side_effect=[Exception("Model not found"), mock_model]
+        )
+        mock_sentence_transformers = MagicMock()
+        mock_sentence_transformers.CrossEncoder = mock_cross_encoder_class
+
+        with patch.dict(
+            "sys.modules", {"sentence_transformers": mock_sentence_transformers}
+        ):
+            grader = CrossEncoderGrader(
+                model_name="nonexistent-model", fallback_to_default=True
+            )
+            grader._ensure_model()
+
+            # Should have called twice: once for configured, once for fallback
+            assert mock_cross_encoder_class.call_count == 2
+            assert grader._model == mock_model
+            assert grader._loaded_model_name == DEFAULT_CROSS_ENCODER_MODEL
+
+    def test_ensure_model_no_fallback_raises_error(self):
+        """Test that _ensure_model raises error when fallback is disabled."""
+        mock_cross_encoder_class = MagicMock(side_effect=Exception("Model not found"))
+        mock_sentence_transformers = MagicMock()
+        mock_sentence_transformers.CrossEncoder = mock_cross_encoder_class
+
+        with patch.dict(
+            "sys.modules", {"sentence_transformers": mock_sentence_transformers}
+        ):
+            grader = CrossEncoderGrader(
+                model_name="nonexistent-model", fallback_to_default=False
+            )
+            with pytest.raises(RuntimeError, match="Failed to load cross-encoder model"):
+                grader._ensure_model()
 
 
 class TestWebSearchFallback:
@@ -372,6 +466,7 @@ class TestCreateGrader:
         """Test creating grader with web search fallback."""
         settings = MagicMock()
         settings.grader_enabled = True
+        settings.grader_model = "heuristic"
         settings.grader_threshold = 0.6
         settings.grader_fallback_enabled = True
         settings.grader_fallback_strategy = "web_search"
@@ -389,6 +484,7 @@ class TestCreateGrader:
         """Test creating grader with expanded query fallback."""
         settings = MagicMock()
         settings.grader_enabled = True
+        settings.grader_model = "heuristic"
         settings.grader_threshold = 0.5
         settings.grader_fallback_enabled = True
         settings.grader_fallback_strategy = "expanded_query"
@@ -404,6 +500,7 @@ class TestCreateGrader:
         """Test creating grader without Tavily API key."""
         settings = MagicMock()
         settings.grader_enabled = True
+        settings.grader_model = "heuristic"
         settings.grader_threshold = 0.5
         settings.grader_fallback_enabled = True
         settings.grader_fallback_strategy = "web_search"
@@ -419,6 +516,7 @@ class TestCreateGrader:
         """Test creating grader with fallback disabled."""
         settings = MagicMock()
         settings.grader_enabled = True
+        settings.grader_model = "heuristic"
         settings.grader_threshold = 0.5
         settings.grader_fallback_enabled = False
         settings.grader_fallback_strategy = "web_search"
@@ -430,6 +528,69 @@ class TestCreateGrader:
         assert grader.fallback_enabled is False
         # No fallback handler created when disabled
         assert grader.fallback_handler is None
+
+    def test_grader_with_heuristic_model(self):
+        """Test creating grader with heuristic model."""
+        settings = MagicMock()
+        settings.grader_enabled = True
+        settings.grader_model = "heuristic"
+        settings.grader_threshold = 0.5
+        settings.grader_fallback_enabled = False
+        settings.grader_fallback_strategy = "web_search"
+        settings.tavily_api_key = None
+
+        grader = create_grader(settings)
+
+        assert grader is not None
+        assert isinstance(grader.grader, HeuristicGrader)
+        assert grader.get_model() == "heuristic"
+
+    def test_grader_with_cross_encoder_model(self):
+        """Test creating grader with cross-encoder model."""
+        settings = MagicMock()
+        settings.grader_enabled = True
+        settings.grader_model = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        settings.grader_threshold = 0.5
+        settings.grader_fallback_enabled = False
+        settings.grader_fallback_strategy = "web_search"
+        settings.tavily_api_key = None
+
+        grader = create_grader(settings)
+
+        assert grader is not None
+        assert isinstance(grader.grader, CrossEncoderGrader)
+        assert grader.get_model() == "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+    def test_grader_with_bge_reranker_model(self):
+        """Test creating grader with BGE reranker model."""
+        settings = MagicMock()
+        settings.grader_enabled = True
+        settings.grader_model = "BAAI/bge-reranker-base"
+        settings.grader_threshold = 0.6
+        settings.grader_fallback_enabled = False
+        settings.grader_fallback_strategy = "web_search"
+        settings.tavily_api_key = None
+
+        grader = create_grader(settings)
+
+        assert grader is not None
+        assert isinstance(grader.grader, CrossEncoderGrader)
+        assert grader.get_model() == "BAAI/bge-reranker-base"
+
+    def test_grader_model_case_insensitive(self):
+        """Test that 'Heuristic' (any case) maps to heuristic grader."""
+        settings = MagicMock()
+        settings.grader_enabled = True
+        settings.grader_model = "HEURISTIC"  # uppercase
+        settings.grader_threshold = 0.5
+        settings.grader_fallback_enabled = False
+        settings.grader_fallback_strategy = "web_search"
+        settings.tavily_api_key = None
+
+        grader = create_grader(settings)
+
+        assert grader is not None
+        assert isinstance(grader.grader, HeuristicGrader)
 
 
 class TestConfigIntegration:
@@ -529,3 +690,90 @@ class TestConfigIntegration:
             settings = load_settings()
 
             assert settings.grader_fallback_strategy == "web_search"
+
+    def test_grader_model_default_is_heuristic(self):
+        """Test grader_model defaults to heuristic."""
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_API_KEY": "test-key",
+                "DATABASE_URL": "postgresql://test",
+                "NEO4J_URI": "bolt://localhost",
+                "NEO4J_USER": "neo4j",
+                "NEO4J_PASSWORD": "password",
+                "REDIS_URL": "redis://localhost",
+            },
+            clear=True,
+        ):
+            from agentic_rag_backend.config import get_settings, load_settings
+
+            get_settings.cache_clear()
+            settings = load_settings()
+
+            assert settings.grader_model == "heuristic"
+
+    def test_grader_model_configurable_cross_encoder(self):
+        """Test grader_model can be set to a cross-encoder model."""
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_API_KEY": "test-key",
+                "DATABASE_URL": "postgresql://test",
+                "NEO4J_URI": "bolt://localhost",
+                "NEO4J_USER": "neo4j",
+                "NEO4J_PASSWORD": "password",
+                "REDIS_URL": "redis://localhost",
+                "GRADER_MODEL": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+            },
+            clear=True,
+        ):
+            from agentic_rag_backend.config import get_settings, load_settings
+
+            get_settings.cache_clear()
+            settings = load_settings()
+
+            assert settings.grader_model == "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+    def test_grader_model_configurable_bge_reranker(self):
+        """Test grader_model can be set to a BGE reranker model."""
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_API_KEY": "test-key",
+                "DATABASE_URL": "postgresql://test",
+                "NEO4J_URI": "bolt://localhost",
+                "NEO4J_USER": "neo4j",
+                "NEO4J_PASSWORD": "password",
+                "REDIS_URL": "redis://localhost",
+                "GRADER_MODEL": "BAAI/bge-reranker-large",
+            },
+            clear=True,
+        ):
+            from agentic_rag_backend.config import get_settings, load_settings
+
+            get_settings.cache_clear()
+            settings = load_settings()
+
+            assert settings.grader_model == "BAAI/bge-reranker-large"
+
+    def test_grader_model_whitespace_stripped(self):
+        """Test grader_model strips leading/trailing whitespace."""
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_API_KEY": "test-key",
+                "DATABASE_URL": "postgresql://test",
+                "NEO4J_URI": "bolt://localhost",
+                "NEO4J_USER": "neo4j",
+                "NEO4J_PASSWORD": "password",
+                "REDIS_URL": "redis://localhost",
+                "GRADER_MODEL": "  heuristic  ",
+            },
+            clear=True,
+        ):
+            from agentic_rag_backend.config import get_settings, load_settings
+
+            get_settings.cache_clear()
+            settings = load_settings()
+
+            assert settings.grader_model == "heuristic"

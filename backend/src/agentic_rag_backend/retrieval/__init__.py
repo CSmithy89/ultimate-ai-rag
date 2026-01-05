@@ -34,6 +34,23 @@ from .reranking import (
     get_reranker_adapter,
 )
 
+# Epic 12 - Advanced Retrieval (CRAG Grader)
+from .grader import (
+    BaseGrader,
+    HeuristicGrader,
+    CrossEncoderGrader,
+    RetrievalGrader,
+    RetrievalHit,
+    GraderResult,
+    FallbackStrategy,
+    BaseFallbackHandler,
+    WebSearchFallback,
+    ExpandedQueryFallback,
+    create_grader,
+    DEFAULT_CROSS_ENCODER_MODEL,
+    SUPPORTED_GRADER_MODELS,
+)
+
 __all__ = [
     # Epic 3 - Graph traversal and vector search
     "GraphEdge",
@@ -65,4 +82,18 @@ __all__ = [
     "FlashRankRerankerClient",
     "create_reranker_client",
     "get_reranker_adapter",
+    # Epic 12 - CRAG Grader
+    "BaseGrader",
+    "HeuristicGrader",
+    "CrossEncoderGrader",
+    "RetrievalGrader",
+    "RetrievalHit",
+    "GraderResult",
+    "FallbackStrategy",
+    "BaseFallbackHandler",
+    "WebSearchFallback",
+    "ExpandedQueryFallback",
+    "create_grader",
+    "DEFAULT_CROSS_ENCODER_MODEL",
+    "SUPPORTED_GRADER_MODELS",
 ]

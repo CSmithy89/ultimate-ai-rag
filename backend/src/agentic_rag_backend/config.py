@@ -223,6 +223,7 @@ class Settings:
     contextual_reindex_batch_size: int
     # Epic 12 - Advanced Retrieval (Corrective RAG Grader)
     grader_enabled: bool
+    grader_model: str
     grader_threshold: float
     grader_fallback_enabled: bool
     grader_fallback_strategy: str
@@ -676,6 +677,13 @@ def load_settings() -> Settings:
 
     # Epic 12 - Corrective RAG Grader settings
     grader_enabled = get_bool_env("GRADER_ENABLED", "false")
+    # Default grader model: "heuristic" for lightweight scoring, or cross-encoder model name
+    # Supported cross-encoder models:
+    # - cross-encoder/ms-marco-MiniLM-L-6-v2 (fast, good accuracy)
+    # - cross-encoder/ms-marco-MiniLM-L-12-v2 (higher accuracy)
+    # - BAAI/bge-reranker-base (BGE reranker)
+    # - BAAI/bge-reranker-large (BGE large, best accuracy)
+    grader_model = os.getenv("GRADER_MODEL", "heuristic").strip()
     try:
         grader_threshold = float(os.getenv("GRADER_THRESHOLD", "0.5"))
         grader_threshold = max(0.0, min(1.0, grader_threshold))  # Clamp to 0.0-1.0
@@ -906,6 +914,7 @@ def load_settings() -> Settings:
         contextual_reindex_batch_size=contextual_reindex_batch_size,
         # Epic 12 - Corrective RAG Grader settings
         grader_enabled=grader_enabled,
+        grader_model=grader_model,
         grader_threshold=grader_threshold,
         grader_fallback_enabled=grader_fallback_enabled,
         grader_fallback_strategy=grader_fallback_strategy,

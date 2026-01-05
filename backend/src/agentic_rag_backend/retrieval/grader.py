@@ -222,36 +222,137 @@ class HeuristicGrader(BaseGrader):
         return "heuristic"
 
 
+# Default fallback model for CrossEncoderGrader if configured model fails to load
+DEFAULT_CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+# Supported cross-encoder models with their characteristics
+SUPPORTED_GRADER_MODELS = {
+    "cross-encoder/ms-marco-MiniLM-L-6-v2": {
+        "description": "Fast, good accuracy (default)",
+        "size": "~80MB",
+        "speed": "fast",
+        "accuracy": "good",
+    },
+    "cross-encoder/ms-marco-MiniLM-L-12-v2": {
+        "description": "Higher accuracy, slower",
+        "size": "~120MB",
+        "speed": "medium",
+        "accuracy": "high",
+    },
+    "BAAI/bge-reranker-base": {
+        "description": "BGE reranker, balanced",
+        "size": "~400MB",
+        "speed": "medium",
+        "accuracy": "high",
+    },
+    "BAAI/bge-reranker-large": {
+        "description": "BGE large, best accuracy",
+        "size": "~1.3GB",
+        "speed": "slow",
+        "accuracy": "highest",
+    },
+}
+
+
 class CrossEncoderGrader(BaseGrader):
     """Cross-encoder based grader for more accurate relevance scoring.
 
     This grader uses a cross-encoder model to score query-document pairs,
     providing more accurate relevance assessment than retrieval scores alone.
 
-    Note: This requires a cross-encoder model to be available (e.g., via sentence-transformers).
+    Supported models:
+    - cross-encoder/ms-marco-MiniLM-L-6-v2 (fast, good accuracy, default)
+    - cross-encoder/ms-marco-MiniLM-L-12-v2 (higher accuracy)
+    - BAAI/bge-reranker-base (BGE reranker)
+    - BAAI/bge-reranker-large (BGE large, best accuracy)
+
+    Note: This requires sentence-transformers to be available.
     """
 
-    def __init__(self, model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"):
+    def __init__(
+        self,
+        model_name: str = DEFAULT_CROSS_ENCODER_MODEL,
+        fallback_to_default: bool = True,
+    ):
         """Initialize the cross-encoder grader.
 
         Args:
             model_name: Name of the cross-encoder model to use
+            fallback_to_default: If True, fall back to default model if configured model fails
         """
         self.model_name = model_name
+        self.fallback_to_default = fallback_to_default
         self._model: Any | None = None  # Lazy loading
+        self._loaded_model_name: str | None = None  # Track which model was actually loaded
 
-    def _ensure_model(self):
-        """Lazily load the cross-encoder model."""
-        if self._model is None:
-            try:
-                from sentence_transformers import CrossEncoder
+    def _ensure_model(self) -> None:
+        """Lazily load the cross-encoder model.
 
-                self._model = CrossEncoder(self.model_name)
-            except ImportError:
-                raise ImportError(
-                    "sentence-transformers is required for CrossEncoderGrader. "
-                    "Install with: pip install sentence-transformers"
+        If the configured model fails to load and fallback_to_default is True,
+        attempts to load the default model instead.
+
+        Raises:
+            ImportError: If sentence-transformers is not installed
+            RuntimeError: If model fails to load and fallback is disabled or also fails
+        """
+        if self._model is not None:
+            return
+
+        try:
+            from sentence_transformers import CrossEncoder
+        except ImportError:
+            raise ImportError(
+                "sentence-transformers is required for CrossEncoderGrader. "
+                "Install with: pip install sentence-transformers"
+            )
+
+        # Try loading the configured model
+        try:
+            logger.info(
+                "loading_cross_encoder_model",
+                model_name=self.model_name,
+            )
+            self._model = CrossEncoder(self.model_name)
+            self._loaded_model_name = self.model_name
+            logger.info(
+                "cross_encoder_model_loaded",
+                model_name=self.model_name,
+            )
+        except Exception as e:
+            logger.warning(
+                "cross_encoder_model_load_failed",
+                model_name=self.model_name,
+                error=str(e),
+            )
+
+            # Try fallback to default model if enabled
+            if self.fallback_to_default and self.model_name != DEFAULT_CROSS_ENCODER_MODEL:
+                logger.info(
+                    "falling_back_to_default_model",
+                    failed_model=self.model_name,
+                    fallback_model=DEFAULT_CROSS_ENCODER_MODEL,
                 )
+                try:
+                    self._model = CrossEncoder(DEFAULT_CROSS_ENCODER_MODEL)
+                    self._loaded_model_name = DEFAULT_CROSS_ENCODER_MODEL
+                    logger.info(
+                        "fallback_model_loaded",
+                        model_name=DEFAULT_CROSS_ENCODER_MODEL,
+                    )
+                except Exception as fallback_error:
+                    logger.error(
+                        "fallback_model_load_failed",
+                        model_name=DEFAULT_CROSS_ENCODER_MODEL,
+                        error=str(fallback_error),
+                    )
+                    raise RuntimeError(
+                        f"Failed to load cross-encoder model '{self.model_name}' "
+                        f"and fallback model '{DEFAULT_CROSS_ENCODER_MODEL}': {fallback_error}"
+                    ) from fallback_error
+            else:
+                raise RuntimeError(
+                    f"Failed to load cross-encoder model '{self.model_name}': {e}"
+                ) from e
 
     async def grade(
         self,
@@ -363,6 +464,7 @@ class CrossEncoderGrader(BaseGrader):
             passed=passed,
             num_hits=len(hits),
             grading_time_ms=grading_time_ms,
+            model=self._loaded_model_name or self.model_name,
         )
 
         return GraderResult(
@@ -374,8 +476,13 @@ class CrossEncoderGrader(BaseGrader):
         )
 
     def get_model(self) -> str:
-        """Return model identifier."""
-        return self.model_name
+        """Return model identifier.
+
+        Returns the actually loaded model name if the model has been loaded
+        (which may differ from model_name if fallback was used), otherwise
+        returns the configured model_name.
+        """
+        return self._loaded_model_name or self.model_name
 
 
 class BaseFallbackHandler(ABC):
@@ -600,6 +707,16 @@ class RetrievalGrader:
 def create_grader(settings: Settings) -> Optional[RetrievalGrader]:
     """Create a RetrievalGrader based on settings.
 
+    The grader model is configurable via settings.grader_model:
+    - "heuristic": Lightweight heuristic grader using retrieval scores (default)
+    - Any cross-encoder model name: Uses CrossEncoderGrader with that model
+
+    Supported cross-encoder models:
+    - cross-encoder/ms-marco-MiniLM-L-6-v2 (fast, good accuracy)
+    - cross-encoder/ms-marco-MiniLM-L-12-v2 (higher accuracy)
+    - BAAI/bge-reranker-base (BGE reranker)
+    - BAAI/bge-reranker-large (BGE large, best accuracy)
+
     Args:
         settings: Application settings
 
@@ -609,9 +726,20 @@ def create_grader(settings: Settings) -> Optional[RetrievalGrader]:
     if not settings.grader_enabled:
         return None
 
-    # Use heuristic grader by default (lightweight)
-    # Could be extended to support cross-encoder based on config
-    grader = HeuristicGrader(top_k=5)
+    # Select grader based on grader_model setting
+    grader_model = settings.grader_model.strip().lower()
+    grader: BaseGrader
+
+    if grader_model == "heuristic":
+        # Use lightweight heuristic grader
+        grader = HeuristicGrader(top_k=5)
+    else:
+        # Use cross-encoder grader with specified model
+        # The CrossEncoderGrader handles fallback to default if model fails
+        grader = CrossEncoderGrader(
+            model_name=settings.grader_model,
+            fallback_to_default=True,
+        )
 
     # Create fallback handler based on strategy
     fallback_handler: Optional[BaseFallbackHandler] = None
@@ -631,6 +759,7 @@ def create_grader(settings: Settings) -> Optional[RetrievalGrader]:
 
     logger.info(
         "grader_created",
+        grader_type=type(grader).__name__,
         grader_model=grader.get_model(),
         threshold=settings.grader_threshold,
         fallback_enabled=settings.grader_fallback_enabled,

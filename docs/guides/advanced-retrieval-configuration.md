@@ -92,6 +92,15 @@ CONTEXTUAL_REINDEX_BATCH_SIZE=100
 # Enable/disable CRAG grader (default: false)
 GRADER_ENABLED=true
 
+# Grader model selection (Story 19-F3)
+# Options:
+#   - heuristic (default): Lightweight heuristic using retrieval scores
+#   - cross-encoder/ms-marco-MiniLM-L-6-v2: Fast, good accuracy (~80MB)
+#   - cross-encoder/ms-marco-MiniLM-L-12-v2: Higher accuracy (~120MB)
+#   - BAAI/bge-reranker-base: BGE reranker, balanced (~400MB)
+#   - BAAI/bge-reranker-large: Best accuracy, slowest (~1.3GB)
+GRADER_MODEL=heuristic
+
 # Relevance threshold (0.0-1.0) - below triggers fallback
 GRADER_THRESHOLD=0.5
 
@@ -214,6 +223,36 @@ uv run python -m agentic_rag_backend.scripts.reindex_contextual \
 ### 3. Corrective RAG (CRAG)
 
 CRAG evaluates retrieval quality and triggers fallback strategies when results are insufficient.
+
+#### Grader Model Selection
+
+The grader model determines how retrieval quality is evaluated. Choose based on your accuracy/latency requirements:
+
+| Model | Speed | Accuracy | Size | Use Case |
+|-------|-------|----------|------|----------|
+| `heuristic` | Fastest | Good | N/A | Default, cost-effective |
+| `cross-encoder/ms-marco-MiniLM-L-6-v2` | Fast | Good | ~80MB | Balanced, production-ready |
+| `cross-encoder/ms-marco-MiniLM-L-12-v2` | Medium | High | ~120MB | Higher accuracy needs |
+| `BAAI/bge-reranker-base` | Medium | High | ~400MB | Modern reranker, balanced |
+| `BAAI/bge-reranker-large` | Slow | Highest | ~1.3GB | Maximum accuracy, enterprise |
+
+**Heuristic Grader:**
+- Uses retrieval scores directly (no additional model)
+- Zero latency overhead
+- Good for most use cases
+
+**Cross-Encoder Graders:**
+- Score query-document pairs together for higher precision
+- Lazy loading: model loads on first grader use, not at startup
+- Automatic fallback: if configured model fails to load, falls back to default
+
+```bash
+# Example: Use MiniLM-L-12 for higher accuracy
+GRADER_MODEL=cross-encoder/ms-marco-MiniLM-L-12-v2
+
+# Example: Use BGE reranker for best accuracy
+GRADER_MODEL=BAAI/bge-reranker-large
+```
 
 #### Grader Logic
 
