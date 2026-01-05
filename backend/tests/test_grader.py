@@ -8,6 +8,9 @@ import pytest
 from agentic_rag_backend.retrieval.grader import (
     CrossEncoderGrader,
     DEFAULT_CROSS_ENCODER_MODEL,
+    DEFAULT_HEURISTIC_LENGTH_WEIGHT,
+    DEFAULT_HEURISTIC_MIN_LENGTH,
+    DEFAULT_HEURISTIC_MAX_LENGTH,
     ExpandedQueryFallback,
     FallbackStrategy,
     GraderResult,
@@ -142,7 +145,7 @@ class TestHeuristicGrader:
 
     @pytest.mark.asyncio
     async def test_grade_without_scores(self, grader):
-        """Test grading when hits don't have scores (uses content length)."""
+        """Test grading when hits don't have scores (uses content length heuristic)."""
         hits = [
             RetrievalHit(content="A" * 500),
             RetrievalHit(content="B" * 500),
@@ -152,12 +155,244 @@ class TestHeuristicGrader:
         result = await grader.grade("test query", hits, threshold=0.3)
 
         assert result.passed is True
-        # Score should be based on content length: 500/1000 = 0.5
-        assert result.score == pytest.approx(0.5, rel=0.01)
+        # With default settings (weight=0.5, min=50, max=2000):
+        # length_factor = (500 - 50) / (2000 - 50) = 450 / 1950 ≈ 0.23
+        # score = 0.5 * (1 - 0.5) + 0.23 * 0.5 = 0.25 + 0.115 ≈ 0.365
+        assert result.score == pytest.approx(0.365, rel=0.05)
 
     def test_get_model(self, grader):
         """Test get_model returns heuristic."""
         assert grader.get_model() == "heuristic"
+
+
+class TestHeuristicGraderLengthWeight:
+    """Tests for HeuristicGrader configurable length weight (Story 19-F4)."""
+
+    def test_default_constants(self):
+        """Test default constants are defined correctly."""
+        assert DEFAULT_HEURISTIC_LENGTH_WEIGHT == 0.5
+        assert DEFAULT_HEURISTIC_MIN_LENGTH == 50
+        assert DEFAULT_HEURISTIC_MAX_LENGTH == 2000
+
+    def test_init_with_custom_length_settings(self):
+        """Test initializing grader with custom length settings."""
+        grader = HeuristicGrader(
+            top_k=5,
+            length_weight=0.7,
+            min_length=100,
+            max_length=3000,
+        )
+        assert grader.length_weight == 0.7
+        assert grader.min_length == 100
+        assert grader.max_length == 3000
+
+    def test_init_length_weight_clamped_to_range(self):
+        """Test length_weight is clamped to 0.0-1.0 range."""
+        grader_low = HeuristicGrader(length_weight=-0.5)
+        grader_high = HeuristicGrader(length_weight=1.5)
+
+        assert grader_low.length_weight == 0.0
+        assert grader_high.length_weight == 1.0
+
+    def test_init_min_length_minimum_enforced(self):
+        """Test min_length is at least 1."""
+        grader = HeuristicGrader(min_length=0)
+        assert grader.min_length == 1
+
+    def test_init_max_length_greater_than_min(self):
+        """Test max_length is always greater than min_length."""
+        grader = HeuristicGrader(min_length=100, max_length=50)
+        assert grader.max_length > grader.min_length
+
+    @pytest.mark.asyncio
+    async def test_weight_zero_returns_base_score(self):
+        """Test weight=0 returns base score (0.5) regardless of content length."""
+        grader = HeuristicGrader(top_k=3, length_weight=0.0)
+        hits = [
+            RetrievalHit(content="A" * 2000),  # Very long content
+            RetrievalHit(content="B" * 2000),
+            RetrievalHit(content="C" * 2000),
+        ]
+
+        result = await grader.grade("test query", hits, threshold=0.3)
+
+        # With weight=0, score should always be base_score (0.5)
+        assert result.score == pytest.approx(0.5, rel=0.01)
+        assert result.passed is True  # 0.5 >= 0.3
+
+    @pytest.mark.asyncio
+    async def test_weight_zero_with_short_content(self):
+        """Test weight=0 returns base score even with very short content."""
+        grader = HeuristicGrader(top_k=3, length_weight=0.0)
+        hits = [
+            RetrievalHit(content="A"),  # Very short content
+            RetrievalHit(content="B"),
+            RetrievalHit(content="C"),
+        ]
+
+        result = await grader.grade("test query", hits, threshold=0.3)
+
+        # With weight=0, score should always be base_score (0.5)
+        assert result.score == pytest.approx(0.5, rel=0.01)
+
+    @pytest.mark.asyncio
+    async def test_weight_half_default_behavior(self):
+        """Test weight=0.5 (default) provides balanced scoring."""
+        grader = HeuristicGrader(
+            top_k=3,
+            length_weight=0.5,
+            min_length=50,
+            max_length=2000,
+        )
+        # Content at max_length should give length_factor=1.0
+        hits = [
+            RetrievalHit(content="A" * 2000),
+            RetrievalHit(content="B" * 2000),
+            RetrievalHit(content="C" * 2000),
+        ]
+
+        result = await grader.grade("test query", hits, threshold=0.5)
+
+        # base_score=0.5, length_factor=1.0, weight=0.5
+        # score = 0.5 * (1 - 0.5) + 1.0 * 0.5 = 0.25 + 0.5 = 0.75
+        assert result.score == pytest.approx(0.75, rel=0.01)
+        assert result.passed is True
+
+    @pytest.mark.asyncio
+    async def test_weight_half_with_min_length_content(self):
+        """Test weight=0.5 with content at min_length."""
+        grader = HeuristicGrader(
+            top_k=3,
+            length_weight=0.5,
+            min_length=50,
+            max_length=2000,
+        )
+        # Content at or below min_length gives length_factor=0.0
+        hits = [
+            RetrievalHit(content="A" * 50),
+            RetrievalHit(content="B" * 50),
+            RetrievalHit(content="C" * 50),
+        ]
+
+        result = await grader.grade("test query", hits, threshold=0.3)
+
+        # base_score=0.5, length_factor=0.0, weight=0.5
+        # score = 0.5 * (1 - 0.5) + 0.0 * 0.5 = 0.25 + 0.0 = 0.25
+        assert result.score == pytest.approx(0.25, rel=0.01)
+        assert result.passed is False  # 0.25 < 0.3
+
+    @pytest.mark.asyncio
+    async def test_weight_one_pure_length_scoring(self):
+        """Test weight=1.0 provides pure length-based scoring."""
+        grader = HeuristicGrader(
+            top_k=3,
+            length_weight=1.0,
+            min_length=50,
+            max_length=2000,
+        )
+        hits = [
+            RetrievalHit(content="A" * 2000),
+            RetrievalHit(content="B" * 2000),
+            RetrievalHit(content="C" * 2000),
+        ]
+
+        result = await grader.grade("test query", hits, threshold=0.5)
+
+        # base_score=0.5, length_factor=1.0, weight=1.0
+        # score = 0.5 * (1 - 1.0) + 1.0 * 1.0 = 0.0 + 1.0 = 1.0
+        assert result.score == pytest.approx(1.0, rel=0.01)
+        assert result.passed is True
+
+    @pytest.mark.asyncio
+    async def test_weight_one_with_short_content(self):
+        """Test weight=1.0 gives low score for short content."""
+        grader = HeuristicGrader(
+            top_k=3,
+            length_weight=1.0,
+            min_length=50,
+            max_length=2000,
+        )
+        # Content below min_length
+        hits = [
+            RetrievalHit(content="A" * 30),
+            RetrievalHit(content="B" * 30),
+            RetrievalHit(content="C" * 30),
+        ]
+
+        result = await grader.grade("test query", hits, threshold=0.5)
+
+        # base_score=0.5, length_factor=0.0 (below min_length), weight=1.0
+        # score = 0.5 * (1 - 1.0) + 0.0 * 1.0 = 0.0 + 0.0 = 0.0
+        assert result.score == pytest.approx(0.0, rel=0.01)
+        assert result.passed is False
+
+    @pytest.mark.asyncio
+    async def test_mid_range_content_length(self):
+        """Test scoring with content in the middle of the range."""
+        grader = HeuristicGrader(
+            top_k=3,
+            length_weight=0.5,
+            min_length=50,
+            max_length=2000,
+        )
+        # Content at ~50% of the range: 50 + (2000-50)*0.5 = 1025
+        avg_length = 1025
+        hits = [
+            RetrievalHit(content="A" * avg_length),
+            RetrievalHit(content="B" * avg_length),
+            RetrievalHit(content="C" * avg_length),
+        ]
+
+        result = await grader.grade("test query", hits, threshold=0.3)
+
+        # length_factor = (1025 - 50) / (2000 - 50) = 975 / 1950 = 0.5
+        # score = 0.5 * (1 - 0.5) + 0.5 * 0.5 = 0.25 + 0.25 = 0.5
+        assert result.score == pytest.approx(0.5, rel=0.01)
+        assert result.passed is True
+
+    @pytest.mark.asyncio
+    async def test_retrieval_scores_bypass_length_heuristic(self):
+        """Test that when retrieval scores are available, length heuristic is not used."""
+        grader = HeuristicGrader(
+            top_k=3,
+            length_weight=1.0,  # Would give 0.0 for short content
+            min_length=50,
+            max_length=2000,
+        )
+        # Short content but with retrieval scores
+        hits = [
+            RetrievalHit(content="A" * 10, score=0.9),
+            RetrievalHit(content="B" * 10, score=0.8),
+            RetrievalHit(content="C" * 10, score=0.7),
+        ]
+
+        result = await grader.grade("test query", hits, threshold=0.5)
+
+        # Should use retrieval scores (avg = 0.8), not length heuristic
+        assert result.score == pytest.approx(0.8, rel=0.01)
+        assert result.passed is True
+
+    @pytest.mark.asyncio
+    async def test_custom_min_max_length(self):
+        """Test with custom min/max length settings."""
+        grader = HeuristicGrader(
+            top_k=3,
+            length_weight=1.0,
+            min_length=100,
+            max_length=500,
+        )
+        # Content at exactly max_length
+        hits = [
+            RetrievalHit(content="A" * 500),
+            RetrievalHit(content="B" * 500),
+            RetrievalHit(content="C" * 500),
+        ]
+
+        result = await grader.grade("test query", hits, threshold=0.5)
+
+        # length_factor = (500 - 100) / (500 - 100) = 1.0
+        # score = 0.5 * (1 - 1.0) + 1.0 * 1.0 = 1.0
+        assert result.score == pytest.approx(1.0, rel=0.01)
 
 
 class TestCrossEncoderGrader:
@@ -471,6 +706,9 @@ class TestCreateGrader:
         settings.grader_fallback_enabled = True
         settings.grader_fallback_strategy = "web_search"
         settings.tavily_api_key = "test-tavily-key"
+        settings.grader_heuristic_length_weight = 0.5
+        settings.grader_heuristic_min_length = 50
+        settings.grader_heuristic_max_length = 2000
 
         grader = create_grader(settings)
 
@@ -489,6 +727,9 @@ class TestCreateGrader:
         settings.grader_fallback_enabled = True
         settings.grader_fallback_strategy = "expanded_query"
         settings.tavily_api_key = None
+        settings.grader_heuristic_length_weight = 0.5
+        settings.grader_heuristic_min_length = 50
+        settings.grader_heuristic_max_length = 2000
 
         grader = create_grader(settings)
 
@@ -505,6 +746,9 @@ class TestCreateGrader:
         settings.grader_fallback_enabled = True
         settings.grader_fallback_strategy = "web_search"
         settings.tavily_api_key = None
+        settings.grader_heuristic_length_weight = 0.5
+        settings.grader_heuristic_min_length = 50
+        settings.grader_heuristic_max_length = 2000
 
         grader = create_grader(settings)
 
@@ -521,6 +765,9 @@ class TestCreateGrader:
         settings.grader_fallback_enabled = False
         settings.grader_fallback_strategy = "web_search"
         settings.tavily_api_key = "test-key"
+        settings.grader_heuristic_length_weight = 0.5
+        settings.grader_heuristic_min_length = 50
+        settings.grader_heuristic_max_length = 2000
 
         grader = create_grader(settings)
 
@@ -538,12 +785,39 @@ class TestCreateGrader:
         settings.grader_fallback_enabled = False
         settings.grader_fallback_strategy = "web_search"
         settings.tavily_api_key = None
+        settings.grader_heuristic_length_weight = 0.5
+        settings.grader_heuristic_min_length = 50
+        settings.grader_heuristic_max_length = 2000
 
         grader = create_grader(settings)
 
         assert grader is not None
         assert isinstance(grader.grader, HeuristicGrader)
         assert grader.get_model() == "heuristic"
+
+    def test_grader_with_heuristic_uses_config_length_settings(self):
+        """Test creating grader with heuristic uses config length settings."""
+        settings = MagicMock()
+        settings.grader_enabled = True
+        settings.grader_model = "heuristic"
+        settings.grader_threshold = 0.5
+        settings.grader_fallback_enabled = False
+        settings.grader_fallback_strategy = "web_search"
+        settings.tavily_api_key = None
+        # Custom heuristic settings
+        settings.grader_heuristic_length_weight = 0.8
+        settings.grader_heuristic_min_length = 100
+        settings.grader_heuristic_max_length = 3000
+
+        grader = create_grader(settings)
+
+        assert grader is not None
+        assert isinstance(grader.grader, HeuristicGrader)
+        # Verify the heuristic grader has the correct settings
+        heuristic_grader = grader.grader
+        assert heuristic_grader.length_weight == 0.8
+        assert heuristic_grader.min_length == 100
+        assert heuristic_grader.max_length == 3000
 
     def test_grader_with_cross_encoder_model(self):
         """Test creating grader with cross-encoder model."""
@@ -586,6 +860,9 @@ class TestCreateGrader:
         settings.grader_fallback_enabled = False
         settings.grader_fallback_strategy = "web_search"
         settings.tavily_api_key = None
+        settings.grader_heuristic_length_weight = 0.5
+        settings.grader_heuristic_min_length = 50
+        settings.grader_heuristic_max_length = 2000
 
         grader = create_grader(settings)
 
@@ -777,3 +1054,96 @@ class TestConfigIntegration:
             settings = load_settings()
 
             assert settings.grader_model == "heuristic"
+
+    def test_heuristic_length_weight_defaults(self):
+        """Test heuristic length weight has correct defaults."""
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_API_KEY": "test-key",
+                "DATABASE_URL": "postgresql://test",
+                "NEO4J_URI": "bolt://localhost",
+                "NEO4J_USER": "neo4j",
+                "NEO4J_PASSWORD": "password",
+                "REDIS_URL": "redis://localhost",
+            },
+            clear=True,
+        ):
+            from agentic_rag_backend.config import get_settings, load_settings
+
+            get_settings.cache_clear()
+            settings = load_settings()
+
+            assert settings.grader_heuristic_length_weight == 0.5
+            assert settings.grader_heuristic_min_length == 50
+            assert settings.grader_heuristic_max_length == 2000
+
+    def test_heuristic_length_weight_configurable(self):
+        """Test heuristic length weight can be configured."""
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_API_KEY": "test-key",
+                "DATABASE_URL": "postgresql://test",
+                "NEO4J_URI": "bolt://localhost",
+                "NEO4J_USER": "neo4j",
+                "NEO4J_PASSWORD": "password",
+                "REDIS_URL": "redis://localhost",
+                "GRADER_HEURISTIC_LENGTH_WEIGHT": "0.7",
+                "GRADER_HEURISTIC_MIN_LENGTH": "100",
+                "GRADER_HEURISTIC_MAX_LENGTH": "3000",
+            },
+            clear=True,
+        ):
+            from agentic_rag_backend.config import get_settings, load_settings
+
+            get_settings.cache_clear()
+            settings = load_settings()
+
+            assert settings.grader_heuristic_length_weight == 0.7
+            assert settings.grader_heuristic_min_length == 100
+            assert settings.grader_heuristic_max_length == 3000
+
+    def test_heuristic_length_weight_clamped_to_range(self):
+        """Test length weight is clamped to 0.0-1.0 range."""
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_API_KEY": "test-key",
+                "DATABASE_URL": "postgresql://test",
+                "NEO4J_URI": "bolt://localhost",
+                "NEO4J_USER": "neo4j",
+                "NEO4J_PASSWORD": "password",
+                "REDIS_URL": "redis://localhost",
+                "GRADER_HEURISTIC_LENGTH_WEIGHT": "1.5",  # Over 1.0
+            },
+            clear=True,
+        ):
+            from agentic_rag_backend.config import get_settings, load_settings
+
+            get_settings.cache_clear()
+            settings = load_settings()
+
+            assert settings.grader_heuristic_length_weight == 1.0  # Clamped to max
+
+    def test_heuristic_length_weight_zero_disables_length(self):
+        """Test length weight of 0 is valid (disables length influence)."""
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_API_KEY": "test-key",
+                "DATABASE_URL": "postgresql://test",
+                "NEO4J_URI": "bolt://localhost",
+                "NEO4J_USER": "neo4j",
+                "NEO4J_PASSWORD": "password",
+                "REDIS_URL": "redis://localhost",
+                "GRADER_HEURISTIC_LENGTH_WEIGHT": "0",
+            },
+            clear=True,
+        ):
+            from agentic_rag_backend.config import get_settings, load_settings
+
+            get_settings.cache_clear()
+            settings = load_settings()
+
+            assert settings.grader_heuristic_length_weight == 0.0

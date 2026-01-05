@@ -29,7 +29,10 @@ logger = structlog.get_logger(__name__)
 
 # Grader configuration constants
 MAX_CROSS_ENCODER_HITS = 10  # Maximum hits to evaluate with cross-encoder
-CONTENT_LENGTH_NORMALIZATION = 1000  # Characters for content length heuristic
+# Default heuristic length weight configuration (can be overridden via settings)
+DEFAULT_HEURISTIC_LENGTH_WEIGHT = 0.5
+DEFAULT_HEURISTIC_MIN_LENGTH = 50
+DEFAULT_HEURISTIC_MAX_LENGTH = 2000
 
 
 class FallbackStrategy(str, Enum):
@@ -113,15 +116,44 @@ class HeuristicGrader(BaseGrader):
 
     This grader uses the average retrieval score of top-k hits as the
     relevance signal. It's fast but less accurate than model-based grading.
+
+    When retrieval scores are not available, it uses a configurable content
+    length heuristic. Longer content may indicate more comprehensive context,
+    though this is domain-dependent. The length weight controls how much
+    content length influences the final score vs. a neutral baseline.
+
+    Formula when no retrieval scores available:
+        length_factor = min((avg_length - min_length) / (max_length - min_length), 1.0)
+        final_score = base_score * (1 - length_weight) + length_factor * length_weight
+
+    Where:
+        - length_weight=0: Length has no influence, score is always base_score (0.5)
+        - length_weight=0.5 (default): Balanced influence from length
+        - length_weight=1.0: Score is purely based on content length
     """
 
-    def __init__(self, top_k: int = 5):
+    def __init__(
+        self,
+        top_k: int = 5,
+        length_weight: float = DEFAULT_HEURISTIC_LENGTH_WEIGHT,
+        min_length: int = DEFAULT_HEURISTIC_MIN_LENGTH,
+        max_length: int = DEFAULT_HEURISTIC_MAX_LENGTH,
+    ):
         """Initialize the heuristic grader.
 
         Args:
             top_k: Number of top hits to consider for scoring
+            length_weight: How much content length influences the heuristic score (0.0-1.0).
+                          0 = length disabled (use neutral 0.5 score)
+                          0.5 = balanced (default)
+                          1.0 = score purely based on length
+            min_length: Minimum content length for any length contribution (default: 50)
+            max_length: Content length at which length bonus maxes out (default: 2000)
         """
         self.top_k = top_k
+        self.length_weight = max(0.0, min(1.0, length_weight))
+        self.min_length = max(1, min_length)
+        self.max_length = max(self.min_length + 1, max_length)
 
     async def grade(
         self,
@@ -163,6 +195,11 @@ class HeuristicGrader(BaseGrader):
         # Use top-k hits for scoring
         top_hits = hits[: self.top_k]
 
+        # Track heuristic contribution for logging
+        heuristic_applied = False
+        length_factor = 0.0
+        base_score = 0.5  # Neutral baseline when no retrieval scores available
+
         # Calculate average score from retrieval scores
         scores = [h.score for h in top_hits if h.score is not None]
         if scores:
@@ -170,11 +207,25 @@ class HeuristicGrader(BaseGrader):
             # Normalize to 0-1 range (assuming scores might be higher)
             score = min(1.0, max(0.0, avg_score))
         else:
-            # If no scores available, use content length heuristic
-            # (longer content = potentially more relevant)
-            # NOTE: This is a simple heuristic that may not hold for all use cases
+            # If no retrieval scores available, use configurable content length heuristic
+            # The length_weight determines how much content length influences the score
+            heuristic_applied = True
             avg_length = sum(len(h.content) for h in top_hits) / len(top_hits)
-            score = min(1.0, avg_length / CONTENT_LENGTH_NORMALIZATION)
+
+            # Calculate length factor normalized between min_length and max_length
+            # Content below min_length gets 0, content at or above max_length gets 1
+            if avg_length <= self.min_length:
+                length_factor = 0.0
+            else:
+                length_factor = min(
+                    1.0,
+                    (avg_length - self.min_length) / (self.max_length - self.min_length),
+                )
+
+            # Apply weighted blend: base_score * (1 - weight) + length_factor * weight
+            # weight=0: score = base_score (length disabled)
+            # weight=1: score = length_factor (pure length-based)
+            score = base_score * (1 - self.length_weight) + length_factor * self.length_weight
 
         passed = score >= threshold
         grading_time_ms = int((time.perf_counter() - start_time) * 1000)
@@ -199,15 +250,35 @@ class HeuristicGrader(BaseGrader):
                 score=score,
             )
 
-        logger.debug(
-            "heuristic_grader_result",
-            score=score,
-            threshold=threshold,
-            passed=passed,
-            num_hits=len(hits),
-            top_k=self.top_k,
-            grading_time_ms=grading_time_ms,
-        )
+        # Build log context with heuristic details when applicable
+        log_context = {
+            "score": round(score, 4),
+            "threshold": threshold,
+            "passed": passed,
+            "num_hits": len(hits),
+            "top_k": self.top_k,
+            "grading_time_ms": grading_time_ms,
+        }
+
+        if heuristic_applied:
+            log_context.update({
+                "heuristic_applied": True,
+                "length_weight": self.length_weight,
+                "length_factor": round(length_factor, 4),
+                "base_score": base_score,
+                "avg_content_length": round(avg_length, 1),
+                "min_length": self.min_length,
+                "max_length": self.max_length,
+            })
+            logger.info(
+                "heuristic_grader_result",
+                **log_context,
+            )
+        else:
+            logger.debug(
+                "heuristic_grader_result",
+                **log_context,
+            )
 
         return GraderResult(
             score=score,
@@ -731,8 +802,13 @@ def create_grader(settings: Settings) -> Optional[RetrievalGrader]:
     grader: BaseGrader
 
     if grader_model == "heuristic":
-        # Use lightweight heuristic grader
-        grader = HeuristicGrader(top_k=5)
+        # Use lightweight heuristic grader with configurable length weight
+        grader = HeuristicGrader(
+            top_k=5,
+            length_weight=settings.grader_heuristic_length_weight,
+            min_length=settings.grader_heuristic_min_length,
+            max_length=settings.grader_heuristic_max_length,
+        )
     else:
         # Use cross-encoder grader with specified model
         # The CrossEncoderGrader handles fallback to default if model fails
@@ -757,17 +833,27 @@ def create_grader(settings: Settings) -> Optional[RetrievalGrader]:
             fallback_handler = ExpandedQueryFallback()
         # ALTERNATE_INDEX would require additional configuration
 
-    logger.info(
-        "grader_created",
-        grader_type=type(grader).__name__,
-        grader_model=grader.get_model(),
-        threshold=settings.grader_threshold,
-        fallback_enabled=settings.grader_fallback_enabled,
-        fallback_strategy=fallback_strategy.value,
-        fallback_handler_type=type(fallback_handler).__name__
+    # Build log context
+    log_context = {
+        "grader_type": type(grader).__name__,
+        "grader_model": grader.get_model(),
+        "threshold": settings.grader_threshold,
+        "fallback_enabled": settings.grader_fallback_enabled,
+        "fallback_strategy": fallback_strategy.value,
+        "fallback_handler_type": type(fallback_handler).__name__
         if fallback_handler
         else None,
-    )
+    }
+
+    # Add heuristic settings if using heuristic grader
+    if isinstance(grader, HeuristicGrader):
+        log_context.update({
+            "heuristic_length_weight": settings.grader_heuristic_length_weight,
+            "heuristic_min_length": settings.grader_heuristic_min_length,
+            "heuristic_max_length": settings.grader_heuristic_max_length,
+        })
+
+    logger.info("grader_created", **log_context)
 
     return RetrievalGrader(
         grader=grader,

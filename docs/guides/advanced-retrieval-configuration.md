@@ -113,6 +113,26 @@ GRADER_FALLBACK_STRATEGY=web_search
 
 # Tavily API key for web search fallback
 TAVILY_API_KEY=your-tavily-api-key
+
+# ============================================
+# HEURISTIC GRADER LENGTH WEIGHT (Story 19-F4)
+# ============================================
+# When heuristic grader has no retrieval scores, it uses content length
+# as a proxy for quality. These settings control that behavior.
+
+# How much content length influences the heuristic score (0.0-1.0)
+# 0.0 = Length disabled (neutral 0.5 score always)
+# 0.5 = Balanced (default) - equal weight to base score and length
+# 1.0 = Pure length-based scoring
+GRADER_HEURISTIC_LENGTH_WEIGHT=0.5
+
+# Minimum content length for any length contribution (default: 50)
+# Content below this length gets a length factor of 0
+GRADER_HEURISTIC_MIN_LENGTH=50
+
+# Content length at which length bonus maxes out (default: 2000)
+# Content at or above this length gets a length factor of 1.0
+GRADER_HEURISTIC_MAX_LENGTH=2000
 ```
 
 ---
@@ -240,6 +260,48 @@ The grader model determines how retrieval quality is evaluated. Choose based on 
 - Uses retrieval scores directly (no additional model)
 - Zero latency overhead
 - Good for most use cases
+
+#### Heuristic Length Weight (Story 19-F4)
+
+When the heuristic grader has no retrieval scores available (e.g., when using a retrieval method that doesn't provide similarity scores), it falls back to using content length as a proxy for quality. The rationale is that longer content often contains more comprehensive context, though this is domain-dependent.
+
+**Formula:**
+```
+length_factor = min((avg_length - min_length) / (max_length - min_length), 1.0)
+final_score = base_score * (1 - length_weight) + length_factor * length_weight
+```
+
+**Weight Values:**
+
+| Weight | Behavior | Use Case |
+|--------|----------|----------|
+| 0.0 | Length disabled, always returns 0.5 (neutral) | When content length is not indicative of quality |
+| 0.5 | Balanced (default) - blends base score with length | Most use cases |
+| 1.0 | Pure length-based scoring | When longer content strongly correlates with quality |
+
+**Example Calculations (default settings: min=50, max=2000):**
+
+| Avg Length | Length Factor | Weight=0 | Weight=0.5 | Weight=1.0 |
+|------------|---------------|----------|------------|------------|
+| 50 chars | 0.0 | 0.50 | 0.25 | 0.00 |
+| 500 chars | 0.23 | 0.50 | 0.37 | 0.23 |
+| 1000 chars | 0.49 | 0.50 | 0.49 | 0.49 |
+| 2000 chars | 1.0 | 0.50 | 0.75 | 1.00 |
+
+**Logged Metrics:**
+
+When the heuristic is applied, the following fields are logged:
+```json
+{
+  "heuristic_applied": true,
+  "length_weight": 0.5,
+  "length_factor": 0.49,
+  "base_score": 0.5,
+  "avg_content_length": 1000.0,
+  "min_length": 50,
+  "max_length": 2000
+}
+```
 
 **Cross-Encoder Graders:**
 - Score query-document pairs together for higher precision
