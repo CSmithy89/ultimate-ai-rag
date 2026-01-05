@@ -228,6 +228,10 @@ class Settings:
     grader_fallback_enabled: bool
     grader_fallback_strategy: str
     tavily_api_key: Optional[str]
+    # Story 19-F4 - Heuristic grader length weight configuration
+    grader_heuristic_length_weight: float
+    grader_heuristic_min_length: int
+    grader_heuristic_max_length: int
     # Epic 13 - Enterprise Ingestion (Fallback Providers)
     crawl_fallback_enabled: bool
     crawl_fallback_providers: list[str]
@@ -695,6 +699,21 @@ def load_settings() -> Settings:
         grader_fallback_strategy = "web_search"
     tavily_api_key = os.getenv("TAVILY_API_KEY")
 
+    # Story 19-F4 - Heuristic grader length weight configuration
+    # Length weight determines how much content length influences the heuristic score
+    # when no retrieval scores are available. See docs/guides/advanced-retrieval-configuration.md
+    grader_heuristic_length_weight = get_float_env(
+        "GRADER_HEURISTIC_LENGTH_WEIGHT", 0.5, min_val=0.0
+    )
+    # Clamp to 0.0-1.0 range
+    grader_heuristic_length_weight = max(0.0, min(1.0, grader_heuristic_length_weight))
+    grader_heuristic_min_length = get_int_env(
+        "GRADER_HEURISTIC_MIN_LENGTH", 50, min_val=1
+    )
+    grader_heuristic_max_length = get_int_env(
+        "GRADER_HEURISTIC_MAX_LENGTH", 2000, min_val=grader_heuristic_min_length
+    )
+
     # Epic 13 - Crawl Fallback settings
     crawl_fallback_enabled = get_bool_env("CRAWL_FALLBACK_ENABLED", "true")
     crawl_fallback_providers_raw = os.getenv(
@@ -919,6 +938,10 @@ def load_settings() -> Settings:
         grader_fallback_enabled=grader_fallback_enabled,
         grader_fallback_strategy=grader_fallback_strategy,
         tavily_api_key=tavily_api_key,
+        # Story 19-F4 - Heuristic grader length weight settings
+        grader_heuristic_length_weight=grader_heuristic_length_weight,
+        grader_heuristic_min_length=grader_heuristic_min_length,
+        grader_heuristic_max_length=grader_heuristic_max_length,
         # Epic 13 - Crawl Fallback settings
         crawl_fallback_enabled=crawl_fallback_enabled,
         crawl_fallback_providers=crawl_fallback_providers,
