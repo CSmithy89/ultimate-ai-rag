@@ -287,7 +287,7 @@ development_status:
   # SPLIT: 2026-01-05 - Competitive features moved to Epic 20
   # See: epic-19-tech-spec.md
   # ==========================================
-  epic-19: in-progress
+  epic-19: done
 
   # --- Group C (Partial): Quality Observability ---
   19-C4-implement-retrieval-quality-benchmarks: done
