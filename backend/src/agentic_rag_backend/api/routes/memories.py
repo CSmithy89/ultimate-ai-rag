@@ -29,6 +29,9 @@ from agentic_rag_backend.memory import (
     ScopedMemoryUpdate,
 )
 from agentic_rag_backend.memory.models import (
+    ConsolidationRequest,
+    ConsolidationResult,
+    ConsolidationStatusResponse,
     DeleteByScopeResponse,
     MemoryListResponse,
     MemorySearchRequest,
@@ -492,3 +495,161 @@ async def delete_memories_by_scope(
     )
 
     return success_response(response.model_dump())
+
+
+# Story 20-A2: Memory Consolidation Endpoints
+
+
+async def get_consolidator(request: Request):
+    """Get memory consolidator from app.state.
+
+    Returns:
+        MemoryConsolidator instance or None if not initialized
+    """
+    return getattr(request.app.state, "memory_consolidator", None)
+
+
+async def get_consolidation_scheduler(request: Request):
+    """Get consolidation scheduler from app.state.
+
+    Returns:
+        MemoryConsolidationScheduler instance or None if not initialized
+    """
+    return getattr(request.app.state, "memory_consolidation_scheduler", None)
+
+
+def check_consolidation_enabled(settings: Settings) -> None:
+    """Check if memory consolidation feature is enabled.
+
+    Raises:
+        HTTPException: 404 if feature is disabled
+    """
+    if not settings.memory_consolidation_enabled:
+        raise HTTPException(
+            status_code=404,
+            detail="Memory consolidation feature is not enabled. Set MEMORY_CONSOLIDATION_ENABLED=true to enable.",
+        )
+
+
+@router.post(
+    "/consolidate",
+    response_model=SuccessResponse,
+    summary="Trigger memory consolidation",
+    description="Manually trigger memory consolidation for a tenant with optional scope filtering.",
+)
+async def consolidate_memories(
+    consolidation_request: ConsolidationRequest,
+    settings: Settings = Depends(get_settings),
+    consolidator=Depends(get_consolidator),
+) -> dict[str, Any]:
+    """Manually trigger memory consolidation.
+
+    Consolidation performs:
+    1. Importance decay based on time and access frequency
+    2. Duplicate detection and merging (similarity > threshold)
+    3. Removal of low-importance memories (below threshold)
+
+    Args:
+        consolidation_request: Consolidation parameters
+        settings: Application settings
+        consolidator: Memory consolidator instance
+
+    Returns:
+        Success response with consolidation results
+
+    Raises:
+        HTTPException: 404 if feature is disabled
+        HTTPException: 500 if consolidator not initialized
+    """
+    check_feature_enabled(settings)
+    check_consolidation_enabled(settings)
+
+    if not consolidator:
+        raise HTTPException(
+            status_code=500,
+            detail="Memory consolidator not initialized. Check application startup logs.",
+        )
+
+    try:
+        result = await consolidator.consolidate(
+            tenant_id=str(consolidation_request.tenant_id),
+            scope=consolidation_request.scope,
+            user_id=str(consolidation_request.user_id) if consolidation_request.user_id else None,
+            session_id=str(consolidation_request.session_id) if consolidation_request.session_id else None,
+            agent_id=consolidation_request.agent_id,
+        )
+
+        logger.info(
+            "memory_consolidation_triggered",
+            tenant_id=str(consolidation_request.tenant_id),
+            scope=consolidation_request.scope.value if consolidation_request.scope else "all",
+            memories_processed=result.memories_processed,
+            duplicates_merged=result.duplicates_merged,
+            memories_removed=result.memories_removed,
+        )
+
+        return success_response(result.model_dump(mode="json"))
+
+    except Exception as e:
+        logger.error(
+            "memory_consolidation_failed",
+            tenant_id=str(consolidation_request.tenant_id),
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Consolidation failed: {str(e)}",
+        ) from e
+
+
+@router.get(
+    "/consolidation/status",
+    response_model=SuccessResponse,
+    summary="Get consolidation status",
+    description="Get the status of memory consolidation including last run time and next scheduled run.",
+)
+async def get_consolidation_status(
+    settings: Settings = Depends(get_settings),
+    consolidator=Depends(get_consolidator),
+    scheduler=Depends(get_consolidation_scheduler),
+) -> dict[str, Any]:
+    """Get memory consolidation status.
+
+    Returns information about:
+    - Whether scheduled consolidation is enabled
+    - Last consolidation run time and results
+    - Next scheduled consolidation time
+
+    Args:
+        settings: Application settings
+        consolidator: Memory consolidator instance
+        scheduler: Consolidation scheduler instance
+
+    Returns:
+        Success response with consolidation status
+
+    Raises:
+        HTTPException: 404 if feature is disabled
+    """
+    check_feature_enabled(settings)
+    check_consolidation_enabled(settings)
+
+    last_run_at = None
+    last_result = None
+    next_scheduled_run = None
+
+    if consolidator:
+        last_run_at = consolidator.last_run_at
+        last_result = consolidator.last_result
+
+    if scheduler:
+        next_scheduled_run = scheduler.get_next_run_time()
+
+    response = ConsolidationStatusResponse(
+        last_run_at=last_run_at,
+        last_result=last_result,
+        scheduler_enabled=settings.memory_consolidation_enabled and scheduler is not None and scheduler.is_running,
+        next_scheduled_run=next_scheduled_run,
+    )
+
+    return success_response(response.model_dump(mode="json"))

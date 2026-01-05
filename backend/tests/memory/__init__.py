@@ -1,1 +1,1 @@
-"""Memory module tests."""
+"""Tests for Epic 20 Memory Platform."""

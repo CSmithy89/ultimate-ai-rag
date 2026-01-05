@@ -56,6 +56,8 @@ dependencies = [
   "gitignore-parser>=0.1.11",
   # Story 19-C5 - Prometheus Observability
   "prometheus-client>=0.20.0",
+  # Story 20-A2 - Memory Consolidation Scheduler
+  "apscheduler>=3.10.0",
 ]
 
 [project.scripts]

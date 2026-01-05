@@ -290,6 +290,13 @@ class Settings:
     memory_include_parent_scopes: bool
     memory_cache_ttl_seconds: int
     memory_max_per_scope: int
+    # Story 20-A2 - Memory Consolidation
+    memory_consolidation_enabled: bool
+    memory_consolidation_schedule: str
+    memory_similarity_threshold: float
+    memory_decay_half_life_days: int
+    memory_min_importance: float
+    memory_consolidation_batch_size: int
 
 
 def load_settings() -> Settings:
@@ -925,6 +932,18 @@ def load_settings() -> Settings:
     memory_cache_ttl_seconds = get_int_env("MEMORY_CACHE_TTL_SECONDS", 3600, min_val=60)
     memory_max_per_scope = get_int_env("MEMORY_MAX_PER_SCOPE", 10000, min_val=100)
 
+    # Story 20-A2 - Memory Consolidation settings
+    memory_consolidation_enabled = get_bool_env("MEMORY_CONSOLIDATION_ENABLED", "false")
+    memory_consolidation_schedule = os.getenv("MEMORY_CONSOLIDATION_SCHEDULE", "0 2 * * *")
+    memory_similarity_threshold = get_float_env("MEMORY_SIMILARITY_THRESHOLD", 0.9, min_val=0.0)
+    # Clamp similarity threshold to valid range
+    memory_similarity_threshold = max(0.0, min(1.0, memory_similarity_threshold))
+    memory_decay_half_life_days = get_int_env("MEMORY_DECAY_HALF_LIFE_DAYS", 30, min_val=1)
+    memory_min_importance = get_float_env("MEMORY_MIN_IMPORTANCE", 0.1, min_val=0.0)
+    # Clamp min importance to valid range
+    memory_min_importance = max(0.0, min(1.0, memory_min_importance))
+    memory_consolidation_batch_size = get_int_env("MEMORY_CONSOLIDATION_BATCH_SIZE", 100, min_val=10)
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1087,6 +1106,13 @@ def load_settings() -> Settings:
         memory_include_parent_scopes=memory_include_parent_scopes,
         memory_cache_ttl_seconds=memory_cache_ttl_seconds,
         memory_max_per_scope=memory_max_per_scope,
+        # Story 20-A2 - Memory Consolidation
+        memory_consolidation_enabled=memory_consolidation_enabled,
+        memory_consolidation_schedule=memory_consolidation_schedule,
+        memory_similarity_threshold=memory_similarity_threshold,
+        memory_decay_half_life_days=memory_decay_half_life_days,
+        memory_min_importance=memory_min_importance,
+        memory_consolidation_batch_size=memory_consolidation_batch_size,
     )
 
 

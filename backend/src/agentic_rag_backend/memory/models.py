@@ -197,3 +197,102 @@ class DeleteByScopeResponse(BaseModel):
 
     deleted_count: int = Field(..., ge=0, description="Number of memories deleted")
     scope: MemoryScope = Field(..., description="Scope that was cleared")
+
+
+# Story 20-A2: Memory Consolidation Models
+
+
+class ConsolidationResult(BaseModel):
+    """Result summary from memory consolidation.
+
+    This model captures the outcome of a consolidation operation including
+    counts of processed, merged, decayed, and removed memories.
+    """
+
+    memories_processed: int = Field(
+        ..., ge=0, description="Total memories in scope that were processed"
+    )
+    duplicates_merged: int = Field(
+        ..., ge=0, description="Number of memories merged due to similarity"
+    )
+    memories_decayed: int = Field(
+        ..., ge=0, description="Number of memories with updated importance due to decay"
+    )
+    memories_removed: int = Field(
+        ..., ge=0, description="Number of memories removed (below min_importance threshold)"
+    )
+    processing_time_ms: float = Field(
+        ..., ge=0, description="Consolidation duration in milliseconds"
+    )
+    scope: Optional[MemoryScope] = Field(
+        default=None, description="Scope that was consolidated (None if all scopes)"
+    )
+    tenant_id: Optional[str] = Field(
+        default=None, description="Tenant that was consolidated (None if all tenants)"
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "memories_processed": 150,
+                    "duplicates_merged": 5,
+                    "memories_decayed": 45,
+                    "memories_removed": 3,
+                    "processing_time_ms": 1250.5,
+                    "scope": "user",
+                    "tenant_id": "123e4567-e89b-12d3-a456-426614174001",
+                }
+            ]
+        }
+    }
+
+
+class ConsolidationRequest(BaseModel):
+    """Request model for manual consolidation trigger.
+
+    Allows triggering consolidation for a specific tenant and optional scope context.
+    """
+
+    tenant_id: UUID = Field(..., description="Tenant identifier (required)")
+    scope: Optional[MemoryScope] = Field(
+        default=None, description="Specific scope to consolidate (None for all scopes)"
+    )
+    user_id: Optional[UUID] = Field(
+        default=None, description="User ID for USER/SESSION scope consolidation"
+    )
+    session_id: Optional[UUID] = Field(
+        default=None, description="Session ID for SESSION scope consolidation"
+    )
+    agent_id: Optional[str] = Field(
+        default=None, description="Agent ID for AGENT scope consolidation"
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "tenant_id": "123e4567-e89b-12d3-a456-426614174001",
+                    "scope": "user",
+                    "user_id": "123e4567-e89b-12d3-a456-426614174002",
+                }
+            ]
+        }
+    }
+
+
+class ConsolidationStatusResponse(BaseModel):
+    """Response model for consolidation status query."""
+
+    last_run_at: Optional[datetime] = Field(
+        default=None, description="Timestamp of last consolidation run"
+    )
+    last_result: Optional[ConsolidationResult] = Field(
+        default=None, description="Result of last consolidation run"
+    )
+    scheduler_enabled: bool = Field(
+        ..., description="Whether scheduled consolidation is enabled"
+    )
+    next_scheduled_run: Optional[datetime] = Field(
+        default=None, description="Next scheduled consolidation time"
+    )

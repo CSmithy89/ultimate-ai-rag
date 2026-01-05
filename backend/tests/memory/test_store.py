@@ -9,7 +9,7 @@ Tests the memory store operations:
 
 import json
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
@@ -18,7 +18,7 @@ from agentic_rag_backend.memory.errors import (
     MemoryLimitExceededError,
     MemoryScopeError,
 )
-from agentic_rag_backend.memory.models import MemoryScope, ScopedMemory
+from agentic_rag_backend.memory.models import MemoryScope
 from agentic_rag_backend.memory.store import ScopedMemoryStore
 
 

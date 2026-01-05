@@ -368,7 +368,8 @@ development_status:
   # --- Group A: Memory Platform (Compete with Mem0) ---
   20-A1-implement-memory-scopes: done
   # Config: MEMORY_SCOPES_ENABLED, MEMORY_DEFAULT_SCOPE (user|session|agent)
-  20-A2-implement-memory-consolidation: backlog
+  20-A2-implement-memory-consolidation: done
+  # Config: MEMORY_CONSOLIDATION_ENABLED, MEMORY_CONSOLIDATION_SCHEDULE, MEMORY_SIMILARITY_THRESHOLD, MEMORY_DECAY_HALF_LIFE_DAYS, MEMORY_MIN_IMPORTANCE
 
   # --- Group B: Graph Intelligence (Compete with MS GraphRAG) ---
   20-B1-implement-community-detection: backlog

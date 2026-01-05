@@ -44,6 +44,8 @@ from .protocols.mcp import MCPToolRegistry
 from .protocols.a2a_registry import A2AAgentRegistry, RegistryConfig
 from .protocols.a2a_delegation import TaskDelegationManager, DelegationConfig
 from .protocols.a2a_messages import get_implemented_rag_capabilities
+from .memory.consolidation import MemoryConsolidator
+from .memory.scheduler import MemoryConsolidationScheduler, create_consolidation_scheduler
 from .rate_limit import InMemoryRateLimiter, RateLimiter, RedisRateLimiter, close_redis
 from .schemas import QueryEnvelope, QueryRequest, QueryResponse, ResponseMeta
 from .trajectory import TrajectoryLogger, close_pool, create_pool
@@ -412,9 +414,76 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         max_timeout_seconds=settings.mcp_tool_max_timeout_seconds,
     )
 
+    # Story 20-A2: Initialize memory consolidation
+    app.state.memory_consolidator = None
+    app.state.memory_consolidation_scheduler = None
+
+    if settings.memory_scopes_enabled and settings.memory_consolidation_enabled:
+        # Get memory store (created lazily in memories.py, but we need it here)
+        # Create it now if database clients are available
+        postgres_client = getattr(app.state, "postgres", None)
+        redis_client_for_memory = getattr(app.state, "redis_client", None)
+
+        if postgres_client:
+            from .memory import ScopedMemoryStore
+
+            memory_store = ScopedMemoryStore(
+                postgres_client=postgres_client,
+                redis_client=redis_client_for_memory,
+                embedding_provider=settings.embedding_provider,
+                embedding_api_key=settings.embedding_api_key,
+                embedding_base_url=settings.embedding_base_url,
+                embedding_model=settings.embedding_model,
+                cache_ttl_seconds=settings.memory_cache_ttl_seconds,
+                max_per_scope=settings.memory_max_per_scope,
+            )
+            app.state.memory_store = memory_store
+
+            # Create consolidator
+            consolidator = MemoryConsolidator(
+                store=memory_store,
+                similarity_threshold=settings.memory_similarity_threshold,
+                decay_half_life_days=settings.memory_decay_half_life_days,
+                min_importance=settings.memory_min_importance,
+                consolidation_batch_size=settings.memory_consolidation_batch_size,
+            )
+            app.state.memory_consolidator = consolidator
+
+            # Create and start scheduler
+            scheduler = create_consolidation_scheduler(
+                consolidator=consolidator,
+                schedule=settings.memory_consolidation_schedule,
+                enabled=True,
+            )
+            await scheduler.start()
+            app.state.memory_consolidation_scheduler = scheduler
+
+            struct_logger.info(
+                "memory_consolidation_initialized",
+                schedule=settings.memory_consolidation_schedule,
+                similarity_threshold=settings.memory_similarity_threshold,
+                decay_half_life_days=settings.memory_decay_half_life_days,
+                min_importance=settings.memory_min_importance,
+            )
+        else:
+            struct_logger.warning(
+                "memory_consolidation_skipped",
+                reason="PostgreSQL client not available",
+            )
+    elif settings.memory_scopes_enabled:
+        struct_logger.info(
+            "memory_consolidation_disabled",
+            hint="Set MEMORY_CONSOLIDATION_ENABLED=true to enable",
+        )
+
     yield
 
     # Shutdown: Close database connections
+    # Story 20-A2: Stop memory consolidation scheduler
+    if hasattr(app.state, "memory_consolidation_scheduler") and app.state.memory_consolidation_scheduler:
+        await app.state.memory_consolidation_scheduler.stop()
+        struct_logger.info("memory_consolidation_scheduler_stopped")
+
     if hasattr(app.state, "a2a_manager") and app.state.a2a_manager:
         await app.state.a2a_manager.stop_cleanup_task()
     # Epic 14: Stop A2A registry cleanup task
