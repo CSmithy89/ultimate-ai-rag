@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story 19-C5: Implement Prometheus Metrics for Retrieval
+  Context file for implementation
+  Generated: 2026-01-05
+-->
+<story-context>
+  <metadata>
+    <story-id>19-C5</story-id>
+    <epic>19 - Quality Foundation &amp; Tech Debt Resolution</epic>
+    <title>Implement Prometheus Metrics for Retrieval</title>
+    <status>done</status>
+    <priority>Medium</priority>
+  </metadata>
+
+  <module-structure>
+    <files-to-modify>
+      <file path="backend/pyproject.toml" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/config.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/main.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/observability/__init__.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/observability/decorators.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/observability/metrics.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/observability/middleware.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/retrieval/grader.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/retrieval/reranking.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/retrieval_router.py" change="Implemented per story requirements" />
+      <file path="backend/tests/observability/__init__.py" change="Implemented per story requirements" />
+      <file path="backend/tests/observability/test_metrics.py" change="Implemented per story requirements" />
+      <file path="docs/observability/grafana-retrieval-dashboard.json" change="Implemented per story requirements" />
+      <file path="docs/observability/prometheus-alerts.yaml" change="Implemented per story requirements" />
+
+    </files-to-modify>
+  </module-structure>
+
+  <references>
+    <ref path="_bmad-output/implementation-artifacts/epic-19-tech-spec.md" section="Story 19-C5" />
+  </references>
+</story-context>

@@ -34,6 +34,7 @@ For data-access operations, verify each item. Mark N/A if not applicable.
 - [ ] **Redis keys include tenant scope**: Keys are prefixed/scoped to prevent cross-tenant access
 - [ ] **Integration tests for access control**: Tests attempt cross-tenant access and verify denial
 - [ ] **RFC 7807 error responses**: All errors follow standard format with proper codes
+- [ ] **File-path inputs scoped**: File paths are restricted to allowed directories (path traversal prevented)
 
 ## Tasks / Subtasks
 
@@ -49,6 +50,7 @@ For data-access operations, verify each item. Mark N/A if not applicable.
 - [ ] Acceptance criteria met
 - [ ] Standards coverage updated
 - [ ] Tests run and documented
+- [ ] Story file and context file updated
 
 ## Dev Notes
 

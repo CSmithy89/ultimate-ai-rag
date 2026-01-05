@@ -363,7 +363,7 @@ development_status:
   # DEPENDS ON: Epic 19 (Quality Foundation must complete first)
   # See: epic-20-tech-spec.md
   # ==========================================
-  epic-20: backlog
+  epic-20: contexted
 
   # --- Group A: Memory Platform (Compete with Mem0) ---
   20-A1-implement-memory-scopes: backlog
