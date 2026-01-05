@@ -57,6 +57,7 @@ dependencies = [
 
 [project.scripts]
 agentic-rag-backend = "agentic_rag_backend.main:run"
+benchmark-retrieval = "agentic_rag_backend.benchmarks.cli:main"
 
 [build-system]
 requires = ["hatchling>=1.22.0"]
