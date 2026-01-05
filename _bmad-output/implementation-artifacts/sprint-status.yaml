@@ -52,7 +52,7 @@ development_status:
 
   # Epic 2: Agentic Query & Reasoning
   epic-2: done
-  
+
   2-1-orchestrator-agent-foundation: done
   2-2-multi-step-query-planning: done
   2-3-dynamic-retrieval-method-selection: done
@@ -353,7 +353,7 @@ development_status:
   19-J3-implement-dedicated-pdf-parsing-tool: done
   # Dedicated PDF parsing with Docling instead of generic text ingestion flow
 
-  epic-19-retrospective: optional
+  epic-19-retrospective: done
 
   # ==========================================
   # Epic 20: Advanced Retrieval Intelligence
