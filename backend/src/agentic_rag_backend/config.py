@@ -751,6 +751,25 @@ def load_settings() -> Settings:
     brightdata_username = os.getenv("BRIGHTDATA_USERNAME")
     brightdata_password = os.getenv("BRIGHTDATA_PASSWORD")
     brightdata_zone = os.getenv("BRIGHTDATA_ZONE", "scraping_browser")
+    if crawl_fallback_enabled:
+        missing_providers = []
+        if "apify" in crawl_fallback_providers and not apify_api_token:
+            missing_providers.append("apify")
+        if "brightdata" in crawl_fallback_providers and (
+            not brightdata_username or not brightdata_password
+        ):
+            missing_providers.append("brightdata")
+        if missing_providers:
+            message = (
+                "Missing credentials for crawl fallback providers: "
+                f"{', '.join(missing_providers)}"
+            )
+            if crawler_strict_validation:
+                raise ValueError(message)
+            logger.warning(
+                "crawl_fallback_credentials_missing",
+                providers=missing_providers,
+            )
 
     # Epic 13 - YouTube Transcript settings
     youtube_preferred_languages_raw = os.getenv(

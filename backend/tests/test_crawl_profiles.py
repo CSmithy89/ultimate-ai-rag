@@ -460,4 +460,46 @@ class TestConfigIntegration:
         with patch.dict(os.environ, env_vars, clear=True):
             with pytest.raises(ValueError):
                 load_settings()
+
+    def test_missing_fallback_credentials_dev_warns(self):
+        """Test missing fallback credentials do not fail in development."""
+        import os
+        from agentic_rag_backend.config import load_settings
+
+        env_vars = {
+            "APP_ENV": "development",
+            "DATABASE_URL": "postgresql://test:test@localhost/test",
+            "NEO4J_URI": "bolt://localhost:7687",
+            "NEO4J_USER": "neo4j",
+            "NEO4J_PASSWORD": "password",
+            "REDIS_URL": "redis://localhost:6379",
+            "OPENAI_API_KEY": "test-key",
+            "CRAWL_FALLBACK_ENABLED": "true",
+            "CRAWL_FALLBACK_PROVIDERS": "[\"apify\"]",
+        }
+
+        with patch.dict(os.environ, env_vars, clear=True):
+            settings = load_settings()
+            assert settings.crawl_fallback_enabled is True
+
+    def test_missing_fallback_credentials_prod_raises(self):
+        """Test missing fallback credentials fail fast in production."""
+        import os
+        from agentic_rag_backend.config import load_settings
+
+        env_vars = {
+            "APP_ENV": "production",
+            "DATABASE_URL": "postgresql://test:test@localhost/test",
+            "NEO4J_URI": "bolt://localhost:7687",
+            "NEO4J_USER": "neo4j",
+            "NEO4J_PASSWORD": "password",
+            "REDIS_URL": "redis://localhost:6379",
+            "OPENAI_API_KEY": "test-key",
+            "CRAWL_FALLBACK_ENABLED": "true",
+            "CRAWL_FALLBACK_PROVIDERS": "[\"apify\"]",
+        }
+
+        with patch.dict(os.environ, env_vars, clear=True):
+            with pytest.raises(ValueError):
+                load_settings()
             assert settings.crawl4ai_stealth_proxy is None

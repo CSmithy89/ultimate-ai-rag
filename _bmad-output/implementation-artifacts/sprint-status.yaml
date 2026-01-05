@@ -334,7 +334,7 @@ development_status:
   # Return partial results on failure, add URL context to error logs
   19-I9-implement-rate-limiting-enforcement: done
   # Currently advisory-only, add actual rate limiting (not just js_wait)
-  19-I10-add-fallback-provider-key-validation: backlog
+  19-I10-add-fallback-provider-key-validation: done
   # Validate APIFY/BRIGHTDATA keys when crawl_fallback_enabled=true
   19-I11-document-large-crawl-memory-implications: backlog
   # Document memory usage for >100 page crawls, recommend streaming
