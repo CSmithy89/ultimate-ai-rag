@@ -20,6 +20,7 @@ import itertools
 import os
 import random
 import re
+import threading
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
@@ -73,6 +74,7 @@ ASYNC_HTML_PARSE_THRESHOLD_BYTES = 1_000_000
 
 _USER_AGENT_POOL: Optional[list[str]] = None
 _USER_AGENT_CYCLE: Optional[itertools.cycle] = None
+_USER_AGENT_LOCK = threading.Lock()
 
 
 def _load_user_agent_pool() -> list[str]:
@@ -80,38 +82,42 @@ def _load_user_agent_pool() -> list[str]:
     if _USER_AGENT_POOL is not None:
         return _USER_AGENT_POOL
 
-    list_path = Path(
-        os.getenv("CRAWLER_USER_AGENT_LIST_PATH", DEFAULT_USER_AGENT_LIST_PATH)
-    )
-    pool: list[str] = []
-    try:
-        if list_path.exists():
-            for line in list_path.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                pool.append(line)
-    except Exception as exc:
-        logger.warning(
-            "user_agent_list_load_failed",
-            path=str(list_path),
-            error=str(exc),
+    with _USER_AGENT_LOCK:
+        if _USER_AGENT_POOL is not None:
+            return _USER_AGENT_POOL
+
+        list_path = Path(
+            os.getenv("CRAWLER_USER_AGENT_LIST_PATH", DEFAULT_USER_AGENT_LIST_PATH)
         )
+        pool: list[str] = []
+        try:
+            if list_path.exists():
+                for line in list_path.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    pool.append(line)
+        except Exception as exc:
+            logger.warning(
+                "user_agent_list_load_failed",
+                path=str(list_path),
+                error=str(exc),
+            )
 
-    if len(pool) < 10:
-        logger.warning(
-            "user_agent_list_too_small",
-            path=str(list_path),
-            count=len(pool),
-            minimum=10,
-        )
+        if len(pool) < 10:
+            logger.warning(
+                "user_agent_list_too_small",
+                path=str(list_path),
+                count=len(pool),
+                minimum=10,
+            )
 
-    if not pool:
-        pool = [DEFAULT_USER_AGENT]
+        if not pool:
+            pool = [DEFAULT_USER_AGENT]
 
-    _USER_AGENT_POOL = pool
-    _USER_AGENT_CYCLE = itertools.cycle(pool)
-    return pool
+        _USER_AGENT_POOL = pool
+        _USER_AGENT_CYCLE = itertools.cycle(pool)
+        return pool
 
 
 def _select_user_agent() -> tuple[str, str, str]:
@@ -152,7 +158,12 @@ def _select_user_agent() -> tuple[str, str, str]:
 
     if _USER_AGENT_CYCLE is None:
         _load_user_agent_pool()
-    assert _USER_AGENT_CYCLE is not None
+    if _USER_AGENT_CYCLE is None:
+        logger.warning(
+            "user_agent_cycle_unavailable",
+            fallback="static-pool",
+        )
+        return pool[0], strategy, "static-pool"
     return next(_USER_AGENT_CYCLE), strategy, "rotate-pool"
 
 
@@ -874,77 +885,57 @@ class CrawlerService:
                     batch_delay_seconds=batch_delay,
                 )
 
+            async def _process_results(results_iterable: Any) -> AsyncGenerator[CrawledPage, None]:
+                nonlocal success_count
+
+                async def _async_list_iter(items: list[Any]) -> AsyncGenerator[Any, None]:
+                    for item in items:
+                        yield item
+
+                iterator = (
+                    results_iterable
+                    if hasattr(results_iterable, "__aiter__")
+                    else _async_list_iter(results_iterable)
+                )
+
+                async for result in iterator:
+                    if not result.success:
+                        error_message = result.error_message or "crawl_failed"
+                        failed.append((result.url, error_message))
+                        logger.warning(
+                            "crawl_many_item_failed",
+                            url=result.url,
+                            error=error_message,
+                        )
+                        if on_error == "fail_fast":
+                            raise RuntimeError(
+                                f"crawl_many failed for {result.url}: {error_message}"
+                            )
+                        continue
+                    page = await self._convert_result_to_crawled_page(
+                        result,
+                        depth=0,
+                        tenant_id=tenant_id,
+                    )
+                    if page:
+                        success_count += 1
+                        yield page
+                    else:
+                        failed.append((result.url, "conversion_failed"))
+                        if on_error == "fail_fast":
+                            raise RuntimeError(
+                                f"crawl_many conversion failed for {result.url}"
+                            )
+
             for batch_index in range(0, len(valid_urls), batch_size):
                 batch_urls = valid_urls[batch_index:batch_index + batch_size]
-                if stream:
-                    # Streaming mode - yield results as they complete
-                    async for result in await self._crawler.arun_many(
-                        urls=batch_urls,
-                        config=config,
-                        dispatcher=dispatcher,
-                    ):
-                        if not result.success:
-                            error_message = result.error_message or "crawl_failed"
-                            failed.append((result.url, error_message))
-                            logger.warning(
-                                "crawl_many_item_failed",
-                                url=result.url,
-                                error=error_message,
-                            )
-                            if on_error == "fail_fast":
-                                raise RuntimeError(
-                                    f"crawl_many failed for {result.url}: {error_message}"
-                                )
-                            continue
-                        page = await self._convert_result_to_crawled_page(
-                            result,
-                            depth=0,
-                            tenant_id=tenant_id,
-                        )
-                        if page:
-                            success_count += 1
-                            yield page
-                        else:
-                            failed.append((result.url, "conversion_failed"))
-                            if on_error == "fail_fast":
-                                raise RuntimeError(
-                                    f"crawl_many conversion failed for {result.url}"
-                                )
-                else:
-                    # Batch mode - wait for all results
-                    results = await self._crawler.arun_many(
-                        urls=batch_urls,
-                        config=config,
-                        dispatcher=dispatcher,
-                    )
-                    for result in results:
-                        if not result.success:
-                            error_message = result.error_message or "crawl_failed"
-                            failed.append((result.url, error_message))
-                            logger.warning(
-                                "crawl_many_item_failed",
-                                url=result.url,
-                                error=error_message,
-                            )
-                            if on_error == "fail_fast":
-                                raise RuntimeError(
-                                    f"crawl_many failed for {result.url}: {error_message}"
-                                )
-                            continue
-                        page = await self._convert_result_to_crawled_page(
-                            result,
-                            depth=0,
-                            tenant_id=tenant_id,
-                        )
-                        if page:
-                            success_count += 1
-                            yield page
-                        else:
-                            failed.append((result.url, "conversion_failed"))
-                            if on_error == "fail_fast":
-                                raise RuntimeError(
-                                    f"crawl_many conversion failed for {result.url}"
-                                )
+                results = await self._crawler.arun_many(
+                    urls=batch_urls,
+                    config=config,
+                    dispatcher=dispatcher,
+                )
+                async for page in _process_results(results):
+                    yield page
 
                 if batch_delay > 0 and batch_index + batch_size < len(valid_urls):
                     await asyncio.sleep(batch_delay)
