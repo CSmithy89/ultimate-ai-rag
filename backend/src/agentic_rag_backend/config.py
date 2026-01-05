@@ -297,6 +297,13 @@ class Settings:
     memory_decay_half_life_days: int
     memory_min_importance: float
     memory_consolidation_batch_size: int
+    # Story 20-B1 - Community Detection (Graph Intelligence)
+    community_detection_enabled: bool
+    community_algorithm: str
+    community_min_size: int
+    community_max_levels: int
+    community_summary_model: str
+    community_refresh_schedule: str
 
 
 def load_settings() -> Settings:
@@ -944,6 +951,23 @@ def load_settings() -> Settings:
     memory_min_importance = max(0.0, min(1.0, memory_min_importance))
     memory_consolidation_batch_size = get_int_env("MEMORY_CONSOLIDATION_BATCH_SIZE", 100, min_val=10)
 
+    # Story 20-B1 - Community Detection settings
+    community_detection_enabled = get_bool_env("COMMUNITY_DETECTION_ENABLED", "false")
+    community_algorithm = os.getenv("COMMUNITY_ALGORITHM", "louvain").strip().lower()
+    valid_community_algorithms = {"louvain", "leiden"}
+    if community_algorithm not in valid_community_algorithms:
+        logger.warning(
+            "invalid_community_algorithm",
+            algorithm=community_algorithm,
+            valid_algorithms=list(valid_community_algorithms),
+            fallback="louvain",
+        )
+        community_algorithm = "louvain"
+    community_min_size = get_int_env("COMMUNITY_MIN_SIZE", 3, min_val=2)
+    community_max_levels = get_int_env("COMMUNITY_MAX_LEVELS", 3, min_val=1)
+    community_summary_model = os.getenv("COMMUNITY_SUMMARY_MODEL", "gpt-4o-mini")
+    community_refresh_schedule = os.getenv("COMMUNITY_REFRESH_SCHEDULE", "0 3 * * 0")
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1113,6 +1137,13 @@ def load_settings() -> Settings:
         memory_decay_half_life_days=memory_decay_half_life_days,
         memory_min_importance=memory_min_importance,
         memory_consolidation_batch_size=memory_consolidation_batch_size,
+        # Story 20-B1 - Community Detection
+        community_detection_enabled=community_detection_enabled,
+        community_algorithm=community_algorithm,
+        community_min_size=community_min_size,
+        community_max_levels=community_max_levels,
+        community_summary_model=community_summary_model,
+        community_refresh_schedule=community_refresh_schedule,
     )
 
 

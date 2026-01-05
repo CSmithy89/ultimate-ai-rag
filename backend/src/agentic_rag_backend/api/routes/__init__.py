@@ -10,6 +10,7 @@ from .ag_ui import router as ag_ui_router
 from .ops import router as ops_router
 from .codebase import router as codebase_router
 from .memories import router as memories_router
+from .communities import router as communities_router
 
 __all__ = [
     "ingest_router",
@@ -22,4 +23,5 @@ __all__ = [
     "ops_router",
     "codebase_router",
     "memories_router",
+    "communities_router",
 ]

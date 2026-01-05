@@ -150,6 +150,16 @@ class Neo4jClient:
                 await session.run(
                     "CREATE INDEX chunk_tenant IF NOT EXISTS FOR (c:Chunk) ON (c.tenant_id)"
                 )
+                # Community indexes (Story 20-B1)
+                await session.run(
+                    "CREATE INDEX community_id IF NOT EXISTS FOR (c:Community) ON (c.id)"
+                )
+                await session.run(
+                    "CREATE INDEX community_tenant IF NOT EXISTS FOR (c:Community) ON (c.tenant_id)"
+                )
+                await session.run(
+                    "CREATE INDEX community_level IF NOT EXISTS FOR (c:Community) ON (c.level)"
+                )
                 logger.info("neo4j_indexes_created")
         except Neo4jDriverError as e:
             raise Neo4jError("create_indexes", str(e)) from e

@@ -32,6 +32,7 @@ from .api.routes import (
     ops_router,
     codebase_router,
     memories_router,
+    communities_router,
 )
 from .api.routes.ingest import limiter as slowapi_limiter
 from .api.utils import rate_limit_exceeded
@@ -552,6 +553,7 @@ def create_app() -> FastAPI:
     app.include_router(ops_router, prefix="/api/v1")  # Epic 8: Ops dashboard
     app.include_router(codebase_router, prefix="/api/v1")  # Epic 15: Codebase intelligence
     app.include_router(memories_router, prefix="/api/v1")  # Epic 20: Memory Platform
+    app.include_router(communities_router, prefix="/api/v1")  # Epic 20: Community Detection
 
     # Story 19-C5: Mount Prometheus metrics endpoint
     # Note: Settings are loaded fresh here since app.state.settings is set in lifespan

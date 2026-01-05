@@ -363,7 +363,7 @@ development_status:
   # DEPENDS ON: Epic 19 (Quality Foundation must complete first)
   # See: epic-20-tech-spec.md
   # ==========================================
-  epic-20: contexted
+  epic-20: in-progress
 
   # --- Group A: Memory Platform (Compete with Mem0) ---
   20-A1-implement-memory-scopes: done
@@ -372,7 +372,7 @@ development_status:
   # Config: MEMORY_CONSOLIDATION_ENABLED, MEMORY_CONSOLIDATION_SCHEDULE, MEMORY_SIMILARITY_THRESHOLD, MEMORY_DECAY_HALF_LIFE_DAYS, MEMORY_MIN_IMPORTANCE
 
   # --- Group B: Graph Intelligence (Compete with MS GraphRAG) ---
-  20-B1-implement-community-detection: backlog
+  20-B1-implement-community-detection: done
   # Config: COMMUNITY_DETECTION_ENABLED, COMMUNITY_ALGORITHM (louvain|leiden)
   20-B2-implement-lazyrag-pattern: backlog
   # Defer summarization to query time for 99% indexing cost reduction

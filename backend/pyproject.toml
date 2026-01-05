@@ -58,6 +58,8 @@ dependencies = [
   "prometheus-client>=0.20.0",
   # Story 20-A2 - Memory Consolidation Scheduler
   "apscheduler>=3.10.0",
+  # Story 20-B1 - Community Detection (Graph Intelligence)
+  "networkx>=3.0",
 ]
 
 [project.scripts]
