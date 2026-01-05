@@ -133,6 +133,37 @@ GRADER_HEURISTIC_MIN_LENGTH=50
 # Content length at which length bonus maxes out (default: 2000)
 # Content at or above this length gets a length factor of 1.0
 GRADER_HEURISTIC_MAX_LENGTH=2000
+
+# ============================================
+# GROUP G: CACHING AND TUNING (Story 19-G1-G4)
+# ============================================
+
+# Story 19-G1: Reranking Result Caching
+# Enable/disable caching of reranking results (default: false)
+RERANKER_CACHE_ENABLED=true
+
+# Cache TTL in seconds (default: 300 = 5 minutes)
+RERANKER_CACHE_TTL_SECONDS=300
+
+# Maximum number of cached entries (default: 1000)
+RERANKER_CACHE_MAX_SIZE=1000
+
+# Story 19-G2: Contextual Retrieval Prompt Path
+# Path to custom contextual retrieval prompt file (optional)
+# Template must contain {document} and {chunk} placeholders
+CONTEXTUAL_RETRIEVAL_PROMPT_PATH=prompts/contextual_retrieval.txt
+
+# Story 19-G3: Model Preloading
+# Preload grader model at startup (default: false)
+# Reduces first-query latency but increases startup time
+GRADER_PRELOAD_MODEL=true
+
+# Preload reranker model at startup (default: false, FlashRank only)
+RERANKER_PRELOAD_MODEL=true
+
+# Story 19-G4: Score Normalization Strategy
+# Options: min_max | z_score | softmax | percentile
+GRADER_NORMALIZATION_STRATEGY=min_max
 ```
 
 ---
@@ -495,3 +526,187 @@ Dashboard queries available in Epic 18 documentation guide.
 - [LangGraph CRAG Tutorial](https://langchain-ai.github.io/langgraph/tutorials/rag/langgraph_crag/)
 - `_bmad-output/implementation-artifacts/epic-12-tech-spec.md`
 - `_bmad-output/implementation-artifacts/sprint-status.yaml`
+
+---
+
+## Group G: Caching and Tuning
+
+This section documents the caching and performance tuning options introduced in Story 19-G1 through 19-G4.
+
+### Story 19-G1: Reranking Result Caching
+
+Reranking can be expensive, especially with cross-encoder models. The reranking cache stores results to avoid redundant computations for identical query-document combinations.
+
+#### Cache Key Strategy
+
+The cache key is a SHA-256 hash of:
+```python
+cache_key = hash(query_text + sorted(document_ids) + reranker_model + tenant_id)
+```
+
+This ensures:
+- Different queries get different cache entries
+- Same query with different documents is a cache miss
+- Tenant isolation is preserved
+- Model changes invalidate cached results
+
+#### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RERANKER_CACHE_ENABLED` | `false` | Enable/disable caching |
+| `RERANKER_CACHE_TTL_SECONDS` | `300` | Time-to-live (5 minutes) |
+| `RERANKER_CACHE_MAX_SIZE` | `1000` | Maximum cached entries |
+
+#### Prometheus Metrics
+
+- `reranker_cache_hits_total{tenant_id}`: Cache hit counter
+- `reranker_cache_misses_total{tenant_id}`: Cache miss counter
+- `reranker_cache_size`: Current cache size (gauge)
+
+#### When to Enable
+
+| Scenario | Recommendation |
+|----------|----------------|
+| High query repetition | Enable with longer TTL |
+| Unique queries | Keep disabled |
+| Memory constrained | Reduce max_size or disable |
+| Development/testing | Enable with short TTL |
+
+---
+
+### Story 19-G2: Configurable Contextual Retrieval Prompt
+
+The contextual retrieval prompt can be customized for domain-specific contexts.
+
+#### Custom Prompt Template
+
+Create a text file with the following placeholders:
+- `{document}` or `{document_content}`: Replaced with document text
+- `{chunk}` or `{chunk_content}`: Replaced with chunk text
+
+**Example custom prompt:**
+```text
+<context>
+{document}
+</context>
+
+<extract>
+{chunk}
+</extract>
+
+Generate a brief context statement that:
+1. Identifies the document section this chunk belongs to
+2. Notes any key entities or concepts mentioned
+3. Explains how this chunk relates to the broader document
+
+Context:
+```
+
+#### Configuration
+
+```bash
+CONTEXTUAL_RETRIEVAL_PROMPT_PATH=prompts/my-custom-prompt.txt
+```
+
+#### Fallback Behavior
+
+If the custom prompt file:
+- Does not exist: Falls back to default with warning
+- Is missing placeholders: Falls back to default with warning
+- Fails to load: Falls back to default with warning
+
+---
+
+### Story 19-G3: Model Preloading
+
+Cross-encoder models (for grading and reranking) are loaded lazily by default. This reduces startup time but increases first-query latency.
+
+#### Preloading Benefits
+
+| Metric | Without Preload | With Preload |
+|--------|-----------------|--------------|
+| Startup time | Fast (~1-2s) | Slower (+3-10s) |
+| First query | Slow (+3-10s) | Fast |
+| Memory at startup | Lower | Higher |
+| Health check | Immediate | After model load |
+
+#### Configuration
+
+```bash
+# Preload grader model at startup
+GRADER_PRELOAD_MODEL=true
+
+# Preload reranker model at startup (FlashRank only)
+RERANKER_PRELOAD_MODEL=true
+```
+
+#### Health Check Integration
+
+When preloading is enabled, the model load time is logged:
+```json
+{
+  "event": "cross_encoder_model_loaded",
+  "model_name": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+  "load_time_ms": 3450.52,
+  "preloaded": true
+}
+```
+
+Health checks should wait for model initialization to complete before marking the service as healthy.
+
+---
+
+### Story 19-G4: Score Normalization Strategies
+
+Different normalization strategies can be applied to raw cross-encoder scores before computing the final grader score.
+
+#### Available Strategies
+
+| Strategy | Formula | Use Case |
+|----------|---------|----------|
+| `min_max` | `(score - min) / (max - min)` | Default, bounded scores |
+| `z_score` | `sigmoid((score - mean) / std)` | Normal distributions |
+| `softmax` | `exp(score) / sum(exp(scores))` | Emphasize differences |
+| `percentile` | Rank-based (0-1) | Mixed score sources |
+
+#### Strategy Selection Guide
+
+**min_max (Default)**
+- Best for: Vector similarity scores, bounded ranges
+- Pros: Simple, interpretable, preserves relative distances
+- Cons: Sensitive to outliers
+
+**z_score**
+- Best for: Cross-encoder scores, unbounded ranges
+- Pros: Handles outliers better, statistically grounded
+- Cons: Requires multiple scores for meaningful normalization
+
+**softmax**
+- Best for: Ranking tasks, probability interpretation
+- Pros: Emphasizes score differences, sums to 1.0
+- Cons: Highly sensitive to score gaps
+
+**percentile**
+- Best for: Heterogeneous scoring systems, robust to outliers
+- Pros: Position-based, ignores absolute values
+- Cons: Loses information about score magnitudes
+
+#### Configuration
+
+```bash
+GRADER_NORMALIZATION_STRATEGY=min_max
+```
+
+#### Example Calculations
+
+Given raw cross-encoder scores: `[-2.5, 0.5, 1.2, 3.0]`
+
+| Strategy | Normalized Scores | Mean |
+|----------|-------------------|------|
+| min_max | [0.0, 0.55, 0.67, 1.0] | 0.55 |
+| z_score | [0.08, 0.48, 0.56, 0.80] | 0.48 |
+| softmax | [0.01, 0.08, 0.16, 0.75] | 0.25 |
+| percentile | [0.0, 0.33, 0.67, 1.0] | 0.50 |
+
+The mean is then compared against the grader threshold.

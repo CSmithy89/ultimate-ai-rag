@@ -5,6 +5,9 @@ which evaluates retrieval results and triggers fallback strategies when quality 
 
 The grader uses a lightweight approach (cross-encoder or simple heuristics) rather
 than full LLM calls to minimize latency and cost.
+
+Story 19-G3: Supports model preloading for reduced first-query latency.
+Story 19-G4: Supports configurable score normalization strategies.
 """
 
 import asyncio
@@ -23,6 +26,12 @@ from agentic_rag_backend.observability.metrics import (
     record_grader_score,
     record_retrieval_latency,
     record_retrieval_fallback,
+)
+from agentic_rag_backend.retrieval.normalization import (
+    NormalizationStrategy,
+    normalize_scores,
+    aggregate_normalized_scores,
+    get_normalization_strategy,
 )
 
 logger = structlog.get_logger(__name__)
@@ -337,6 +346,9 @@ class CrossEncoderGrader(BaseGrader):
     - BAAI/bge-reranker-base (BGE reranker)
     - BAAI/bge-reranker-large (BGE large, best accuracy)
 
+    Story 19-G3: Supports eager preloading for reduced first-query latency.
+    Story 19-G4: Supports configurable normalization strategies.
+
     Note: This requires sentence-transformers to be available.
     """
 
@@ -344,20 +356,33 @@ class CrossEncoderGrader(BaseGrader):
         self,
         model_name: str = DEFAULT_CROSS_ENCODER_MODEL,
         fallback_to_default: bool = True,
+        preload: bool = False,
+        normalization_strategy: NormalizationStrategy = NormalizationStrategy.MIN_MAX,
     ):
         """Initialize the cross-encoder grader.
 
         Args:
             model_name: Name of the cross-encoder model to use
             fallback_to_default: If True, fall back to default model if configured model fails
+            preload: If True, load the model immediately (Story 19-G3)
+            normalization_strategy: Strategy for normalizing scores (Story 19-G4)
         """
         self.model_name = model_name
         self.fallback_to_default = fallback_to_default
         self._model: Any | None = None  # Lazy loading
         self._loaded_model_name: str | None = None  # Track which model was actually loaded
+        self._preload = preload
+        self._normalization_strategy = normalization_strategy
+
+        # Story 19-G3: Preload model if requested
+        if preload:
+            self._ensure_model()
 
     def _ensure_model(self) -> None:
         """Lazily load the cross-encoder model.
+
+        Story 19-G3: If preload is True, this is called at initialization.
+        Otherwise, called on first use (lazy loading).
 
         If the configured model fails to load and fallback_to_default is True,
         attempts to load the default model instead.
@@ -368,6 +393,8 @@ class CrossEncoderGrader(BaseGrader):
         """
         if self._model is not None:
             return
+
+        start_time = time.perf_counter()
 
         try:
             from sentence_transformers import CrossEncoder
@@ -382,12 +409,16 @@ class CrossEncoderGrader(BaseGrader):
             logger.info(
                 "loading_cross_encoder_model",
                 model_name=self.model_name,
+                preload=self._preload,
             )
             self._model = CrossEncoder(self.model_name)
             self._loaded_model_name = self.model_name
+            load_time_ms = (time.perf_counter() - start_time) * 1000
             logger.info(
                 "cross_encoder_model_loaded",
                 model_name=self.model_name,
+                load_time_ms=round(load_time_ms, 2),
+                preloaded=self._preload,
             )
         except Exception as e:
             logger.warning(
@@ -406,9 +437,11 @@ class CrossEncoderGrader(BaseGrader):
                 try:
                     self._model = CrossEncoder(DEFAULT_CROSS_ENCODER_MODEL)
                     self._loaded_model_name = DEFAULT_CROSS_ENCODER_MODEL
+                    load_time_ms = (time.perf_counter() - start_time) * 1000
                     logger.info(
                         "fallback_model_loaded",
                         model_name=DEFAULT_CROSS_ENCODER_MODEL,
+                        load_time_ms=round(load_time_ms, 2),
                     )
                 except Exception as fallback_error:
                     logger.error(
@@ -424,6 +457,13 @@ class CrossEncoderGrader(BaseGrader):
                 raise RuntimeError(
                     f"Failed to load cross-encoder model '{self.model_name}': {e}"
                 ) from e
+
+    def is_model_loaded(self) -> bool:
+        """Check if the model is loaded (for health checks).
+
+        Story 19-G3: Health checks can wait for model load completion.
+        """
+        return self._model is not None
 
     async def grade(
         self,
@@ -500,10 +540,14 @@ class CrossEncoderGrader(BaseGrader):
                 fallback_triggered=True,
             )
 
-        # Average score (cross-encoder scores are typically -inf to +inf, normalize)
-        avg_score = sum(scores) / len(scores)
-        # Sigmoid normalization to 0-1 range
-        score = 1 / (1 + math.exp(-avg_score))
+        # Story 19-G4: Apply configurable normalization strategy
+        raw_scores = list(scores)  # Convert numpy array to list if needed
+        normalized_scores = normalize_scores(
+            raw_scores,
+            strategy=self._normalization_strategy,
+        )
+        # Aggregate to single score (mean of normalized scores)
+        score = aggregate_normalized_scores(normalized_scores, aggregation="mean")
 
         passed = score >= threshold
         grading_time_ms = int((time.perf_counter() - start_time) * 1000)
@@ -536,6 +580,7 @@ class CrossEncoderGrader(BaseGrader):
             num_hits=len(hits),
             grading_time_ms=grading_time_ms,
             model=self._loaded_model_name or self.model_name,
+            normalization_strategy=self._normalization_strategy.value,
         )
 
         return GraderResult(
@@ -801,6 +846,19 @@ def create_grader(settings: Settings) -> Optional[RetrievalGrader]:
     grader_model = settings.grader_model.strip().lower()
     grader: BaseGrader
 
+    # Story 19-G4: Get normalization strategy from settings
+    try:
+        normalization_strategy = get_normalization_strategy(
+            settings.grader_normalization_strategy
+        )
+    except ValueError:
+        logger.warning(
+            "invalid_normalization_strategy_in_settings",
+            strategy=settings.grader_normalization_strategy,
+            fallback="min_max",
+        )
+        normalization_strategy = NormalizationStrategy.MIN_MAX
+
     if grader_model == "heuristic":
         # Use lightweight heuristic grader with configurable length weight
         grader = HeuristicGrader(
@@ -811,10 +869,13 @@ def create_grader(settings: Settings) -> Optional[RetrievalGrader]:
         )
     else:
         # Use cross-encoder grader with specified model
-        # The CrossEncoderGrader handles fallback to default if model fails
+        # Story 19-G3: Pass preload flag from settings
+        # Story 19-G4: Pass normalization strategy
         grader = CrossEncoderGrader(
             model_name=settings.grader_model,
             fallback_to_default=True,
+            preload=settings.grader_preload_model,
+            normalization_strategy=normalization_strategy,
         )
 
     # Create fallback handler based on strategy
@@ -851,6 +912,12 @@ def create_grader(settings: Settings) -> Optional[RetrievalGrader]:
             "heuristic_length_weight": settings.grader_heuristic_length_weight,
             "heuristic_min_length": settings.grader_heuristic_min_length,
             "heuristic_max_length": settings.grader_heuristic_max_length,
+        })
+    # Story 19-G3/G4: Add cross-encoder settings if using cross-encoder grader
+    elif isinstance(grader, CrossEncoderGrader):
+        log_context.update({
+            "preload_model": settings.grader_preload_model,
+            "normalization_strategy": normalization_strategy.value,
         })
 
     logger.info("grader_created", **log_context)

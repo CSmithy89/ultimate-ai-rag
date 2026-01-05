@@ -4,6 +4,9 @@ Supports:
 - Cohere Rerank API (rerank-v3.5, 100+ languages, 32K context)
 - FlashRank (local CPU-optimized, no API cost)
 
+Story 19-G1: Adds caching support for reranking results
+Story 19-G3: Adds model preloading support for FlashRank
+
 Usage:
     from agentic_rag_backend.retrieval.reranking import (
         create_reranker_client,
@@ -33,12 +36,16 @@ from tenacity import (
 )
 
 from .types import VectorHit
+from .cache import RerankerCache
 from ..observability.metrics import (
     record_retrieval_latency,
     record_reranking_improvement,
 )
 
 logger = structlog.get_logger(__name__)
+
+# Global reranker cache instance (Story 19-G1)
+_reranker_cache: Optional[RerankerCache] = None
 
 if TYPE_CHECKING:
     from ..config import Settings
@@ -58,6 +65,8 @@ class RerankerProviderAdapter:
     api_key: Optional[str]
     model: str
     top_k: int = 10
+    # Story 19-G3: Model preloading
+    preload: bool = False
 
 
 @dataclass(frozen=True)
@@ -213,22 +222,63 @@ class FlashRankRerankerClient(RerankerClient):
 
     Uses CPU-optimized models for cost-effective local reranking.
     No API costs, good for cost-sensitive deployments.
+
+    Story 19-G3: Supports lazy loading or eager preloading of the model.
     """
 
     def __init__(
         self,
         model: str = "ms-marco-MiniLM-L-12-v2",
+        preload: bool = False,
     ) -> None:
+        """Initialize the FlashRank reranker client.
+
+        Args:
+            model: Model name to use for reranking
+            preload: If True, load the model immediately (Story 19-G3)
+        """
+        self._model = model
+        self._ranker = None
+        self._preload = preload
+        self._model_loaded = False
+
+        if preload:
+            self._ensure_model_loaded()
+        else:
+            logger.info("flashrank_reranker_created", model=model, preload=False)
+
+    def _ensure_model_loaded(self) -> None:
+        """Lazily load the FlashRank model.
+
+        Story 19-G3: Model loading happens on first use unless preload=True.
+        """
+        if self._model_loaded:
+            return
+
+        start_time = time.perf_counter()
         try:
             from flashrank import Ranker
-            self._ranker = Ranker(model_name=model)
+            self._ranker = Ranker(model_name=self._model)
+            self._model_loaded = True
+            load_time_ms = (time.perf_counter() - start_time) * 1000
+            logger.info(
+                "flashrank_model_loaded",
+                model=self._model,
+                load_time_ms=round(load_time_ms, 2),
+                preloaded=self._preload,
+            )
         except ImportError:
             raise RuntimeError(
                 "flashrank package required for FlashRank reranking. "
                 "Install with: uv add flashrank"
             )
-        self._model = model
-        logger.info("flashrank_reranker_initialized", model=model)
+
+    def is_model_loaded(self) -> bool:
+        """Check if the model is loaded (for health checks).
+
+        Story 19-G3: Health checks can wait for model load completion.
+        """
+        return self._model_loaded
 
     async def rerank(
         self,
@@ -241,6 +291,9 @@ class FlashRankRerankerClient(RerankerClient):
         """Rerank using local FlashRank model."""
         if not hits:
             return []
+
+        # Story 19-G3: Ensure model is loaded (lazy loading on first use)
+        self._ensure_model_loaded()
 
         start_time = time.perf_counter()
 
@@ -324,8 +377,10 @@ def create_reranker_client(adapter: RerankerProviderAdapter) -> RerankerClient:
             model=adapter.model,
         )
     elif adapter.provider == RerankerProviderType.FLASHRANK:
+        # Story 19-G3: Pass preload flag to FlashRank client
         return FlashRankRerankerClient(
             model=adapter.model,
+            preload=adapter.preload,
         )
     else:
         raise ValueError(f"Unsupported reranker provider: {adapter.provider}")
@@ -353,4 +408,38 @@ def get_reranker_adapter(settings: Settings) -> RerankerProviderAdapter:
         api_key=settings.cohere_api_key if provider == RerankerProviderType.COHERE else None,
         model=settings.reranker_model,
         top_k=settings.reranker_top_k,
+        # Story 19-G3: Model preloading from settings
+        preload=settings.reranker_preload_model,
     )
+
+
+# =============================================================================
+# Story 19-G1: Reranking Cache Functions
+# =============================================================================
+
+
+def init_reranker_cache(settings: Settings) -> RerankerCache:
+    """Initialize the global reranker cache from settings.
+
+    Args:
+        settings: Application settings
+
+    Returns:
+        Configured RerankerCache instance
+    """
+    global _reranker_cache
+    _reranker_cache = RerankerCache(
+        enabled=settings.reranker_cache_enabled,
+        ttl_seconds=settings.reranker_cache_ttl_seconds,
+        max_size=settings.reranker_cache_max_size,
+    )
+    return _reranker_cache
+
+
+def get_reranker_cache() -> Optional[RerankerCache]:
+    """Get the global reranker cache instance.
+
+    Returns:
+        The global RerankerCache instance, or None if not initialized
+    """
+    return _reranker_cache
