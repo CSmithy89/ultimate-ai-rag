@@ -133,14 +133,18 @@ class TestRerankerCacheKey:
         key1 = generate_reranker_cache_key(
             query_text="test query",
             document_ids=["doc1", "doc2"],
+            chunk_ids=["chunk1", "chunk2"],
             reranker_model="model-1",
             tenant_id="tenant-1",
+            top_k=10,
         )
         key2 = generate_reranker_cache_key(
             query_text="test query",
             document_ids=["doc1", "doc2"],
+            chunk_ids=["chunk1", "chunk2"],
             reranker_model="model-1",
             tenant_id="tenant-1",
+            top_k=10,
         )
         assert key1 == key2
 
@@ -149,27 +153,79 @@ class TestRerankerCacheKey:
         key1 = generate_reranker_cache_key(
             query_text="test",
             document_ids=["doc1", "doc2", "doc3"],
+            chunk_ids=["chunk1", "chunk2", "chunk3"],
             reranker_model="model",
             tenant_id="tenant",
+            top_k=10,
         )
         key2 = generate_reranker_cache_key(
             query_text="test",
             document_ids=["doc3", "doc1", "doc2"],
+            chunk_ids=["chunk3", "chunk1", "chunk2"],
             reranker_model="model",
             tenant_id="tenant",
+            top_k=10,
         )
         assert key1 == key2
 
     def test_different_query_different_key(self) -> None:
         """Test different queries produce different keys."""
-        key1 = generate_reranker_cache_key("query1", ["doc1"], "model", "tenant")
-        key2 = generate_reranker_cache_key("query2", ["doc1"], "model", "tenant")
+        key1 = generate_reranker_cache_key(
+            "query1",
+            ["doc1"],
+            ["chunk1"],
+            "model",
+            "tenant",
+            10,
+        )
+        key2 = generate_reranker_cache_key(
+            "query2",
+            ["doc1"],
+            ["chunk1"],
+            "model",
+            "tenant",
+            10,
+        )
         assert key1 != key2
 
     def test_different_tenant_different_key(self) -> None:
         """Test tenant isolation in cache keys."""
-        key1 = generate_reranker_cache_key("query", ["doc1"], "model", "tenant-1")
-        key2 = generate_reranker_cache_key("query", ["doc1"], "model", "tenant-2")
+        key1 = generate_reranker_cache_key(
+            "query",
+            ["doc1"],
+            ["chunk1"],
+            "model",
+            "tenant-1",
+            10,
+        )
+        key2 = generate_reranker_cache_key(
+            "query",
+            ["doc1"],
+            ["chunk1"],
+            "model",
+            "tenant-2",
+            10,
+        )
+        assert key1 != key2
+
+    def test_top_k_affects_key(self) -> None:
+        """Test different top_k values produce different keys."""
+        key1 = generate_reranker_cache_key(
+            "query",
+            ["doc1"],
+            ["chunk1"],
+            "model",
+            "tenant",
+            5,
+        )
+        key2 = generate_reranker_cache_key(
+            "query",
+            ["doc1"],
+            ["chunk1"],
+            "model",
+            "tenant",
+            10,
+        )
         assert key1 != key2
 
 
@@ -179,24 +235,24 @@ class TestRerankerCache:
     def test_disabled_cache(self) -> None:
         """Test disabled cache always returns None."""
         cache = RerankerCache(enabled=False, ttl_seconds=60, max_size=100)
-        cache.set("query", ["doc1"], "model", "tenant", [{"result": 1}])
-        assert cache.get("query", ["doc1"], "model", "tenant") is None
+        cache.set("query", ["doc1"], ["chunk1"], "model", "tenant", 10, [{"result": 1}])
+        assert cache.get("query", ["doc1"], ["chunk1"], "model", "tenant", 10) is None
 
     def test_enabled_cache(self) -> None:
         """Test enabled cache stores and retrieves results."""
         cache = RerankerCache(enabled=True, ttl_seconds=60, max_size=100)
         results = [{"result": 1}, {"result": 2}]
-        cache.set("query", ["doc1"], "model", "tenant", results)
-        assert cache.get("query", ["doc1"], "model", "tenant") == results
+        cache.set("query", ["doc1"], ["chunk1"], "model", "tenant", 10, results)
+        assert cache.get("query", ["doc1"], ["chunk1"], "model", "tenant", 10) == results
 
     def test_tenant_isolation(self) -> None:
         """Test cache respects tenant isolation."""
         cache = RerankerCache(enabled=True, ttl_seconds=60, max_size=100)
-        cache.set("query", ["doc1"], "model", "tenant-1", [{"tenant": 1}])
-        cache.set("query", ["doc1"], "model", "tenant-2", [{"tenant": 2}])
+        cache.set("query", ["doc1"], ["chunk1"], "model", "tenant-1", 10, [{"tenant": 1}])
+        cache.set("query", ["doc1"], ["chunk1"], "model", "tenant-2", 10, [{"tenant": 2}])
 
-        assert cache.get("query", ["doc1"], "model", "tenant-1") == [{"tenant": 1}]
-        assert cache.get("query", ["doc1"], "model", "tenant-2") == [{"tenant": 2}]
+        assert cache.get("query", ["doc1"], ["chunk1"], "model", "tenant-1", 10) == [{"tenant": 1}]
+        assert cache.get("query", ["doc1"], ["chunk1"], "model", "tenant-2", 10) == [{"tenant": 2}]
 
     def test_cache_properties(self) -> None:
         """Test cache properties."""
@@ -204,7 +260,7 @@ class TestRerankerCache:
         assert cache.enabled is True
         assert cache.size == 0
 
-        cache.set("query", ["doc1"], "model", "tenant", [1, 2, 3])
+        cache.set("query", ["doc1"], ["chunk1"], "model", "tenant", 10, [1, 2, 3])
         assert cache.size == 1
 
 

@@ -110,6 +110,67 @@ class RerankerClient(ABC):
         pass
 
 
+class CachedRerankerClient(RerankerClient):
+    """Caching wrapper for reranker clients."""
+
+    def __init__(self, inner: RerankerClient, cache: RerankerCache) -> None:
+        self._inner = inner
+        self._cache = cache
+
+    async def rerank(
+        self,
+        query: str,
+        hits: list[VectorHit],
+        top_k: int = 10,
+        tenant_id: Optional[str] = None,
+        strategy: str = "hybrid",
+    ) -> list[RerankedHit]:
+        if not hits:
+            return []
+        if tenant_id is None:
+            return await self._inner.rerank(
+                query=query,
+                hits=hits,
+                top_k=top_k,
+                tenant_id=tenant_id,
+                strategy=strategy,
+            )
+
+        document_ids = [hit.document_id for hit in hits]
+        chunk_ids = [hit.chunk_id for hit in hits]
+        cached = self._cache.get(
+            query_text=query,
+            document_ids=document_ids,
+            chunk_ids=chunk_ids,
+            reranker_model=self._inner.get_model(),
+            tenant_id=tenant_id,
+            top_k=top_k,
+        )
+        if cached is not None:
+            return cached
+
+        reranked = await self._inner.rerank(
+            query=query,
+            hits=hits,
+            top_k=top_k,
+            tenant_id=tenant_id,
+            strategy=strategy,
+        )
+        self._cache.set(
+            query_text=query,
+            document_ids=document_ids,
+            chunk_ids=chunk_ids,
+            reranker_model=self._inner.get_model(),
+            tenant_id=tenant_id,
+            top_k=top_k,
+            reranked_results=reranked,
+        )
+        return reranked
+
+    def get_model(self) -> str:
+        return self._inner.get_model()
+
+
 class CohereRerankerClient(RerankerClient):
     """Cohere Rerank API client.
 
@@ -372,18 +433,23 @@ def create_reranker_client(adapter: RerankerProviderAdapter) -> RerankerClient:
     if adapter.provider == RerankerProviderType.COHERE:
         if not adapter.api_key:
             raise ValueError("COHERE_API_KEY is required for Cohere reranking.")
-        return CohereRerankerClient(
+        client: RerankerClient = CohereRerankerClient(
             api_key=adapter.api_key,
             model=adapter.model,
         )
     elif adapter.provider == RerankerProviderType.FLASHRANK:
         # Story 19-G3: Pass preload flag to FlashRank client
-        return FlashRankRerankerClient(
+        client = FlashRankRerankerClient(
             model=adapter.model,
             preload=adapter.preload,
         )
     else:
         raise ValueError(f"Unsupported reranker provider: {adapter.provider}")
+
+    cache = get_reranker_cache()
+    if cache and cache.enabled:
+        return CachedRerankerClient(client, cache)
+    return client
 
 
 def get_reranker_adapter(settings: Settings) -> RerankerProviderAdapter:

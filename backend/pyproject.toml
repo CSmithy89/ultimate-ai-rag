@@ -80,6 +80,7 @@ dev-dependencies = [
   "types-aiofiles>=24.1.0.0",
   "sqlalchemy==2.0.36",
   "pytest-cov>=7.0.0",
+  "pytest-timeout>=2.3.1",
 ]
 
 [tool.pytest.ini_options]

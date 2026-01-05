@@ -124,30 +124,37 @@ def hash_cache_key(value: str) -> str:
 def generate_reranker_cache_key(
     query_text: str,
     document_ids: list[str],
+    chunk_ids: list[str],
     reranker_model: str,
     tenant_id: str,
+    top_k: int,
 ) -> str:
     """Generate a cache key for reranking results.
 
     The cache key is a SHA-256 hash of the query, sorted document IDs,
-    reranker model, and tenant ID.
+    sorted chunk IDs, reranker model, tenant ID, and top_k.
 
     Args:
         query_text: The search query
         document_ids: List of document IDs being reranked
+        chunk_ids: List of chunk IDs being reranked
         reranker_model: The reranker model name
         tenant_id: Tenant identifier for multi-tenancy isolation
+        top_k: Number of top results requested
 
     Returns:
         SHA-256 hash string for use as cache key
     """
     # Sort document IDs to ensure consistent ordering
     sorted_doc_ids = sorted(document_ids)
+    sorted_chunk_ids = sorted(chunk_ids)
     key_components = [
         query_text,
         "|".join(sorted_doc_ids),
+        "|".join(sorted_chunk_ids),
         reranker_model,
         tenant_id,
+        str(top_k),
     ]
     combined = "\n".join(key_components)
     return hashlib.sha256(combined.encode("utf-8")).hexdigest()
@@ -160,7 +167,7 @@ class RerankerCache:
     It helps avoid redundant reranking calls for identical query-document combinations.
 
     Implements Story 19-G1 acceptance criteria:
-    - Reranked results cached by query hash + document set
+    - Reranked results cached by query hash + document + chunk set + top_k
     - Cache TTL is configurable (default 5 minutes)
     - Cache hit rate is logged and exposed as metric
     - Repeated identical queries return faster
@@ -174,7 +181,7 @@ class RerankerCache:
         )
 
         # Check cache
-        cached = cache.get(query, doc_ids, model, tenant_id)
+        cached = cache.get(query, doc_ids, chunk_ids, model, tenant_id, top_k)
         if cached:
             return cached
 
@@ -182,7 +189,7 @@ class RerankerCache:
         reranked = await reranker.rerank(...)
 
         # Store in cache
-        cache.set(query, doc_ids, model, tenant_id, reranked)
+        cache.set(query, doc_ids, chunk_ids, model, tenant_id, top_k, reranked)
     """
 
     def __init__(
@@ -227,8 +234,10 @@ class RerankerCache:
         self,
         query_text: str,
         document_ids: list[str],
+        chunk_ids: list[str],
         reranker_model: str,
         tenant_id: str,
+        top_k: int,
     ) -> Optional[list]:
         """Get cached reranking results if available.
 
@@ -245,7 +254,7 @@ class RerankerCache:
             return None
 
         cache_key = generate_reranker_cache_key(
-            query_text, document_ids, reranker_model, tenant_id
+            query_text, document_ids, chunk_ids, reranker_model, tenant_id, top_k
         )
         result = self._cache.get(cache_key)
 
@@ -256,6 +265,8 @@ class RerankerCache:
                 "reranker_cache_hit",
                 query_preview=query_text[:50],
                 doc_count=len(document_ids),
+                chunk_count=len(chunk_ids),
+                top_k=top_k,
                 tenant_id=tenant_id,
             )
         else:
@@ -265,6 +276,8 @@ class RerankerCache:
                 "reranker_cache_miss",
                 query_preview=query_text[:50],
                 doc_count=len(document_ids),
+                chunk_count=len(chunk_ids),
+                top_k=top_k,
                 tenant_id=tenant_id,
             )
 
@@ -274,8 +287,10 @@ class RerankerCache:
         self,
         query_text: str,
         document_ids: list[str],
+        chunk_ids: list[str],
         reranker_model: str,
         tenant_id: str,
+        top_k: int,
         reranked_results: list,
     ) -> None:
         """Store reranking results in cache.
@@ -291,7 +306,7 @@ class RerankerCache:
             return
 
         cache_key = generate_reranker_cache_key(
-            query_text, document_ids, reranker_model, tenant_id
+            query_text, document_ids, chunk_ids, reranker_model, tenant_id, top_k
         )
         self._cache.set(cache_key, reranked_results)
 
@@ -302,6 +317,8 @@ class RerankerCache:
             "reranker_cache_set",
             query_preview=query_text[:50],
             doc_count=len(document_ids),
+            chunk_count=len(chunk_ids),
+            top_k=top_k,
             result_count=len(reranked_results),
             tenant_id=tenant_id,
         )

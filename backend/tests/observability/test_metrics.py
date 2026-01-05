@@ -25,6 +25,7 @@ from agentic_rag_backend.observability.metrics import (
     set_retrieval_precision,
     set_retrieval_recall,
     track_active_retrieval,
+    normalize_tenant_label,
     get_metrics_registry,
 )
 
@@ -210,34 +211,36 @@ class TestTrackActiveRetrieval:
     def test_track_active_retrieval_increments_and_decrements(self) -> None:
         """Test that context manager properly tracks active operations."""
         tenant_id = "test-tenant-active"
+        tenant_label = normalize_tenant_label(tenant_id)
 
         # Get initial value
-        initial = ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_id)._value.get()
+        initial = ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_label)._value.get()
 
         with track_active_retrieval(tenant_id):
             # Value should be incremented inside context
-            inside = ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_id)._value.get()
+            inside = ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_label)._value.get()
             assert inside == initial + 1
 
         # Value should be decremented after context
-        after = ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_id)._value.get()
+        after = ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_label)._value.get()
         assert after == initial
 
     def test_track_active_retrieval_decrements_on_exception(self) -> None:
         """Test that context manager decrements even on exception."""
         tenant_id = "test-tenant-exception"
+        tenant_label = normalize_tenant_label(tenant_id)
 
-        initial = ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_id)._value.get()
+        initial = ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_label)._value.get()
 
         with pytest.raises(ValueError):
             with track_active_retrieval(tenant_id):
                 # Verify incremented
-                inside = ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_id)._value.get()
+                inside = ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_label)._value.get()
                 assert inside == initial + 1
                 raise ValueError("Test exception")
 
         # Should still be decremented
-        after = ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_id)._value.get()
+        after = ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_label)._value.get()
         assert after == initial
 
 

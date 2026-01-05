@@ -15,8 +15,10 @@ The default list is stored at `config/user-agents.txt` and contains 10+ realisti
 
 ## Strategy Behavior
 
-- `rotate`: cycles through the list in order (one per crawler session)
-- `random`: selects a random entry for each crawler session
-- `static`: uses `CRAWL4AI_USER_AGENT` if set, otherwise the first entry
+- `rotate`: cycles through the list per crawl batch when `stealth` is enabled
+- `random`: selects a random entry per crawl batch when `stealth` is enabled
+- `static`: uses `CRAWL4AI_USER_AGENT` if set, otherwise the first entry (session-wide)
 
-Restart the backend after updating the list.
+Notes:
+- Rotation only applies when `stealth=True` because user-agent is set on the browser config.
+- Restart the backend after updating the list.
