@@ -287,7 +287,7 @@ development_status:
   # SPLIT: 2026-01-05 - Competitive features moved to Epic 20
   # See: epic-19-tech-spec.md
   # ==========================================
-  epic-19: contexted
+  epic-19: in-progress
 
   # --- Group C (Partial): Quality Observability ---
   19-C4-implement-retrieval-quality-benchmarks: done
@@ -307,15 +307,15 @@ development_status:
   19-F5-add-contextual-retrieval-cost-logging: done
 
   # --- Group G: Epic 12 Retro Future Enhancements ---
-  19-G1-add-reranking-result-caching: backlog
-  19-G2-make-context-generation-prompt-configurable: backlog
-  19-G3-add-crossencoder-model-preloading: backlog
-  19-G4-support-custom-normalization-strategies: backlog
+  19-G1-add-reranking-result-caching: done
+  19-G2-make-context-generation-prompt-configurable: done
+  19-G3-add-crossencoder-model-preloading: done
+  19-G4-support-custom-normalization-strategies: done
 
   # --- Group I: Epic 13 Code Review Carry-Forward ---
   # Origin: gemini-code-assist and coderabbitai reviews (2026-01-04)
   # PRIORITY: MEDIUM
-  19-I1-externalize-crawl-profile-domain-matching: backlog
+  19-I1-externalize-crawl-profile-domain-matching: done
   # Move _EXACT_DOMAIN_PROFILES etc. to JSON/YAML config for easier updates
   19-I2-add-dynamic-user-agent-rotation: backlog
   # Replace hardcoded Chrome 131 with fake-useragent or configurable list

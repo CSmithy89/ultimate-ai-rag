@@ -9,6 +9,9 @@ Provides pre-defined profiles for common crawling scenarios:
 """
 
 from dataclasses import dataclass, replace
+import json
+import os
+from pathlib import Path
 from enum import Enum
 from typing import Optional
 from urllib.parse import urlparse
@@ -140,41 +143,92 @@ def get_crawl_profile(name: str) -> CrawlProfile:
     return profile
 
 
+_DEFAULT_DOMAIN_PROFILE_RULES: dict[str, dict[str, str]] = {
+    "exact": {
+        "linkedin.com": "stealth",
+        "facebook.com": "stealth",
+        "twitter.com": "stealth",
+        "x.com": "stealth",
+        "instagram.com": "stealth",
+        "cloudflare.com": "stealth",
+        "indeed.com": "stealth",
+        "glassdoor.com": "stealth",
+        "amazon.com": "stealth",
+        "google.com": "stealth",
+    },
+    "suffix": {
+        ".github.io": "fast",
+    },
+    "prefix": {
+        "docs.": "fast",
+        "documentation.": "fast",
+        "readthedocs.": "fast",
+        "gitbook.": "fast",
+        "docusaurus.": "fast",
+        "wiki.": "fast",
+        "app.": "thorough",
+        "dashboard.": "thorough",
+        "console.": "thorough",
+        "portal.": "thorough",
+    },
+}
+_DOMAIN_RULES_PATH = Path(__file__).with_name("crawl_profile_domains.json")
+
+
+def _load_domain_profile_rules() -> dict[str, dict[str, str]]:
+    config_path = os.getenv("CRAWL_PROFILE_DOMAIN_CONFIG")
+    path = Path(config_path) if config_path else _DOMAIN_RULES_PATH
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("domain rules must be a JSON object")
+
+        valid_profiles = {profile.value for profile in CrawlProfileName}
+
+        def _clean_rules(value: object, rule_type: str) -> dict[str, str]:
+            if not isinstance(value, dict):
+                raise ValueError(f"{rule_type} rules must be a JSON object")
+            cleaned: dict[str, str] = {}
+            for pattern, profile in value.items():
+                if not isinstance(pattern, str) or not isinstance(profile, str):
+                    logger.warning(
+                        "crawl_profile_rules_invalid_entry",
+                        rule_type=rule_type,
+                        pattern=pattern,
+                        profile=profile,
+                    )
+                    continue
+                profile_name = profile.strip().lower()
+                if profile_name not in valid_profiles:
+                    logger.warning(
+                        "crawl_profile_rules_invalid_profile",
+                        rule_type=rule_type,
+                        pattern=pattern,
+                        profile=profile,
+                    )
+                    continue
+                cleaned[pattern.strip().lower()] = profile_name
+            return cleaned
+
+        exact_rules = _clean_rules(raw.get("exact", {}), "exact")
+        suffix_rules = _clean_rules(raw.get("suffix", {}), "suffix")
+        prefix_rules = _clean_rules(raw.get("prefix", {}), "prefix")
+        return {"exact": exact_rules, "suffix": suffix_rules, "prefix": prefix_rules}
+    except Exception as exc:
+        logger.warning(
+            "crawl_profile_rules_load_failed",
+            path=str(path),
+            error=str(exc),
+        )
+        return _DEFAULT_DOMAIN_PROFILE_RULES
+
+
 # Domain heuristics for auto-detection
 # Organized by match priority: exact domains > suffixes > prefixes
-
-# Exact domain matches (highest priority) - checked first
-_EXACT_DOMAIN_PROFILES: dict[str, str] = {
-    "linkedin.com": "stealth",
-    "facebook.com": "stealth",
-    "twitter.com": "stealth",
-    "x.com": "stealth",
-    "instagram.com": "stealth",
-    "cloudflare.com": "stealth",
-    "indeed.com": "stealth",
-    "glassdoor.com": "stealth",
-    "amazon.com": "stealth",
-    "google.com": "stealth",
-}
-
-# Domain suffix matches (e.g., ".github.io")
-_SUFFIX_DOMAIN_PROFILES: dict[str, str] = {
-    ".github.io": "fast",
-}
-
-# Subdomain prefix matches (lowest priority, e.g., "docs.")
-_PREFIX_DOMAIN_PROFILES: dict[str, str] = {
-    "docs.": "fast",
-    "documentation.": "fast",
-    "readthedocs.": "fast",
-    "gitbook.": "fast",
-    "docusaurus.": "fast",
-    "wiki.": "fast",
-    "app.": "thorough",
-    "dashboard.": "thorough",
-    "console.": "thorough",
-    "portal.": "thorough",
-}
+_DOMAIN_RULES = _load_domain_profile_rules()
+_EXACT_DOMAIN_PROFILES = _DOMAIN_RULES.get("exact", {})
+_SUFFIX_DOMAIN_PROFILES = _DOMAIN_RULES.get("suffix", {})
+_PREFIX_DOMAIN_PROFILES = _DOMAIN_RULES.get("prefix", {})
 
 
 def get_profile_for_url(url: str) -> str:

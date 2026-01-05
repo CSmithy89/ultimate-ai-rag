@@ -67,6 +67,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentic_rag_backend"]
+include = ["src/agentic_rag_backend/indexing/crawl_profile_domains.json"]
 
 [tool.uv]
 dev-dependencies = [
