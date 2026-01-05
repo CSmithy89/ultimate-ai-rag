@@ -379,7 +379,7 @@ development_status:
   20-B3-implement-global-local-query-routing: done
 
   # --- Group C (Partial): Retrieval Excellence Features ---
-  20-C1-implement-graph-based-rerankers: backlog
+  20-C1-implement-graph-based-rerankers: done
   # Zep-style: episode-mentions, node-distance, hybrid
   20-C2-implement-dual-level-retrieval: backlog
   # LightRAG-style: low-level (entities) + high-level (themes)

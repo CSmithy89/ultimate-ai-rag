@@ -315,6 +315,14 @@ class Settings:
     query_routing_use_llm: bool
     query_routing_llm_model: str
     query_routing_confidence_threshold: float
+    # Story 20-C1 - Graph-Based Rerankers
+    graph_reranker_enabled: bool
+    graph_reranker_type: str
+    graph_reranker_episode_weight: float
+    graph_reranker_distance_weight: float
+    graph_reranker_original_weight: float
+    graph_reranker_episode_window_days: int
+    graph_reranker_max_distance: int
 
 
 def load_settings() -> Settings:
@@ -996,6 +1004,63 @@ def load_settings() -> Settings:
     # Clamp threshold to valid range
     query_routing_confidence_threshold = max(0.0, min(1.0, query_routing_confidence_threshold))
 
+    # Story 20-C1 - Graph-Based Rerankers
+    graph_reranker_enabled = get_bool_env("GRAPH_RERANKER_ENABLED", "false")
+    graph_reranker_type = os.getenv("GRAPH_RERANKER_TYPE", "hybrid").strip().lower()
+    valid_graph_reranker_types = {"episode", "distance", "hybrid"}
+    if graph_reranker_type not in valid_graph_reranker_types:
+        logger.warning(
+            "invalid_graph_reranker_type",
+            type=graph_reranker_type,
+            valid_types=list(valid_graph_reranker_types),
+            fallback="hybrid",
+        )
+        graph_reranker_type = "hybrid"
+
+    # Weight configuration with validation
+    graph_reranker_episode_weight = get_float_env(
+        "GRAPH_RERANKER_EPISODE_WEIGHT", 0.3, min_val=0.0
+    )
+    graph_reranker_distance_weight = get_float_env(
+        "GRAPH_RERANKER_DISTANCE_WEIGHT", 0.3, min_val=0.0
+    )
+    graph_reranker_original_weight = get_float_env(
+        "GRAPH_RERANKER_ORIGINAL_WEIGHT", 0.4, min_val=0.0
+    )
+
+    # Clamp weights to 0-1 range
+    graph_reranker_episode_weight = max(0.0, min(1.0, graph_reranker_episode_weight))
+    graph_reranker_distance_weight = max(0.0, min(1.0, graph_reranker_distance_weight))
+    graph_reranker_original_weight = max(0.0, min(1.0, graph_reranker_original_weight))
+
+    # Validate weights sum to 1.0 (with tolerance)
+    weight_sum = (
+        graph_reranker_episode_weight
+        + graph_reranker_distance_weight
+        + graph_reranker_original_weight
+    )
+    if abs(weight_sum - 1.0) > 0.01:
+        logger.warning(
+            "graph_reranker_weights_not_normalized",
+            sum=weight_sum,
+            episode=graph_reranker_episode_weight,
+            distance=graph_reranker_distance_weight,
+            original=graph_reranker_original_weight,
+            hint="Weights will be normalized to sum to 1.0",
+        )
+        # Normalize weights
+        if weight_sum > 0:
+            graph_reranker_episode_weight /= weight_sum
+            graph_reranker_distance_weight /= weight_sum
+            graph_reranker_original_weight /= weight_sum
+
+    graph_reranker_episode_window_days = get_int_env(
+        "GRAPH_RERANKER_EPISODE_WINDOW_DAYS", 30, min_val=1
+    )
+    graph_reranker_max_distance = get_int_env(
+        "GRAPH_RERANKER_MAX_DISTANCE", 3, min_val=1
+    )
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1183,6 +1248,14 @@ def load_settings() -> Settings:
         query_routing_use_llm=query_routing_use_llm,
         query_routing_llm_model=query_routing_llm_model,
         query_routing_confidence_threshold=query_routing_confidence_threshold,
+        # Story 20-C1 - Graph-Based Rerankers
+        graph_reranker_enabled=graph_reranker_enabled,
+        graph_reranker_type=graph_reranker_type,
+        graph_reranker_episode_weight=graph_reranker_episode_weight,
+        graph_reranker_distance_weight=graph_reranker_distance_weight,
+        graph_reranker_original_weight=graph_reranker_original_weight,
+        graph_reranker_episode_window_days=graph_reranker_episode_window_days,
+        graph_reranker_max_distance=graph_reranker_max_distance,
     )
 
 

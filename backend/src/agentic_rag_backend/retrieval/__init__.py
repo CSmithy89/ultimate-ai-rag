@@ -62,6 +62,20 @@ from .query_router_models import (
     RouterStatusResponse,
 )
 
+# Epic 20 - Graph-Based Rerankers (Story 20-C1)
+from .graph_rerankers import (
+    GraphRerankerType,
+    GraphContext,
+    GraphRerankedResult,
+    GraphRerankerAdapter,
+    GraphReranker,
+    EpisodeMentionsReranker,
+    NodeDistanceReranker,
+    HybridGraphReranker,
+    get_graph_reranker_adapter,
+    create_graph_reranker,
+)
+
 __all__ = [
     # Epic 3 - Graph traversal and vector search
     "GraphEdge",
@@ -115,4 +129,15 @@ __all__ = [
     "QueryRouteResponse",
     "PatternListResponse",
     "RouterStatusResponse",
+    # Epic 20 - Graph-Based Rerankers
+    "GraphRerankerType",
+    "GraphContext",
+    "GraphRerankedResult",
+    "GraphRerankerAdapter",
+    "GraphReranker",
+    "EpisodeMentionsReranker",
+    "NodeDistanceReranker",
+    "HybridGraphReranker",
+    "get_graph_reranker_adapter",
+    "create_graph_reranker",
 ]
