@@ -9,7 +9,7 @@
     <story-id>19-I7</story-id>
     <epic>19 - Quality Foundation &amp; Tech Debt Resolution</epic>
     <title>Implement config validation fail-fast</title>
-    <status>ready-for-dev</status>
+    <status>done</status>
     <priority>Low</priority>
   </metadata>
 

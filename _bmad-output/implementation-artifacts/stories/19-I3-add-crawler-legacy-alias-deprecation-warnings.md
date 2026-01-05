@@ -17,10 +17,10 @@ so that users migrate before removals.
 
 ## Tasks / Subtasks
 
-- [ ] Add canonical `get_links()` and `get_title()` helpers.
-- [ ] Replace legacy aliases with warning wrappers.
-- [ ] Add tests for warnings and return values.
-- [ ] Document deprecations and migration path.
+- [x] Add canonical `get_links()` and `get_title()` helpers.
+- [x] Replace legacy aliases with warning wrappers.
+- [x] Add tests for warnings and return values.
+- [x] Document deprecations and migration path.
 
 ## Dev Notes
 
@@ -41,15 +41,15 @@ GPT-5
 
 ### Completion Notes List
 
- - Added canonical get_links/get_title helpers and deprecated aliases with warnings.
- - Logged deprecation usage and documented migration path.
- - Added tests for warning emission and return values.
+- Added canonical get_links/get_title helpers and deprecated aliases with warnings.
+- Logged deprecation usage and documented migration path.
+- Added tests for warning emission and return values.
 
 ### File List
 
- - `backend/src/agentic_rag_backend/indexing/crawler.py`
- - `backend/tests/test_crawler_deprecations.py`
- - `docs/guides/crawler-deprecations.md`
+- `backend/src/agentic_rag_backend/indexing/crawler.py`
+- `backend/tests/test_crawler_deprecations.py`
+- `docs/guides/crawler-deprecations.md`
 
 ## Senior Developer Review
 

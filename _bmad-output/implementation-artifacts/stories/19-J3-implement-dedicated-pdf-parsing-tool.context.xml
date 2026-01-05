@@ -9,7 +9,7 @@
     <story-id>19-J3</story-id>
     <epic>19 - Quality Foundation &amp; Tech Debt Resolution</epic>
     <title>Implement dedicated PDF parsing tool</title>
-    <status>ready-for-dev</status>
+    <status>done</status>
     <priority>Low</priority>
   </metadata>
 

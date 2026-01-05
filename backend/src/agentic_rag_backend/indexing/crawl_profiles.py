@@ -176,18 +176,17 @@ _DOMAIN_RULES_PATH = Path(os.getenv("CRAWL_PROFILE_CONFIG_PATH", "config/crawl-p
 
 
 def _load_domain_profile_rules() -> dict[str, dict[str, str]]:
-    config_path = os.getenv("CRAWL_PROFILE_DOMAIN_CONFIG")
-    path = Path(config_path) if config_path else _DOMAIN_RULES_PATH
+    path = _DOMAIN_RULES_PATH
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
-            raise ValueError("domain rules must be a JSON object")
+            raise ValueError("domain rules must be a YAML mapping")
 
         valid_profiles = {profile.value for profile in CrawlProfileName}
 
         def _clean_rules(value: object, rule_type: str) -> dict[str, str]:
             if not isinstance(value, dict):
-                raise ValueError(f"{rule_type} rules must be a JSON object")
+                raise ValueError(f"{rule_type} rules must be a YAML mapping")
             cleaned: dict[str, str] = {}
             for pattern, profile in value.items():
                 if not isinstance(pattern, str) or not isinstance(profile, str):

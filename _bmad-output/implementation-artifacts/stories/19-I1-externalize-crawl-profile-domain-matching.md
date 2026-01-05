@@ -17,10 +17,10 @@ so that updates do not require code changes.
 
 ## Tasks / Subtasks
 
-- [ ] Add a versioned config file for domain profile rules.
-- [ ] Load domain matching rules from the config file with safe fallback.
-- [ ] Update crawl profile tests to cover the externalized config usage.
-- [ ] Document the config location and update instructions in dev notes.
+- [x] Add a versioned config file for domain profile rules.
+- [x] Load domain matching rules from the config file with safe fallback.
+- [x] Update crawl profile tests to cover the externalized config usage.
+- [x] Document the config location and update instructions in dev notes.
 
 ## Dev Notes
 
@@ -44,15 +44,15 @@ GPT-5
 - Added YAML-backed domain profile rules with safe fallback handling.
 - Added default `config/crawl-profiles.yaml` and PyYAML dependency.
 - Documented how to customize mappings and override config path.
- - Kept domain matching behavior consistent with prior defaults.
+- Kept domain matching behavior consistent with prior defaults.
 
 ### File List
 
- - `backend/src/agentic_rag_backend/indexing/crawl_profiles.py`
- - `backend/pyproject.toml`
- - `config/crawl-profiles.yaml`
- - `docs/guides/crawl-profile-mapping.md`
- - `.env.example`
+- `backend/src/agentic_rag_backend/indexing/crawl_profiles.py`
+- `backend/pyproject.toml`
+- `config/crawl-profiles.yaml`
+- `docs/guides/crawl-profile-mapping.md`
+- `.env.example`
 
 ## Senior Developer Review
 

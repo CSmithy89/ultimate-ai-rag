@@ -17,9 +17,9 @@ so that a single bad URL doesn't abort the entire batch.
 
 ## Tasks / Subtasks
 
-- [ ] Add `on_error` option to crawl-many.
-- [ ] Track failures and success counts.
-- [ ] Update logging with failure context and summary.
+- [x] Add `on_error` option to crawl-many.
+- [x] Track failures and success counts.
+- [x] Update logging with failure context and summary.
 
 ## Dev Notes
 
@@ -39,12 +39,12 @@ GPT-5
 
 ### Completion Notes List
 
- - Added on_error handling for crawl_many with fail-fast/continue modes.
- - Logged per-URL failures and summary counts for partial results.
+- Added on_error handling for crawl_many with fail-fast/continue modes.
+- Logged per-URL failures and summary counts for partial results.
 
 ### File List
 
- - `backend/src/agentic_rag_backend/indexing/crawler.py`
+- `backend/src/agentic_rag_backend/indexing/crawler.py`
 
 ## Senior Developer Review
 

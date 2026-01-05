@@ -17,10 +17,10 @@ so that memory usage stays bounded for huge runs.
 
 ## Tasks / Subtasks
 
-- [ ] Add Bloom filter utility and integrate into crawl flow.
-- [ ] Add env vars and update `.env.example`.
-- [ ] Document configuration and tradeoffs.
-- [ ] Add tests for the Bloom filter utility.
+- [x] Add Bloom filter utility and integrate into crawl flow.
+- [x] Add env vars and update `.env.example`.
+- [x] Document configuration and tradeoffs.
+- [x] Add tests for the Bloom filter utility.
 
 ## Dev Notes
 
@@ -40,17 +40,17 @@ GPT-5
 
 ### Completion Notes List
 
- - Added Bloom filter utility and integrated it for large crawl visited sets.
- - Documented configuration and updated env defaults.
- - Added tests for Bloom filter utility behavior.
+- Added Bloom filter utility and integrated it for large crawl visited sets.
+- Documented configuration and updated env defaults.
+- Added tests for Bloom filter utility behavior.
 
 ### File List
 
- - `backend/src/agentic_rag_backend/indexing/bloom_filter.py`
- - `backend/src/agentic_rag_backend/indexing/crawler.py`
- - `backend/tests/test_bloom_filter.py`
- - `docs/guides/crawler-bloom-filter.md`
- - `.env.example`
+- `backend/src/agentic_rag_backend/indexing/bloom_filter.py`
+- `backend/src/agentic_rag_backend/indexing/crawler.py`
+- `backend/tests/test_bloom_filter.py`
+- `docs/guides/crawler-bloom-filter.md`
+- `.env.example`
 
 ## Senior Developer Review
 

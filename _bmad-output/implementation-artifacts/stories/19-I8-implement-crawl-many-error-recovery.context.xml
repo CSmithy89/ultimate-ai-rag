@@ -9,7 +9,7 @@
     <story-id>19-I8</story-id>
     <epic>19 - Quality Foundation &amp; Tech Debt Resolution</epic>
     <title>Implement crawl-many error recovery</title>
-    <status>ready-for-dev</status>
+    <status>done</status>
     <priority>Low</priority>
   </metadata>
 

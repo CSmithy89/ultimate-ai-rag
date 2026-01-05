@@ -16,9 +16,9 @@ so that crawl throughput and latency improve for big pages.
 
 ## Tasks / Subtasks
 
-- [ ] Add async parsing path for large HTML payloads.
-- [ ] Update crawler conversion flow to await parsing results.
-- [ ] Document threshold and behavior.
+- [x] Add async parsing path for large HTML payloads.
+- [x] Update crawler conversion flow to await parsing results.
+- [x] Document threshold and behavior.
 
 ## Dev Notes
 
@@ -38,13 +38,13 @@ GPT-5
 
 ### Completion Notes List
 
- - Added async parsing path for HTML payloads >= 1MB using asyncio.to_thread.
- - Logged when async parsing is enabled and documented the threshold.
+- Added async parsing path for HTML payloads >= 1MB using asyncio.to_thread.
+- Logged when async parsing is enabled and documented the threshold.
 
 ### File List
 
- - `backend/src/agentic_rag_backend/indexing/crawler.py`
- - `docs/guides/crawler-html-parsing.md`
+- `backend/src/agentic_rag_backend/indexing/crawler.py`
+- `docs/guides/crawler-html-parsing.md`
 
 ## Senior Developer Review
 

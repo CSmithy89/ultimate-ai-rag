@@ -16,7 +16,7 @@ so that I can size resources appropriately.
 
 ## Tasks / Subtasks
 
-- [ ] Add a guide for crawl memory considerations.
+- [x] Add a guide for crawl memory considerations.
 
 ## Dev Notes
 
@@ -35,11 +35,11 @@ GPT-5
 
 ### Completion Notes List
 
- - Documented memory considerations for large crawls with streaming guidance.
+- Documented memory considerations for large crawls with streaming guidance.
 
 ### File List
 
- - `docs/guides/crawler-memory-usage.md`
+- `docs/guides/crawler-memory-usage.md`
 
 ## Senior Developer Review
 

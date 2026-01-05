@@ -1,4 +1,4 @@
-# Story 19-I9: Implement rate limiting enforcement
+# Story 19-I9: Implement rate-limiting enforcement
 
 Status: done
 
@@ -17,9 +17,9 @@ so that requests do not exceed configured throughput.
 
 ## Tasks / Subtasks
 
-- [ ] Add rate_limit parameter to crawl-many.
-- [ ] Apply batch delay based on rate_limit.
-- [ ] Wire crawl options into crawl-many calls.
+- [x] Add rate_limit parameter to crawl-many.
+- [x] Apply batch delay based on rate_limit.
+- [x] Wire crawl options into crawl-many calls.
 
 ## Dev Notes
 
@@ -38,12 +38,12 @@ GPT-5
 
 ### Completion Notes List
 
- - Added rate_limit support for crawl-many batching with delay enforcement.
- - Wired crawl options into crawl-many to apply rate limits.
+- Added rate_limit support for crawl-many batching with delay enforcement.
+- Wired crawl options into crawl-many to apply rate limits.
 
 ### File List
 
- - `backend/src/agentic_rag_backend/indexing/crawler.py`
+- `backend/src/agentic_rag_backend/indexing/crawler.py`
 
 ## Senior Developer Review
 

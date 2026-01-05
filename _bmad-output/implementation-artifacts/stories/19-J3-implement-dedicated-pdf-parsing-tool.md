@@ -18,9 +18,9 @@ so that PDF structure (headings, tables, page numbers) is preserved.
 
 ## Tasks / Subtasks
 
-- [ ] Add `rag.ingest_pdf` MCP tool.
-- [ ] Support page-level chunking and table extraction.
-- [ ] Track page numbers in metadata.
+- [x] Add `rag.ingest_pdf` MCP tool.
+- [x] Support page-level chunking and table extraction.
+- [x] Track page numbers in metadata.
 
 ## Dev Notes
 
@@ -41,12 +41,12 @@ GPT-5
 
 ### Completion Notes List
 
- - Added rag.ingest_pdf MCP tool using Docling parsing and page chunking.
- - Tables and headings are preserved in page-level chunks with page metadata.
+- Added rag.ingest_pdf MCP tool using Docling parsing and page chunking.
+- Tables and headings are preserved in page-level chunks with page metadata.
 
 ### File List
 
- - `backend/src/agentic_rag_backend/mcp_server/tools/rag.py`
+- `backend/src/agentic_rag_backend/mcp_server/tools/rag.py`
 
 ## Senior Developer Review
 

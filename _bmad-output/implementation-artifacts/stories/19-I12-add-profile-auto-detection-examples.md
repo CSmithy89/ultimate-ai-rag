@@ -15,7 +15,7 @@ so that I understand how domain rules apply.
 
 ## Tasks / Subtasks
 
-- [ ] Expand docstring examples in `get_profile_for_url`.
+- [x] Expand docstring examples in `get_profile_for_url`.
 
 ## Dev Notes
 
@@ -34,11 +34,11 @@ GPT-5
 
 ### Completion Notes List
 
- - Added docstring examples for suffix and default profile detection.
+- Added docstring examples for suffix and default profile detection.
 
 ### File List
 
- - `backend/src/agentic_rag_backend/indexing/crawl_profiles.py`
+- `backend/src/agentic_rag_backend/indexing/crawl_profiles.py`
 
 ## Senior Developer Review
 

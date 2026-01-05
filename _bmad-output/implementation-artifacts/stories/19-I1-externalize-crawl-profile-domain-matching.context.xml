@@ -9,7 +9,7 @@
     <story-id>19-I1</story-id>
     <epic>19 - Quality Foundation &amp; Tech Debt Resolution</epic>
     <title>Externalize crawl profile domain matching</title>
-    <status>ready-for-dev</status>
+    <status>done</status>
     <priority>Medium</priority>
   </metadata>
 

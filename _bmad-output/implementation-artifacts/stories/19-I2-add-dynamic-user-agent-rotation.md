@@ -18,11 +18,11 @@ so that crawls avoid bot detection and are easier to tune per environment.
 
 ## Tasks / Subtasks
 
-- [ ] Add a default user-agent list file (>=10 entries).
-- [ ] Implement strategy selection (rotate/static/random).
-- [ ] Log selected user-agent per crawl session.
-- [ ] Wire new config/env vars and document usage.
-- [ ] Update tests or add coverage for strategy parsing.
+- [x] Add a default user-agent list file (>=10 entries).
+- [x] Implement strategy selection (rotate/static/random).
+- [x] Log selected user-agent per crawl session.
+- [x] Wire new config/env vars and document usage.
+- [x] Update tests or add coverage for strategy parsing.
 
 ## Dev Notes
 
@@ -43,16 +43,16 @@ GPT-5
 
 ### Completion Notes List
 
- - Added configurable user-agent strategy with rotate/random/static modes.
- - Added default user-agent list (10+ entries) and optional fake-useragent support.
- - Logged selected user-agent per crawl session and documented configuration.
+- Added configurable user-agent strategy with rotate/random/static modes.
+- Added default user-agent list (10+ entries) and optional fake-useragent support.
+- Logged selected user-agent per crawl session and documented configuration.
 
 ### File List
 
- - `backend/src/agentic_rag_backend/indexing/crawler.py`
- - `config/user-agents.txt`
- - `.env.example`
- - `docs/guides/crawler-user-agent-rotation.md`
+- `backend/src/agentic_rag_backend/indexing/crawler.py`
+- `config/user-agents.txt`
+- `.env.example`
+- `docs/guides/crawler-user-agent-rotation.md`
 
 ## Senior Developer Review
 

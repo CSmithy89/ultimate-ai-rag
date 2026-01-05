@@ -16,8 +16,8 @@ so that misconfigured fallbacks fail fast in production.
 
 ## Tasks / Subtasks
 
-- [ ] Validate fallback credentials during settings load.
-- [ ] Add tests for prod vs dev behavior.
+- [x] Validate fallback credentials during settings load.
+- [x] Add tests for prod vs dev behavior.
 
 ## Dev Notes
 
@@ -37,13 +37,13 @@ GPT-5
 
 ### Completion Notes List
 
- - Added fallback credential validation with strict/prod fail-fast behavior.
- - Added tests for dev warning and prod failure paths.
+- Added fallback credential validation with strict/prod fail-fast behavior.
+- Added tests for dev warning and prod failure paths.
 
 ### File List
 
- - `backend/src/agentic_rag_backend/config.py`
- - `backend/tests/test_crawl_profiles.py`
+- `backend/src/agentic_rag_backend/config.py`
+- `backend/tests/test_crawl_profiles.py`
 
 ## Senior Developer Review
 

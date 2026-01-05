@@ -17,9 +17,9 @@ so that misconfigurations are caught at startup instead of silently ignored.
 
 ## Tasks / Subtasks
 
-- [ ] Add strict validation flag and apply to crawl profile validation.
-- [ ] Update `.env.example`.
-- [ ] Add tests for strict vs non-strict behavior.
+- [x] Add strict validation flag and apply to crawl profile validation.
+- [x] Update `.env.example`.
+- [x] Add tests for strict vs non-strict behavior.
 
 ## Dev Notes
 
@@ -39,14 +39,14 @@ GPT-5
 
 ### Completion Notes List
 
- - Added strict validation flag with prod fail-fast behavior.
- - Documented the new env setting and added tests for strict vs dev fallback.
+- Added strict validation flag with prod fail-fast behavior.
+- Documented the new env setting and added tests for strict vs dev fallback.
 
 ### File List
 
- - `backend/src/agentic_rag_backend/config.py`
- - `backend/tests/test_crawl_profiles.py`
- - `.env.example`
+- `backend/src/agentic_rag_backend/config.py`
+- `backend/tests/test_crawl_profiles.py`
+- `.env.example`
 
 ## Senior Developer Review
 

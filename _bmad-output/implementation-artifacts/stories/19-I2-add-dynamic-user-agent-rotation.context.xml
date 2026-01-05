@@ -9,7 +9,7 @@
     <story-id>19-I2</story-id>
     <epic>19 - Quality Foundation &amp; Tech Debt Resolution</epic>
     <title>Add dynamic user-agent rotation</title>
-    <status>ready-for-dev</status>
+    <status>done</status>
     <priority>Medium</priority>
   </metadata>
 

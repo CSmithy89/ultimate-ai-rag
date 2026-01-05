@@ -634,11 +634,35 @@ def create_ingest_pdf_tool(
 
         chunk_by_page = bool(arguments.get("chunk_by_page", False))
 
+        settings = get_settings()
+        base_dir = Path(settings.temp_upload_dir).expanduser().resolve()
         path = Path(file_path)
-        if not path.exists():
+        if not path.is_absolute():
+            path = base_dir / path
+        try:
+            resolved_path = path.resolve()
+        except Exception as exc:
+            raise MCPError(
+                code=MCPErrorCode.INVALID_PARAMS,
+                message="file_path is invalid",
+                data={"file_path": file_path},
+            ) from exc
+        if not resolved_path.is_relative_to(base_dir):
+            raise MCPError(
+                code=MCPErrorCode.INVALID_PARAMS,
+                message="file_path must be under the configured upload directory",
+                data={"file_path": file_path, "base_dir": str(base_dir)},
+            )
+        if not resolved_path.exists():
             raise MCPError(
                 code=MCPErrorCode.INVALID_PARAMS,
                 message="file_path does not exist",
+                data={"file_path": file_path},
+            )
+        if not resolved_path.is_file():
+            raise MCPError(
+                code=MCPErrorCode.INVALID_PARAMS,
+                message="file_path must be a file",
                 data={"file_path": file_path},
             )
 
@@ -648,7 +672,7 @@ def create_ingest_pdf_tool(
         try:
             parsed_doc = await asyncio.to_thread(
                 parse_pdf,
-                path,
+                resolved_path,
                 document_id,
                 tenant_uuid,
                 table_mode,

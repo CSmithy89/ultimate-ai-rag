@@ -16,8 +16,8 @@ so that I understand why those numbers were chosen and how to tune them.
 
 ## Tasks / Subtasks
 
-- [ ] Add documentation for profile defaults and tuning guidance.
-- [ ] Add inline comments where defaults are defined.
+- [x] Add documentation for profile defaults and tuning guidance.
+- [x] Add inline comments where defaults are defined.
 
 ## Dev Notes
 
@@ -37,13 +37,13 @@ GPT-5
 
 ### Completion Notes List
 
- - Documented default profile values and rationale in a dedicated guide.
- - Added inline rationale comments next to crawl profile defaults.
+- Documented default profile values and rationale in a dedicated guide.
+- Added inline rationale comments next to crawl profile defaults.
 
 ### File List
 
- - `backend/src/agentic_rag_backend/indexing/crawl_profiles.py`
- - `docs/guides/crawl-profile-defaults.md`
+- `backend/src/agentic_rag_backend/indexing/crawl_profiles.py`
+- `docs/guides/crawl-profile-defaults.md`
 
 ## Senior Developer Review
 
