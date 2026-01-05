@@ -25,7 +25,7 @@ so that updates do not require code changes.
 ## Dev Notes
 
 - Update `backend/src/agentic_rag_backend/indexing/crawl_profiles.py` to load rule data.
-- Store the config alongside the crawl profile module for packaging.
+- Store the default config in `config/crawl-profiles.yaml` (override via env var).
 - Keep default rule values identical to current behavior.
 
 ### References
@@ -41,20 +41,23 @@ GPT-5
 
 ### Completion Notes List
 
- - Added JSON-backed domain profile rules with safe fallback handling.
- - Included the config file in wheel packaging for distribution.
+- Added YAML-backed domain profile rules with safe fallback handling.
+- Added default `config/crawl-profiles.yaml` and PyYAML dependency.
+- Documented how to customize mappings and override config path.
  - Kept domain matching behavior consistent with prior defaults.
 
 ### File List
 
- - `backend/src/agentic_rag_backend/indexing/crawl_profile_domains.json`
  - `backend/src/agentic_rag_backend/indexing/crawl_profiles.py`
  - `backend/pyproject.toml`
+ - `config/crawl-profiles.yaml`
+ - `docs/guides/crawl-profile-mapping.md`
+ - `.env.example`
 
 ## Senior Developer Review
 
 Outcome: APPROVE
 
-- Domain rule config loads with validation and safe fallback.
+- Domain rule config loads from YAML with validation and safe fallback.
 - Default rules preserved; behavior unchanged for existing tests.
-- Package data includes JSON config to ship defaults.
+- Restart requirement documented with config override option.

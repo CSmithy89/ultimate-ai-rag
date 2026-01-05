@@ -9,7 +9,6 @@ Provides pre-defined profiles for common crawling scenarios:
 """
 
 from dataclasses import dataclass, replace
-import json
 import os
 from pathlib import Path
 from enum import Enum
@@ -17,6 +16,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import structlog
+import yaml
 
 
 logger = structlog.get_logger(__name__)
@@ -172,14 +172,14 @@ _DEFAULT_DOMAIN_PROFILE_RULES: dict[str, dict[str, str]] = {
         "portal.": "thorough",
     },
 }
-_DOMAIN_RULES_PATH = Path(__file__).with_name("crawl_profile_domains.json")
+_DOMAIN_RULES_PATH = Path(os.getenv("CRAWL_PROFILE_CONFIG_PATH", "config/crawl-profiles.yaml"))
 
 
 def _load_domain_profile_rules() -> dict[str, dict[str, str]]:
     config_path = os.getenv("CRAWL_PROFILE_DOMAIN_CONFIG")
     path = Path(config_path) if config_path else _DOMAIN_RULES_PATH
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError("domain rules must be a JSON object")
 

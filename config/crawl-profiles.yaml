@@ -1,0 +1,29 @@
+# Crawl profile domain mapping rules
+# Exact matches take priority over suffix, then prefix.
+
+exact:
+  linkedin.com: stealth
+  facebook.com: stealth
+  twitter.com: stealth
+  x.com: stealth
+  instagram.com: stealth
+  cloudflare.com: stealth
+  indeed.com: stealth
+  glassdoor.com: stealth
+  amazon.com: stealth
+  google.com: stealth
+
+suffix:
+  .github.io: fast
+
+prefix:
+  docs.: fast
+  documentation.: fast
+  readthedocs.: fast
+  gitbook.: fast
+  docusaurus.: fast
+  wiki.: fast
+  app.: thorough
+  dashboard.: thorough
+  console.: thorough
+  portal.: thorough

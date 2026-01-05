@@ -15,7 +15,7 @@
 
   <module-structure>
     <files-to-create>
-      <file path="backend/src/agentic_rag_backend/indexing/crawl_profile_domains.json" purpose="Domain profile rules config" />
+      <file path="config/crawl-profiles.yaml" purpose="Domain profile rules config" />
     </files-to-create>
     <files-to-modify>
       <file path="backend/src/agentic_rag_backend/indexing/crawl_profiles.py" change="Load domain rules from config" />
