@@ -36,6 +36,7 @@ from agentic_rag_backend.indexing.crawl_profiles import (
     get_crawl_profile,
     get_profile_for_url,
 )
+from agentic_rag_backend.indexing.bloom_filter import BloomFilter
 
 # Crawl4AI imports
 try:
@@ -915,7 +916,32 @@ class CrawlerService:
 
         options = options or CrawlOptions()
 
-        visited: set[str] = set()
+        bloom_threshold = int(
+            os.getenv("CRAWLER_BLOOM_FILTER_THRESHOLD", "10000")
+        )
+        bloom_error_rate = float(
+            os.getenv("CRAWLER_BLOOM_FILTER_ERROR_RATE", "0.001")
+        )
+        if max_pages >= bloom_threshold:
+            try:
+                visited: set[str] | BloomFilter = BloomFilter(
+                    capacity=max_pages,
+                    error_rate=bloom_error_rate,
+                )
+                logger.info(
+                    "crawl_bloom_filter_enabled",
+                    threshold=bloom_threshold,
+                    capacity=max_pages,
+                    error_rate=bloom_error_rate,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "crawl_bloom_filter_failed",
+                    error=str(exc),
+                )
+                visited = set()
+        else:
+            visited = set()
         current_level: list[str] = [start_url]
         pages_crawled = 0
 
