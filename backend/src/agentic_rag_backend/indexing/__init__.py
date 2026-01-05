@@ -59,6 +59,16 @@ from .youtube_ingestion import (
     chunk_transcript,
     ingest_youtube_video,
 )
+# Epic 20 - Hierarchical Chunking (Story 20-C3)
+from .hierarchical_chunker import (
+    HierarchicalChunk,
+    HierarchicalChunkResult,
+    HierarchicalChunker,
+    create_hierarchical_chunker,
+    DEFAULT_LEVEL_SIZES,
+    DEFAULT_OVERLAP_RATIO,
+    DEFAULT_EMBEDDING_LEVEL,
+)
 
 __all__ = [
     # Crawler (Story 13.3: Crawl4AI migration)
@@ -119,4 +129,12 @@ __all__ = [
     "fetch_transcript",
     "chunk_transcript",
     "ingest_youtube_video",
+    # Epic 20: Hierarchical Chunking (Story 20-C3)
+    "HierarchicalChunk",
+    "HierarchicalChunkResult",
+    "HierarchicalChunker",
+    "create_hierarchical_chunker",
+    "DEFAULT_LEVEL_SIZES",
+    "DEFAULT_OVERLAP_RATIO",
+    "DEFAULT_EMBEDDING_LEVEL",
 ]

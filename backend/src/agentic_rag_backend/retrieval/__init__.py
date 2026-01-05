@@ -90,6 +90,15 @@ from .dual_level_models import (
     DualLevelStatusResponse,
 )
 
+# Epic 20 - Small-to-Big Retrieval (Story 20-C3)
+from .small_to_big import (
+    SmallToBigResult,
+    SmallToBigRetrievalResult,
+    SmallToBigRetriever,
+    SmallToBigAdapter,
+    get_small_to_big_adapter,
+)
+
 __all__ = [
     # Epic 3 - Graph traversal and vector search
     "GraphEdge",
@@ -165,4 +174,10 @@ __all__ = [
     "LowLevelResultResponse",
     "HighLevelResultResponse",
     "DualLevelStatusResponse",
+    # Epic 20 - Small-to-Big Retrieval
+    "SmallToBigResult",
+    "SmallToBigRetrievalResult",
+    "SmallToBigRetriever",
+    "SmallToBigAdapter",
+    "get_small_to_big_adapter",
 ]

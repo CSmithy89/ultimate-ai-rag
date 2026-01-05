@@ -383,7 +383,7 @@ development_status:
   # Zep-style: episode-mentions, node-distance, hybrid
   20-C2-implement-dual-level-retrieval: done
   # LightRAG-style: low-level (entities) + high-level (themes)
-  20-C3-implement-parent-child-chunk-hierarchy: backlog
+  20-C3-implement-parent-child-chunk-hierarchy: done
   # Small-to-big retrieval pattern
 
   # --- Group D: Document Intelligence (RAGFlow Approach) ---

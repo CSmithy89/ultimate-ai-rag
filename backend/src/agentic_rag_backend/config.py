@@ -330,6 +330,12 @@ class Settings:
     dual_level_low_limit: int
     dual_level_high_limit: int
     dual_level_synthesis_model: str
+    # Story 20-C3 - Parent-Child Chunk Hierarchy
+    hierarchical_chunks_enabled: bool
+    hierarchical_chunk_levels: list[int]
+    hierarchical_overlap_ratio: float
+    small_to_big_return_level: int
+    hierarchical_embedding_level: int
 
 
 def load_settings() -> Settings:
@@ -1093,6 +1099,56 @@ def load_settings() -> Settings:
     dual_level_high_limit = get_int_env("DUAL_LEVEL_HIGH_LIMIT", 5, min_val=1)
     dual_level_synthesis_model = os.getenv("DUAL_LEVEL_SYNTHESIS_MODEL", "gpt-4o-mini")
 
+    # Story 20-C3 - Parent-Child Chunk Hierarchy settings
+    hierarchical_chunks_enabled = get_bool_env("HIERARCHICAL_CHUNKS_ENABLED", "false")
+
+    # Parse chunk levels from comma-separated string
+    hierarchical_chunk_levels_raw = os.getenv("HIERARCHICAL_CHUNK_LEVELS", "256,512,1024,2048")
+    try:
+        hierarchical_chunk_levels = [
+            int(level.strip())
+            for level in hierarchical_chunk_levels_raw.split(",")
+            if level.strip()
+        ]
+        # Validate levels are strictly increasing
+        for i in range(1, len(hierarchical_chunk_levels)):
+            if hierarchical_chunk_levels[i] <= hierarchical_chunk_levels[i - 1]:
+                logger.warning(
+                    "invalid_hierarchical_chunk_levels",
+                    levels=hierarchical_chunk_levels,
+                    hint="Levels must be strictly increasing, using defaults",
+                )
+                hierarchical_chunk_levels = [256, 512, 1024, 2048]
+                break
+    except (ValueError, AttributeError):
+        hierarchical_chunk_levels = [256, 512, 1024, 2048]
+
+    hierarchical_overlap_ratio = get_float_env("HIERARCHICAL_OVERLAP_RATIO", 0.1, min_val=0.0)
+    # Clamp overlap ratio to valid range (0.0-0.5)
+    hierarchical_overlap_ratio = max(0.0, min(0.5, hierarchical_overlap_ratio))
+
+    small_to_big_return_level = get_int_env("SMALL_TO_BIG_RETURN_LEVEL", 2, min_val=0)
+    # Validate return level is within chunk levels
+    if small_to_big_return_level >= len(hierarchical_chunk_levels):
+        logger.warning(
+            "invalid_small_to_big_return_level",
+            return_level=small_to_big_return_level,
+            max_level=len(hierarchical_chunk_levels) - 1,
+            fallback=len(hierarchical_chunk_levels) - 1,
+        )
+        small_to_big_return_level = len(hierarchical_chunk_levels) - 1
+
+    hierarchical_embedding_level = get_int_env("HIERARCHICAL_EMBEDDING_LEVEL", 0, min_val=0)
+    # Validate embedding level is within chunk levels
+    if hierarchical_embedding_level >= len(hierarchical_chunk_levels):
+        logger.warning(
+            "invalid_hierarchical_embedding_level",
+            embedding_level=hierarchical_embedding_level,
+            max_level=len(hierarchical_chunk_levels) - 1,
+            fallback=0,
+        )
+        hierarchical_embedding_level = 0
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1295,6 +1351,12 @@ def load_settings() -> Settings:
         dual_level_low_limit=dual_level_low_limit,
         dual_level_high_limit=dual_level_high_limit,
         dual_level_synthesis_model=dual_level_synthesis_model,
+        # Story 20-C3 - Parent-Child Chunk Hierarchy
+        hierarchical_chunks_enabled=hierarchical_chunks_enabled,
+        hierarchical_chunk_levels=hierarchical_chunk_levels,
+        hierarchical_overlap_ratio=hierarchical_overlap_ratio,
+        small_to_big_return_level=small_to_big_return_level,
+        hierarchical_embedding_level=hierarchical_embedding_level,
     )
 
 
