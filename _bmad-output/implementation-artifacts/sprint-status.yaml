@@ -376,7 +376,7 @@ development_status:
   # Config: COMMUNITY_DETECTION_ENABLED, COMMUNITY_ALGORITHM (louvain|leiden)
   20-B2-implement-lazyrag-pattern: done
   # Defer summarization to query time for 99% indexing cost reduction
-  20-B3-implement-global-local-query-routing: backlog
+  20-B3-implement-global-local-query-routing: drafted
 
   # --- Group C (Partial): Retrieval Excellence Features ---
   20-C1-implement-graph-based-rerankers: backlog
