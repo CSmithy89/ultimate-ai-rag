@@ -1,0 +1,629 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story Context: 20-B3 Implement Global/Local Query Routing
+  Generated: 2026-01-06
+  Purpose: Provide implementation context for the query router feature
+-->
+<story-context>
+  <metadata>
+    <story-id>20-B3</story-id>
+    <story-name>Implement Global/Local Query Routing</story-name>
+    <epic>Epic 20: Advanced Retrieval Intelligence</epic>
+    <group>B: Graph Intelligence</group>
+    <dependencies>
+      <dependency status="completed">20-B1: Community Detection</dependency>
+      <dependency status="completed">20-B2: LazyRAG Pattern</dependency>
+    </dependencies>
+  </metadata>
+
+  <community-detection-integration>
+    <description>
+      Story 20-B1 provides the CommunityDetector class for global (community-level) queries.
+      The query router should use CommunityDetector.search_communities() for GLOBAL query types.
+    </description>
+
+    <file path="backend/src/agentic_rag_backend/graph/community.py">
+      <key-class>CommunityDetector</key-class>
+      <integration-method signature="async def search_communities(query: str, tenant_id: str, level: Optional[int] = None, limit: int = 10) -> list[Community]">
+        <purpose>Search communities by keyword or summary content for GLOBAL queries</purpose>
+        <usage-pattern>
+          <![CDATA[
+# For GLOBAL routing decision:
+communities = await community_detector.search_communities(
+    query=query,
+    tenant_id=tenant_id,
+    level=None,  # Search all levels
+    limit=10,
+)
+# Returns Community objects with summaries for high-level context
+          ]]>
+        </usage-pattern>
+      </integration-method>
+      <integration-method signature="async def list_communities(tenant_id: str, level: Optional[int] = None, limit: int = 50, offset: int = 0) -> tuple[list[Community], int]">
+        <purpose>Alternative method to get community context</purpose>
+      </integration-method>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/graph/models.py">
+      <key-classes>
+        <class name="Community">
+          <fields>id, name, level, tenant_id, entity_ids, entity_count, summary, keywords, parent_id, child_ids</fields>
+        </class>
+        <class name="CommunityAlgorithm">
+          <values>LOUVAIN, LEIDEN</values>
+        </class>
+      </key-classes>
+    </file>
+  </community-detection-integration>
+
+  <lazyrag-integration>
+    <description>
+      Story 20-B2 provides LazyRAGRetriever for local (entity-level) queries.
+      The query router should use LazyRAGRetriever.query() for LOCAL query types.
+    </description>
+
+    <file path="backend/src/agentic_rag_backend/retrieval/lazy_rag.py">
+      <key-class>LazyRAGRetriever</key-class>
+      <integration-method signature="async def query(query: str, tenant_id: str, max_entities: Optional[int] = None, max_hops: Optional[int] = None, use_communities: Optional[bool] = None, include_summary: bool = True) -> LazyRAGResult">
+        <purpose>Query-time retrieval and summarization for LOCAL queries</purpose>
+        <usage-pattern>
+          <![CDATA[
+# For LOCAL routing decision:
+result = await lazy_rag_retriever.query(
+    query=query,
+    tenant_id=tenant_id,
+    max_entities=50,
+    max_hops=2,
+    use_communities=False,  # Don't include community context for pure LOCAL
+    include_summary=True,
+)
+# Returns LazyRAGResult with entities, relationships, and summary
+          ]]>
+        </usage-pattern>
+      </integration-method>
+      <integration-method signature="async def expand_only(query: str, tenant_id: str, max_entities: Optional[int] = None, max_hops: Optional[int] = None) -> SubgraphExpansionResult">
+        <purpose>Expand subgraph without summary for debug/inspection</purpose>
+      </integration-method>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/retrieval/lazy_rag_models.py">
+      <key-classes>
+        <class name="LazyRAGResult">
+          <fields>query, tenant_id, entities, relationships, communities, summary, confidence, seed_entity_count, expanded_entity_count, processing_time_ms, missing_info</fields>
+        </class>
+        <class name="LazyRAGEntity">
+          <fields>id, name, type, description, summary, labels</fields>
+        </class>
+        <class name="LazyRAGRelationship">
+          <fields>source_id, target_id, type, fact, confidence</fields>
+        </class>
+      </key-classes>
+    </file>
+  </lazyrag-integration>
+
+  <llm-classification-patterns>
+    <description>
+      LLM classification is optional (QUERY_ROUTING_USE_LLM=true) for uncertain queries.
+      Follow existing patterns from LazyRAG and Community Detection for LLM integration.
+    </description>
+
+    <file path="backend/src/agentic_rag_backend/llm/providers.py">
+      <key-function name="get_llm_adapter(settings: Settings) -> LLMProviderAdapter">
+        <purpose>Get LLM adapter for OpenAI-compatible providers</purpose>
+        <usage-pattern>
+          <![CDATA[
+from openai import AsyncOpenAI
+from ..llm.providers import get_llm_adapter, OPENAI_COMPATIBLE_LLM_PROVIDERS
+
+llm_adapter = get_llm_adapter(self._settings)
+
+if llm_adapter.provider in OPENAI_COMPATIBLE_LLM_PROVIDERS:
+    client = AsyncOpenAI(**llm_adapter.openai_kwargs())
+
+    response = await client.chat.completions.create(
+        model=self.classification_model,  # e.g., "gpt-4o-mini"
+        messages=[
+            {"role": "system", "content": "You are a query classifier..."},
+            {"role": "user", "content": classification_prompt},
+        ],
+        temperature=0.1,  # Low for deterministic classification
+        max_tokens=100,   # Short response expected
+    )
+
+    classification_text = response.choices[0].message.content
+          ]]>
+        </usage-pattern>
+      </key-function>
+      <constant name="OPENAI_COMPATIBLE_LLM_PROVIDERS">
+        <value>{"openai", "openrouter", "ollama"}</value>
+      </constant>
+    </file>
+
+    <llm-classification-prompt>
+      <![CDATA[
+You are a query classifier. Determine if the following query requires:
+- GLOBAL: High-level, abstract understanding across the entire knowledge base (themes, summaries, trends)
+- LOCAL: Specific information about particular entities, facts, or details
+- HYBRID: Both high-level context and specific details
+
+Query: {query}
+
+Respond with exactly one of: GLOBAL, LOCAL, or HYBRID
+Then provide a confidence score from 0.0 to 1.0
+Then provide a brief reasoning.
+
+Format:
+TYPE: [GLOBAL|LOCAL|HYBRID]
+CONFIDENCE: [0.0-1.0]
+REASONING: [brief explanation]
+      ]]>
+    </llm-classification-prompt>
+
+    <response-parsing-pattern>
+      <![CDATA[
+import re
+
+def _parse_llm_response(self, response: str) -> RoutingDecision:
+    """Parse LLM classification response."""
+    lines = response.strip().split("\n")
+
+    query_type = QueryType.HYBRID  # Default
+    confidence = 0.5
+    reasoning = "Unable to parse LLM response"
+
+    for line in lines:
+        line = line.strip()
+        if line.startswith("TYPE:"):
+            type_str = line.replace("TYPE:", "").strip().upper()
+            if type_str == "GLOBAL":
+                query_type = QueryType.GLOBAL
+            elif type_str == "LOCAL":
+                query_type = QueryType.LOCAL
+            else:
+                query_type = QueryType.HYBRID
+        elif line.startswith("CONFIDENCE:"):
+            try:
+                confidence = float(line.replace("CONFIDENCE:", "").strip())
+                confidence = max(0.0, min(1.0, confidence))
+            except ValueError:
+                confidence = 0.5
+        elif line.startswith("REASONING:"):
+            reasoning = line.replace("REASONING:", "").strip()
+
+    # Calculate weights based on type
+    if query_type == QueryType.GLOBAL:
+        global_weight, local_weight = 1.0, 0.0
+    elif query_type == QueryType.LOCAL:
+        global_weight, local_weight = 0.0, 1.0
+    else:
+        global_weight, local_weight = 0.5, 0.5
+
+    return RoutingDecision(
+        query_type=query_type,
+        confidence=confidence,
+        reasoning=reasoning,
+        global_weight=global_weight,
+        local_weight=local_weight,
+    )
+      ]]>
+    </response-parsing-pattern>
+  </llm-classification-patterns>
+
+  <pattern-matching-examples>
+    <description>
+      Rule-based classification using regex patterns for fast routing without LLM calls.
+      Patterns should be compiled once at initialization for performance.
+    </description>
+
+    <global-patterns>
+      <pattern>what (are|is) the (main|primary|key|overall)</pattern>
+      <pattern>summarize|summary|overview</pattern>
+      <pattern>(all|every|each) .*(types?|kinds?|categories?)</pattern>
+      <pattern>how (many|much) .* (total|overall|in general)</pattern>
+      <pattern>what themes|main topics</pattern>
+      <pattern>general (understanding|overview|summary)</pattern>
+      <pattern>tell me about .* (in general|overall|as a whole)</pattern>
+      <pattern>what .* (main|key|primary|central) .* (theme|topic|concept|idea)</pattern>
+      <example query="What are the main themes in this document?" expected="GLOBAL"/>
+      <example query="Summarize the key concepts" expected="GLOBAL"/>
+      <example query="Give me an overview of the architecture" expected="GLOBAL"/>
+      <example query="How many entities are there in total?" expected="GLOBAL"/>
+    </global-patterns>
+
+    <local-patterns>
+      <pattern>what is (\w+)</pattern>
+      <pattern>who (is|was) (\w+)</pattern>
+      <pattern>where (is|was|does)</pattern>
+      <pattern>when (did|was|is)</pattern>
+      <pattern>how (do|does|did) (\w+)</pattern>
+      <pattern>specific|particular|exact</pattern>
+      <pattern>(this|that|the) (\w+)</pattern>
+      <pattern>find .* (named|called|about)</pattern>
+      <pattern>what (does|is) .* function</pattern>
+      <example query="What is FastAPI?" expected="LOCAL"/>
+      <example query="Who is the author of this module?" expected="LOCAL"/>
+      <example query="Where is the config file located?" expected="LOCAL"/>
+      <example query="Find the function named calculate_score" expected="LOCAL"/>
+    </local-patterns>
+
+    <implementation-pattern>
+      <![CDATA[
+import re
+from typing import Pattern
+
+class QueryRouter:
+    # Compile patterns once at class level for performance
+    GLOBAL_PATTERNS: list[Pattern] = [
+        re.compile(r"what (are|is) the (main|primary|key|overall)", re.IGNORECASE),
+        re.compile(r"summarize|summary|overview", re.IGNORECASE),
+        re.compile(r"(all|every|each) .*(types?|kinds?|categories?)", re.IGNORECASE),
+        re.compile(r"how (many|much) .* (total|overall|in general)", re.IGNORECASE),
+        re.compile(r"what themes|main topics", re.IGNORECASE),
+        re.compile(r"general (understanding|overview|summary)", re.IGNORECASE),
+    ]
+
+    LOCAL_PATTERNS: list[Pattern] = [
+        re.compile(r"what is (\w+)", re.IGNORECASE),
+        re.compile(r"who (is|was) (\w+)", re.IGNORECASE),
+        re.compile(r"where (is|was|does)", re.IGNORECASE),
+        re.compile(r"when (did|was|is)", re.IGNORECASE),
+        re.compile(r"how (do|does|did) (\w+)", re.IGNORECASE),
+        re.compile(r"specific|particular|exact", re.IGNORECASE),
+        re.compile(r"(this|that|the) (\w+)", re.IGNORECASE),
+    ]
+
+    def _rule_based_classification(self, query: str) -> RoutingDecision:
+        """Classify query using regex patterns."""
+        global_matches = sum(
+            1 for pattern in self.GLOBAL_PATTERNS
+            if pattern.search(query)
+        )
+
+        local_matches = sum(
+            1 for pattern in self.LOCAL_PATTERNS
+            if pattern.search(query)
+        )
+
+        total = global_matches + local_matches
+
+        if total == 0:
+            return RoutingDecision(
+                query_type=QueryType.HYBRID,
+                confidence=0.3,
+                reasoning="No pattern matches",
+                global_weight=0.5,
+                local_weight=0.5,
+            )
+
+        global_ratio = global_matches / total
+
+        if global_ratio >= 0.7:
+            return RoutingDecision(
+                query_type=QueryType.GLOBAL,
+                confidence=min(0.9, 0.6 + (global_ratio * 0.3)),
+                reasoning=f"Global patterns matched: {global_matches}",
+                global_weight=1.0,
+                local_weight=0.0,
+            )
+        elif global_ratio <= 0.3:
+            return RoutingDecision(
+                query_type=QueryType.LOCAL,
+                confidence=min(0.9, 0.6 + ((1 - global_ratio) * 0.3)),
+                reasoning=f"Local patterns matched: {local_matches}",
+                global_weight=0.0,
+                local_weight=1.0,
+            )
+        else:
+            return RoutingDecision(
+                query_type=QueryType.HYBRID,
+                confidence=0.6,
+                reasoning=f"Mixed patterns: global={global_matches}, local={local_matches}",
+                global_weight=global_ratio,
+                local_weight=1 - global_ratio,
+            )
+      ]]>
+    </implementation-pattern>
+  </pattern-matching-examples>
+
+  <api-route-patterns>
+    <description>
+      Follow existing API patterns from communities.py and lazy_rag.py routes.
+    </description>
+
+    <file path="backend/src/agentic_rag_backend/api/routes/communities.py">
+      <patterns>
+        <pattern name="response-wrapper">success_response(data) for consistent API responses</pattern>
+        <pattern name="dependency-injection">Depends() for settings and detector instances</pattern>
+        <pattern name="feature-flag-check">check_feature_enabled(settings) before operations</pattern>
+        <pattern name="error-handling">HTTPException with appropriate status codes</pattern>
+      </patterns>
+    </file>
+
+    <new-routes path="backend/src/agentic_rag_backend/api/routes/query_router.py">
+      <route method="POST" path="/api/v1/query-router/route">
+        <description>Route a query and get routing decision</description>
+        <request-model>QueryRouteRequest(query: str, tenant_id: UUID, use_llm: Optional[bool])</request-model>
+        <response-model>RoutingDecisionResponse(query_type, confidence, reasoning, global_weight, local_weight)</response-model>
+      </route>
+      <route method="GET" path="/api/v1/query-router/patterns">
+        <description>Get current pattern definitions for debugging</description>
+        <response-model>PatternsResponse(global_patterns: list[str], local_patterns: list[str])</response-model>
+      </route>
+      <route method="GET" path="/api/v1/query-router/status">
+        <description>Get router configuration status</description>
+        <response-model>RouterStatusResponse(enabled, use_llm, confidence_threshold, llm_model)</response-model>
+      </route>
+    </new-routes>
+  </api-route-patterns>
+
+  <configuration-integration>
+    <description>
+      Add configuration variables to Settings class following existing patterns.
+    </description>
+
+    <file path="backend/src/agentic_rag_backend/config.py">
+      <existing-patterns>
+        <pattern name="feature-flag">get_bool_env("FEATURE_ENABLED", "false")</pattern>
+        <pattern name="threshold">get_float_env("THRESHOLD", 0.7, min_val=0.0)</pattern>
+        <pattern name="model-config">os.getenv("MODEL_NAME", "gpt-4o-mini")</pattern>
+      </existing-patterns>
+
+      <new-settings>
+        <![CDATA[
+# Story 20-B3 - Query Routing settings (add to Settings dataclass)
+query_routing_enabled: bool
+query_routing_use_llm: bool
+query_routing_llm_model: str
+query_routing_confidence_threshold: float
+
+# In load_settings() function:
+# Story 20-B3 - Query Routing (Global/Local)
+query_routing_enabled = get_bool_env("QUERY_ROUTING_ENABLED", "false")
+query_routing_use_llm = get_bool_env("QUERY_ROUTING_USE_LLM", "false")
+query_routing_llm_model = os.getenv("QUERY_ROUTING_LLM_MODEL", "gpt-4o-mini")
+query_routing_confidence_threshold = get_float_env(
+    "QUERY_ROUTING_CONFIDENCE_THRESHOLD", 0.7, min_val=0.0
+)
+# Clamp threshold to valid range
+query_routing_confidence_threshold = max(0.0, min(1.0, query_routing_confidence_threshold))
+        ]]>
+      </new-settings>
+    </file>
+
+    <env-example-additions>
+      <![CDATA[
+# Epic 20 - Story 20-B3: Query Routing
+QUERY_ROUTING_ENABLED=false              # Enable query routing (default: false)
+QUERY_ROUTING_USE_LLM=false              # Use LLM for uncertain queries (default: false)
+QUERY_ROUTING_LLM_MODEL=gpt-4o-mini      # Model for LLM classification
+QUERY_ROUTING_CONFIDENCE_THRESHOLD=0.7   # Below this, fallback to HYBRID or LLM
+      ]]>
+    </env-example-additions>
+  </configuration-integration>
+
+  <test-patterns>
+    <description>
+      Follow test patterns from test_lazy_rag.py and test_community.py.
+    </description>
+
+    <file path="backend/tests/retrieval/test_lazy_rag.py">
+      <patterns>
+        <pattern name="mock-settings">_make_mock_settings() factory function</pattern>
+        <pattern name="mock-clients">Mock Graphiti and Neo4j clients with AsyncMock</pattern>
+        <pattern name="unit-tests">Test individual methods in isolation</pattern>
+        <pattern name="integration-tests">Test full query flow with mocked dependencies</pattern>
+      </patterns>
+    </file>
+
+    <new-test-file path="backend/tests/retrieval/test_query_router.py">
+      <test-classes>
+        <class name="TestQueryType">
+          <tests>
+            <test>test_enum_values</test>
+            <test>test_enum_serialization</test>
+          </tests>
+        </class>
+        <class name="TestRoutingDecision">
+          <tests>
+            <test>test_dataclass_creation</test>
+            <test>test_to_response_conversion</test>
+            <test>test_weights_sum_to_one_for_hybrid</test>
+          </tests>
+        </class>
+        <class name="TestQueryRouterPatternMatching">
+          <tests>
+            <test>test_global_pattern_matching</test>
+            <test>test_local_pattern_matching</test>
+            <test>test_hybrid_when_mixed_patterns</test>
+            <test>test_hybrid_when_no_patterns</test>
+            <test>test_confidence_threshold_behavior</test>
+            <test>test_pattern_matching_performance</test>
+          </tests>
+        </class>
+        <class name="TestQueryRouterLLMClassification">
+          <tests>
+            <test>test_llm_classification_called_when_uncertain</test>
+            <test>test_llm_classification_skipped_when_confident</test>
+            <test>test_llm_response_parsing_valid</test>
+            <test>test_llm_response_parsing_malformed</test>
+            <test>test_fallback_to_hybrid_on_llm_failure</test>
+          </tests>
+        </class>
+        <class name="TestQueryRouterIntegration">
+          <tests>
+            <test>test_route_query_global</test>
+            <test>test_route_query_local</test>
+            <test>test_route_query_hybrid</test>
+            <test>test_routing_latency_under_50ms</test>
+          </tests>
+        </class>
+      </test-classes>
+
+      <mock-settings-factory>
+        <![CDATA[
+def _make_mock_settings(
+    query_routing_enabled: bool = True,
+    query_routing_use_llm: bool = False,
+    query_routing_llm_model: str = "gpt-4o-mini",
+    query_routing_confidence_threshold: float = 0.7,
+    llm_provider: str = "openai",
+    llm_api_key: str = "test-key",
+):
+    """Create mock settings for QueryRouter tests."""
+    settings = MagicMock()
+    settings.query_routing_enabled = query_routing_enabled
+    settings.query_routing_use_llm = query_routing_use_llm
+    settings.query_routing_llm_model = query_routing_llm_model
+    settings.query_routing_confidence_threshold = query_routing_confidence_threshold
+    settings.llm_provider = llm_provider
+    settings.llm_api_key = llm_api_key
+    settings.llm_base_url = None
+    return settings
+        ]]>
+      </mock-settings-factory>
+
+      <example-test>
+        <![CDATA[
+class TestQueryRouterPatternMatching:
+    """Tests for rule-based pattern matching."""
+
+    @pytest.fixture
+    def router(self):
+        settings = _make_mock_settings()
+        return QueryRouter(settings=settings)
+
+    def test_global_pattern_matching(self, router):
+        """Should classify abstract queries as GLOBAL."""
+        global_queries = [
+            "What are the main themes?",
+            "Summarize the document",
+            "Give me an overview",
+            "How many entities are there in total?",
+        ]
+
+        for query in global_queries:
+            decision = router._rule_based_classification(query)
+            assert decision.query_type == QueryType.GLOBAL, f"Failed for: {query}"
+            assert decision.confidence >= 0.7, f"Low confidence for: {query}"
+
+    def test_local_pattern_matching(self, router):
+        """Should classify specific queries as LOCAL."""
+        local_queries = [
+            "What is FastAPI?",
+            "Who is the author?",
+            "Where is the config file?",
+            "Find the specific function",
+        ]
+
+        for query in local_queries:
+            decision = router._rule_based_classification(query)
+            assert decision.query_type == QueryType.LOCAL, f"Failed for: {query}"
+            assert decision.confidence >= 0.7, f"Low confidence for: {query}"
+
+    def test_pattern_matching_performance(self, router):
+        """Rule-based classification should complete in <10ms."""
+        import time
+
+        query = "What are the main themes in this document?"
+
+        start = time.perf_counter()
+        for _ in range(100):
+            router._rule_based_classification(query)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+
+        avg_ms = elapsed_ms / 100
+        assert avg_ms < 10, f"Pattern matching too slow: {avg_ms:.2f}ms"
+        ]]>
+      </example-test>
+    </new-test-file>
+
+    <api-test-file path="backend/tests/api/test_query_router_api.py">
+      <test-classes>
+        <class name="TestQueryRouterEndpoints">
+          <tests>
+            <test>test_route_query_endpoint</test>
+            <test>test_get_patterns_endpoint</test>
+            <test>test_get_status_endpoint</test>
+            <test>test_feature_disabled_returns_404</test>
+            <test>test_tenant_id_required</test>
+          </tests>
+        </class>
+      </test-classes>
+    </api-test-file>
+  </test-patterns>
+
+  <module-structure>
+    <description>
+      New files to create for Story 20-B3.
+    </description>
+
+    <new-files>
+      <file path="backend/src/agentic_rag_backend/retrieval/query_router.py">
+        <purpose>Main QueryRouter class with route_query() method</purpose>
+        <classes>QueryRouter</classes>
+      </file>
+      <file path="backend/src/agentic_rag_backend/retrieval/query_router_models.py">
+        <purpose>Pydantic models for query routing</purpose>
+        <classes>QueryType, RoutingDecision, QueryRouteRequest, RoutingDecisionResponse, PatternsResponse, RouterStatusResponse</classes>
+      </file>
+      <file path="backend/src/agentic_rag_backend/api/routes/query_router.py">
+        <purpose>FastAPI router with endpoints</purpose>
+        <routes>/route, /patterns, /status</routes>
+      </file>
+      <file path="backend/tests/retrieval/test_query_router.py">
+        <purpose>Unit tests for QueryRouter</purpose>
+      </file>
+      <file path="backend/tests/api/test_query_router_api.py">
+        <purpose>API endpoint tests</purpose>
+      </file>
+    </new-files>
+
+    <modified-files>
+      <file path="backend/src/agentic_rag_backend/config.py">
+        <changes>Add query_routing_* settings</changes>
+      </file>
+      <file path="backend/src/agentic_rag_backend/retrieval/__init__.py">
+        <changes>Export QueryRouter, QueryType, RoutingDecision</changes>
+      </file>
+      <file path="backend/src/agentic_rag_backend/api/routes/__init__.py">
+        <changes>Import query_router router</changes>
+      </file>
+      <file path="backend/src/agentic_rag_backend/main.py">
+        <changes>Register query_router routes conditionally</changes>
+      </file>
+      <file path="backend/.env.example">
+        <changes>Add QUERY_ROUTING_* variables</changes>
+      </file>
+    </modified-files>
+  </module-structure>
+
+  <performance-considerations>
+    <requirements>
+      <requirement>Rule-based classification: &lt;10ms</requirement>
+      <requirement>LLM classification: &lt;500ms</requirement>
+      <requirement>Total routing latency: &lt;50ms for rule-based</requirement>
+    </requirements>
+
+    <optimizations>
+      <optimization>Compile regex patterns once at module/class load time</optimization>
+      <optimization>Use pattern.search() instead of re.search() for compiled patterns</optimization>
+      <optimization>Only call LLM when confidence &lt; threshold AND use_llm=true</optimization>
+      <optimization>Consider caching LLM classification results for identical queries</optimization>
+    </optimizations>
+  </performance-considerations>
+
+  <security-considerations>
+    <requirements>
+      <requirement>All operations must enforce tenant_id filtering</requirement>
+      <requirement>Input validation for query parameters (length limits)</requirement>
+      <requirement>Regex patterns should be safe (no ReDoS vulnerabilities)</requirement>
+      <requirement>LLM prompts should prevent injection attacks</requirement>
+    </requirements>
+
+    <patterns>
+      <pattern name="tenant-isolation">Always pass tenant_id to downstream components</pattern>
+      <pattern name="input-validation">Validate query length, reject empty queries</pattern>
+      <pattern name="safe-regex">Use non-greedy quantifiers, avoid nested quantifiers</pattern>
+    </patterns>
+  </security-considerations>
+</story-context>

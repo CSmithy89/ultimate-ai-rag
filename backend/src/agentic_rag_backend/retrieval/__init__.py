@@ -51,6 +51,17 @@ from .grader import (
     SUPPORTED_GRADER_MODELS,
 )
 
+# Epic 20 - Query Routing (Story 20-B3)
+from .query_router import QueryRouter
+from .query_router_models import (
+    QueryType,
+    RoutingDecision,
+    QueryRouteRequest,
+    QueryRouteResponse,
+    PatternListResponse,
+    RouterStatusResponse,
+)
+
 __all__ = [
     # Epic 3 - Graph traversal and vector search
     "GraphEdge",
@@ -96,4 +107,12 @@ __all__ = [
     "create_grader",
     "DEFAULT_CROSS_ENCODER_MODEL",
     "SUPPORTED_GRADER_MODELS",
+    # Epic 20 - Query Routing
+    "QueryRouter",
+    "QueryType",
+    "RoutingDecision",
+    "QueryRouteRequest",
+    "QueryRouteResponse",
+    "PatternListResponse",
+    "RouterStatusResponse",
 ]

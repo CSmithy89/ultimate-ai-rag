@@ -310,6 +310,11 @@ class Settings:
     lazy_rag_max_hops: int
     lazy_rag_summary_model: str
     lazy_rag_use_communities: bool
+    # Story 20-B3 - Query Routing (Global/Local)
+    query_routing_enabled: bool
+    query_routing_use_llm: bool
+    query_routing_llm_model: str
+    query_routing_confidence_threshold: float
 
 
 def load_settings() -> Settings:
@@ -981,6 +986,16 @@ def load_settings() -> Settings:
     lazy_rag_summary_model = os.getenv("LAZY_RAG_SUMMARY_MODEL", "gpt-4o-mini")
     lazy_rag_use_communities = get_bool_env("LAZY_RAG_USE_COMMUNITIES", "true")
 
+    # Story 20-B3 - Query Routing (Global/Local)
+    query_routing_enabled = get_bool_env("QUERY_ROUTING_ENABLED", "false")
+    query_routing_use_llm = get_bool_env("QUERY_ROUTING_USE_LLM", "false")
+    query_routing_llm_model = os.getenv("QUERY_ROUTING_LLM_MODEL", "gpt-4o-mini")
+    query_routing_confidence_threshold = get_float_env(
+        "QUERY_ROUTING_CONFIDENCE_THRESHOLD", 0.7, min_val=0.0
+    )
+    # Clamp threshold to valid range
+    query_routing_confidence_threshold = max(0.0, min(1.0, query_routing_confidence_threshold))
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1163,6 +1178,11 @@ def load_settings() -> Settings:
         lazy_rag_max_hops=lazy_rag_max_hops,
         lazy_rag_summary_model=lazy_rag_summary_model,
         lazy_rag_use_communities=lazy_rag_use_communities,
+        # Story 20-B3 - Query Routing
+        query_routing_enabled=query_routing_enabled,
+        query_routing_use_llm=query_routing_use_llm,
+        query_routing_llm_model=query_routing_llm_model,
+        query_routing_confidence_threshold=query_routing_confidence_threshold,
     )
 
 
