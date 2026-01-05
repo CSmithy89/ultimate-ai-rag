@@ -46,6 +46,7 @@ from .rate_limit import InMemoryRateLimiter, RateLimiter, RedisRateLimiter, clos
 from .schemas import QueryEnvelope, QueryRequest, QueryResponse, ResponseMeta
 from .trajectory import TrajectoryLogger, close_pool, create_pool
 from .ops import CostTracker, ModelRouter, TraceCrypto
+from .observability import create_metrics_endpoint, MetricsConfig
 
 logger = logging.getLogger(__name__)
 struct_logger = structlog.get_logger(__name__)
@@ -463,6 +464,24 @@ def create_app() -> FastAPI:
     app.include_router(ag_ui_router, prefix="/api/v1")  # Epic 7: AG-UI universal
     app.include_router(ops_router, prefix="/api/v1")  # Epic 8: Ops dashboard
     app.include_router(codebase_router, prefix="/api/v1")  # Epic 15: Codebase intelligence
+
+    # Story 19-C5: Mount Prometheus metrics endpoint
+    # Note: Settings are loaded fresh here since app.state.settings is set in lifespan
+    # which runs after create_app. We load settings directly for endpoint registration.
+    from .config import load_settings
+    try:
+        startup_settings = load_settings()
+        metrics_config = MetricsConfig(
+            enabled=startup_settings.prometheus_enabled,
+            path=startup_settings.prometheus_path,
+        )
+        create_metrics_endpoint(app, metrics_config)
+    except Exception as e:
+        struct_logger.warning(
+            "prometheus_metrics_init_failed",
+            error=str(e),
+            hint="Prometheus metrics disabled due to configuration error",
+        )
 
     return app
 
