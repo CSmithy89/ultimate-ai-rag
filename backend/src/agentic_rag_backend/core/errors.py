@@ -50,6 +50,10 @@ class ErrorCode(str, Enum):
     A2A_REGISTRATION_FAILED = "a2a_registration_failed"
     A2A_PERMISSION_DENIED = "a2a_permission_denied"
     A2A_SERVICE_UNAVAILABLE = "a2a_service_unavailable"
+    # Epic 20 - Memory Platform error codes
+    MEMORY_NOT_FOUND = "memory_not_found"
+    MEMORY_SCOPE_INVALID = "memory_scope_invalid"
+    MEMORY_LIMIT_EXCEEDED = "memory_limit_exceeded"
 
 
 class AppError(Exception):

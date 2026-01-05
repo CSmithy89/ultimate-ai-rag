@@ -301,6 +301,59 @@ class PostgresClient:
                 ON workspace_bookmarks(tenant_id)
             """)
 
+            # Epic 20: Scoped memories table (Story 20-A1)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS scoped_memories (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    tenant_id UUID NOT NULL,
+                    scope VARCHAR(20) NOT NULL,
+                    user_id UUID,
+                    session_id UUID,
+                    agent_id VARCHAR(100),
+                    content TEXT NOT NULL,
+                    importance NUMERIC(3,2) NOT NULL DEFAULT 1.0,
+                    metadata JSONB DEFAULT '{}',
+                    embedding vector(1536),
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    accessed_at TIMESTAMPTZ DEFAULT NOW(),
+                    access_count INTEGER DEFAULT 0
+                )
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_scoped_memories_tenant_id
+                ON scoped_memories(tenant_id)
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_scoped_memories_scope
+                ON scoped_memories(scope)
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_scoped_memories_user_id
+                ON scoped_memories(user_id) WHERE user_id IS NOT NULL
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_scoped_memories_session_id
+                ON scoped_memories(session_id) WHERE session_id IS NOT NULL
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_scoped_memories_agent_id
+                ON scoped_memories(agent_id) WHERE agent_id IS NOT NULL
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_scoped_memories_tenant_scope
+                ON scoped_memories(tenant_id, scope)
+            """)
+            # Vector similarity index for memory search
+            try:
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_scoped_memories_embedding
+                    ON scoped_memories USING ivfflat (embedding vector_cosine_ops)
+                    WITH (lists = 100)
+                """)
+            except asyncpg.PostgresError:
+                # IVFFlat index creation may fail if no data exists yet
+                logger.warning("scoped_memories_ivfflat_index_skipped", reason="may require data to exist first")
+
             logger.info("tables_created")
 
     async def create_document(

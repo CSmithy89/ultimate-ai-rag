@@ -1,0 +1,1285 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story Context File: 20-A1 Implement Memory Scopes
+  Generated: 2026-01-05
+
+  This file provides implementation context for Story 20-A1.
+  Reference this file when implementing the memory scopes feature.
+-->
+<story-context story-id="20-A1" title="Implement Memory Scopes">
+
+  <overview>
+    <description>
+      Implement hierarchical memory scopes (user, session, agent, global) for the Memory Platform.
+      This enables memories to be isolated and managed at different levels for personalization
+      and context retention, competing with Mem0's memory management approach.
+    </description>
+    <target-module>backend/src/agentic_rag_backend/memory/</target-module>
+    <dependencies>
+      <dependency>Epic 5 (Graphiti) - Temporal graph storage for memories</dependency>
+      <dependency>Redis - Hot cache for frequently accessed memories</dependency>
+      <dependency>PostgreSQL + pgvector - Memory metadata and embedding storage</dependency>
+    </dependencies>
+  </overview>
+
+  <configuration-pattern>
+    <description>
+      Follow the existing configuration pattern in config.py.
+      Use get_bool_env() for boolean flags, get_int_env() for integers with validation.
+      All new settings should be added to the Settings dataclass and load_settings() function.
+    </description>
+    <existing-config-helpers>
+      <![CDATA[
+# From backend/src/agentic_rag_backend/config.py
+
+def get_bool_env(key: str, default: str = "false") -> bool:
+    """Parse a boolean environment variable."""
+    return os.getenv(key, default).strip().lower() in {"true", "1", "yes"}
+
+def get_int_env(key: str, default: int, min_val: Optional[int] = None) -> int:
+    """Parse an integer environment variable with optional minimum validation."""
+    raw_value = os.getenv(key)
+    if raw_value is None:
+        return default
+    try:
+        value = int(raw_value)
+        if min_val is not None and value < min_val:
+            return default
+        return value
+    except ValueError:
+        return default
+      ]]>
+    </existing-config-helpers>
+    <new-settings>
+      <![CDATA[
+# Add to Settings dataclass (around line 286):
+# Epic 20 - Memory Platform settings
+memory_scopes_enabled: bool
+memory_default_scope: str
+memory_include_parent_scopes: bool
+memory_cache_ttl_seconds: int
+memory_max_per_scope: int
+
+# Add to load_settings() function (around line 880):
+# Epic 20 - Memory Platform settings
+memory_scopes_enabled = get_bool_env("MEMORY_SCOPES_ENABLED", "false")
+memory_default_scope = os.getenv("MEMORY_DEFAULT_SCOPE", "session").strip().lower()
+if memory_default_scope not in {"user", "session", "agent"}:
+    logger.warning(
+        "invalid_memory_default_scope",
+        scope=memory_default_scope,
+        fallback="session",
+    )
+    memory_default_scope = "session"
+memory_include_parent_scopes = get_bool_env("MEMORY_INCLUDE_PARENT_SCOPES", "true")
+memory_cache_ttl_seconds = get_int_env("MEMORY_CACHE_TTL_SECONDS", 3600, min_val=60)
+memory_max_per_scope = get_int_env("MEMORY_MAX_PER_SCOPE", 10000, min_val=100)
+      ]]>
+    </new-settings>
+  </configuration-pattern>
+
+  <pydantic-model-pattern>
+    <description>
+      Follow existing Pydantic model patterns from backend/src/agentic_rag_backend/models/.
+      Use Field() for validation, provide examples, and use model_config for JSON schema.
+    </description>
+    <example-model>
+      <![CDATA[
+# From backend/src/agentic_rag_backend/models/ingest.py
+
+class JobType(str, Enum):
+    """Type of ingestion job."""
+    CRAWL = "crawl"
+    PARSE = "parse"
+    INDEX = "index"
+
+class JobStatus(BaseModel):
+    """Job status with progress metrics."""
+    job_id: UUID = Field(..., description="Unique job identifier")
+    tenant_id: UUID = Field(..., description="Tenant identifier")
+    job_type: JobType = Field(..., description="Type of job")
+    status: JobStatusEnum = Field(..., description="Current job status")
+    progress: Optional[JobProgress] = Field(
+        default=None, description="Progress metrics if available"
+    )
+    error_message: Optional[str] = Field(
+        default=None, description="Error message if job failed"
+    )
+    created_at: datetime = Field(..., description="Job creation timestamp")
+
+    model_config = {"json_schema_extra": {"examples": [...]}}
+      ]]>
+    </example-model>
+    <memory-model-template>
+      <![CDATA[
+# For backend/src/agentic_rag_backend/memory/models.py
+
+from datetime import datetime
+from enum import Enum
+from typing import Any, Optional
+from uuid import UUID
+
+from pydantic import BaseModel, Field
+
+
+class MemoryScope(str, Enum):
+    """Hierarchical memory scopes."""
+    USER = "user"         # Persists across all sessions for a user
+    SESSION = "session"   # Persists within a single conversation session
+    AGENT = "agent"       # Persists across agent invocations (operational memory)
+    GLOBAL = "global"     # Tenant-wide shared memory
+
+
+class ScopedMemoryCreate(BaseModel):
+    """Request model for creating a scoped memory."""
+    content: str = Field(..., min_length=1, max_length=10000, description="Memory content")
+    scope: MemoryScope = Field(..., description="Memory scope level")
+    tenant_id: UUID = Field(..., description="Tenant identifier (always required)")
+    user_id: Optional[UUID] = Field(default=None, description="User ID (required for USER scope)")
+    session_id: Optional[UUID] = Field(default=None, description="Session ID (required for SESSION scope)")
+    agent_id: Optional[str] = Field(default=None, max_length=100, description="Agent ID (required for AGENT scope)")
+    importance: float = Field(default=1.0, ge=0.0, le=1.0, description="Importance score for consolidation")
+    metadata: Optional[dict[str, Any]] = Field(default=None, description="Additional metadata")
+
+
+class ScopedMemory(BaseModel):
+    """A memory entry with scope context."""
+    id: UUID = Field(..., description="Memory unique identifier")
+    content: str = Field(..., description="Memory content")
+    scope: MemoryScope = Field(..., description="Memory scope level")
+    tenant_id: UUID = Field(..., description="Tenant identifier")
+    user_id: Optional[UUID] = Field(default=None, description="User identifier")
+    session_id: Optional[UUID] = Field(default=None, description="Session identifier")
+    agent_id: Optional[str] = Field(default=None, description="Agent identifier")
+    importance: float = Field(default=1.0, description="Importance score 0.0-1.0")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    accessed_at: datetime = Field(..., description="Last access timestamp")
+    access_count: int = Field(default=0, ge=0, description="Number of times accessed")
+    embedding: Optional[list[float]] = Field(default=None, description="Embedding vector")
+
+    model_config = {"json_schema_extra": {"examples": [
+        {
+            "id": "123e4567-e89b-12d3-a456-426614174000",
+            "content": "User prefers dark mode",
+            "scope": "user",
+            "tenant_id": "123e4567-e89b-12d3-a456-426614174001",
+            "user_id": "123e4567-e89b-12d3-a456-426614174002",
+            "importance": 0.8,
+            "metadata": {"source": "preferences"},
+            "created_at": "2026-01-05T12:00:00Z",
+            "accessed_at": "2026-01-05T12:00:00Z",
+            "access_count": 0,
+        }
+    ]}}
+
+
+class MemorySearchRequest(BaseModel):
+    """Request model for searching memories."""
+    query: str = Field(..., min_length=1, max_length=1000, description="Search query")
+    scope: MemoryScope = Field(..., description="Search starting scope")
+    tenant_id: UUID = Field(..., description="Tenant identifier")
+    user_id: Optional[UUID] = Field(default=None, description="User ID for USER/SESSION scope")
+    session_id: Optional[UUID] = Field(default=None, description="Session ID for SESSION scope")
+    agent_id: Optional[str] = Field(default=None, description="Agent ID for AGENT scope")
+    limit: int = Field(default=10, ge=1, le=100, description="Maximum results to return")
+    include_parent_scopes: bool = Field(default=True, description="Include memories from parent scopes")
+
+
+class MemorySearchResponse(BaseModel):
+    """Response model for memory search."""
+    memories: list[ScopedMemory] = Field(..., description="List of matching memories")
+    total: int = Field(..., ge=0, description="Total number of matches")
+    query: str = Field(..., description="Original search query")
+    scopes_searched: list[MemoryScope] = Field(..., description="Scopes that were searched")
+      ]]>
+    </memory-model-template>
+  </pydantic-model-pattern>
+
+  <api-route-pattern>
+    <description>
+      Follow existing API route patterns from backend/src/agentic_rag_backend/api/routes/.
+      Use dependency injection for database clients, wrap responses in success_response().
+      All endpoints must include tenant_id for multi-tenancy enforcement.
+    </description>
+    <existing-route-example>
+      <![CDATA[
+# From backend/src/agentic_rag_backend/api/routes/ingest.py
+
+from datetime import datetime, timezone
+from typing import Any, Optional
+from uuid import UUID, uuid4
+
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+from agentic_rag_backend.config import get_settings
+from agentic_rag_backend.core.errors import AppError, JobNotFoundError
+from agentic_rag_backend.db.postgres import PostgresClient
+from agentic_rag_backend.db.redis import RedisClient
+
+logger = structlog.get_logger(__name__)
+limiter = Limiter(key_func=get_remote_address)
+router = APIRouter(prefix="/ingest", tags=["ingestion"])
+
+
+class Meta(BaseModel):
+    """Response metadata."""
+    requestId: str
+    timestamp: str
+
+
+class SuccessResponse(BaseModel):
+    """Standard success response wrapper."""
+    data: Any
+    meta: Meta
+
+
+def success_response(data: Any) -> dict[str, Any]:
+    """Wrap data in standard success response format."""
+    return {
+        "data": data,
+        "meta": {
+            "requestId": str(uuid4()),
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        },
+    }
+
+
+# Dependency injection for database clients from app.state
+async def get_redis(request: Request) -> RedisClient:
+    """Get Redis client from app.state."""
+    return request.app.state.redis_client
+
+
+async def get_postgres(request: Request) -> PostgresClient:
+    """Get PostgreSQL client from app.state."""
+    return request.app.state.postgres
+
+
+@router.get(
+    "/jobs/{job_id}",
+    response_model=SuccessResponse,
+    summary="Get job status",
+    description="Retrieve the current status and progress of an ingestion job.",
+)
+async def get_job_status(
+    job_id: UUID,
+    tenant_id: UUID = Query(..., description="Tenant ID for access control"),
+    postgres: PostgresClient = Depends(get_postgres),
+) -> dict[str, Any]:
+    """Get the status of an ingestion job."""
+    job = await postgres.get_job(job_id=job_id, tenant_id=tenant_id)
+    if job is None:
+        raise JobNotFoundError(str(job_id))
+    return success_response(job.model_dump(mode="json"))
+      ]]>
+    </existing-route-example>
+    <memory-routes-template>
+      <![CDATA[
+# For backend/src/agentic_rag_backend/api/routes/memories.py
+
+"""Memory API endpoints for scoped memory management."""
+
+from datetime import datetime, timezone
+from typing import Any, Optional
+from uuid import UUID, uuid4
+
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+from agentic_rag_backend.config import get_settings, Settings
+from agentic_rag_backend.core.errors import AppError, ValidationError
+from agentic_rag_backend.memory.models import (
+    MemoryScope,
+    MemorySearchRequest,
+    MemorySearchResponse,
+    ScopedMemory,
+    ScopedMemoryCreate,
+)
+from agentic_rag_backend.memory.store import ScopedMemoryStore
+
+logger = structlog.get_logger(__name__)
+limiter = Limiter(key_func=get_remote_address)
+router = APIRouter(prefix="/memories", tags=["memories"])
+
+
+class Meta(BaseModel):
+    """Response metadata."""
+    requestId: str
+    timestamp: str
+
+
+class SuccessResponse(BaseModel):
+    """Standard success response wrapper."""
+    data: Any
+    meta: Meta
+
+
+def success_response(data: Any) -> dict[str, Any]:
+    return {
+        "data": data,
+        "meta": {
+            "requestId": str(uuid4()),
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        },
+    }
+
+
+async def get_settings_dep(request: Request) -> Settings:
+    """Get settings from app.state."""
+    return request.app.state.settings
+
+
+async def get_memory_store(request: Request) -> ScopedMemoryStore:
+    """Get memory store from app.state."""
+    if not hasattr(request.app.state, "memory_store") or request.app.state.memory_store is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory scopes feature is not enabled. Set MEMORY_SCOPES_ENABLED=true",
+        )
+    return request.app.state.memory_store
+
+
+@router.post(
+    "",
+    response_model=SuccessResponse,
+    summary="Add a scoped memory",
+    description="Create a new memory with specified scope.",
+)
+@limiter.limit("30/minute")
+async def add_memory(
+    request: Request,
+    memory_request: ScopedMemoryCreate,
+    store: ScopedMemoryStore = Depends(get_memory_store),
+) -> dict[str, Any]:
+    """Add a memory with specified scope."""
+    try:
+        memory = await store.add_memory(
+            content=memory_request.content,
+            scope=memory_request.scope,
+            tenant_id=str(memory_request.tenant_id),
+            user_id=str(memory_request.user_id) if memory_request.user_id else None,
+            session_id=str(memory_request.session_id) if memory_request.session_id else None,
+            agent_id=memory_request.agent_id,
+            importance=memory_request.importance,
+            metadata=memory_request.metadata,
+        )
+        return success_response(memory.model_dump(mode="json"))
+    except ValueError as e:
+        raise ValidationError(str(e))
+    except AppError:
+        raise
+    except Exception as e:
+        logger.error("add_memory_failed", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to add memory") from e
+
+
+@router.post(
+    "/search",
+    response_model=SuccessResponse,
+    summary="Search memories within scope",
+    description="Search memories with scope hierarchy support.",
+)
+@limiter.limit("60/minute")
+async def search_memories(
+    request: Request,
+    search_request: MemorySearchRequest,
+    store: ScopedMemoryStore = Depends(get_memory_store),
+) -> dict[str, Any]:
+    """Search memories within scope hierarchy."""
+    try:
+        memories = await store.search_memories(
+            query=search_request.query,
+            scope=search_request.scope,
+            tenant_id=str(search_request.tenant_id),
+            user_id=str(search_request.user_id) if search_request.user_id else None,
+            session_id=str(search_request.session_id) if search_request.session_id else None,
+            agent_id=search_request.agent_id,
+            limit=search_request.limit,
+            include_parent_scopes=search_request.include_parent_scopes,
+        )
+        # ... return response
+    except AppError:
+        raise
+    except Exception as e:
+        logger.error("search_memories_failed", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to search memories") from e
+      ]]>
+    </memory-routes-template>
+  </api-route-pattern>
+
+  <database-patterns>
+    <postgres-pattern>
+      <description>
+        Follow existing PostgreSQL patterns from backend/src/agentic_rag_backend/db/postgres.py.
+        Use asyncpg for async queries, wrap errors in DatabaseError.
+        All queries must include tenant_id filtering for multi-tenancy.
+      </description>
+      <table-creation-pattern>
+        <![CDATA[
+# From PostgresClient.create_tables()
+
+async def create_tables(self) -> None:
+    async with self.pool.acquire() as conn:
+        # Enable pgvector extension
+        await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
+        # Create table with proper indexes
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS chunks (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID NOT NULL,
+                document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                content TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                token_count INTEGER NOT NULL,
+                embedding vector(1536),
+                metadata JSONB,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
+        # Create indexes for efficient queries
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_chunks_tenant_id
+            ON chunks(tenant_id)
+        """)
+
+        # Create IVFFlat index for vector similarity search
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_chunks_embedding
+            ON chunks USING ivfflat (embedding vector_cosine_ops)
+            WITH (lists = 100)
+        """)
+        ]]>
+      </table-creation-pattern>
+      <scoped-memories-schema>
+        <![CDATA[
+-- Add to PostgresClient.create_tables() for scoped_memories table
+
+# Epic 20: Scoped memories table
+await conn.execute("""
+    CREATE TABLE IF NOT EXISTS scoped_memories (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id UUID NOT NULL,
+        scope TEXT NOT NULL CHECK (scope IN ('user', 'session', 'agent', 'global')),
+        user_id UUID,
+        session_id UUID,
+        agent_id TEXT,
+        content TEXT NOT NULL,
+        importance FLOAT DEFAULT 1.0 CHECK (importance >= 0.0 AND importance <= 1.0),
+        metadata JSONB DEFAULT '{}',
+        embedding vector(1536),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        accessed_at TIMESTAMPTZ DEFAULT NOW(),
+        access_count INTEGER DEFAULT 0
+    )
+""")
+
+# Indexes for scope-based queries
+await conn.execute("""
+    CREATE INDEX IF NOT EXISTS idx_memories_tenant_scope
+    ON scoped_memories(tenant_id, scope)
+""")
+await conn.execute("""
+    CREATE INDEX IF NOT EXISTS idx_memories_user
+    ON scoped_memories(tenant_id, user_id) WHERE user_id IS NOT NULL
+""")
+await conn.execute("""
+    CREATE INDEX IF NOT EXISTS idx_memories_session
+    ON scoped_memories(tenant_id, session_id) WHERE session_id IS NOT NULL
+""")
+await conn.execute("""
+    CREATE INDEX IF NOT EXISTS idx_memories_agent
+    ON scoped_memories(tenant_id, agent_id) WHERE agent_id IS NOT NULL
+""")
+
+# Vector similarity index
+await conn.execute("""
+    CREATE INDEX IF NOT EXISTS idx_memories_embedding
+    ON scoped_memories USING ivfflat (embedding vector_cosine_ops)
+    WITH (lists = 100)
+""")
+        ]]>
+      </scoped-memories-schema>
+    </postgres-pattern>
+    <redis-pattern>
+      <description>
+        Follow existing Redis patterns from backend/src/agentic_rag_backend/db/redis.py.
+        Use redis.asyncio for async operations. Handle serialization with JSON.
+      </description>
+      <cache-example>
+        <![CDATA[
+# From backend/src/agentic_rag_backend/db/redis.py
+
+import json
+from datetime import datetime
+from typing import Any, Optional
+from uuid import UUID
+
+import redis.asyncio as redis
+import structlog
+
+from agentic_rag_backend.core.errors import RedisError
+
+logger = structlog.get_logger(__name__)
+
+
+def _serialize_value(value: Any) -> str:
+    """Serialize a value for Redis storage."""
+    if isinstance(value, (UUID, datetime)):
+        return str(value)
+    if isinstance(value, dict):
+        return json.dumps(value)
+    return str(value)
+
+
+class RedisClient:
+    def __init__(self, url: str) -> None:
+        self.url = url
+        self._client: Optional[redis.Redis] = None
+
+    async def connect(self) -> None:
+        if self._client is None:
+            self._client = redis.from_url(
+                self.url,
+                encoding="utf-8",
+                decode_responses=False,
+            )
+
+    @property
+    def client(self) -> redis.Redis:
+        if self._client is None:
+            raise RedisError("connection", "Redis client not connected")
+        return self._client
+        ]]>
+      </cache-example>
+      <memory-cache-pattern>
+        <![CDATA[
+# For ScopedMemoryStore Redis caching
+
+async def _cache_memory(self, memory: ScopedMemory) -> None:
+    """Cache a memory in Redis for hot path optimization."""
+    cache_key = f"memory:{memory.tenant_id}:{memory.scope.value}:{memory.id}"
+    try:
+        await self._redis.client.setex(
+            cache_key,
+            self._cache_ttl_seconds,
+            json.dumps(memory.model_dump(mode="json")),
+        )
+        logger.debug("memory_cached", memory_id=str(memory.id), key=cache_key)
+    except redis.RedisError as e:
+        logger.warning("memory_cache_failed", error=str(e))
+
+async def _get_cached_memory(self, tenant_id: str, scope: str, memory_id: str) -> Optional[ScopedMemory]:
+    """Get a memory from Redis cache."""
+    cache_key = f"memory:{tenant_id}:{scope}:{memory_id}"
+    try:
+        data = await self._redis.client.get(cache_key)
+        if data:
+            return ScopedMemory.model_validate_json(data)
+    except redis.RedisError as e:
+        logger.warning("memory_cache_get_failed", error=str(e))
+    return None
+
+async def _invalidate_cache(self, filters: dict[str, Any]) -> None:
+    """Invalidate cached memories matching filters."""
+    pattern = f"memory:{filters.get('tenant_id', '*')}:{filters.get('scope', '*')}:*"
+    try:
+        async for key in self._redis.client.scan_iter(match=pattern):
+            await self._redis.client.delete(key)
+    except redis.RedisError as e:
+        logger.warning("memory_cache_invalidate_failed", error=str(e))
+        ]]>
+      </memory-cache-pattern>
+    </redis-pattern>
+    <graphiti-pattern>
+      <description>
+        Follow existing Graphiti patterns from backend/src/agentic_rag_backend/db/graphiti.py
+        and retrieval/graphiti_retrieval.py. Use the GraphitiClient wrapper class.
+      </description>
+      <graphiti-client-usage>
+        <![CDATA[
+# From backend/src/agentic_rag_backend/db/graphiti.py
+
+class GraphitiClient:
+    """Managed Graphiti client for temporal knowledge graph operations."""
+
+    def __init__(
+        self,
+        uri: str,
+        user: str,
+        password: str,
+        llm_provider: str,
+        llm_api_key: Optional[str],
+        llm_base_url: Optional[str] = None,
+        embedding_provider: str = "openai",
+        embedding_api_key: Optional[str] = None,
+        embedding_base_url: Optional[str] = None,
+        embedding_model: str = "text-embedding-3-small",
+        llm_model: str = "gpt-4o-mini",
+    ) -> None:
+        # ... initialization
+
+    @property
+    def client(self) -> Any:
+        """Get the underlying Graphiti client."""
+        if self._client is None or self._state != ConnectionState.CONNECTED:
+            raise RuntimeError("Graphiti client is not connected")
+        return self._client
+
+    @property
+    def is_connected(self) -> bool:
+        return self._state == ConnectionState.CONNECTED and self._client is not None
+        ]]>
+      </graphiti-client-usage>
+      <graphiti-search-example>
+        <![CDATA[
+# From backend/src/agentic_rag_backend/retrieval/graphiti_retrieval.py
+
+async def graphiti_search(
+    graphiti_client: GraphitiClient,
+    query: str,
+    tenant_id: str,
+    num_results: int = 5,
+    center_node_uuid: Optional[str] = None,
+) -> GraphitiSearchResult:
+    """Execute hybrid search using Graphiti."""
+    # Validate client connection
+    if not graphiti_client.is_connected:
+        raise Neo4jError("graphiti_search", "Graphiti client is not connected")
+
+    # Execute Graphiti hybrid search
+    search_result = await graphiti_client.client.search(
+        query=query,
+        group_ids=[tenant_id],  # Multi-tenancy via group_ids
+        num_results=num_results,
+        center_node_uuid=center_node_uuid,
+    )
+
+    # Extract nodes and edges from result
+    nodes = [SearchNode.from_graphiti_node(node) for node in getattr(search_result, "nodes", [])]
+    edges = [SearchEdge.from_graphiti_edge(edge) for edge in getattr(search_result, "edges", [])]
+        ]]>
+      </graphiti-search-example>
+    </graphiti-pattern>
+  </database-patterns>
+
+  <embedding-pattern>
+    <description>
+      Follow existing embedding patterns from backend/src/agentic_rag_backend/embeddings.py.
+      Use EmbeddingGenerator with provider adapters for multi-provider support.
+    </description>
+    <embedding-usage>
+      <![CDATA[
+# From backend/src/agentic_rag_backend/embeddings.py
+
+class EmbeddingGenerator:
+    """Multi-provider embedding generation with batch processing."""
+
+    @classmethod
+    def from_adapter(
+        cls,
+        adapter: EmbeddingProviderAdapter,
+        cost_tracker: Optional[CostTracker] = None,
+        timeout: float = 30.0,
+    ) -> "EmbeddingGenerator":
+        """Create EmbeddingGenerator from a provider adapter."""
+        client = create_embedding_client(adapter, timeout=timeout)
+        return cls(client=client, cost_tracker=cost_tracker, model=adapter.model)
+
+    async def generate_embedding(
+        self,
+        text: str,
+        tenant_id: Optional[str] = None,
+        trajectory_id: Optional[UUID] = None,
+    ) -> list[float]:
+        """Generate embedding for a single text."""
+        embeddings = await self.generate_embeddings(
+            [text],
+            tenant_id=tenant_id,
+            trajectory_id=trajectory_id,
+        )
+        return embeddings[0]
+      ]]>
+    </embedding-usage>
+    <memory-embedding-usage>
+      <![CDATA[
+# For ScopedMemoryStore embedding generation
+
+from agentic_rag_backend.embeddings import EmbeddingGenerator
+from agentic_rag_backend.llm.providers import get_embedding_adapter
+
+class ScopedMemoryStore:
+    def __init__(
+        self,
+        graphiti_client: GraphitiClient,
+        redis_client: RedisClient,
+        postgres_client: PostgresClient,
+        embedding_provider: str = "openai",
+        embedding_api_key: Optional[str] = None,
+        embedding_base_url: Optional[str] = None,
+        embedding_model: str = "text-embedding-3-small",
+        cache_ttl_seconds: int = 3600,
+    ) -> None:
+        self._graphiti = graphiti_client
+        self._redis = redis_client
+        self._postgres = postgres_client
+        self._cache_ttl_seconds = cache_ttl_seconds
+
+        # Initialize embedding generator
+        adapter = get_embedding_adapter(
+            provider=embedding_provider,
+            api_key=embedding_api_key,
+            base_url=embedding_base_url,
+            model=embedding_model,
+        )
+        self._embedding_generator = EmbeddingGenerator.from_adapter(adapter)
+
+    async def _generate_embedding(self, content: str) -> list[float]:
+        """Generate embedding for memory content."""
+        return await self._embedding_generator.generate_embedding(content)
+      ]]>
+    </memory-embedding-usage>
+  </embedding-pattern>
+
+  <error-handling-pattern>
+    <description>
+      Follow existing error patterns from backend/src/agentic_rag_backend/core/errors.py.
+      Create domain-specific errors that extend AppError for RFC 7807 compliance.
+    </description>
+    <existing-errors>
+      <![CDATA[
+# From backend/src/agentic_rag_backend/core/errors.py
+
+class ErrorCode(str, Enum):
+    """Standardized error codes for the application."""
+    VALIDATION_ERROR = "validation_error"
+    DATABASE_ERROR = "database_error"
+    REDIS_ERROR = "redis_error"
+    # ... other codes
+
+class AppError(Exception):
+    """Structured application error following RFC 7807 Problem Details."""
+
+    def __init__(
+        self,
+        code: ErrorCode,
+        message: str,
+        status: int = 500,
+        details: Optional[dict[str, Any]] = None,
+    ) -> None:
+        self.code = code
+        self.message = message
+        self.status = status
+        self.details = details or {}
+        super().__init__(message)
+
+    def to_problem_detail(self, instance: str) -> dict[str, Any]:
+        """Convert error to RFC 7807 Problem Details format."""
+        problem = {
+            "type": f"https://api.example.com/errors/{self.code.value.replace('_', '-')}",
+            "title": self.code.value.replace("_", " ").title(),
+            "status": self.status,
+            "detail": self.message,
+            "instance": instance,
+        }
+        if self.details:
+            problem["errors"] = self.details
+        return problem
+      ]]>
+    </existing-errors>
+    <memory-errors>
+      <![CDATA[
+# Add to backend/src/agentic_rag_backend/core/errors.py
+
+class ErrorCode(str, Enum):
+    # ... existing codes
+    # Epic 20 - Memory Platform error codes
+    MEMORY_NOT_FOUND = "memory_not_found"
+    MEMORY_SCOPE_INVALID = "memory_scope_invalid"
+    MEMORY_LIMIT_EXCEEDED = "memory_limit_exceeded"
+
+
+class MemoryNotFoundError(AppError):
+    """Error when a memory is not found."""
+
+    def __init__(self, memory_id: str) -> None:
+        super().__init__(
+            code=ErrorCode.MEMORY_NOT_FOUND,
+            message=f"Memory with ID '{memory_id}' not found",
+            status=404,
+            details={"memory_id": memory_id},
+        )
+
+
+class MemoryScopeError(AppError):
+    """Error for invalid memory scope context."""
+
+    def __init__(self, scope: str, reason: str) -> None:
+        super().__init__(
+            code=ErrorCode.MEMORY_SCOPE_INVALID,
+            message=f"Invalid scope context for '{scope}': {reason}",
+            status=400,
+            details={"scope": scope, "reason": reason},
+        )
+
+
+class MemoryLimitExceededError(AppError):
+    """Error when memory limit per scope is exceeded."""
+
+    def __init__(self, scope: str, limit: int, current: int) -> None:
+        super().__init__(
+            code=ErrorCode.MEMORY_LIMIT_EXCEEDED,
+            message=f"Memory limit exceeded for scope '{scope}': {current}/{limit}",
+            status=429,
+            details={"scope": scope, "limit": limit, "current_count": current},
+        )
+      ]]>
+    </memory-errors>
+  </error-handling-pattern>
+
+  <testing-pattern>
+    <description>
+      Follow existing test patterns from backend/tests/.
+      Set environment variables before imports, use pytest fixtures, mock external dependencies.
+    </description>
+    <conftest-pattern>
+      <![CDATA[
+# From backend/tests/conftest.py
+
+import os
+
+# Set environment variables BEFORE any imports
+os.environ.setdefault("OPENAI_API_KEY", "test-key")
+os.environ.setdefault("DATABASE_URL", "postgresql://localhost/test")
+os.environ.setdefault("NEO4J_URI", "bolt://localhost:7687")
+os.environ.setdefault("NEO4J_USER", "neo4j")
+os.environ.setdefault("NEO4J_PASSWORD", "test")
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379")
+
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
+
+import pytest
+
+
+@pytest.fixture
+def sample_tenant_id():
+    """Provide a sample tenant ID."""
+    return uuid4()
+
+
+@pytest.fixture
+def mock_redis_client(mock_redis):
+    """Mock RedisClient wrapper."""
+    from agentic_rag_backend.db.redis import RedisClient
+
+    client = MagicMock(spec=RedisClient)
+    client._client = mock_redis
+    client.client = mock_redis
+    client.publish_job = AsyncMock(return_value="1234567890-0")
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock()
+    return client
+      ]]>
+    </conftest-pattern>
+    <unit-test-example>
+      <![CDATA[
+# From backend/tests/api/routes/test_a2a.py
+
+import os
+
+os.environ.setdefault("OPENAI_API_KEY", "test-key")
+os.environ.setdefault("DATABASE_URL", "postgresql://localhost/test")
+os.environ.setdefault("NEO4J_URI", "bolt://localhost:7687")
+os.environ.setdefault("NEO4J_USER", "neo4j")
+os.environ.setdefault("NEO4J_PASSWORD", "test")
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379")
+os.environ.setdefault("SKIP_DB_POOL", "1")
+os.environ.setdefault("SKIP_GRAPHITI", "1")
+
+import pytest
+from fastapi import HTTPException
+
+
+@pytest.mark.asyncio
+async def test_create_session_success() -> None:
+    manager = A2ASessionManager()
+    response = await create_session(
+        request_body=CreateSessionRequest(tenant_id="11111111-1111-1111-1111-111111111111"),
+        manager=manager,
+        limiter=AllowLimiter(),
+    )
+
+    assert response.session["tenant_id"] == "11111111-1111-1111-1111-111111111111"
+    assert response.session["session_id"]
+
+
+@pytest.mark.asyncio
+async def test_tenant_mismatch() -> None:
+    manager = A2ASessionManager()
+    session = await manager.create_session("11111111-1111-1111-1111-111111111111")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_session(
+            session_id=session["session_id"],
+            tenant_id="22222222-2222-2222-2222-222222222222",
+            manager=manager,
+            limiter=AllowLimiter(),
+        )
+    assert exc_info.value.status_code == 403
+      ]]>
+    </unit-test-example>
+    <memory-test-template>
+      <![CDATA[
+# For backend/tests/memory/test_scopes.py
+
+import os
+
+os.environ.setdefault("OPENAI_API_KEY", "test-key")
+os.environ.setdefault("DATABASE_URL", "postgresql://localhost/test")
+os.environ.setdefault("NEO4J_URI", "bolt://localhost:7687")
+os.environ.setdefault("NEO4J_USER", "neo4j")
+os.environ.setdefault("NEO4J_PASSWORD", "test")
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379")
+os.environ.setdefault("SKIP_DB_POOL", "1")
+os.environ.setdefault("SKIP_GRAPHITI", "1")
+os.environ.setdefault("MEMORY_SCOPES_ENABLED", "true")
+
+import pytest
+from uuid import uuid4
+
+from agentic_rag_backend.memory.models import MemoryScope, ScopedMemory
+from agentic_rag_backend.memory.store import ScopedMemoryStore
+
+
+class TestMemoryScope:
+    """Tests for MemoryScope enum and validation."""
+
+    def test_scope_values(self):
+        assert MemoryScope.USER.value == "user"
+        assert MemoryScope.SESSION.value == "session"
+        assert MemoryScope.AGENT.value == "agent"
+        assert MemoryScope.GLOBAL.value == "global"
+
+    def test_scope_hierarchy(self):
+        """Test that scope hierarchy is correctly defined."""
+        # SESSION includes USER and GLOBAL
+        # USER includes GLOBAL
+        # AGENT includes GLOBAL
+        pass
+
+
+class TestScopedMemoryStore:
+    """Tests for ScopedMemoryStore class."""
+
+    @pytest.fixture
+    def mock_store(self, mock_graphiti_client, mock_redis_client, mock_postgres_client):
+        return ScopedMemoryStore(
+            graphiti_client=mock_graphiti_client,
+            redis_client=mock_redis_client,
+            postgres_client=mock_postgres_client,
+        )
+
+    @pytest.mark.asyncio
+    async def test_add_memory_user_scope_requires_user_id(self, mock_store):
+        """Test that USER scope requires user_id."""
+        with pytest.raises(ValueError, match="user_id required"):
+            await mock_store.add_memory(
+                content="test",
+                scope=MemoryScope.USER,
+                tenant_id=str(uuid4()),
+                user_id=None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_search_with_parent_scopes(self, mock_store):
+        """Test that search includes parent scope memories."""
+        # SESSION scope should search USER and GLOBAL
+        pass
+
+    @pytest.mark.asyncio
+    async def test_tenant_isolation(self, mock_store):
+        """Test that cross-tenant access returns empty results."""
+        pass
+      ]]>
+    </memory-test-template>
+  </testing-pattern>
+
+  <app-startup-pattern>
+    <description>
+      Follow existing app startup patterns from backend/src/agentic_rag_backend/main.py.
+      Initialize services in the lifespan context manager, check feature flags before initialization.
+    </description>
+    <lifespan-pattern>
+      <![CDATA[
+# From backend/src/agentic_rag_backend/main.py lifespan()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    settings = load_settings()
+    app.state.settings = settings
+
+    # Initialize database clients
+    from .db.neo4j import Neo4jClient
+    from .db.postgres import PostgresClient
+    from .db.redis import RedisClient
+
+    # Initialize Redis
+    app.state.redis_client = RedisClient(settings.redis_url)
+    await app.state.redis_client.connect()
+
+    # Initialize PostgreSQL
+    app.state.postgres = PostgresClient(settings.database_url)
+    await app.state.postgres.connect()
+    await app.state.postgres.create_tables()
+
+    # Epic 5: Initialize Graphiti with feature flag check
+    app.state.graphiti = None
+    if not _should_skip_graphiti():
+        try:
+            from .db.graphiti import GraphitiClient, GRAPHITI_AVAILABLE
+            if GRAPHITI_AVAILABLE:
+                graphiti_client = GraphitiClient(...)
+                await graphiti_client.connect()
+                app.state.graphiti = graphiti_client
+        except Exception as e:
+            struct_logger.warning("graphiti_initialization_failed", error=str(e))
+
+    yield
+
+    # Shutdown
+    if hasattr(app.state, "graphiti") and app.state.graphiti:
+        await app.state.graphiti.disconnect()
+    # ... other cleanup
+      ]]>
+    </lifespan-pattern>
+    <memory-initialization>
+      <![CDATA[
+# Add to lifespan() in main.py for Memory Platform initialization
+
+# Epic 20: Initialize Memory Platform (if enabled)
+app.state.memory_store = None
+if settings.memory_scopes_enabled:
+    try:
+        from .memory.store import ScopedMemoryStore
+
+        memory_store = ScopedMemoryStore(
+            graphiti_client=app.state.graphiti,
+            redis_client=app.state.redis_client,
+            postgres_client=app.state.postgres,
+            embedding_provider=settings.embedding_provider,
+            embedding_api_key=settings.embedding_api_key,
+            embedding_base_url=settings.embedding_base_url,
+            embedding_model=settings.embedding_model,
+            cache_ttl_seconds=settings.memory_cache_ttl_seconds,
+            max_per_scope=settings.memory_max_per_scope,
+        )
+        app.state.memory_store = memory_store
+        struct_logger.info(
+            "memory_store_initialized",
+            default_scope=settings.memory_default_scope,
+            include_parent_scopes=settings.memory_include_parent_scopes,
+            cache_ttl_seconds=settings.memory_cache_ttl_seconds,
+        )
+    except Exception as e:
+        struct_logger.warning("memory_store_initialization_failed", error=str(e))
+        app.state.memory_store = None
+else:
+    struct_logger.info("memory_scopes_disabled")
+
+# Register memory router (conditionally)
+if settings.memory_scopes_enabled:
+    from .api.routes.memories import router as memory_router
+    app.include_router(memory_router, prefix="/api/v1")
+      ]]>
+    </memory-initialization>
+  </app-startup-pattern>
+
+  <module-structure>
+    <description>
+      Create the memory module with proper __init__.py exports.
+      Follow existing module patterns in the codebase.
+    </description>
+    <structure>
+      <![CDATA[
+backend/src/agentic_rag_backend/
+├── memory/                              # NEW: Memory platform module
+│   ├── __init__.py                      # Module exports
+│   ├── models.py                        # Pydantic models (MemoryScope, ScopedMemory, etc.)
+│   ├── scopes.py                        # Scope hierarchy and validation logic
+│   └── store.py                         # ScopedMemoryStore class
+      ]]>
+    </structure>
+    <init-file>
+      <![CDATA[
+# backend/src/agentic_rag_backend/memory/__init__.py
+"""Memory Platform module for hierarchical scoped memories.
+
+This module implements memory scopes similar to Mem0's approach:
+- USER scope: Persists across all sessions for a user
+- SESSION scope: Persists within a single conversation session
+- AGENT scope: Persists across agent invocations (operational memory)
+- GLOBAL scope: Tenant-wide shared memory
+
+The scope hierarchy is:
+- SESSION includes USER and GLOBAL memories when searching
+- USER includes GLOBAL memories when searching
+- AGENT includes GLOBAL memories when searching
+
+Configuration:
+- MEMORY_SCOPES_ENABLED: Enable/disable the feature (default: false)
+- MEMORY_DEFAULT_SCOPE: Default scope for new memories (default: session)
+- MEMORY_INCLUDE_PARENT_SCOPES: Include parent scopes in search (default: true)
+- MEMORY_CACHE_TTL_SECONDS: Redis cache TTL (default: 3600)
+- MEMORY_MAX_PER_SCOPE: Maximum memories per scope (default: 10000)
+"""
+
+from .models import (
+    MemoryScope,
+    MemorySearchRequest,
+    MemorySearchResponse,
+    ScopedMemory,
+    ScopedMemoryCreate,
+)
+from .scopes import get_parent_scopes, validate_scope_context
+from .store import ScopedMemoryStore
+
+__all__ = [
+    "MemoryScope",
+    "MemorySearchRequest",
+    "MemorySearchResponse",
+    "ScopedMemory",
+    "ScopedMemoryCreate",
+    "ScopedMemoryStore",
+    "get_parent_scopes",
+    "validate_scope_context",
+]
+      ]]>
+    </init-file>
+  </module-structure>
+
+  <acceptance-criteria-tests>
+    <criterion id="AC1">
+      <description>
+        Given a memory with USER scope, when searched from SESSION scope with include_parent_scopes=true, then the USER memory is found.
+      </description>
+      <test-approach>
+        Create a memory with USER scope, search from SESSION scope with include_parent_scopes=true,
+        verify the USER memory is included in results.
+      </test-approach>
+    </criterion>
+    <criterion id="AC2">
+      <description>
+        Given a memory with SESSION scope, when the session ends, then it can be deleted via scope-based deletion without affecting USER or GLOBAL memories.
+      </description>
+      <test-approach>
+        Create memories in USER, SESSION, and GLOBAL scopes. Call delete_memories_by_scope for SESSION.
+        Verify SESSION memories are deleted but USER and GLOBAL remain.
+      </test-approach>
+    </criterion>
+    <criterion id="AC3">
+      <description>
+        Given multiple scopes (USER, SESSION, AGENT, GLOBAL), when memories are added to each, then they are isolated by scope context.
+      </description>
+      <test-approach>
+        Add memories to each scope. Search each scope individually without parent inclusion.
+        Verify only memories from that specific scope are returned.
+      </test-approach>
+    </criterion>
+    <criterion id="AC4">
+      <description>
+        All memory operations enforce tenant isolation via tenant_id filtering.
+      </description>
+      <test-approach>
+        Create memories for tenant A. Attempt to search/get/delete from tenant B.
+        Verify tenant B cannot access tenant A's memories.
+      </test-approach>
+    </criterion>
+    <criterion id="AC5">
+      <description>
+        Memory search latency less than 100ms for typical queries (10-50 memories per scope).
+      </description>
+      <test-approach>
+        Performance test: Create 50 memories per scope, measure search time.
+        Assert average latency is under 100ms.
+      </test-approach>
+    </criterion>
+    <criterion id="AC6">
+      <description>
+        Given MEMORY_SCOPES_ENABLED=false (default), when the system starts, then memory scope features are not loaded.
+      </description>
+      <test-approach>
+        Start app without MEMORY_SCOPES_ENABLED. Verify /api/v1/memories endpoints return 503.
+        Verify app.state.memory_store is None.
+      </test-approach>
+    </criterion>
+    <criterion id="AC7">
+      <description>
+        Scope hierarchy is respected: SESSION includes USER and GLOBAL; USER includes GLOBAL; AGENT includes GLOBAL.
+      </description>
+      <test-approach>
+        Create memories in USER, SESSION, AGENT, and GLOBAL scopes.
+        Test each search scope with include_parent_scopes=true and verify correct inclusions.
+      </test-approach>
+    </criterion>
+  </acceptance-criteria-tests>
+
+  <neo4j-schema>
+    <description>Neo4j schema for Memory nodes with scope relationships.</description>
+    <cypher>
+      <![CDATA[
+// Memory node with scope metadata
+// Store in Neo4j via Graphiti for graph-based queries and relationships
+(:Memory {
+    id: String,
+    content: String,
+    scope: String,
+    tenantId: String,
+    userId: String,
+    sessionId: String,
+    agentId: String,
+    importance: Float,
+    createdAt: DateTime,
+    accessedAt: DateTime,
+    accessCount: Integer
+})
+
+// Scope hierarchy relationships
+(:User)-[:HAS_MEMORY]->(:Memory)
+(:Session)-[:HAS_MEMORY]->(:Memory)
+(:Agent)-[:HAS_MEMORY]->(:Memory)
+(:Tenant)-[:HAS_GLOBAL_MEMORY]->(:Memory)
+
+// Indexes for efficient scope queries
+CREATE INDEX memory_tenant_idx IF NOT EXISTS FOR (m:Memory) ON (m.tenantId);
+CREATE INDEX memory_scope_idx IF NOT EXISTS FOR (m:Memory) ON (m.scope);
+CREATE INDEX memory_user_idx IF NOT EXISTS FOR (m:Memory) ON (m.userId);
+CREATE INDEX memory_session_idx IF NOT EXISTS FOR (m:Memory) ON (m.sessionId);
+      ]]>
+    </cypher>
+  </neo4j-schema>
+
+  <env-example-additions>
+    <description>Add to .env.example file</description>
+    <content>
+      <![CDATA[
+# Epic 20 - Memory Platform
+MEMORY_SCOPES_ENABLED=false              # Enable memory scope feature (default: false)
+MEMORY_DEFAULT_SCOPE=session             # Default scope: user|session|agent (default: session)
+MEMORY_INCLUDE_PARENT_SCOPES=true        # Include parent scopes in search (default: true)
+MEMORY_CACHE_TTL_SECONDS=3600            # Redis cache TTL in seconds (default: 3600)
+MEMORY_MAX_PER_SCOPE=10000               # Max memories per scope (default: 10000)
+      ]]>
+    </content>
+  </env-example-additions>
+
+</story-context>

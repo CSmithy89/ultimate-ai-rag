@@ -284,6 +284,12 @@ class Settings:
     reranker_preload_model: bool
     # Story 19-G4 - Score Normalization settings
     grader_normalization_strategy: str
+    # Epic 20 - Memory Platform settings (Story 20-A1)
+    memory_scopes_enabled: bool
+    memory_default_scope: str
+    memory_include_parent_scopes: bool
+    memory_cache_ttl_seconds: int
+    memory_max_per_scope: int
 
 
 def load_settings() -> Settings:
@@ -903,6 +909,22 @@ def load_settings() -> Settings:
         )
         grader_normalization_strategy = "min_max"
 
+    # Epic 20 - Memory Platform settings (Story 20-A1)
+    memory_scopes_enabled = get_bool_env("MEMORY_SCOPES_ENABLED", "false")
+    memory_default_scope = os.getenv("MEMORY_DEFAULT_SCOPE", "session").strip().lower()
+    valid_memory_scopes = {"user", "session", "agent", "global"}
+    if memory_default_scope not in valid_memory_scopes:
+        logger.warning(
+            "invalid_memory_scope",
+            scope=memory_default_scope,
+            valid_scopes=list(valid_memory_scopes),
+            fallback="session",
+        )
+        memory_default_scope = "session"
+    memory_include_parent_scopes = get_bool_env("MEMORY_INCLUDE_PARENT_SCOPES", "true")
+    memory_cache_ttl_seconds = get_int_env("MEMORY_CACHE_TTL_SECONDS", 3600, min_val=60)
+    memory_max_per_scope = get_int_env("MEMORY_MAX_PER_SCOPE", 10000, min_val=100)
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1059,6 +1081,12 @@ def load_settings() -> Settings:
         reranker_preload_model=reranker_preload_model,
         # Story 19-G4 - Score Normalization settings
         grader_normalization_strategy=grader_normalization_strategy,
+        # Epic 20 - Memory Platform settings (Story 20-A1)
+        memory_scopes_enabled=memory_scopes_enabled,
+        memory_default_scope=memory_default_scope,
+        memory_include_parent_scopes=memory_include_parent_scopes,
+        memory_cache_ttl_seconds=memory_cache_ttl_seconds,
+        memory_max_per_scope=memory_max_per_scope,
     )
 
 
