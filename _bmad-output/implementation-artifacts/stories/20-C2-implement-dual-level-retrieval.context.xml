@@ -1,0 +1,769 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story Context File: 20-C2 Implement Dual-Level Retrieval
+  Generated: 2026-01-06
+  Purpose: Implementation context for LightRAG-style dual-level retrieval
+-->
+<story-context>
+  <metadata>
+    <story-id>20-C2</story-id>
+    <story-title>Implement Dual-Level Retrieval</story-title>
+    <epic>Epic 20: Advanced Retrieval Intelligence</epic>
+    <group>Group C: Retrieval Excellence Features</group>
+    <dependencies>
+      <dependency status="completed">Story 20-B1: Community Detection</dependency>
+      <dependency status="completed">Story 20-B2: LazyRAG Pattern</dependency>
+      <dependency status="completed">Story 20-C1: Graph-Based Rerankers</dependency>
+      <dependency status="completed">Epic 19: Quality Foundation</dependency>
+    </dependencies>
+  </metadata>
+
+  <overview>
+    <description>
+      LightRAG-style dual-level retrieval that combines low-level (entity/chunk) and
+      high-level (theme/community) retrieval for comprehensive query results. This
+      approach provides both specific facts and broader contextual understanding.
+    </description>
+    <competitive-positioning>
+      Competes with LightRAG's innovative dual-level retrieval approach, which has
+      been shown to significantly improve answer quality by combining granular and
+      holistic knowledge perspectives.
+    </competitive-positioning>
+    <key-benefits>
+      <benefit>Complete Understanding: Combines specific facts with broader context</benefit>
+      <benefit>Query Versatility: Handles factoid questions, conceptual questions, and hybrid queries</benefit>
+      <benefit>Synthesis Quality: Produces richer, more nuanced LLM-synthesized answers</benefit>
+    </key-benefits>
+  </overview>
+
+  <module-structure>
+    <new-module>
+      <path>backend/src/agentic_rag_backend/retrieval/dual_level.py</path>
+      <description>Main dual-level retrieval implementation</description>
+      <classes>
+        <class name="DualLevelResult">Combined result dataclass</class>
+        <class name="DualLevelRetriever">Main retriever orchestration</class>
+        <class name="DualLevelAdapter">Configuration/feature flag adapter</class>
+      </classes>
+    </new-module>
+    <update-module>
+      <path>backend/src/agentic_rag_backend/retrieval/__init__.py</path>
+      <description>Add exports for dual-level retrieval classes</description>
+    </update-module>
+    <update-module>
+      <path>backend/src/agentic_rag_backend/config.py</path>
+      <description>Add DUAL_LEVEL_* configuration settings</description>
+    </update-module>
+  </module-structure>
+
+  <graphiti-patterns>
+    <description>
+      Low-level retrieval uses Graphiti for hybrid entity/chunk search. Reference
+      the existing graphiti_retrieval.py for patterns.
+    </description>
+    <source-file>backend/src/agentic_rag_backend/retrieval/graphiti_retrieval.py</source-file>
+    <pattern name="graphiti_search">
+      <code-reference>
+async def graphiti_search(
+    graphiti_client: GraphitiClient,
+    query: str,
+    tenant_id: str,
+    num_results: int = DEFAULT_SEARCH_RESULTS,
+    center_node_uuid: Optional[str] = None,
+) -> GraphitiSearchResult:
+    """Execute hybrid search using Graphiti."""
+    # Multi-tenancy via group_ids
+    search_result = await graphiti_client.client.search(
+        query=query,
+        group_ids=[tenant_id],
+        num_results=num_results,
+        center_node_uuid=center_node_uuid,
+    )
+    # Extract nodes and edges from result
+    nodes = [SearchNode.from_graphiti_node(node) for node in getattr(search_result, "nodes", [])]
+    edges = [SearchEdge.from_graphiti_edge(edge) for edge in getattr(search_result, "edges", [])]
+      </code-reference>
+    </pattern>
+    <pattern name="SearchNode-dataclass">
+      <description>Use dataclass pattern for search results</description>
+      <code-reference>
+@dataclass
+class SearchNode:
+    uuid: str
+    name: str
+    summary: str
+    labels: list[str]
+
+    @classmethod
+    def from_graphiti_node(cls, node: Any) -> "SearchNode":
+        return cls(
+            uuid=str(getattr(node, "uuid", "")),
+            name=getattr(node, "name", ""),
+            summary=getattr(node, "summary", ""),
+            labels=list(getattr(node, "labels", [])),
+        )
+      </code-reference>
+    </pattern>
+  </graphiti-patterns>
+
+  <community-search-patterns>
+    <description>
+      High-level retrieval uses community detection from Story 20-B1. Reference
+      community.py for the CommunityDetector search patterns.
+    </description>
+    <source-file>backend/src/agentic_rag_backend/graph/community.py</source-file>
+    <pattern name="search_communities">
+      <code-reference>
+async def search_communities(
+    self,
+    query: str,
+    tenant_id: str,
+    level: Optional[int] = None,
+    limit: int = 10,
+) -> list[Community]:
+    """Search communities by keyword or summary content."""
+    async with self._neo4j.driver.session() as session:
+        if level is not None:
+            cypher = """
+                MATCH (c:Community {tenant_id: $tenant_id, level: $level})
+                WHERE toLower(c.name) CONTAINS toLower($query)
+                   OR toLower(c.summary) CONTAINS toLower($query)
+                   OR any(kw IN c.keywords WHERE toLower(kw) CONTAINS toLower($query))
+                RETURN c
+                ORDER BY c.entity_count DESC
+                LIMIT $limit
+            """
+        # ... parse results into Community objects
+      </code-reference>
+    </pattern>
+    <pattern name="Community-model">
+      <source-file>backend/src/agentic_rag_backend/graph/models.py</source-file>
+      <code-reference>
+class Community(BaseModel):
+    id: str
+    name: str
+    level: int = Field(default=0, ge=0)
+    tenant_id: str
+    entity_ids: list[str] = Field(default_factory=list)
+    entity_count: int = Field(default=0, ge=0)
+    summary: Optional[str] = None
+    keywords: list[str] = Field(default_factory=list)
+    parent_id: Optional[str] = None
+    child_ids: list[str] = Field(default_factory=list)
+      </code-reference>
+    </pattern>
+  </community-search-patterns>
+
+  <lazyrag-integration-patterns>
+    <description>
+      LazyRAG from 20-B2 provides query-time summarization patterns that should
+      be reused for the synthesis step in dual-level retrieval.
+    </description>
+    <source-file>backend/src/agentic_rag_backend/retrieval/lazy_rag.py</source-file>
+    <pattern name="LLM-summary-generation">
+      <code-reference>
+async def _generate_summary(
+    self,
+    query: str,
+    entities: list[LazyRAGEntity],
+    relationships: list[LazyRAGRelationship],
+    communities: list[LazyRAGCommunity],
+) -> SummaryResult:
+    """Generate LLM summary at query time."""
+    # Format context
+    entity_context = self._format_entities(entities)
+    relationship_context = self._format_relationships(relationships)
+
+    # Build prompt
+    prompt = LAZY_RAG_SUMMARY_PROMPT.format(...)
+
+    # Call LLM via OpenAI client
+    llm_adapter = get_llm_adapter(self._settings)
+    if llm_adapter.provider in OPENAI_COMPATIBLE_LLM_PROVIDERS:
+        client = AsyncOpenAI(**llm_adapter.openai_kwargs())
+        response = await client.chat.completions.create(
+            model=self.summary_model,
+            messages=[...],
+            temperature=0.3,
+            max_tokens=1000,
+        )
+      </code-reference>
+    </pattern>
+    <pattern name="confidence-estimation">
+      <code-reference>
+def _estimate_confidence(
+    self,
+    query: str,
+    entities: list[LazyRAGEntity],
+    relationships: list[LazyRAGRelationship],
+) -> float:
+    """Estimate confidence based on entity coverage.
+
+    Factors:
+    - Entity count relative to max_entities (0.0-0.4)
+    - Query term coverage in entity names/descriptions (0.0-0.4)
+    - Relationship density (0.0-0.2)
+    """
+    # Factor 1: Entity coverage
+    entity_ratio = min(1.0, len(entities) / self.max_entities)
+    entity_score = entity_ratio * 0.4
+
+    # Factor 2: Query term coverage
+    # Factor 3: Relationship density
+
+    return round(entity_score + term_score + rel_score, 2)
+      </code-reference>
+    </pattern>
+    <pattern name="result-dataclass">
+      <source-file>backend/src/agentic_rag_backend/retrieval/lazy_rag_models.py</source-file>
+      <code-reference>
+@dataclass
+class LazyRAGResult:
+    query: str
+    tenant_id: str
+    entities: list[LazyRAGEntity]
+    relationships: list[LazyRAGRelationship]
+    communities: list[LazyRAGCommunity]
+    summary: Optional[str]
+    confidence: float
+    seed_entity_count: int
+    expanded_entity_count: int
+    processing_time_ms: int
+    missing_info: Optional[str] = None
+
+    def to_response(self) -> LazyRAGQueryResponse:
+        """Convert to API response model."""
+        return LazyRAGQueryResponse(...)
+      </code-reference>
+    </pattern>
+  </lazyrag-integration-patterns>
+
+  <graph-reranker-patterns>
+    <description>
+      Story 20-C1 graph rerankers can optionally be applied to low-level entity results.
+      Reference these patterns for optional reranking integration.
+    </description>
+    <source-file>backend/src/agentic_rag_backend/retrieval/graph_rerankers.py</source-file>
+    <pattern name="reranker-adapter">
+      <code-reference>
+@dataclass(frozen=True)
+class GraphRerankerAdapter:
+    """Configuration adapter for graph rerankers."""
+    enabled: bool
+    reranker_type: GraphRerankerType
+    episode_weight: float
+    distance_weight: float
+    original_weight: float
+    episode_window_days: int
+    max_distance: int
+
+def get_graph_reranker_adapter(settings: Settings) -> GraphRerankerAdapter:
+    """Create graph reranker adapter from settings."""
+    # ... load from settings
+      </code-reference>
+    </pattern>
+    <pattern name="reranked-result">
+      <code-reference>
+@dataclass
+class GraphRerankedResult:
+    original_result: dict[str, Any]
+    original_score: float
+    graph_score: float
+    combined_score: float
+    graph_context: GraphContext
+
+    def to_dict(self) -> dict[str, Any]:
+        result = dict(self.original_result)
+        result["score"] = self.combined_score
+        result["original_score"] = self.original_score
+        result["graph_score"] = self.graph_score
+        result["graph_context"] = self.graph_context.to_dict()
+        return result
+      </code-reference>
+    </pattern>
+  </graph-reranker-patterns>
+
+  <configuration-patterns>
+    <description>
+      Configuration follows the existing pattern from config.py. Add new settings
+      to the Settings dataclass and load_settings() function.
+    </description>
+    <source-file>backend/src/agentic_rag_backend/config.py</source-file>
+    <existing-pattern name="feature-flag-settings">
+      <code-reference>
+# Settings dataclass fields (follow this pattern):
+# Story 20-C1 - Graph-Based Rerankers
+graph_reranker_enabled: bool
+graph_reranker_type: str
+graph_reranker_episode_weight: float
+graph_reranker_distance_weight: float
+graph_reranker_original_weight: float
+graph_reranker_episode_window_days: int
+graph_reranker_max_distance: int
+
+# Story 20-B2 - LazyRAG Pattern
+lazy_rag_enabled: bool
+lazy_rag_max_entities: int
+lazy_rag_max_hops: int
+lazy_rag_summary_model: str
+lazy_rag_use_communities: bool
+      </code-reference>
+    </existing-pattern>
+    <new-settings>
+      <setting name="DUAL_LEVEL_RETRIEVAL_ENABLED" type="bool" default="false">
+        Enable/disable dual-level retrieval feature
+      </setting>
+      <setting name="DUAL_LEVEL_LOW_WEIGHT" type="float" default="0.6">
+        Weight for entity-level (low-level) results (0.0-1.0)
+      </setting>
+      <setting name="DUAL_LEVEL_HIGH_WEIGHT" type="float" default="0.4">
+        Weight for theme-level (high-level) results (0.0-1.0)
+      </setting>
+      <setting name="DUAL_LEVEL_LOW_LIMIT" type="int" default="10">
+        Maximum low-level results to retrieve
+      </setting>
+      <setting name="DUAL_LEVEL_HIGH_LIMIT" type="int" default="5">
+        Maximum high-level community results to retrieve
+      </setting>
+      <setting name="DUAL_LEVEL_SYNTHESIS_MODEL" type="str" default="gpt-4o-mini">
+        LLM model for answer synthesis (cost-effective default)
+      </setting>
+      <setting name="DUAL_LEVEL_SYNTHESIS_TEMPERATURE" type="float" default="0.3">
+        Temperature for synthesis generation
+      </setting>
+    </new-settings>
+    <weight-normalization>
+      <description>
+        Weights should sum to 1.0. If they don't, normalize automatically with a
+        warning log. Follow the pattern from HybridGraphReranker.
+      </description>
+      <code-reference>
+weight_sum = episode_weight + distance_weight + original_weight
+if abs(weight_sum - 1.0) > 0.01:
+    logger.warning(
+        "hybrid_weights_not_normalized",
+        sum=weight_sum,
+        episode=episode_weight,
+        distance=distance_weight,
+        original=original_weight,
+    )
+    # Normalize weights
+    if weight_sum > 0:
+        episode_weight /= weight_sum
+        distance_weight /= weight_sum
+        original_weight /= weight_sum
+      </code-reference>
+    </weight-normalization>
+  </configuration-patterns>
+
+  <result-synthesis-patterns>
+    <description>
+      The synthesis step combines low-level and high-level results into a
+      comprehensive answer using an LLM.
+    </description>
+    <synthesis-prompt-template>
+      <code>
+DUAL_LEVEL_SYNTHESIS_PROMPT = """Answer the query using both specific facts and high-level context.
+
+Query: {query}
+
+Specific Facts (Low-Level):
+{low_level_context}
+
+Themes and Context (High-Level):
+{high_level_context}
+
+Instructions:
+1. Integrate both specific details and broader thematic context in your answer.
+2. Reference specific entities and facts when relevant.
+3. Provide the thematic context that helps explain the specific facts.
+4. If information is insufficient, indicate what's missing.
+5. Be comprehensive but concise.
+
+Answer:"""
+      </code>
+    </synthesis-prompt-template>
+    <format-low-level>
+      <description>Format entity/chunk results for synthesis prompt</description>
+      <code-reference>
+def _format_low_level(self, results: list[dict]) -> str:
+    """Format low-level results for synthesis prompt."""
+    lines = []
+    for r in results[:10]:  # Limit for context window
+        content = r.get("content", "")[:200]
+        entities = r.get("entities", [])
+        entity_names = [e.get("name", "") for e in entities[:3]]
+        lines.append(f"- {content}")
+        if entity_names:
+            lines.append(f"  Entities: {', '.join(entity_names)}")
+    return "\n".join(lines) if lines else "No specific facts found."
+      </code-reference>
+    </format-low-level>
+    <format-high-level>
+      <description>Format community results for synthesis prompt</description>
+      <code-reference>
+def _format_high_level(self, results: list[dict]) -> str:
+    """Format high-level (community) results for synthesis prompt."""
+    lines = []
+    for r in results[:5]:  # Communities are higher-level, fewer needed
+        name = r.get("name", "Unknown Community")
+        summary = r.get("summary", "")[:300]
+        keywords = r.get("keywords", [])
+        lines.append(f"- {name}: {summary}")
+        if keywords:
+            lines.append(f"  Keywords: {', '.join(keywords[:5])}")
+    return "\n".join(lines) if lines else "No thematic context found."
+      </code-reference>
+    </format-high-level>
+  </result-synthesis-patterns>
+
+  <graceful-fallback-patterns>
+    <description>
+      Implement graceful fallbacks when one level returns no results.
+      Log fallback conditions with structured logging.
+    </description>
+    <fallback-to-low-level-only>
+      <code>
+if not high_level_results:
+    logger.info(
+        "dual_level_fallback_to_low_level",
+        query=query[:100],
+        tenant_id=tenant_id,
+        reason="No relevant communities found",
+    )
+    # Use only low-level results for synthesis
+      </code>
+    </fallback-to-low-level-only>
+    <fallback-to-high-level-only>
+      <code>
+if not low_level_results:
+    logger.info(
+        "dual_level_fallback_to_high_level",
+        query=query[:100],
+        tenant_id=tenant_id,
+        reason="No relevant entities found",
+    )
+    # Use only high-level community results for synthesis
+      </code>
+    </fallback-to-high-level-only>
+    <empty-results>
+      <code>
+if not low_level_results and not high_level_results:
+    logger.warning(
+        "dual_level_no_results",
+        query=query[:100],
+        tenant_id=tenant_id,
+    )
+    return DualLevelResult(
+        query=query,
+        low_level_results=[],
+        high_level_results=[],
+        synthesized_answer="",
+        confidence=0.0,
+    )
+      </code>
+    </empty-results>
+  </graceful-fallback-patterns>
+
+  <parallel-execution-pattern>
+    <description>
+      Low-level and high-level retrieval should run in parallel for performance.
+      Use asyncio.gather to meet the &lt;300ms latency requirement.
+    </description>
+    <code>
+import asyncio
+
+async def retrieve(
+    self,
+    query: str,
+    tenant_id: str,
+    low_level_limit: int = 10,
+    high_level_limit: int = 5,
+) -> DualLevelResult:
+    """Perform dual-level retrieval with parallel execution."""
+    start_time = time.perf_counter()
+
+    # Run both levels in parallel
+    low_level_task = self._low_level_retrieve(query, tenant_id, low_level_limit)
+    high_level_task = self._high_level_retrieve(query, tenant_id, high_level_limit)
+
+    low_level_results, high_level_results = await asyncio.gather(
+        low_level_task,
+        high_level_task,
+        return_exceptions=True,
+    )
+
+    # Handle exceptions from parallel tasks
+    if isinstance(low_level_results, Exception):
+        logger.error("low_level_retrieval_failed", error=str(low_level_results))
+        low_level_results = []
+    if isinstance(high_level_results, Exception):
+        logger.error("high_level_retrieval_failed", error=str(high_level_results))
+        high_level_results = []
+
+    # Continue with synthesis...
+    </code>
+  </parallel-execution-pattern>
+
+  <test-patterns>
+    <description>
+      Follow test patterns from test_lazy_rag.py and test_graph_rerankers.py.
+    </description>
+    <source-files>
+      <file>backend/tests/retrieval/test_lazy_rag.py</file>
+      <file>backend/tests/retrieval/test_graph_rerankers.py</file>
+    </source-files>
+    <unit-test-pattern name="mock-settings">
+      <code-reference>
+def _make_mock_settings(
+    dual_level_retrieval_enabled: bool = True,
+    dual_level_low_weight: float = 0.6,
+    dual_level_high_weight: float = 0.4,
+    dual_level_low_limit: int = 10,
+    dual_level_high_limit: int = 5,
+    dual_level_synthesis_model: str = "gpt-4o-mini",
+    dual_level_synthesis_temperature: float = 0.3,
+    # ... other settings
+):
+    """Create mock settings for DualLevelRetriever."""
+    settings = MagicMock()
+    settings.dual_level_retrieval_enabled = dual_level_retrieval_enabled
+    settings.dual_level_low_weight = dual_level_low_weight
+    settings.dual_level_high_weight = dual_level_high_weight
+    # ... etc
+    return settings
+      </code-reference>
+    </unit-test-pattern>
+    <unit-test-pattern name="mock-graphiti-client">
+      <code-reference>
+@pytest.fixture
+def mock_graphiti_client():
+    """Create a mock GraphitiClient."""
+    client = MagicMock()
+    client.client = MagicMock()
+    client.is_connected = True
+
+    search_result = MagicMock()
+    search_result.nodes = [
+        _make_mock_node("node-1", "FastAPI", "Python web framework", ["Entity"]),
+    ]
+    search_result.edges = []
+
+    client.client.search = AsyncMock(return_value=search_result)
+    return client
+      </code-reference>
+    </unit-test-pattern>
+    <unit-test-pattern name="mock-community-detector">
+      <code-reference>
+@pytest.fixture
+def mock_community_detector():
+    """Create mock CommunityDetector."""
+    detector = MagicMock()
+    detector.search_communities = AsyncMock(return_value=[
+        Community(
+            id="comm-1",
+            name="Web Frameworks",
+            level=1,
+            tenant_id="tenant-1",
+            summary="Collection of web framework concepts",
+            keywords=["web", "framework", "api"],
+            entity_count=15,
+        )
+    ])
+    return detector
+      </code-reference>
+    </unit-test-pattern>
+    <test-categories>
+      <category name="unit-tests">
+        <test>DualLevelResult dataclass serialization/deserialization</test>
+        <test>DualLevelRetriever initialization with various weight configurations</test>
+        <test>Low-level retrieval with mock Graphiti client</test>
+        <test>High-level retrieval with mock community detector</test>
+        <test>Synthesis prompt construction verification</test>
+        <test>Weight normalization (sum != 1.0 case)</test>
+        <test>Graceful fallback when no communities found</test>
+        <test>Graceful fallback when no entities found</test>
+        <test>Limit enforcement for both levels</test>
+      </category>
+      <category name="integration-tests">
+        <test>End-to-end dual-level retrieval with real components</test>
+        <test>Low-level retrieval with actual Graphiti entity data</test>
+        <test>High-level retrieval with actual community detector results</test>
+        <test>Tenant isolation: Cross-tenant access returns empty results</test>
+      </category>
+      <category name="performance-tests">
+        <test>Dual-level retrieval latency less than 300ms over single-level baseline</test>
+        <test>Parallel execution verification</test>
+      </category>
+      <category name="security-tests">
+        <test>Tenant isolation in all Graphiti and vector queries</test>
+        <test>Tenant isolation in community detector queries</test>
+        <test>Input validation for configuration weights</test>
+      </category>
+    </test-categories>
+    <tenant-isolation-test>
+      <code-reference>
+@pytest.mark.asyncio
+async def test_dual_level_tenant_isolation(mock_graphiti_client, mock_community_detector):
+    """Should enforce tenant isolation in all queries."""
+    # ... setup retriever
+
+    await retriever.retrieve(
+        query="What is FastAPI?",
+        tenant_id="tenant-123",
+    )
+
+    # Verify Graphiti search used tenant_id as group_ids
+    graphiti_call = mock_graphiti_client.client.search.call_args[1]
+    assert graphiti_call.get("group_ids") == ["tenant-123"]
+
+    # Verify community detector used tenant_id
+    community_call = mock_community_detector.search_communities.call_args
+    assert community_call[1].get("tenant_id") == "tenant-123"
+      </code-reference>
+    </tenant-isolation-test>
+  </test-patterns>
+
+  <api-response-enhancement>
+    <description>
+      When dual-level retrieval is enabled, API responses include both levels.
+    </description>
+    <response-schema>
+      <code>
+{
+  "data": {
+    "query": "What is the company's approach to innovation?",
+    "low_level_results": [
+      {
+        "id": "chunk_123",
+        "content": "The R&amp;D team filed 50 patents in 2024...",
+        "score": 0.85,
+        "entities": [
+          {"name": "R&amp;D Team", "type": "organization"},
+          {"name": "2024 Patents", "type": "achievement"}
+        ]
+      }
+    ],
+    "high_level_results": [
+      {
+        "type": "community",
+        "id": "comm_456",
+        "name": "Innovation Culture",
+        "summary": "The organization prioritizes research...",
+        "keywords": ["innovation", "research", "patents"],
+        "entity_count": 23
+      }
+    ],
+    "synthesized_answer": "The company's approach to innovation is characterized by...",
+    "confidence": 0.87
+  },
+  "meta": {"requestId": "...", "timestamp": "..."}
+}
+      </code>
+    </response-schema>
+    <pydantic-models>
+      <description>
+        Follow the pattern from lazy_rag_models.py for Pydantic request/response models.
+      </description>
+      <code-reference>
+class DualLevelQueryRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=10000)
+    tenant_id: UUID = Field(...)
+    low_level_limit: int = Field(default=10, ge=1, le=50)
+    high_level_limit: int = Field(default=5, ge=1, le=20)
+    include_synthesis: bool = Field(default=True)
+
+class DualLevelQueryResponse(BaseModel):
+    query: str
+    tenant_id: str
+    low_level_results: list[LowLevelResultResponse]
+    high_level_results: list[HighLevelResultResponse]
+    synthesized_answer: Optional[str]
+    confidence: float = Field(ge=0.0, le=1.0)
+    processing_time_ms: int
+      </code-reference>
+    </pydantic-models>
+  </api-response-enhancement>
+
+  <weight-tuning-guidelines>
+    <description>
+      Weights can be tuned per domain based on query type and use case.
+    </description>
+    <table>
+      <row use-case="Factoid Q&amp;A" low-weight="0.8" high-weight="0.2">
+        Queries like "What is the CEO's name?"
+      </row>
+      <row use-case="Conceptual Q&amp;A" low-weight="0.3" high-weight="0.7">
+        Queries like "What is the company's culture?"
+      </row>
+      <row use-case="Balanced (default)" low-weight="0.6" high-weight="0.4">
+        General-purpose queries
+      </row>
+      <row use-case="Research/Analysis" low-weight="0.5" high-weight="0.5">
+        In-depth analysis queries
+      </row>
+    </table>
+  </weight-tuning-guidelines>
+
+  <performance-considerations>
+    <consideration>Use asyncio.gather for parallel low and high level retrieval</consideration>
+    <consideration>Cache community summaries for frequently-queried topics</consideration>
+    <consideration>Consider streaming synthesis for long answers</consideration>
+    <consideration>Batch Graphiti entity lookups for multiple chunks</consideration>
+    <consideration>Target: dual-level adds less than 300ms over single-level retrieval</consideration>
+  </performance-considerations>
+
+  <related-files>
+    <file purpose="Graphiti retrieval patterns">
+      backend/src/agentic_rag_backend/retrieval/graphiti_retrieval.py
+    </file>
+    <file purpose="Community detection (20-B1)">
+      backend/src/agentic_rag_backend/graph/community.py
+    </file>
+    <file purpose="Community models">
+      backend/src/agentic_rag_backend/graph/models.py
+    </file>
+    <file purpose="LazyRAG implementation (20-B2)">
+      backend/src/agentic_rag_backend/retrieval/lazy_rag.py
+    </file>
+    <file purpose="LazyRAG models">
+      backend/src/agentic_rag_backend/retrieval/lazy_rag_models.py
+    </file>
+    <file purpose="Graph rerankers (20-C1)">
+      backend/src/agentic_rag_backend/retrieval/graph_rerankers.py
+    </file>
+    <file purpose="Retrieval module exports">
+      backend/src/agentic_rag_backend/retrieval/__init__.py
+    </file>
+    <file purpose="Configuration">
+      backend/src/agentic_rag_backend/config.py
+    </file>
+    <file purpose="Test patterns - LazyRAG">
+      backend/tests/retrieval/test_lazy_rag.py
+    </file>
+    <file purpose="Test patterns - Graph Rerankers">
+      backend/tests/retrieval/test_graph_rerankers.py
+    </file>
+    <file purpose="Tech spec (Group C section)">
+      _bmad-output/epics/epic-20-tech-spec.md
+    </file>
+  </related-files>
+
+  <implementation-checklist>
+    <item>Create dual_level.py module</item>
+    <item>Implement DualLevelResult dataclass with to_dict() method</item>
+    <item>Implement DualLevelRetriever class with all methods</item>
+    <item>Implement DualLevelAdapter for configuration</item>
+    <item>Add DUAL_LEVEL_* settings to config.py Settings dataclass</item>
+    <item>Add DUAL_LEVEL_* loading in load_settings()</item>
+    <item>Add weight normalization with logging</item>
+    <item>Implement parallel retrieval with asyncio.gather</item>
+    <item>Implement graceful fallbacks with structured logging</item>
+    <item>Update retrieval/__init__.py exports</item>
+    <item>Update .env.example with new settings</item>
+    <item>Write unit tests for all components</item>
+    <item>Write integration tests with real components</item>
+    <item>Write performance tests for latency requirement</item>
+    <item>Write tenant isolation security tests</item>
+  </implementation-checklist>
+</story-context>

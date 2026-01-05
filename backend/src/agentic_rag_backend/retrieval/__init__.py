@@ -76,6 +76,20 @@ from .graph_rerankers import (
     create_graph_reranker,
 )
 
+# Epic 20 - Dual-Level Retrieval (Story 20-C2)
+from .dual_level import DualLevelRetriever
+from .dual_level_models import (
+    LowLevelResult,
+    HighLevelResult,
+    DualLevelResult,
+    SynthesisResult,
+    DualLevelRetrieveRequest,
+    DualLevelRetrieveResponse,
+    LowLevelResultResponse,
+    HighLevelResultResponse,
+    DualLevelStatusResponse,
+)
+
 __all__ = [
     # Epic 3 - Graph traversal and vector search
     "GraphEdge",
@@ -140,4 +154,15 @@ __all__ = [
     "HybridGraphReranker",
     "get_graph_reranker_adapter",
     "create_graph_reranker",
+    # Epic 20 - Dual-Level Retrieval
+    "DualLevelRetriever",
+    "LowLevelResult",
+    "HighLevelResult",
+    "DualLevelResult",
+    "SynthesisResult",
+    "DualLevelRetrieveRequest",
+    "DualLevelRetrieveResponse",
+    "LowLevelResultResponse",
+    "HighLevelResultResponse",
+    "DualLevelStatusResponse",
 ]

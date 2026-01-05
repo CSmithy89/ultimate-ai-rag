@@ -323,6 +323,13 @@ class Settings:
     graph_reranker_original_weight: float
     graph_reranker_episode_window_days: int
     graph_reranker_max_distance: int
+    # Story 20-C2 - Dual-Level Retrieval
+    dual_level_retrieval_enabled: bool
+    dual_level_low_weight: float
+    dual_level_high_weight: float
+    dual_level_low_limit: int
+    dual_level_high_limit: int
+    dual_level_synthesis_model: str
 
 
 def load_settings() -> Settings:
@@ -1061,6 +1068,31 @@ def load_settings() -> Settings:
         "GRAPH_RERANKER_MAX_DISTANCE", 3, min_val=1
     )
 
+    # Story 20-C2 - Dual-Level Retrieval settings
+    dual_level_retrieval_enabled = get_bool_env("DUAL_LEVEL_RETRIEVAL_ENABLED", "false")
+    dual_level_low_weight = get_float_env("DUAL_LEVEL_LOW_WEIGHT", 0.6, min_val=0.0)
+    dual_level_high_weight = get_float_env("DUAL_LEVEL_HIGH_WEIGHT", 0.4, min_val=0.0)
+    # Clamp weights to 0-1 range
+    dual_level_low_weight = max(0.0, min(1.0, dual_level_low_weight))
+    dual_level_high_weight = max(0.0, min(1.0, dual_level_high_weight))
+    # Validate weights sum to 1.0 (with tolerance)
+    dual_weight_sum = dual_level_low_weight + dual_level_high_weight
+    if abs(dual_weight_sum - 1.0) > 0.01:
+        logger.warning(
+            "dual_level_weights_not_normalized",
+            sum=dual_weight_sum,
+            low_weight=dual_level_low_weight,
+            high_weight=dual_level_high_weight,
+            hint="Weights will be normalized to sum to 1.0",
+        )
+        # Normalize weights
+        if dual_weight_sum > 0:
+            dual_level_low_weight /= dual_weight_sum
+            dual_level_high_weight /= dual_weight_sum
+    dual_level_low_limit = get_int_env("DUAL_LEVEL_LOW_LIMIT", 10, min_val=1)
+    dual_level_high_limit = get_int_env("DUAL_LEVEL_HIGH_LIMIT", 5, min_val=1)
+    dual_level_synthesis_model = os.getenv("DUAL_LEVEL_SYNTHESIS_MODEL", "gpt-4o-mini")
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1256,6 +1288,13 @@ def load_settings() -> Settings:
         graph_reranker_original_weight=graph_reranker_original_weight,
         graph_reranker_episode_window_days=graph_reranker_episode_window_days,
         graph_reranker_max_distance=graph_reranker_max_distance,
+        # Story 20-C2 - Dual-Level Retrieval
+        dual_level_retrieval_enabled=dual_level_retrieval_enabled,
+        dual_level_low_weight=dual_level_low_weight,
+        dual_level_high_weight=dual_level_high_weight,
+        dual_level_low_limit=dual_level_low_limit,
+        dual_level_high_limit=dual_level_high_limit,
+        dual_level_synthesis_model=dual_level_synthesis_model,
     )
 
 

@@ -35,6 +35,7 @@ from .api.routes import (
     communities_router,
     lazy_rag_router,
     query_router_router,
+    dual_level_router,
 )
 from .api.routes.ingest import limiter as slowapi_limiter
 from .api.utils import rate_limit_exceeded
@@ -558,6 +559,7 @@ def create_app() -> FastAPI:
     app.include_router(communities_router, prefix="/api/v1")  # Epic 20: Community Detection
     app.include_router(lazy_rag_router, prefix="/api/v1")  # Epic 20: LazyRAG Pattern
     app.include_router(query_router_router, prefix="/api/v1")  # Epic 20: Query Routing
+    app.include_router(dual_level_router, prefix="/api/v1")  # Epic 20: Dual-Level Retrieval
 
     # Story 19-C5: Mount Prometheus metrics endpoint
     # Note: Settings are loaded fresh here since app.state.settings is set in lifespan
