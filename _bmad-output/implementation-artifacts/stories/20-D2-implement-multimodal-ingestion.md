@@ -1,6 +1,6 @@
 # Story 20-D2: Implement Multimodal Ingestion
 
-Status: in-progress
+Status: done
 
 ## Story
 
