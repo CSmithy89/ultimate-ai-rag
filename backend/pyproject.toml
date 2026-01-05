@@ -84,6 +84,7 @@ dev-dependencies = [
 [tool.pytest.ini_options]
 markers = [
   "integration: marks integration tests that require external services",
+  "compliance: marks compliance tests for endpoint specification (Story 19-J2)",
 ]
 filterwarnings = [
   "ignore:Please use `import python_multipart` instead.:PendingDeprecationWarning",
