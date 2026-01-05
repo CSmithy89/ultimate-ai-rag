@@ -344,7 +344,7 @@ development_status:
   # --- Group J: Epic 14 Retro Carry-Forward ---
   # Origin: Epic 14 retrospective (2026-01-05)
   # PRIORITY: HIGH
-  19-J1-add-tenant-isolation-automated-tests: backlog
+  19-J1-add-tenant-isolation-automated-tests: done
   # Automated security test suite that attempts cross-tenant access patterns
   # PRIORITY: MEDIUM
   19-J2-add-endpoint-spec-compliance-tests: backlog
