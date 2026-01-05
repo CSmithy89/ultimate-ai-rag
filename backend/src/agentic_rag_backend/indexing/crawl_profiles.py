@@ -256,6 +256,10 @@ def get_profile_for_url(url: str) -> str:
         'thorough'
         >>> get_profile_for_url("https://linkedin.com/jobs")
         'stealth'
+        >>> get_profile_for_url("https://example.github.io/docs")
+        'fast'
+        >>> get_profile_for_url("https://example.com")
+        'thorough'
         >>> get_profile_for_url("https://docs.google.com")  # google.com takes priority
         'stealth'
     """

@@ -338,7 +338,7 @@ development_status:
   # Validate APIFY/BRIGHTDATA keys when crawl_fallback_enabled=true
   19-I11-document-large-crawl-memory-implications: done
   # Document memory usage for >100 page crawls, recommend streaming
-  19-I12-add-profile-auto-detection-examples: backlog
+  19-I12-add-profile-auto-detection-examples: done
   # Add usage examples to get_profile_for_url() docstring
 
   # --- Group J: Epic 14 Retro Carry-Forward ---
