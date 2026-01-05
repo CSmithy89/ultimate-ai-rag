@@ -319,7 +319,7 @@ development_status:
   # Move _EXACT_DOMAIN_PROFILES etc. to JSON/YAML config for easier updates
   19-I2-add-dynamic-user-agent-rotation: done
   # Replace hardcoded Chrome 131 with fake-useragent or configurable list
-  19-I3-add-crawler-legacy-alias-deprecation-warnings: backlog
+  19-I3-add-crawler-legacy-alias-deprecation-warnings: done
   # extract_links/extract_title aliases should warn and document migration
   # PRIORITY: LOW
   19-I4-add-profile-magic-number-documentation: backlog

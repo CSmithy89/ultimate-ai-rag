@@ -19,6 +19,7 @@ import itertools
 import os
 import random
 import re
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
@@ -375,6 +376,16 @@ def extract_title_from_html(html: str) -> Optional[str]:
     if soup.title and soup.title.string:
         return soup.title.string.strip()
     return None
+
+
+def get_links(html: str, base_url: str) -> list[str]:
+    """Canonical link extraction helper (HTML)."""
+    return extract_links_from_html(html, base_url)
+
+
+def get_title(html: str) -> Optional[str]:
+    """Canonical title extraction helper (HTML)."""
+    return extract_title_from_html(html)
 
 
 class CrawlerService:
@@ -1025,6 +1036,33 @@ async def crawl_url(
             yield page
 
 
-# Legacy compatibility aliases
-extract_links = extract_links_from_html
-extract_title = extract_title_from_html
+def extract_links(html: str, base_url: str) -> list[str]:
+    warnings.warn(
+        "extract_links() is deprecated; use get_links() instead. "
+        "Will be removed in v2.0.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    logger.warning(
+        "crawler_deprecated_alias_used",
+        alias="extract_links",
+        replacement="get_links",
+        removal_version="v2.0",
+    )
+    return get_links(html, base_url)
+
+
+def extract_title(html: str) -> Optional[str]:
+    warnings.warn(
+        "extract_title() is deprecated; use get_title() instead. "
+        "Will be removed in v2.0.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    logger.warning(
+        "crawler_deprecated_alias_used",
+        alias="extract_title",
+        replacement="get_title",
+        removal_version="v2.0",
+    )
+    return get_title(html)
