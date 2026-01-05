@@ -216,6 +216,23 @@ class SmallToBigRetriever:
         start_time = time.perf_counter()
         effective_return_level = return_level if return_level is not None else self.return_level
 
+        # Validate tenant_id - must be non-empty for multi-tenancy
+        if not tenant_id or not tenant_id.strip():
+            logger.warning(
+                "small_to_big_invalid_tenant_id",
+                tenant_id=tenant_id,
+                query=query[:50] if query else "",
+            )
+            return SmallToBigRetrievalResult(
+                query=query,
+                results=[],
+                matched_at_level=self.embedding_level,
+                returned_at_level=effective_return_level,
+                total_matches=0,
+                processing_time_ms=0,
+                tenant_id=tenant_id or "",
+            )
+
         logger.info(
             "small_to_big_retrieval_started",
             query=query[:100],

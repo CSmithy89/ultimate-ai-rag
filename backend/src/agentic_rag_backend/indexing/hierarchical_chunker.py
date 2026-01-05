@@ -362,6 +362,7 @@ class HierarchicalChunker:
 
                 chunk_id = self._generate_chunk_id(
                     document_id=document_id,
+                    tenant_id=tenant_id,
                     level=level,
                     chunk_index=chunk_index,
                 )
@@ -491,6 +492,7 @@ class HierarchicalChunker:
 
         chunk_id = self._generate_chunk_id(
             document_id=document_id,
+            tenant_id=tenant_id,
             level=level,
             chunk_index=parent_index,
         )
@@ -538,23 +540,26 @@ class HierarchicalChunker:
     def _generate_chunk_id(
         self,
         document_id: str,
+        tenant_id: str,
         level: int,
         chunk_index: int,
     ) -> str:
         """Generate a deterministic, unique chunk ID.
 
-        Uses hash of document_id + level + index for idempotent re-ingestion.
+        Uses hash of tenant_id + document_id + level + index for idempotent
+        re-ingestion while preventing cross-tenant ID collisions.
 
         Args:
             document_id: Document identifier
+            tenant_id: Tenant identifier for multi-tenancy
             level: Hierarchy level
             chunk_index: Index within level
 
         Returns:
             Unique chunk identifier
         """
-        # Create deterministic ID based on content position
-        id_string = f"{document_id}:L{level}:C{chunk_index}"
+        # Create deterministic ID including tenant to prevent cross-tenant collisions
+        id_string = f"{tenant_id}:{document_id}:L{level}:C{chunk_index}"
         hash_digest = hashlib.sha256(id_string.encode()).hexdigest()[:16]
         return f"chunk_{level}_{hash_digest}"
 
