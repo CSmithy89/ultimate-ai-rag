@@ -292,7 +292,7 @@ development_status:
   # --- Group C (Partial): Quality Observability ---
   19-C4-implement-retrieval-quality-benchmarks: done
   # MRR@K, NDCG@K, Precision@K, Recall@K
-  19-C5-implement-prometheus-retrieval-metrics: backlog
+  19-C5-implement-prometheus-retrieval-metrics: done
   # Grafana dashboards + alerts
 
   # --- Group F: Epic 12 Code Review Carry-Forward ---
@@ -347,7 +347,7 @@ development_status:
   19-J1-add-tenant-isolation-automated-tests: done
   # Automated security test suite that attempts cross-tenant access patterns
   # PRIORITY: MEDIUM
-  19-J2-add-endpoint-spec-compliance-tests: backlog
+  19-J2-add-endpoint-spec-compliance-tests: done
   # Validate endpoint paths and capabilities match story specs
   # PRIORITY: LOW
   19-J3-implement-dedicated-pdf-parsing-tool: backlog
