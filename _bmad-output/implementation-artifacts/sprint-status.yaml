@@ -350,7 +350,7 @@ development_status:
   19-J2-add-endpoint-spec-compliance-tests: done
   # Validate endpoint paths and capabilities match story specs
   # PRIORITY: LOW
-  19-J3-implement-dedicated-pdf-parsing-tool: backlog
+  19-J3-implement-dedicated-pdf-parsing-tool: done
   # Dedicated PDF parsing with Docling instead of generic text ingestion flow
 
   epic-19-retrospective: optional
