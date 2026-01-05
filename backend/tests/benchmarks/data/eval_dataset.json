@@ -1,0 +1,256 @@
+{
+  "name": "agentic-rag-eval-v1",
+  "description": "Evaluation dataset for Agentic RAG retrieval quality benchmarks. Contains queries across AI/ML, RAG, and knowledge graph topics.",
+  "version": "1.0.0",
+  "queries": [
+    {
+      "query_id": "q1",
+      "text": "What is machine learning and how does it differ from traditional programming?",
+      "relevant_docs": {
+        "doc1": 1.0,
+        "doc2": 0.7
+      }
+    },
+    {
+      "query_id": "q2",
+      "text": "How does neural network backpropagation work?",
+      "relevant_docs": {
+        "doc3": 1.0,
+        "doc4": 0.6
+      }
+    },
+    {
+      "query_id": "q3",
+      "text": "Explain the transformer architecture and attention mechanism",
+      "relevant_docs": {
+        "doc5": 1.0,
+        "doc6": 0.9,
+        "doc7": 0.5
+      }
+    },
+    {
+      "query_id": "q4",
+      "text": "What is gradient descent optimization and why is it important?",
+      "relevant_docs": {
+        "doc8": 1.0,
+        "doc3": 0.4
+      }
+    },
+    {
+      "query_id": "q5",
+      "text": "How does Retrieval Augmented Generation (RAG) reduce hallucinations?",
+      "relevant_docs": {
+        "doc9": 1.0,
+        "doc10": 0.9,
+        "doc11": 0.6
+      }
+    },
+    {
+      "query_id": "q6",
+      "text": "What are knowledge graphs and how are they used in AI?",
+      "relevant_docs": {
+        "doc12": 1.0,
+        "doc13": 0.8
+      }
+    },
+    {
+      "query_id": "q7",
+      "text": "Explain vector embeddings and semantic search",
+      "relevant_docs": {
+        "doc14": 1.0,
+        "doc15": 0.7,
+        "doc9": 0.3
+      }
+    },
+    {
+      "query_id": "q8",
+      "text": "What is the difference between fine-tuning and retrieval augmentation?",
+      "relevant_docs": {
+        "doc16": 1.0,
+        "doc9": 0.5
+      }
+    },
+    {
+      "query_id": "q9",
+      "text": "How do agentic systems use tool calling and function execution?",
+      "relevant_docs": {
+        "doc17": 1.0,
+        "doc18": 0.8
+      }
+    },
+    {
+      "query_id": "q10",
+      "text": "What is prompt engineering and how does it affect LLM outputs?",
+      "relevant_docs": {
+        "doc19": 1.0,
+        "doc20": 0.6
+      }
+    },
+    {
+      "query_id": "q11",
+      "text": "Explain the concept of context window in large language models",
+      "relevant_docs": {
+        "doc5": 0.6,
+        "doc21": 1.0
+      }
+    },
+    {
+      "query_id": "q12",
+      "text": "What is chunking in document processing for RAG systems?",
+      "relevant_docs": {
+        "doc22": 1.0,
+        "doc14": 0.4
+      }
+    },
+    {
+      "query_id": "q13",
+      "text": "How does cross-encoder reranking improve retrieval quality?",
+      "relevant_docs": {
+        "doc23": 1.0,
+        "doc15": 0.5
+      }
+    },
+    {
+      "query_id": "q14",
+      "text": "What are the benefits of hybrid search combining vector and keyword approaches?",
+      "relevant_docs": {
+        "doc24": 1.0,
+        "doc14": 0.4
+      }
+    },
+    {
+      "query_id": "q15",
+      "text": "Explain multi-tenancy in enterprise AI systems",
+      "relevant_docs": {
+        "doc25": 1.0
+      }
+    }
+  ],
+  "documents": [
+    {
+      "doc_id": "doc1",
+      "text": "Machine learning is a subset of artificial intelligence where systems learn patterns from data rather than being explicitly programmed. Unlike traditional programming where developers write explicit rules, machine learning algorithms discover rules automatically by analyzing examples. This enables systems to improve their performance on tasks through experience.",
+      "metadata": {"source": "ml_textbook", "topic": "machine_learning"}
+    },
+    {
+      "doc_id": "doc2",
+      "text": "Artificial intelligence encompasses various approaches to creating intelligent systems. Machine learning, deep learning, and symbolic AI all fall under this umbrella. The key differentiator of ML approaches is their data-driven nature, learning from examples rather than explicit programming.",
+      "metadata": {"source": "ai_overview", "topic": "artificial_intelligence"}
+    },
+    {
+      "doc_id": "doc3",
+      "text": "Backpropagation is the core algorithm for training neural networks. It works by computing the gradient of the loss function with respect to each weight through the chain rule of calculus. During the backward pass, gradients flow from the output layer back to the input layer, enabling efficient weight updates via gradient descent.",
+      "metadata": {"source": "deep_learning_book", "topic": "neural_networks"}
+    },
+    {
+      "doc_id": "doc4",
+      "text": "Neural networks consist of layers of interconnected nodes that transform input data through learned weights and activation functions. Training involves forward propagation to compute outputs, followed by loss calculation and backpropagation to update weights. This iterative process continues until the network achieves satisfactory performance.",
+      "metadata": {"source": "nn_tutorial", "topic": "neural_networks"}
+    },
+    {
+      "doc_id": "doc5",
+      "text": "The Transformer architecture, introduced in 'Attention Is All You Need', revolutionized NLP by replacing recurrence with self-attention. Self-attention allows each position in a sequence to attend to all other positions, capturing long-range dependencies efficiently. The multi-head attention mechanism enables learning different types of relationships simultaneously.",
+      "metadata": {"source": "transformer_paper", "topic": "transformers"}
+    },
+    {
+      "doc_id": "doc6",
+      "text": "Self-attention computes attention scores by taking the dot product of queries and keys, followed by softmax normalization. These scores determine how much each value contributes to the output. The attention mechanism is computed as Attention(Q,K,V) = softmax(QK^T/sqrt(d_k))V, where d_k is the dimension of the keys.",
+      "metadata": {"source": "attention_explained", "topic": "attention_mechanism"}
+    },
+    {
+      "doc_id": "doc7",
+      "text": "Positional encodings add sequence order information to Transformer inputs since self-attention is permutation invariant. The original Transformer used sinusoidal encodings, while later models like BERT use learned position embeddings. This allows the model to understand relative and absolute positions of tokens.",
+      "metadata": {"source": "nlp_guide", "topic": "transformers"}
+    },
+    {
+      "doc_id": "doc8",
+      "text": "Gradient descent is an optimization algorithm that iteratively adjusts parameters to minimize a loss function. The basic formula is: theta = theta - learning_rate * gradient. Variants like SGD, Adam, and AdaGrad improve convergence through momentum, adaptive learning rates, and other enhancements. Proper optimization is crucial for training deep learning models effectively.",
+      "metadata": {"source": "optimization_textbook", "topic": "optimization"}
+    },
+    {
+      "doc_id": "doc9",
+      "text": "Retrieval Augmented Generation (RAG) combines information retrieval with language generation to reduce hallucinations. By retrieving relevant documents from a knowledge base and including them in the prompt context, RAG grounds the model's responses in factual information. This approach is more cost-effective than fine-tuning for knowledge updates.",
+      "metadata": {"source": "rag_paper", "topic": "rag"}
+    },
+    {
+      "doc_id": "doc10",
+      "text": "RAG systems follow a retrieve-then-generate paradigm: first, relevant documents are retrieved based on the query; then, the language model generates a response using the retrieved context. This grounding in external knowledge significantly reduces the model's tendency to generate plausible but incorrect information.",
+      "metadata": {"source": "rag_tutorial", "topic": "rag"}
+    },
+    {
+      "doc_id": "doc11",
+      "text": "Hallucination in LLMs refers to generating content that appears plausible but is factually incorrect or fabricated. RAG mitigates this by providing verified source material. Other approaches include uncertainty quantification, self-consistency checks, and citation requirements that encourage grounded outputs.",
+      "metadata": {"source": "llm_reliability", "topic": "hallucination"}
+    },
+    {
+      "doc_id": "doc12",
+      "text": "Knowledge graphs represent information as nodes (entities) and edges (relationships) in a structured format. They enable reasoning over connected data, path-based queries, and inference of implicit relationships. In AI systems, knowledge graphs provide structured context that complements unstructured text retrieval.",
+      "metadata": {"source": "kg_introduction", "topic": "knowledge_graphs"}
+    },
+    {
+      "doc_id": "doc13",
+      "text": "GraphRAG extends traditional RAG by incorporating knowledge graph traversal. By following relationships between entities, GraphRAG can answer multi-hop questions that require connecting multiple pieces of information. This hybrid approach combines the semantic understanding of embeddings with the structured reasoning of graphs.",
+      "metadata": {"source": "graphrag_paper", "topic": "knowledge_graphs"}
+    },
+    {
+      "doc_id": "doc14",
+      "text": "Vector embeddings transform text into dense numerical representations that capture semantic meaning. Similar concepts have similar embeddings in the vector space, enabling semantic search beyond keyword matching. Embedding models like BERT, OpenAI Ada, and Cohere Embed are trained on large corpora to learn rich representations.",
+      "metadata": {"source": "embeddings_guide", "topic": "embeddings"}
+    },
+    {
+      "doc_id": "doc15",
+      "text": "Semantic search uses vector embeddings to find documents based on meaning rather than exact word matches. Queries and documents are embedded into the same vector space, and nearest neighbor search identifies the most relevant results. This approach handles synonyms, paraphrases, and conceptual similarity naturally.",
+      "metadata": {"source": "search_fundamentals", "topic": "semantic_search"}
+    },
+    {
+      "doc_id": "doc16",
+      "text": "Fine-tuning adapts a pre-trained model to a specific task by training on domain-specific data, modifying the model's weights. Retrieval augmentation, in contrast, keeps the model fixed but provides relevant context at inference time. RAG is more flexible for knowledge updates since it doesn't require retraining, while fine-tuning can achieve better task-specific performance.",
+      "metadata": {"source": "llm_adaptation", "topic": "fine_tuning"}
+    },
+    {
+      "doc_id": "doc17",
+      "text": "Agentic AI systems use tool calling to extend LLM capabilities beyond text generation. The model can invoke external functions, APIs, or tools to perform actions like searching databases, executing code, or interacting with external services. Tool schemas define available operations, and the LLM decides when and how to use them.",
+      "metadata": {"source": "agentic_ai", "topic": "agents"}
+    },
+    {
+      "doc_id": "doc18",
+      "text": "Function calling in LLMs follows a structured protocol: the model outputs a function name and arguments in a specified format, which the system executes to obtain results. These results are fed back to the model for further reasoning. This enables complex workflows like multi-step problem solving and autonomous task completion.",
+      "metadata": {"source": "function_calling_guide", "topic": "tool_use"}
+    },
+    {
+      "doc_id": "doc19",
+      "text": "Prompt engineering is the practice of crafting effective prompts to guide LLM behavior. Techniques include few-shot learning with examples, chain-of-thought reasoning prompts, role-playing instructions, and structured output formatting. Well-designed prompts can dramatically improve output quality and task performance.",
+      "metadata": {"source": "prompt_engineering", "topic": "prompts"}
+    },
+    {
+      "doc_id": "doc20",
+      "text": "Different prompting strategies suit different tasks. Zero-shot prompting relies on instructions alone, while few-shot provides examples. Chain-of-thought prompting encourages step-by-step reasoning for complex problems. System prompts establish persistent context and behavioral guidelines for conversational agents.",
+      "metadata": {"source": "prompting_techniques", "topic": "prompts"}
+    },
+    {
+      "doc_id": "doc21",
+      "text": "The context window is the maximum number of tokens an LLM can process in a single forward pass. Modern models range from 4K to 200K+ tokens. Larger context windows enable processing longer documents but increase memory and compute costs. RAG helps manage context limits by retrieving only the most relevant passages.",
+      "metadata": {"source": "llm_architecture", "topic": "context_window"}
+    },
+    {
+      "doc_id": "doc22",
+      "text": "Document chunking divides large documents into smaller segments for embedding and retrieval. Chunk size affects retrieval granularity: smaller chunks enable more precise retrieval but may lack context, while larger chunks preserve context but reduce precision. Overlapping chunks and hierarchical approaches help balance these tradeoffs.",
+      "metadata": {"source": "rag_implementation", "topic": "chunking"}
+    },
+    {
+      "doc_id": "doc23",
+      "text": "Cross-encoder reranking improves retrieval by jointly encoding query-document pairs for more accurate relevance scoring. Unlike bi-encoders that embed queries and documents separately, cross-encoders directly model their interaction. This second-stage ranking on top-k candidates significantly improves precision while remaining computationally tractable.",
+      "metadata": {"source": "reranking_paper", "topic": "reranking"}
+    },
+    {
+      "doc_id": "doc24",
+      "text": "Hybrid search combines vector similarity search with traditional keyword matching (like BM25). This approach leverages the semantic understanding of embeddings while retaining the precision of exact keyword matches. Reciprocal Rank Fusion or learned combination weights merge results from both approaches for improved recall and precision.",
+      "metadata": {"source": "hybrid_search", "topic": "search"}
+    },
+    {
+      "doc_id": "doc25",
+      "text": "Multi-tenancy in enterprise AI ensures data isolation between different customers or organizations. Each tenant's data is separated through tenant identifiers in database queries, isolated vector namespaces, and access control policies. This enables serving multiple organizations from shared infrastructure while maintaining strict security boundaries.",
+      "metadata": {"source": "enterprise_ai", "topic": "multi_tenancy"}
+    }
+  ]
+}

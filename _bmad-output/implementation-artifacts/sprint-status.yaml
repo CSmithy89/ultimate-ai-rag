@@ -290,7 +290,7 @@ development_status:
   epic-19: contexted
 
   # --- Group C (Partial): Quality Observability ---
-  19-C4-implement-retrieval-quality-benchmarks: backlog
+  19-C4-implement-retrieval-quality-benchmarks: done
   # MRR@K, NDCG@K, Precision@K, Recall@K
   19-C5-implement-prometheus-retrieval-metrics: backlog
   # Grafana dashboards + alerts

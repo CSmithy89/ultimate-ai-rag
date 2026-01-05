@@ -1,0 +1,3 @@
+# This directory stores benchmark results.
+# Results are JSON files with format: benchmark_YYYYMMDD_HHMMSS.json
+# See tests/benchmarks/README.md for details.
