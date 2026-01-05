@@ -22,6 +22,7 @@ import random
 import re
 import threading
 import warnings
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
@@ -77,6 +78,18 @@ _USER_AGENT_CYCLE: Optional[itertools.cycle] = None
 _USER_AGENT_LOCK = threading.Lock()
 
 
+def _get_user_agent_strategy() -> str:
+    strategy = os.getenv("CRAWLER_USER_AGENT_STRATEGY", DEFAULT_USER_AGENT_STRATEGY).strip().lower()
+    if strategy not in {"rotate", "random", "static"}:
+        logger.warning(
+            "user_agent_strategy_invalid",
+            strategy=strategy,
+            fallback=DEFAULT_USER_AGENT_STRATEGY,
+        )
+        strategy = DEFAULT_USER_AGENT_STRATEGY
+    return strategy
+
+
 def _load_user_agent_pool() -> list[str]:
     global _USER_AGENT_POOL, _USER_AGENT_CYCLE
     if _USER_AGENT_POOL is not None:
@@ -121,14 +134,7 @@ def _load_user_agent_pool() -> list[str]:
 
 
 def _select_user_agent() -> tuple[str, str, str]:
-    strategy = os.getenv("CRAWLER_USER_AGENT_STRATEGY", DEFAULT_USER_AGENT_STRATEGY).strip().lower()
-    if strategy not in {"rotate", "random", "static"}:
-        logger.warning(
-            "user_agent_strategy_invalid",
-            strategy=strategy,
-            fallback=DEFAULT_USER_AGENT_STRATEGY,
-        )
-        strategy = DEFAULT_USER_AGENT_STRATEGY
+    strategy = _get_user_agent_strategy()
 
     pool = _load_user_agent_pool()
     use_fake = os.getenv("CRAWLER_USER_AGENT_USE_FAKE", "").strip().lower() in {
@@ -165,6 +171,10 @@ def _select_user_agent() -> tuple[str, str, str]:
         )
         return pool[0], strategy, "static-pool"
     return next(_USER_AGENT_CYCLE), strategy, "rotate-pool"
+
+
+def _should_rotate_user_agent() -> bool:
+    return _get_user_agent_strategy() in {"rotate", "random"}
 
 
 def sanitize_proxy_url(proxy_url: Optional[str]) -> Optional[str]:
@@ -508,7 +518,11 @@ class CrawlerService:
         self._crawler: Optional[AsyncWebCrawler] = None
         self._browser_config: Optional[BrowserConfig] = None
 
-    def _create_browser_config(self) -> "BrowserConfig":
+    def _create_browser_config(
+        self,
+        user_agent_override: Optional[str] = None,
+        log_selection: bool = True,
+    ) -> "BrowserConfig":
         """Create BrowserConfig for Crawl4AI."""
         config_kwargs: dict[str, object] = {
             "headless": self.headless,
@@ -522,10 +536,16 @@ class CrawlerService:
         # Add stealth mode configuration if enabled
         # Stealth mode helps bypass bot detection
         if self.stealth:
-            user_agent, strategy, source = _select_user_agent()
+            if user_agent_override:
+                user_agent = user_agent_override
+                strategy = "override"
+                source = "override"
+            else:
+                user_agent, strategy, source = _select_user_agent()
             config_kwargs["user_agent"] = user_agent
             self.user_agent = user_agent
-            logger.info(
+            log_fn = logger.info if log_selection else logger.debug
+            log_fn(
                 "crawler_user_agent_selected",
                 strategy=strategy,
                 source=source,
@@ -583,6 +603,22 @@ class CrawlerService:
             )
 
         return CrawlerRunConfig(**config_kwargs)
+
+    @asynccontextmanager
+    async def _temporary_crawler(
+        self,
+        user_agent: str,
+    ) -> AsyncGenerator["AsyncWebCrawler", None]:
+        browser_config = self._create_browser_config(
+            user_agent_override=user_agent,
+            log_selection=False,
+        )
+        crawler = AsyncWebCrawler(config=browser_config)
+        await crawler.__aenter__()
+        try:
+            yield crawler
+        finally:
+            await crawler.__aexit__(None, None, None)
 
     async def __aenter__(self) -> "CrawlerService":
         """Async context manager entry - initialize browser."""
@@ -762,12 +798,23 @@ class CrawlerService:
 
         try:
             config = self._create_crawler_config(wait_for_js=True)
+            user_agent_override = None
+            if self.stealth and _should_rotate_user_agent():
+                user_agent_override, _, _ = _select_user_agent()
             logger.debug(
                 "crawl_page_started",
                 url=url,
-                user_agent=(self.user_agent[:80] if self.user_agent else None),
+                user_agent=(
+                    user_agent_override[:80]
+                    if user_agent_override
+                    else (self.user_agent[:80] if self.user_agent else None)
+                ),
             )
-            result = await self._crawler.arun(url=url, config=config)
+            if user_agent_override:
+                async with self._temporary_crawler(user_agent_override) as crawler:
+                    result = await crawler.arun(url=url, config=config)
+            else:
+                result = await self._crawler.arun(url=url, config=config)
             return await self._convert_result_to_crawled_page(result, depth=0)
 
         except Exception as e:
@@ -885,20 +932,37 @@ class CrawlerService:
                     batch_delay_seconds=batch_delay,
                 )
 
-            async def _process_results(results_iterable: Any) -> AsyncGenerator[CrawledPage, None]:
-                nonlocal success_count
-
-                async def _async_list_iter(items: list[Any]) -> AsyncGenerator[Any, None]:
-                    for item in items:
+            async def _iter_results(results_iterable: Any) -> AsyncGenerator[Any, None]:
+                if hasattr(results_iterable, "__aiter__"):
+                    async for item in results_iterable:
+                        yield item
+                else:
+                    for item in results_iterable:
                         yield item
 
-                iterator = (
-                    results_iterable
-                    if hasattr(results_iterable, "__aiter__")
-                    else _async_list_iter(results_iterable)
-                )
+            async def _iter_crawl_results(batch_urls: list[str]) -> AsyncGenerator[Any, None]:
+                if self.stealth and _should_rotate_user_agent():
+                    user_agent, _, _ = _select_user_agent()
+                    async with self._temporary_crawler(user_agent) as crawler:
+                        results = await crawler.arun_many(
+                            urls=batch_urls,
+                            config=config,
+                            dispatcher=dispatcher,
+                        )
+                        async for result in _iter_results(results):
+                            yield result
+                else:
+                    results = await self._crawler.arun_many(
+                        urls=batch_urls,
+                        config=config,
+                        dispatcher=dispatcher,
+                    )
+                    async for result in _iter_results(results):
+                        yield result
 
-                async for result in iterator:
+            async def _process_results(results_iterable: Any) -> AsyncGenerator[CrawledPage, None]:
+                nonlocal success_count
+                async for result in _iter_results(results_iterable):
                     if not result.success:
                         error_message = result.error_message or "crawl_failed"
                         failed.append((result.url, error_message))
@@ -929,12 +993,7 @@ class CrawlerService:
 
             for batch_index in range(0, len(valid_urls), batch_size):
                 batch_urls = valid_urls[batch_index:batch_index + batch_size]
-                results = await self._crawler.arun_many(
-                    urls=batch_urls,
-                    config=config,
-                    dispatcher=dispatcher,
-                )
-                async for page in _process_results(results):
+                async for page in _process_results(_iter_crawl_results(batch_urls)):
                     yield page
 
                 if batch_delay > 0 and batch_index + batch_size < len(valid_urls):

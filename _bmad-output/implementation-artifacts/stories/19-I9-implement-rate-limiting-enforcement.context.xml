@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Story 19-I9: Implement rate limiting enforcement
+  Story 19-I9: Implement rate-limiting enforcement
   Context file for implementation
   Generated: 2026-01-03
 -->
@@ -8,7 +8,7 @@
   <metadata>
     <story-id>19-I9</story-id>
     <epic>19 - Quality Foundation &amp; Tech Debt Resolution</epic>
-    <title>Implement rate limiting enforcement</title>
+    <title>Implement rate-limiting enforcement</title>
     <status>done</status>
     <priority>Low</priority>
   </metadata>

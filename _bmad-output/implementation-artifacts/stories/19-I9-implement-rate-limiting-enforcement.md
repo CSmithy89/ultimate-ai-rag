@@ -34,7 +34,7 @@ so that requests do not exceed configured throughput.
 
 ### Agent Model Used
 
-GPT-5
+GPT-5 (Codex CLI)
 
 ### Completion Notes List
 
