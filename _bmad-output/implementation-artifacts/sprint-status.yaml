@@ -322,7 +322,7 @@ development_status:
   19-I3-add-crawler-legacy-alias-deprecation-warnings: done
   # extract_links/extract_title aliases should warn and document migration
   # PRIORITY: LOW
-  19-I4-add-profile-magic-number-documentation: backlog
+  19-I4-add-profile-magic-number-documentation: done
   # Document rationale for rate_limit=5.0, max_concurrent=10, etc.
   19-I5-optimize-beautifulsoup-async-parsing: backlog
   # Consider async HTML parsing for large documents
