@@ -69,6 +69,22 @@ from .hierarchical_chunker import (
     DEFAULT_OVERLAP_RATIO,
     DEFAULT_EMBEDDING_LEVEL,
 )
+# Epic 20 - Enhanced Table/Layout Extraction (Story 20-D1)
+from .enhanced_docling import (
+    Position,
+    ExtractedTable,
+    DocumentSection as EnhancedDocumentSection,
+    Figure,
+    Footnote,
+    DocumentLayout,
+    TableChunk,
+    EnhancedDoclingParser,
+    EnhancedDoclingAdapter,
+    get_enhanced_docling_adapter,
+    DEFAULT_TABLE_EXTRACTION,
+    DEFAULT_PRESERVE_LAYOUT,
+    DEFAULT_TABLE_AS_MARKDOWN,
+)
 
 __all__ = [
     # Crawler (Story 13.3: Crawl4AI migration)
@@ -137,4 +153,18 @@ __all__ = [
     "DEFAULT_LEVEL_SIZES",
     "DEFAULT_OVERLAP_RATIO",
     "DEFAULT_EMBEDDING_LEVEL",
+    # Epic 20: Enhanced Table/Layout Extraction (Story 20-D1)
+    "Position",
+    "ExtractedTable",
+    "EnhancedDocumentSection",
+    "Figure",
+    "Footnote",
+    "DocumentLayout",
+    "TableChunk",
+    "EnhancedDoclingParser",
+    "EnhancedDoclingAdapter",
+    "get_enhanced_docling_adapter",
+    "DEFAULT_TABLE_EXTRACTION",
+    "DEFAULT_PRESERVE_LAYOUT",
+    "DEFAULT_TABLE_AS_MARKDOWN",
 ]

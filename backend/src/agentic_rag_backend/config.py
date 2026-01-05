@@ -336,6 +336,11 @@ class Settings:
     hierarchical_overlap_ratio: float
     small_to_big_return_level: int
     hierarchical_embedding_level: int
+    # Story 20-D1 - Enhanced Table/Layout Extraction
+    enhanced_docling_enabled: bool
+    docling_table_extraction: bool
+    docling_preserve_layout: bool
+    docling_table_as_markdown: bool
 
 
 def load_settings() -> Settings:
@@ -1149,6 +1154,12 @@ def load_settings() -> Settings:
         )
         hierarchical_embedding_level = 0
 
+    # Story 20-D1 - Enhanced Table/Layout Extraction settings
+    enhanced_docling_enabled = get_bool_env("ENHANCED_DOCLING_ENABLED", "true")
+    docling_table_extraction = get_bool_env("DOCLING_TABLE_EXTRACTION", "true")
+    docling_preserve_layout = get_bool_env("DOCLING_PRESERVE_LAYOUT", "true")
+    docling_table_as_markdown = get_bool_env("DOCLING_TABLE_AS_MARKDOWN", "true")
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1357,6 +1368,11 @@ def load_settings() -> Settings:
         hierarchical_overlap_ratio=hierarchical_overlap_ratio,
         small_to_big_return_level=small_to_big_return_level,
         hierarchical_embedding_level=hierarchical_embedding_level,
+        # Story 20-D1 - Enhanced Table/Layout Extraction
+        enhanced_docling_enabled=enhanced_docling_enabled,
+        docling_table_extraction=docling_table_extraction,
+        docling_preserve_layout=docling_preserve_layout,
+        docling_table_as_markdown=docling_table_as_markdown,
     )
 
 
