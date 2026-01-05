@@ -287,7 +287,7 @@ development_status:
   # SPLIT: 2026-01-05 - Competitive features moved to Epic 20
   # See: epic-19-tech-spec.md
   # ==========================================
-  epic-19: backlog
+  epic-19: contexted
 
   # --- Group C (Partial): Quality Observability ---
   19-C4-implement-retrieval-quality-benchmarks: backlog
@@ -297,7 +297,7 @@ development_status:
 
   # --- Group F: Epic 12 Code Review Carry-Forward ---
   # PRIORITY: HIGH
-  19-F1-add-full-retrieval-pipeline-integration-test: backlog
+  19-F1-add-full-retrieval-pipeline-integration-test: done
   # UPDATED (Epic 14 Retro): Include A2A API endpoint integration tests
   19-F2-add-multi-tenancy-enforcement-tests: backlog
   # PRIORITY: MEDIUM
