@@ -14,6 +14,7 @@ Components:
 
 import re
 import unicodedata
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol
 
@@ -25,6 +26,9 @@ logger = structlog.get_logger(__name__)
 DEFAULT_CROSS_LANGUAGE_ENABLED = False
 DEFAULT_CROSS_LANGUAGE_EMBEDDING = "intfloat/multilingual-e5-base"
 DEFAULT_CROSS_LANGUAGE_TRANSLATION = False
+
+# Maximum number of cached translations to prevent memory exhaustion
+MAX_TRANSLATION_CACHE_SIZE = 1000
 
 # Language detection patterns (Unicode blocks)
 LANGUAGE_PATTERNS: dict[str, re.Pattern] = {
@@ -311,6 +315,42 @@ class LLMTranslatorProtocol(Protocol):
         ...
 
 
+class LRUCache:
+    """Simple LRU cache with max size to prevent memory exhaustion."""
+
+    def __init__(self, max_size: int = MAX_TRANSLATION_CACHE_SIZE) -> None:
+        self._cache: OrderedDict[str, str] = OrderedDict()
+        self._max_size = max_size
+
+    def get(self, key: str) -> Optional[str]:
+        """Get value and move to end (most recently used)."""
+        if key in self._cache:
+            self._cache.move_to_end(key)
+            return self._cache[key]
+        return None
+
+    def set(self, key: str, value: str) -> None:
+        """Set value, evicting oldest if at capacity."""
+        if key in self._cache:
+            self._cache.move_to_end(key)
+        else:
+            if len(self._cache) >= self._max_size:
+                self._cache.popitem(last=False)  # Remove oldest
+        self._cache[key] = value
+
+    def clear(self) -> int:
+        """Clear cache and return count of cleared entries."""
+        count = len(self._cache)
+        self._cache.clear()
+        return count
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._cache
+
+    def __len__(self) -> int:
+        return len(self._cache)
+
+
 @dataclass
 class QueryTranslator:
     """Translate queries using LLM for cross-language search.
@@ -325,7 +365,7 @@ class QueryTranslator:
 
     llm_provider: Optional[Any] = None
     target_language: str = "en"
-    _cache: dict[str, str] = field(default_factory=dict)
+    _cache: LRUCache = field(default_factory=LRUCache)
 
     async def translate(
         self,
@@ -343,10 +383,11 @@ class QueryTranslator:
         """
         target = target_language or self.target_language
 
-        # Check cache
+        # Check cache (LRU cache with max size)
         cache_key = f"{text}:{target}"
-        if cache_key in self._cache:
-            return self._cache[cache_key]
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached
 
         if self.llm_provider is None:
             logger.warning("query_translator_no_provider")
@@ -372,7 +413,7 @@ class QueryTranslator:
                 return text
 
             translated = result.strip()
-            self._cache[cache_key] = translated
+            self._cache.set(cache_key, translated)
 
             logger.debug(
                 "query_translated",

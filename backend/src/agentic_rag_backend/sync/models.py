@@ -163,6 +163,7 @@ class SyncConfig:
         settings: Source-specific settings
         sync_interval_minutes: How often to sync (0 = manual only)
         max_items_per_sync: Maximum items to sync per run
+        http_timeout_seconds: HTTP request timeout (default 30s)
     """
 
     source_type: SyncSourceType
@@ -172,6 +173,7 @@ class SyncConfig:
     settings: dict[str, Any] = field(default_factory=dict)
     sync_interval_minutes: int = 60
     max_items_per_sync: int = 1000
+    http_timeout_seconds: float = 30.0
 
     def __post_init__(self) -> None:
         """Generate source_id if not provided."""

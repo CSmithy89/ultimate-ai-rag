@@ -85,7 +85,7 @@ class ConfluenceConnector(BaseConnector):
                     "Content-Type": "application/json",
                     "Accept": "application/json",
                 },
-                timeout=30.0,
+                timeout=self._config.http_timeout_seconds,
             )
 
         return self._client

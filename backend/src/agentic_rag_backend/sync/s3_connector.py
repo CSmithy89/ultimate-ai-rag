@@ -16,6 +16,9 @@ from .models import SyncConfig, SyncContent, SyncItem, SyncSourceType
 
 logger = structlog.get_logger(__name__)
 
+# Maximum file size for S3 downloads (100MB) to prevent DoS/OOM
+MAX_S3_DOWNLOAD_SIZE_BYTES = 100 * 1024 * 1024
+
 # Supported document types for text extraction
 SUPPORTED_EXTENSIONS = {
     ".txt": "text/plain",
@@ -174,14 +177,44 @@ class S3Connector(BaseConnector):
 
         Returns:
             SyncContent with the object content
+
+        Raises:
+            ValueError: If file exceeds maximum size limit
         """
         client = self._get_client()
+
+        # Check file size before downloading to prevent OOM
+        if item.size_bytes and item.size_bytes > MAX_S3_DOWNLOAD_SIZE_BYTES:
+            self._logger.warning(
+                "s3_file_too_large",
+                key=item.path,
+                size_bytes=item.size_bytes,
+                max_size=MAX_S3_DOWNLOAD_SIZE_BYTES,
+            )
+            raise ValueError(
+                f"S3 file size ({item.size_bytes} bytes) exceeds maximum "
+                f"allowed ({MAX_S3_DOWNLOAD_SIZE_BYTES} bytes)"
+            )
 
         try:
             response = client.get_object(
                 Bucket=self.bucket,
                 Key=item.path,
             )
+
+            # Double-check content length from response
+            content_length = response.get("ContentLength", 0)
+            if content_length > MAX_S3_DOWNLOAD_SIZE_BYTES:
+                self._logger.warning(
+                    "s3_content_too_large",
+                    key=item.path,
+                    content_length=content_length,
+                    max_size=MAX_S3_DOWNLOAD_SIZE_BYTES,
+                )
+                raise ValueError(
+                    f"S3 content length ({content_length} bytes) exceeds maximum "
+                    f"allowed ({MAX_S3_DOWNLOAD_SIZE_BYTES} bytes)"
+                )
 
             content = response["Body"].read()
 

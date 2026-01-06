@@ -6,6 +6,7 @@ This module provides speech-to-text capabilities using the Whisper model.
 """
 
 import asyncio
+import threading
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -19,6 +20,9 @@ from .models import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Maximum audio file size (50MB) to prevent DoS/OOM
+MAX_AUDIO_SIZE_BYTES = 50 * 1024 * 1024
 
 
 class SpeechToText:
@@ -52,52 +56,62 @@ class SpeechToText:
         self._model: Any = None
         self._use_faster_whisper = True
 
+        self._model_lock = threading.Lock()
+
         self._logger = logger.bind(
             component="SpeechToText",
             model=self._model_name,
         )
 
     def _ensure_model(self) -> None:
-        """Lazily load the Whisper model."""
+        """Lazily load the Whisper model.
+
+        Uses double-check locking pattern for thread safety.
+        """
         if self._model is not None:
             return
 
-        try:
-            from faster_whisper import WhisperModel as FasterWhisperModel
+        with self._model_lock:
+            # Double-check after acquiring lock
+            if self._model is not None:
+                return
 
-            self._model = FasterWhisperModel(
-                self._model_name,
-                device=self._device if self._device != "auto" else "auto",
-                compute_type=self._compute_type if self._compute_type != "auto" else "default",
-            )
-            self._use_faster_whisper = True
-
-            self._logger.info(
-                "stt_model_loaded",
-                provider="faster-whisper",
-                model=self._model_name,
-            )
-        except ImportError:
-            self._logger.warning(
-                "faster_whisper_not_available",
-                hint="Install faster-whisper for better performance",
-            )
             try:
-                import whisper
+                from faster_whisper import WhisperModel as FasterWhisperModel
 
-                self._model = whisper.load_model(self._model_name)
-                self._use_faster_whisper = False
+                self._model = FasterWhisperModel(
+                    self._model_name,
+                    device=self._device if self._device != "auto" else "auto",
+                    compute_type=self._compute_type if self._compute_type != "auto" else "default",
+                )
+                self._use_faster_whisper = True
 
                 self._logger.info(
                     "stt_model_loaded",
-                    provider="openai-whisper",
+                    provider="faster-whisper",
                     model=self._model_name,
                 )
-            except ImportError as e:
-                raise ImportError(
-                    "Neither faster-whisper nor openai-whisper is installed. "
-                    "Install with: pip install faster-whisper or pip install openai-whisper"
-                ) from e
+            except ImportError:
+                self._logger.warning(
+                    "faster_whisper_not_available",
+                    hint="Install faster-whisper for better performance",
+                )
+                try:
+                    import whisper
+
+                    self._model = whisper.load_model(self._model_name)
+                    self._use_faster_whisper = False
+
+                    self._logger.info(
+                        "stt_model_loaded",
+                        provider="openai-whisper",
+                        model=self._model_name,
+                    )
+                except ImportError as e:
+                    raise ImportError(
+                        "Neither faster-whisper nor openai-whisper is installed. "
+                        "Install with: pip install faster-whisper or pip install openai-whisper"
+                    ) from e
 
     async def transcribe(
         self,
@@ -240,9 +254,24 @@ class SpeechToText:
 
         Returns:
             TranscriptionResult
+
+        Raises:
+            ValueError: If audio size exceeds maximum limit
         """
         import tempfile
         import os
+
+        # Validate audio size to prevent DoS/OOM
+        if len(audio_bytes) > MAX_AUDIO_SIZE_BYTES:
+            self._logger.warning(
+                "stt_audio_too_large",
+                size_bytes=len(audio_bytes),
+                max_size=MAX_AUDIO_SIZE_BYTES,
+            )
+            raise ValueError(
+                f"Audio size ({len(audio_bytes)} bytes) exceeds maximum "
+                f"allowed ({MAX_AUDIO_SIZE_BYTES} bytes)"
+            )
 
         # Write bytes to temp file for processing
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:

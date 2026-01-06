@@ -17,7 +17,21 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol
 
+import numpy as np
 import structlog
+
+# Lazy load torch to avoid startup cost if not used
+_torch = None
+
+
+def _get_torch():
+    """Lazily load torch module."""
+    global _torch
+    if _torch is None:
+        import torch
+        _torch = torch
+    return _torch
+
 
 logger = structlog.get_logger(__name__)
 
@@ -211,7 +225,7 @@ class ColBERTEncoder:
         Returns:
             TokenEmbeddings
         """
-        import torch
+        torch = _get_torch()
 
         try:
             if self._tokenizer is not None:
@@ -288,8 +302,6 @@ class MaxSimScorer:
         Returns:
             MaxSim score (higher is more relevant)
         """
-        import numpy as np
-
         if not query_embeddings.embeddings or not doc_embeddings.embeddings:
             return 0.0
 

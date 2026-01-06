@@ -20,6 +20,9 @@ logger = structlog.get_logger(__name__)
 NOTION_API_VERSION = "2022-06-28"
 NOTION_API_BASE = "https://api.notion.com/v1"
 
+# Maximum pagination iterations to prevent infinite loops
+MAX_PAGINATION_PAGES = 1000
+
 
 class NotionConnector(BaseConnector):
     """Sync connector for Notion workspaces.
@@ -71,7 +74,7 @@ class NotionConnector(BaseConnector):
                     "Notion-Version": NOTION_API_VERSION,
                     "Content-Type": "application/json",
                 },
-                timeout=30.0,
+                timeout=self._config.http_timeout_seconds,
             )
 
         return self._client
@@ -351,8 +354,9 @@ class NotionConnector(BaseConnector):
         """
         blocks = []
         start_cursor = None
+        page_count = 0
 
-        while True:
+        while page_count < MAX_PAGINATION_PAGES:
             params: dict[str, Any] = {"page_size": 100}
             if start_cursor:
                 params["start_cursor"] = start_cursor
@@ -366,12 +370,21 @@ class NotionConnector(BaseConnector):
 
             results = data.get("results", [])
             blocks.extend(results)
+            page_count += 1
 
             if not data.get("has_more"):
                 break
 
             start_cursor = data.get("next_cursor")
             await asyncio.sleep(0.05)  # Rate limiting
+
+        if page_count >= MAX_PAGINATION_PAGES:
+            self._logger.warning(
+                "notion_pagination_limit_reached",
+                block_id=block_id,
+                max_pages=MAX_PAGINATION_PAGES,
+                blocks_fetched=len(blocks),
+            )
 
         return blocks
 
