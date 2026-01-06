@@ -118,6 +118,21 @@ VISUAL_WORKFLOW_ENABLED=true|false    # Default: false
 - React Flow v11 is already installed
 - Store workflows in localStorage for MVP (backend persistence optional)
 
+### MVP Scope (Implemented)
+- Drag-and-drop node placement on React Flow canvas
+- Node connections with validation (prevent invalid connections)
+- Save/Load workflows to localStorage
+- Simulated execution with debug logging
+- Topological sort for proper execution order
+- Feature flag gate (NEXT_PUBLIC_VISUAL_WORKFLOW_ENABLED)
+
+### Future Enhancements (Not in MVP Scope)
+- Node configuration panels (click to edit parameters)
+- Import/Export workflow JSON files
+- CopilotKit UI integration
+- Backend execution (currently simulated)
+- Real-time data flow visualization during execution
+
 ---
 
 ## Dev Agent Record
@@ -142,3 +157,4 @@ VISUAL_WORKFLOW_ENABLED=true|false    # Default: false
 | 2026-01-06 | Initial implementation | Created story file |
 | 2026-01-06 | Full implementation | Created React Flow-based workflow editor with WorkflowEditor, WorkflowNode, WorkflowSidebar, WorkflowToolbar components. Added workflow types, state hook, and /workflow page route. TypeScript compiles cleanly. |
 | 2026-01-06 | Code review fixes | Fixed: feature flag now respects NEXT_PUBLIC_VISUAL_WORKFLOW_ENABLED env var (was always true), deprecated substr() -> substring(), added edge connection validation (prevent respond->any, any->ingest, duplicates), added Clear confirmation dialog, Escape key closes dropdown, empty workflow validation, debug logging during execution. Updated File List to match actual implementation (single universal WorkflowNode vs separate node files). |
+| 2026-01-06 | Second code review | Fixed: disabled message now shows correct env var name, implemented proper topological sort (Kahn's algorithm) for execution order, added JSON schema validation to prevent crashes from corrupted data. Clarified MVP scope vs future enhancements in Dev Notes. |

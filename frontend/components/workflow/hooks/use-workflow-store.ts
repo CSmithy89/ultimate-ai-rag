@@ -241,7 +241,40 @@ export function useWorkflowStore() {
   }, [workflowId, workflowName, nodes, edges]);
 
   /**
+   * Validate workflow data structure.
+   * Returns true if workflow has valid shape, false otherwise.
+   */
+  const isValidWorkflow = useCallback((data: unknown): data is Workflow => {
+    if (!data || typeof data !== 'object') return false;
+    const w = data as Record<string, unknown>;
+
+    // Required string fields
+    if (typeof w.id !== 'string' || !w.id) return false;
+    if (typeof w.name !== 'string') return false;
+
+    // Nodes must be array
+    if (!Array.isArray(w.nodes)) return false;
+    for (const node of w.nodes) {
+      if (!node || typeof node !== 'object') return false;
+      if (typeof node.id !== 'string') return false;
+      if (!node.data || typeof node.data !== 'object') return false;
+      if (typeof node.position !== 'object') return false;
+    }
+
+    // Edges must be array
+    if (!Array.isArray(w.edges)) return false;
+    for (const edge of w.edges) {
+      if (!edge || typeof edge !== 'object') return false;
+      if (typeof edge.source !== 'string') return false;
+      if (typeof edge.target !== 'string') return false;
+    }
+
+    return true;
+  }, []);
+
+  /**
    * Load workflow from localStorage.
+   * Validates data structure before loading to prevent crashes.
    */
   const loadWorkflow = useCallback(
     (id: string) => {
@@ -249,36 +282,55 @@ export function useWorkflowStore() {
         const existing = localStorage.getItem(STORAGE_KEY);
         if (!existing) return false;
 
-        const workflows: Workflow[] = JSON.parse(existing);
-        const workflow = workflows.find((w) => w.id === id);
-
-        if (workflow) {
-          setWorkflowId(workflow.id);
-          setWorkflowName(workflow.name);
-          setNodes(workflow.nodes);
-          setEdges(workflow.edges);
-          return true;
+        const parsed = JSON.parse(existing);
+        if (!Array.isArray(parsed)) {
+          console.error('Invalid workflow storage format');
+          return false;
         }
-        return false;
+
+        const workflow = parsed.find((w: unknown) => {
+          return w && typeof w === 'object' && (w as Record<string, unknown>).id === id;
+        });
+
+        if (!workflow) return false;
+
+        // Validate workflow structure before loading
+        if (!isValidWorkflow(workflow)) {
+          console.error('Workflow data is corrupted or incompatible:', id);
+          return false;
+        }
+
+        setWorkflowId(workflow.id);
+        setWorkflowName(workflow.name);
+        setNodes(workflow.nodes);
+        setEdges(workflow.edges);
+        return true;
       } catch (error) {
         console.error('Failed to load workflow:', error);
         return false;
       }
     },
-    [setNodes, setEdges]
+    [setNodes, setEdges, isValidWorkflow]
   );
 
   /**
    * Get list of saved workflows.
+   * Filters out any corrupted/invalid workflows.
    */
   const getSavedWorkflows = useCallback((): Workflow[] => {
     try {
       const existing = localStorage.getItem(STORAGE_KEY);
-      return existing ? JSON.parse(existing) : [];
+      if (!existing) return [];
+
+      const parsed = JSON.parse(existing);
+      if (!Array.isArray(parsed)) return [];
+
+      // Filter to only valid workflows
+      return parsed.filter((w: unknown) => isValidWorkflow(w)) as Workflow[];
     } catch {
       return [];
     }
-  }, []);
+  }, [isValidWorkflow]);
 
   /**
    * Delete a saved workflow.
@@ -298,7 +350,62 @@ export function useWorkflowStore() {
   }, []);
 
   /**
+   * Compute topological order of nodes using Kahn's algorithm.
+   * Returns nodes sorted by dependency order, or null if cycle detected.
+   */
+  const getTopologicalOrder = useCallback((): Node<WorkflowNodeData>[] | null => {
+    // Build adjacency list and in-degree count
+    const inDegree = new Map<string, number>();
+    const adjacency = new Map<string, string[]>();
+
+    // Initialize
+    nodes.forEach((node) => {
+      inDegree.set(node.id, 0);
+      adjacency.set(node.id, []);
+    });
+
+    // Build graph from edges
+    edges.forEach((edge) => {
+      const targets = adjacency.get(edge.source);
+      if (targets) {
+        targets.push(edge.target);
+      }
+      inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1);
+    });
+
+    // Find nodes with no incoming edges (start nodes)
+    const queue: string[] = [];
+    inDegree.forEach((degree, nodeId) => {
+      if (degree === 0) queue.push(nodeId);
+    });
+
+    // Process nodes in topological order
+    const result: Node<WorkflowNodeData>[] = [];
+    while (queue.length > 0) {
+      const nodeId = queue.shift()!;
+      const node = nodes.find((n) => n.id === nodeId);
+      if (node) result.push(node);
+
+      // Reduce in-degree for neighbors
+      adjacency.get(nodeId)?.forEach((neighbor) => {
+        const newDegree = (inDegree.get(neighbor) || 1) - 1;
+        inDegree.set(neighbor, newDegree);
+        if (newDegree === 0) queue.push(neighbor);
+      });
+    }
+
+    // If not all nodes processed, there's a cycle
+    if (result.length !== nodes.length) {
+      console.warn('[Workflow Debug] Cycle detected in workflow graph');
+      return null;
+    }
+
+    return result;
+  }, [nodes, edges]);
+
+  /**
    * Execute workflow with debug information.
+   * Processes nodes in topological order based on edge connections.
    * Simulates pipeline execution (placeholder for real backend integration).
    */
   const executeWorkflow = useCallback(async () => {
@@ -327,8 +434,17 @@ export function useWorkflowStore() {
       errors: {},
     });
 
-    // Get nodes in topological order (simplified: just process in order)
-    const nodeOrder = [...nodes];
+    // Get nodes in topological order (respects edge dependencies)
+    const nodeOrder = getTopologicalOrder();
+    if (!nodeOrder) {
+      console.error('[Workflow Debug] Cannot execute: workflow contains a cycle');
+      setExecution((prev) =>
+        prev ? { ...prev, status: 'failed', completedAt: new Date().toISOString() } : null
+      );
+      return;
+    }
+
+    console.log(`[Workflow Debug] Execution order: ${nodeOrder.map((n) => (n.data as WorkflowNodeData).label).join(' → ')}`);
 
     for (let i = 0; i < nodeOrder.length; i++) {
       const node = nodeOrder[i];
@@ -358,7 +474,7 @@ export function useWorkflowStore() {
           }
         : null
     );
-  }, [workflowId, workflowName, nodes, edges, setNodes, updateNodeStatus]);
+  }, [workflowId, workflowName, nodes, edges, setNodes, updateNodeStatus, getTopologicalOrder]);
 
   return {
     // State

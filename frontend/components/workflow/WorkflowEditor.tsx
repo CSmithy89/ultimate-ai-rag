@@ -124,7 +124,7 @@ export function WorkflowEditor({ enabled = true }: WorkflowEditorProps) {
           </h2>
           <p className="text-gray-500 max-w-md">
             The visual workflow editor is currently disabled.
-            Set <code className="bg-gray-200 px-1 rounded">VISUAL_WORKFLOW_ENABLED=true</code> to enable this feature.
+            Set <code className="bg-gray-200 px-1 rounded">NEXT_PUBLIC_VISUAL_WORKFLOW_ENABLED=true</code> in your environment to enable this feature.
           </p>
         </div>
       </div>
