@@ -102,18 +102,13 @@ def upgrade() -> None:
             nullable=False,
             server_default="0",
         ),
-        # pgvector column for 1536-dimension embeddings (OpenAI ada-002)
-        sa.Column(
-            "embedding",
-            postgresql.ARRAY(sa.Float()),
-            nullable=True,
-        ),
     )
 
-    # Create vector column using raw SQL (pgvector type)
+    # Create pgvector column using raw SQL (1536-dimension for OpenAI ada-002)
+    # Note: Using raw SQL because SQLAlchemy doesn't natively support pgvector type
     op.execute(
         "ALTER TABLE scoped_memories "
-        "ADD COLUMN IF NOT EXISTS embedding_vec vector(1536)"
+        "ADD COLUMN IF NOT EXISTS embedding vector(1536)"
     )
 
     # Multi-tenant index (required for all queries per CLAUDE.md)
@@ -168,14 +163,14 @@ def upgrade() -> None:
 
     # Vector similarity search index (HNSW for approximate nearest neighbor)
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_scoped_memories_embedding_vec "
-        "ON scoped_memories USING hnsw (embedding_vec vector_cosine_ops)"
+        "CREATE INDEX IF NOT EXISTS idx_scoped_memories_embedding "
+        "ON scoped_memories USING hnsw (embedding vector_cosine_ops)"
     )
 
 
 def downgrade() -> None:
     # Drop indexes
-    op.execute("DROP INDEX IF EXISTS idx_scoped_memories_embedding_vec")
+    op.execute("DROP INDEX IF EXISTS idx_scoped_memories_embedding")
     op.drop_index("idx_scoped_memories_accessed_at", table_name="scoped_memories")
     op.drop_index("idx_scoped_memories_importance", table_name="scoped_memories")
     op.drop_index("idx_scoped_memories_hierarchy", table_name="scoped_memories")

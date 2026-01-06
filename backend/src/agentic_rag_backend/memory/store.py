@@ -296,7 +296,7 @@ class ScopedMemoryStore:
         - AGENT scope includes GLOBAL memories
 
         Args:
-            query: Search query text
+            query: Search query text (1-5000 characters)
             scope: Starting scope level
             tenant_id: Tenant identifier
             user_id: User identifier
@@ -307,7 +307,15 @@ class ScopedMemoryStore:
 
         Returns:
             Tuple of (list of matching memories, list of scopes searched)
+
+        Raises:
+            ValueError: If query is empty or exceeds 5000 characters
         """
+        # Validate query length to prevent DoS
+        MAX_QUERY_LENGTH = 5000
+        if not query or len(query) > MAX_QUERY_LENGTH:
+            raise ValueError(f"Query must be 1-{MAX_QUERY_LENGTH} characters")
+
         scopes_to_search = get_scopes_to_search(scope, include_parent_scopes)
 
         # Generate query embedding for similarity search

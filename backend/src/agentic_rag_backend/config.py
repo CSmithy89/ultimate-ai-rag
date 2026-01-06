@@ -1157,16 +1157,25 @@ def load_settings() -> Settings:
             for level in hierarchical_chunk_levels_raw.split(",")
             if level.strip()
         ]
-        # Validate levels are strictly increasing
-        for i in range(1, len(hierarchical_chunk_levels)):
-            if hierarchical_chunk_levels[i] <= hierarchical_chunk_levels[i - 1]:
-                logger.warning(
-                    "invalid_hierarchical_chunk_levels",
-                    levels=hierarchical_chunk_levels,
-                    hint="Levels must be strictly increasing, using defaults",
-                )
-                hierarchical_chunk_levels = [256, 512, 1024, 2048]
-                break
+        # Validate minimum of 2 levels required for hierarchical chunking
+        if not hierarchical_chunk_levels or len(hierarchical_chunk_levels) < 2:
+            logger.warning(
+                "invalid_hierarchical_chunk_levels",
+                levels=hierarchical_chunk_levels,
+                hint="At least 2 chunk levels required, using defaults",
+            )
+            hierarchical_chunk_levels = [256, 512, 1024, 2048]
+        else:
+            # Validate levels are strictly increasing
+            for i in range(1, len(hierarchical_chunk_levels)):
+                if hierarchical_chunk_levels[i] <= hierarchical_chunk_levels[i - 1]:
+                    logger.warning(
+                        "invalid_hierarchical_chunk_levels",
+                        levels=hierarchical_chunk_levels,
+                        hint="Levels must be strictly increasing, using defaults",
+                    )
+                    hierarchical_chunk_levels = [256, 512, 1024, 2048]
+                    break
     except (ValueError, AttributeError):
         hierarchical_chunk_levels = [256, 512, 1024, 2048]
 

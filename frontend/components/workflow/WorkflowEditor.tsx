@@ -75,14 +75,27 @@ export function WorkflowEditor({ enabled = true }: WorkflowEditorProps) {
   }, []);
 
   /**
+   * Valid node types for runtime validation.
+   */
+  const validNodeTypes: WorkflowNodeType[] = [
+    'ingest', 'chunk', 'embed', 'extract', 'index', 'retrieve', 'rerank', 'respond'
+  ];
+
+  /**
    * Handle drop on canvas.
    */
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
 
-      const nodeType = event.dataTransfer.getData('application/reactflow') as WorkflowNodeType;
-      if (!nodeType || !reactFlowWrapper.current || !reactFlowInstance.current) {
+      const nodeTypeRaw = event.dataTransfer.getData('application/reactflow');
+      // Runtime validation to ensure type safety
+      if (!nodeTypeRaw || !validNodeTypes.includes(nodeTypeRaw as WorkflowNodeType)) {
+        return;
+      }
+      const nodeType = nodeTypeRaw as WorkflowNodeType;
+
+      if (!reactFlowWrapper.current || !reactFlowInstance.current) {
         return;
       }
 
