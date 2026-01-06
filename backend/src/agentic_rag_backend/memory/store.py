@@ -238,12 +238,35 @@ class ScopedMemoryStore:
             user_id: Optional user filter
             session_id: Optional session filter
             agent_id: Optional agent filter
-            limit: Maximum results to return
-            offset: Pagination offset
+            limit: Maximum results to return (capped at 100)
+            offset: Pagination offset (capped at 10000)
 
         Returns:
             Tuple of (list of memories, total count)
         """
+        # Defense-in-depth: enforce limits regardless of caller
+        # API layer validates via Pydantic, but internal callers may bypass
+        MAX_LIMIT = 100
+        MAX_OFFSET = 10000
+
+        if limit > MAX_LIMIT:
+            logger.warning(
+                "list_memories_limit_exceeded",
+                requested=limit,
+                max_allowed=MAX_LIMIT,
+                tenant_id=tenant_id,
+            )
+            limit = MAX_LIMIT
+
+        if offset > MAX_OFFSET:
+            logger.warning(
+                "list_memories_offset_exceeded",
+                requested=offset,
+                max_allowed=MAX_OFFSET,
+                tenant_id=tenant_id,
+            )
+            offset = MAX_OFFSET
+
         return await self._list_from_postgres(
             tenant_id=tenant_id,
             scope=scope,
@@ -1016,23 +1039,43 @@ class ScopedMemoryStore:
         session_id: Optional[str],
         agent_id: Optional[str],
     ) -> None:
-        """Invalidate all cached memories for a scope."""
+        """Invalidate all cached memories for a scope.
+
+        Uses Redis pipeline for efficient batch deletion instead of deleting
+        keys one at a time.
+        """
         if not self._redis:
             return
 
-        # Use pattern matching to find and delete relevant keys
-        # This is a simplified approach; production may need more efficient batch deletion
+        # Use pattern matching to find relevant keys
         pattern = f"memory:{tenant_id}:*"
         try:
-            deleted = 0
+            # Collect keys in batches and delete using pipeline
+            keys_to_delete: list[str] = []
+            batch_size = 100
+
             async for key in self._redis.client.scan_iter(match=pattern):
-                await self._redis.client.delete(key)
-                deleted += 1
+                keys_to_delete.append(key)
+
+                # Process in batches to avoid memory issues with large key sets
+                if len(keys_to_delete) >= batch_size:
+                    async with self._redis.client.pipeline(transaction=False) as pipe:
+                        for k in keys_to_delete:
+                            pipe.delete(k)
+                        await pipe.execute()
+                    keys_to_delete = []
+
+            # Delete remaining keys
+            if keys_to_delete:
+                async with self._redis.client.pipeline(transaction=False) as pipe:
+                    for k in keys_to_delete:
+                        pipe.delete(k)
+                    await pipe.execute()
+
             logger.debug(
                 "memory_scope_cache_invalidated",
                 scope=scope.value,
                 tenant_id=tenant_id,
-                deleted_count=deleted,
             )
         except Exception as e:
             logger.warning("memory_scope_cache_invalidate_failed", error=str(e))

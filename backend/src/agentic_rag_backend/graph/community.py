@@ -697,6 +697,8 @@ KEYWORDS: keyword1, keyword2, keyword3
         Creates Community nodes and BELONGS_TO relationships from entities,
         as well as PARENT_OF/CHILD_OF relationships for hierarchy.
 
+        Uses UNWIND for batch relationship creation to avoid N+1 query pattern.
+
         Args:
             communities: Communities to store
             tenant_id: Tenant identifier
@@ -729,15 +731,17 @@ KEYWORDS: keyword1, keyword2, keyword3
                     created_at=community.created_at.isoformat() if community.created_at else datetime.now(timezone.utc).isoformat(),
                 )
 
-                # Create BELONGS_TO relationships from entities
-                for entity_id in community.entity_ids:
+                # Create BELONGS_TO relationships from entities using UNWIND (batch)
+                # This replaces the N+1 loop with a single batch query
+                if community.entity_ids:
                     await session.run(
                         """
-                        MATCH (e:Entity {id: $entity_id, tenant_id: $tenant_id})
+                        UNWIND $entity_ids AS entity_id
+                        MATCH (e:Entity {id: entity_id, tenant_id: $tenant_id})
                         MATCH (c:Community {id: $community_id, tenant_id: $tenant_id})
                         MERGE (e)-[:BELONGS_TO]->(c)
                         """,
-                        entity_id=entity_id,
+                        entity_ids=community.entity_ids,
                         community_id=community.id,
                         tenant_id=tenant_id,
                     )
