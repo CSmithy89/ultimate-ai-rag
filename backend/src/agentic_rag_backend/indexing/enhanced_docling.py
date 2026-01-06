@@ -21,10 +21,10 @@ Configuration:
 Performance target: <200ms additional latency over standard Docling parsing
 """
 
-import asyncio
 import hashlib
 import html
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -579,8 +579,24 @@ class EnhancedDoclingParser:
                 }
             )
 
-            # Parse with timeout protection
-            result = converter.convert(str(file_path))
+            # Parse with timeout protection using ThreadPoolExecutor
+            def _do_convert() -> Any:
+                return converter.convert(str(file_path))
+
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_do_convert)
+                try:
+                    result = future.result(timeout=DOCLING_PARSE_TIMEOUT_SECONDS)
+                except FuturesTimeoutError:
+                    logger.error(
+                        "docling_parse_timeout",
+                        document_id=str(document_id),
+                        timeout_seconds=DOCLING_PARSE_TIMEOUT_SECONDS,
+                    )
+                    raise TimeoutError(
+                        f"Document parsing timed out after {DOCLING_PARSE_TIMEOUT_SECONDS}s"
+                    )
+
             doc = result.document
 
             # Extract layout elements
@@ -1095,13 +1111,15 @@ class EnhancedDoclingParser:
     def _generate_id(self, id_string: str) -> str:
         """Generate deterministic ID from string.
 
+        Uses 32 hex chars (128 bits) for collision resistance at scale.
+
         Args:
             id_string: String to hash
 
         Returns:
-            Short hash-based ID
+            Hash-based ID (32 hex characters)
         """
-        hash_digest = hashlib.sha256(id_string.encode()).hexdigest()[:16]
+        hash_digest = hashlib.sha256(id_string.encode()).hexdigest()[:32]
         return hash_digest
 
 

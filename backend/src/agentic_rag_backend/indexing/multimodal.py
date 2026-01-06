@@ -20,6 +20,7 @@ Performance target: <500ms latency for typical documents
 """
 
 import hashlib
+import html
 import mimetypes
 import time
 from dataclasses import dataclass, field
@@ -38,6 +39,7 @@ DEFAULT_OFFICE_DOCS_ENABLED = True
 
 # Document size limits to prevent DoS attacks
 MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024  # 100MB default
+MAX_TEXT_FILE_BYTES = 10 * 1024 * 1024  # 10MB for text files
 MAX_EXCEL_ROWS = 100000
 MAX_EXCEL_COLS = 1000
 MAX_EXCEL_SHEETS = 100
@@ -405,59 +407,65 @@ class OfficeParser:
 
         doc = Document(str(file_path))
 
-        # Extract paragraphs with size limit
-        paragraphs: list[str] = []
-        for i, para in enumerate(doc.paragraphs):
-            if i >= MAX_WORD_PARAGRAPHS:
-                logger.warning(
-                    "word_paragraph_limit_exceeded",
-                    document_id=document_id,
-                    limit=MAX_WORD_PARAGRAPHS,
-                )
-                break
-            if para.text.strip():
-                paragraphs.append(para.text)
+        try:
+            # Extract paragraphs with size limit and XSS sanitization
+            paragraphs: list[str] = []
+            for i, para in enumerate(doc.paragraphs):
+                if i >= MAX_WORD_PARAGRAPHS:
+                    logger.warning(
+                        "word_paragraph_limit_exceeded",
+                        document_id=document_id,
+                        limit=MAX_WORD_PARAGRAPHS,
+                    )
+                    break
+                if para.text.strip():
+                    # Sanitize for XSS prevention
+                    paragraphs.append(html.escape(para.text))
 
-        # Extract tables
-        tables: list[list[list[str]]] = []
-        for table in doc.tables:
-            table_data: list[list[str]] = []
-            for row in table.rows:
-                row_data = [cell.text for cell in row.cells]
-                table_data.append(row_data)
-            if table_data:
-                tables.append(table_data)
+            # Extract tables with XSS sanitization
+            tables: list[list[list[str]]] = []
+            for table in doc.tables:
+                table_data: list[list[str]] = []
+                for row in table.rows:
+                    # Sanitize cell text for XSS prevention
+                    row_data = [html.escape(cell.text) for cell in row.cells]
+                    table_data.append(row_data)
+                if table_data:
+                    tables.append(table_data)
 
-        # Build full text
-        full_text = "\n\n".join(paragraphs)
+            # Build full text
+            full_text = "\n\n".join(paragraphs)
 
-        # Extract metadata
-        metadata: dict[str, str] = {}
-        core_props = doc.core_properties
-        if core_props.author:
-            metadata["author"] = core_props.author
-        if core_props.title:
-            metadata["title"] = core_props.title
-        if core_props.subject:
-            metadata["subject"] = core_props.subject
-        if core_props.created:
-            metadata["created"] = str(core_props.created)
-        if core_props.modified:
-            metadata["modified"] = str(core_props.modified)
+            # Extract metadata with XSS sanitization
+            metadata: dict[str, str] = {}
+            core_props = doc.core_properties
+            if core_props.author:
+                metadata["author"] = html.escape(str(core_props.author))
+            if core_props.title:
+                metadata["title"] = html.escape(str(core_props.title))
+            if core_props.subject:
+                metadata["subject"] = html.escape(str(core_props.subject))
+            if core_props.created:
+                metadata["created"] = str(core_props.created)
+            if core_props.modified:
+                metadata["modified"] = str(core_props.modified)
 
-        logger.info(
-            "parse_word_completed",
-            document_id=document_id,
-            paragraphs=len(paragraphs),
-            tables=len(tables),
-        )
+            logger.info(
+                "parse_word_completed",
+                document_id=document_id,
+                paragraphs=len(paragraphs),
+                tables=len(tables),
+            )
 
-        return WordContent(
-            paragraphs=paragraphs,
-            tables=tables,
-            full_text=full_text,
-            metadata=metadata,
-        )
+            return WordContent(
+                paragraphs=paragraphs,
+                tables=tables,
+                full_text=full_text,
+                metadata=metadata,
+            )
+        finally:
+            # python-docx Document doesn't have explicit close, but ensure cleanup
+            del doc
 
     def parse_excel(
         self,
@@ -529,7 +537,9 @@ class OfficeParser:
                     for col_idx, cell in enumerate(row):
                         if col_idx >= MAX_EXCEL_COLS:
                             break
-                        value = str(cell.value) if cell.value is not None else ""
+                        # Sanitize cell value for XSS prevention
+                        raw_value = str(cell.value) if cell.value is not None else ""
+                        value = html.escape(raw_value)
                         data_type = type(cell.value).__name__ if cell.value is not None else "empty"
                         row_values.append(value)
                         cells.append(ExtractedCell(
@@ -623,10 +633,11 @@ class OfficeParser:
             content_parts: list[str] = []
             shapes_text: list[str] = []
 
-            # Extract title and text from shapes
+            # Extract title and text from shapes with XSS sanitization
             for shape in slide.shapes:
                 if hasattr(shape, "text") and shape.text.strip():
-                    text = shape.text.strip()
+                    # Sanitize text for XSS prevention
+                    text = html.escape(shape.text.strip())
                     shapes_text.append(text)
 
                     # Check if this is the title
@@ -641,12 +652,14 @@ class OfficeParser:
 
             content = "\n".join(content_parts)
 
-            # Extract speaker notes
+            # Extract speaker notes with proper null check and XSS sanitization
             notes: Optional[str] = None
-            if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
-                notes_text = slide.notes_slide.notes_text_frame.text.strip()
-                if notes_text:
-                    notes = notes_text
+            if slide.has_notes_slide:
+                notes_slide = slide.notes_slide
+                if notes_slide is not None and notes_slide.notes_text_frame is not None:
+                    notes_text = notes_slide.notes_text_frame.text
+                    if notes_text and notes_text.strip():
+                        notes = html.escape(notes_text.strip())
 
             extracted_slide = ExtractedSlide(
                 number=slide_number,
@@ -1068,17 +1081,32 @@ class MultimodalIngester:
         file_path: Path,
         document_id: str,
     ) -> tuple[str, Optional[str]]:
-        """Read text file with encoding fallback.
+        """Read text file with encoding fallback and size check.
 
         Attempts UTF-8 first, then falls back to common encodings.
+        Checks file size before reading to prevent memory exhaustion.
 
         Args:
             file_path: Path to text file
             document_id: Document ID for logging
 
         Returns:
-            Tuple of (content, encoding_used) or (None, error_message)
+            Tuple of (content, error_message) - error_message is None on success
         """
+        # Check file size before reading to prevent memory exhaustion
+        file_size = file_path.stat().st_size
+        if file_size > MAX_TEXT_FILE_BYTES:
+            logger.warning(
+                "text_file_too_large",
+                document_id=document_id,
+                file_size=file_size,
+                max_size=MAX_TEXT_FILE_BYTES,
+            )
+            return "", (
+                f"Text file size ({file_size} bytes) exceeds maximum allowed "
+                f"({MAX_TEXT_FILE_BYTES} bytes)"
+            )
+
         encodings = ["utf-8", "utf-8-sig", "latin-1", "cp1252"]
 
         for encoding in encodings:
@@ -1163,13 +1191,15 @@ class MultimodalIngester:
     def _generate_id(self, id_string: str) -> str:
         """Generate deterministic ID from string.
 
+        Uses 32 hex chars (128 bits) for collision resistance at scale.
+
         Args:
             id_string: String to hash
 
         Returns:
-            Short hash-based ID
+            Hash-based ID (32 hex characters)
         """
-        hash_digest = hashlib.sha256(id_string.encode()).hexdigest()[:16]
+        hash_digest = hashlib.sha256(id_string.encode()).hexdigest()[:32]
         return hash_digest
 
 
