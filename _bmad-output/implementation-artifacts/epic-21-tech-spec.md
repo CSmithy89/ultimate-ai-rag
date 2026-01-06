@@ -75,8 +75,7 @@ This epic was identified through comprehensive analysis using DeepWiki and Conte
 | RUN_ERROR | Error event emission | Errors embedded in text |
 | useFrontendTool | Modern tool pattern | Using deprecated useCopilotAction |
 | useHumanInTheLoop | Modern HITL pattern | Using deprecated render pattern |
-| useCoAgent | Agent state sync | Not used |
-| useCopilotReadable | Context provision | Not used |
+| useCopilotReadable | Context provision | Not used → 21-A4 |
 | useCopilotChatSuggestions | Contextual suggestions | Not used |
 | useCopilotChat | Headless chat control | Not used |
 | useCopilotAdditionalInstructions | Dynamic prompts | Not used |
@@ -86,6 +85,99 @@ This epic was identified through comprehensive analysis using DeepWiki and Conte
 | CopilotPopup | Alternative floating UI | Not used |
 | CopilotChat | Embedded chat panel | Not used |
 | CopilotTextarea | AI-powered textarea | Not used |
+
+---
+
+## Design Decisions & Clarifications
+
+### Open Questions Resolved
+
+| Question | Decision | Rationale |
+|----------|----------|-----------|
+| CopilotKit analytics vs internal telemetry? | **Both**: CopilotKit Cloud for official features, internal `/api/telemetry` for custom metrics | CopilotKit Cloud provides Inspector; internal telemetry integrates with existing Prometheus/Grafana |
+| A2UI behind feature flag per tenant? | **Yes**: `A2UI_ENABLED` global + tenant override via config table | Allows gradual rollout and per-tenant control |
+| Tool args/results redaction in UI logs? | **Redact by default**: Mask keys matching `password|secret|token|key|auth` | See Security Policies below |
+| useCoAgent usage? | **Deferred**: Not in scope for Epic 21 | useCoAgent is for CoAgent patterns; we use standard AG-UI state sync |
+
+### Tool Status Enum Verification
+
+CopilotKit's actual `useRenderToolCall` status enum (verified via Context7):
+```typescript
+type ToolCallStatus = "inProgress" | "executing" | "complete";
+```
+This matches our implementation in 21-A3.
+
+### A2UI + STATE_DELTA Merge Strategy
+
+When both A2UI widgets and STATE_DELTA are active:
+1. **A2UI widgets** are delivered via `STATE_SNAPSHOT.a2ui_widgets` array
+2. **STATE_DELTA** applies JSON Patch operations to the same state object
+3. **Merge rule**: STATE_DELTA can add/remove widgets via path `/a2ui_widgets/-` or `/a2ui_widgets/{index}`
+4. **Conflict resolution**: Last-write-wins; STATE_DELTA operations are applied atomically
+5. **Frontend**: CopilotKit's `useCoAgentStateRender` handles merging automatically
+
+### Zod Schema DRY Pattern
+
+To avoid schema duplication across hooks:
+
+```typescript
+// frontend/lib/schemas/tools.ts (shared schemas)
+export const SaveToWorkspaceSchema = z.object({
+  content_id: z.string().describe("Unique ID of the content"),
+  content_text: z.string().describe("Content to save"),
+  title: z.string().optional().describe("Optional title"),
+});
+
+// Use in hooks
+import { SaveToWorkspaceSchema } from "@/lib/schemas/tools";
+useFrontendTool({ name: "save_to_workspace", parameters: SaveToWorkspaceSchema, ... });
+```
+
+### Observability Endpoint (21-B1 Scope)
+
+Story 21-B1 **includes** creation of `/api/telemetry` endpoint:
+- **Backend**: `backend/src/agentic_rag_backend/api/routes/telemetry.py`
+- **Auth**: Requires valid session (no API key needed - same-origin)
+- **PII**: Message content is SHA-256 hashed, never stored raw
+- **Retention**: 7-day default, configurable via `TELEMETRY_RETENTION_DAYS`
+
+---
+
+## Security Policies
+
+### Observability Data Handling
+
+| Data Type | Policy | Implementation |
+|-----------|--------|----------------|
+| Message content | Hash only, never store raw | SHA-256 hash of first 100 chars |
+| Tool arguments | Redact sensitive keys | Mask `password\|secret\|token\|key\|auth\|credential` |
+| Tool results | Redact + truncate | Same masking + 500 char limit |
+| User identity | Pseudonymize | Emit tenant_id, not user_id |
+| Timestamps | Keep | ISO 8601 format |
+
+### Tool Call Masking Rules
+
+```typescript
+// frontend/lib/utils/redact.ts
+const SENSITIVE_PATTERNS = /password|secret|token|key|auth|credential|apikey|api_key/i;
+
+export function redactSensitiveKeys(obj: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(obj).map(([key, value]) => [
+      key,
+      SENSITIVE_PATTERNS.test(key) ? "[REDACTED]" : value,
+    ])
+  );
+}
+```
+
+### MCP Client Security
+
+| Concern | Mitigation |
+|---------|------------|
+| Tool namespace collisions | Prefix external tools with server name: `github:create_issue` |
+| Circuit breaker | Wrap calls with `tenacity` retry + circuit breaker pattern |
+| Credential exposure | API keys injected at runtime, never logged |
 
 ---
 
@@ -1240,12 +1332,19 @@ class MCPClient:
             except httpx.TimeoutException:
                 if attempt == self.config.retry_count:
                     raise MCPClientTimeoutError(f"Timeout after {attempt + 1} attempts")
-                await asyncio.sleep(self.config.retry_delay / 1000)
+                # Exponential backoff: base_delay * 2^attempt (with jitter)
+                delay = (self.config.retry_delay / 1000) * (2 ** attempt)
+                delay += random.uniform(0, delay * 0.1)  # 10% jitter
+                await asyncio.sleep(min(delay, 30))  # Cap at 30 seconds
 
             except httpx.HTTPStatusError as e:
+                # Don't retry 4xx errors (client errors)
+                if 400 <= e.response.status_code < 500:
+                    raise MCPClientError(f"HTTP error: {e.response.status_code}")
                 if attempt == self.config.retry_count:
                     raise MCPClientError(f"HTTP error: {e.response.status_code}")
-                await asyncio.sleep(self.config.retry_delay / 1000)
+                delay = (self.config.retry_delay / 1000) * (2 ** attempt)
+                await asyncio.sleep(min(delay, 30))
 
     async def close(self) -> None:
         """Close the HTTP client."""
@@ -2265,7 +2364,7 @@ NEXT_PUBLIC_COPILOT_UI_MODE=sidebar|popup|embedded  # Default: sidebar
 | `@copilotkit/react-textarea` | ^1.x | AI-powered textarea (21-F3) |
 | `@copilotkit/runtime` | ^1.x | Runtime configuration |
 | `zod` | ^3.x | Schema validation |
-| `jsonpointer` | ^5.x | JSON Patch operations |
+| `jsonpatch` | ^1.x | JSON Patch operations (RFC 6902) |
 
 ### Internal Dependencies
 
