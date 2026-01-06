@@ -190,7 +190,7 @@ Story 21-B1 **includes** creation of `/api/telemetry` endpoint:
 
 ```typescript
 // frontend/lib/utils/redact.ts
-const SENSITIVE_PATTERNS = /password|secret|token|key|auth|credential|apikey|api_key/i;
+const SENSITIVE_PATTERNS = /password|secret|token|key|auth|credential|api[-_]?key|private[-_]?key|access[-_]?token/i;
 
 export function redactSensitiveKeys(obj: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(

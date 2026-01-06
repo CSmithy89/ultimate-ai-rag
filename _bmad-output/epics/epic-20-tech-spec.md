@@ -145,15 +145,12 @@ dependencies = [
   # Epic 20 - Group E: Advanced Features
   "owlready2>=0.45",                  # OWL ontology support
 
-  # Epic 20 - Group H: Competitive Features
+  # Epic 20 - Group H: Competitive Features (required)
   "fastembed>=0.3.0",                 # BM42 sparse vectors
-  "colbert-ai>=0.2.0",                # ColBERT reranking (optional)
-  "openai-whisper>=20231117",         # Voice I/O (optional)
-  "notion-client>=2.0.0",             # Notion sync (optional)
-  "aioboto3>=12.0.0",                 # S3 sync (optional)
 ]
 
 [project.optional-dependencies]
+# Optional features - install with: pip install .[voice,colbert,sync]
 voice = ["openai-whisper>=20231117", "pyttsx3>=2.90"]
 colbert = ["colbert-ai>=0.2.0"]
 sync = ["notion-client>=2.0.0", "aioboto3>=12.0.0", "google-api-python-client>=2.0.0"]

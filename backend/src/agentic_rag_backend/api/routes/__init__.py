@@ -12,7 +12,7 @@ from .codebase import router as codebase_router
 from .memories import router as memories_router
 from .communities import router as communities_router
 from .lazy_rag import router as lazy_rag_router
-from .query_router import router as query_router_router
+from .query_router import router as query_router
 from .dual_level import router as dual_level_router
 
 __all__ = [
@@ -28,6 +28,6 @@ __all__ = [
     "memories_router",
     "communities_router",
     "lazy_rag_router",
-    "query_router_router",
+    "query_router",
     "dual_level_router",
 ]
