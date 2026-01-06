@@ -1224,7 +1224,46 @@ class MessagesSnapshotEvent(AGUIEvent):
                 ]
         """
         super().__init__(data={"messages": messages}, **kwargs)
+
+
+class CustomEvent(AGUIEvent):
+    """Event for application-specific custom events.
+
+    CUSTOM events enable application-specific functionality that isn't covered
+    by standard AG-UI events. Use for:
+    - A2UI widget updates
+    - Application-specific notifications
+    - Custom state synchronization
+    - Third-party integration events
+    """
+
+    event: AGUIEventType = AGUIEventType.CUSTOM_EVENT
+
+    def __init__(
+        self,
+        event_name: str,
+        payload: dict[str, Any],
+        **kwargs: Any
+    ) -> None:
+        """
+        Args:
+            event_name: Application-specific event type (e.g., "a2ui_widget_update")
+            payload: Event-specific data
+        """
+        super().__init__(
+            data={"name": event_name, "payload": payload},
+            **kwargs
+        )
 ```
+
+**CUSTOM_EVENT Use Cases:**
+
+| Event Name | Payload | Use Case |
+|------------|---------|----------|
+| `a2ui_widget_update` | Widget ID + props | Dynamic widget updates |
+| `progress_update` | Percent + message | Long-running task progress |
+| `notification` | Type + message | User notifications |
+| `analytics_event` | Event name + data | Frontend analytics triggers |
 
 **Usage for Session Restoration:**
 ```python
@@ -1247,6 +1286,9 @@ async def restore_session(self, session_id: str) -> AsyncIterator[AGUIEvent]:
 8. `MessagesSnapshotEvent` class for full history sync
 9. Session restoration uses MESSAGES_SNAPSHOT
 10. Tests verify message history synchronization
+11. `CUSTOM_EVENT` event type added to enum
+12. `CustomEvent` class for application-specific events
+13. Frontend handles CUSTOM events appropriately
 
 ---
 

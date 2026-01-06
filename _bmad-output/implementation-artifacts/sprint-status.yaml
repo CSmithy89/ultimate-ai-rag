@@ -430,6 +430,8 @@ development_status:
   # Enable programmatic chat control for testing and automation
   21-A7-implement-usecopilotadditionalinstructions: backlog
   # Dynamic system prompt modifications based on context
+  21-A8-implement-usedefaulttool-catchall: backlog
+  # Catch-all handler for unregistered backend tools
 
   # --- Group B: Observability & Debugging ---
   21-B1-configure-observability-hooks-dev-console: backlog
