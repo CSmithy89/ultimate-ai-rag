@@ -423,14 +423,22 @@ development_status:
   # Replace deprecated useCopilotAction with render to useHumanInTheLoop
   21-A3-implement-tool-call-visualization: backlog
   # Add useRenderToolCall for MCP tool call visibility
+  21-A4-implement-usecopilotreadable-context: backlog
+  # Expose app state to AI via useCopilotReadable
+  21-A5-implement-usecopilotchatsuggestions: backlog
+  # Generate contextual chat suggestions
+  21-A6-implement-usecopilotchat-headless: backlog
+  # Enable programmatic chat control for testing and automation
+  21-A7-implement-usecopilotadditionalinstructions: backlog
+  # Dynamic system prompt modifications based on context
 
   # --- Group B: Observability & Debugging ---
-  21-B1-configure-observability-hooks: backlog
-  # Wire all observabilityHooks to analytics pipeline
+  21-B1-configure-observability-hooks-dev-console: backlog
+  # Wire all observabilityHooks to analytics pipeline + enable showDevConsole
   21-B2-add-run-error-event-support: backlog
   # Emit RUN_ERROR instead of embedding errors in text
-  21-B3-implement-state-delta-support: backlog
-  # Add STATE_DELTA for incremental JSON Patch updates
+  21-B3-implement-state-delta-messages-snapshot: backlog
+  # Add STATE_DELTA for incremental updates + MESSAGES_SNAPSHOT for session sync
 
   # --- Group C: MCP Client Integration ---
   21-C1-implement-mcp-client-configuration: backlog
@@ -445,6 +453,20 @@ development_status:
   # Backend A2UI widget emission via STATE_SNAPSHOT
   21-D2-implement-a2ui-widget-renderer: backlog
   # Frontend A2UI components (card, table, chart, form, list, image)
+
+  # --- Group E: Voice & Audio Features ---
+  21-E1-implement-voice-input-stt: backlog
+  # Speech-to-text transcription via transcribeAudioUrl
+  21-E2-implement-voice-output-tts: backlog
+  # Text-to-speech synthesis via textToSpeechUrl
+
+  # --- Group F: Alternative UI Components ---
+  21-F1-implement-copilotpopup-component: backlog
+  # Floating popup chat option
+  21-F2-implement-copilotchat-embedded: backlog
+  # Inline embedded chat panel
+  21-F3-implement-copilottextarea-component: backlog
+  # AI-powered textarea with autocompletion
 
   epic-21-retrospective: optional
 

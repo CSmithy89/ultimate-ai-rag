@@ -77,6 +77,15 @@ This epic was identified through comprehensive analysis using DeepWiki and Conte
 | useHumanInTheLoop | Modern HITL pattern | Using deprecated render pattern |
 | useCoAgent | Agent state sync | Not used |
 | useCopilotReadable | Context provision | Not used |
+| useCopilotChatSuggestions | Contextual suggestions | Not used |
+| useCopilotChat | Headless chat control | Not used |
+| useCopilotAdditionalInstructions | Dynamic prompts | Not used |
+| showDevConsole | Development debugging | Not configured |
+| MESSAGES_SNAPSHOT | Message history sync | Not in enum |
+| Voice features | Speech-to-text, TTS | Not configured |
+| CopilotPopup | Alternative floating UI | Not used |
+| CopilotChat | Embedded chat panel | Not used |
+| CopilotTextarea | AI-powered textarea | Not used |
 
 ---
 
@@ -338,18 +347,396 @@ export function MCPToolCallCard({ name, args, status, result }: MCPToolCallCardP
 
 ---
 
+#### Story 21-A4: Implement useCopilotReadable for App Context
+
+**Priority:** P0 - HIGH
+**Story Points:** 5
+**Owner:** Frontend
+
+**Objective:** Expose application state and context to the AI using `useCopilotReadable`.
+
+**Why This Matters:**
+- AI needs context about the current workspace, user preferences, and query history
+- Without readable state, AI makes decisions without understanding app context
+- Critical for RAG systems where context improves retrieval quality
+
+**What `useCopilotReadable` Provides:**
+- Exposes any React state or derived data to the AI
+- AI can reference this context when generating responses
+- Enables personalized, context-aware interactions
+
+**Implementation:**
+
+```tsx
+// frontend/hooks/use-copilot-context.ts (new)
+import { useCopilotReadable } from "@copilotkit/react-core";
+import { useWorkspace } from "@/hooks/use-workspace";
+import { useQueryHistory } from "@/hooks/use-query-history";
+import { useUserPreferences } from "@/hooks/use-user-preferences";
+
+export function useCopilotContext() {
+  const { workspace, documents, activeDocument } = useWorkspace();
+  const { recentQueries, frequentTopics } = useQueryHistory();
+  const { preferences } = useUserPreferences();
+
+  // Expose current workspace context
+  useCopilotReadable({
+    description: "Current workspace information including saved documents and notes",
+    value: {
+      workspaceId: workspace?.id,
+      workspaceName: workspace?.name,
+      documentCount: documents?.length ?? 0,
+      activeDocumentTitle: activeDocument?.title,
+      activeDocumentType: activeDocument?.type,
+    },
+  });
+
+  // Expose query history for context
+  useCopilotReadable({
+    description: "Recent search queries and frequently discussed topics",
+    value: {
+      recentQueries: recentQueries?.slice(0, 10) ?? [],
+      frequentTopics: frequentTopics?.slice(0, 5) ?? [],
+    },
+  });
+
+  // Expose user preferences
+  useCopilotReadable({
+    description: "User preferences for response formatting and behavior",
+    value: {
+      preferredResponseLength: preferences?.responseLength ?? "medium",
+      includeSourceCitations: preferences?.includeCitations ?? true,
+      preferredLanguage: preferences?.language ?? "en",
+      expertiseLevel: preferences?.expertiseLevel ?? "intermediate",
+    },
+  });
+
+  // Expose current session state
+  useCopilotReadable({
+    description: "Current session state including selected sources and filters",
+    value: {
+      selectedSources: workspace?.selectedSources ?? [],
+      activeFilters: workspace?.filters ?? {},
+      currentTenant: workspace?.tenantId,
+    },
+  });
+}
+```
+
+**Integration in CopilotProvider:**
+```tsx
+// frontend/components/copilot/CopilotProvider.tsx (update)
+import { useCopilotContext } from "@/hooks/use-copilot-context";
+
+export function CopilotProvider({ children }: CopilotProviderProps) {
+  return (
+    <CopilotKit runtimeUrl="/api/copilotkit">
+      <CopilotContextProvider />
+      {children}
+    </CopilotKit>
+  );
+}
+
+function CopilotContextProvider() {
+  useCopilotContext();
+  return null;
+}
+```
+
+**Context Categories to Expose:**
+
+| Category | Data | AI Use Case |
+|----------|------|-------------|
+| Workspace | Current docs, active selection | "Summarize my current document" |
+| Query History | Recent searches, topics | "Continue from my last question about X" |
+| User Preferences | Response style, language | Personalized response formatting |
+| Session State | Filters, selected sources | Scoped search within constraints |
+| Tenant Context | Tenant ID, permissions | Multi-tenant aware responses |
+
+**Acceptance Criteria:**
+1. `useCopilotReadable` registered for workspace context
+2. Query history exposed (last 10 queries, top 5 topics)
+3. User preferences available to AI
+4. Session state (filters, sources) accessible
+5. Context updates reactively when state changes
+6. No sensitive data exposed (passwords, tokens)
+7. Tests verify context availability in AI responses
+8. Documentation for extending readable context
+
+---
+
+#### Story 21-A5: Implement useCopilotChatSuggestions for Smart Follow-ups
+
+**Priority:** P1 - MEDIUM
+**Story Points:** 3
+**Owner:** Frontend
+
+**Objective:** Generate contextual chat suggestions based on application state.
+
+**What `useCopilotChatSuggestions` Provides:**
+- Dynamic suggestion chips based on current context
+- Reduces friction for common follow-up actions
+- AI-generated suggestions based on conversation flow
+
+**Implementation:**
+
+```tsx
+// frontend/hooks/use-chat-suggestions.ts (new)
+import { useCopilotChatSuggestions } from "@copilotkit/react-core";
+import { useWorkspace } from "@/hooks/use-workspace";
+
+export function useChatSuggestions() {
+  const { activeDocument, documents } = useWorkspace();
+
+  useCopilotChatSuggestions({
+    instructions: `Based on the current context, suggest helpful follow-up actions.
+
+Current context:
+- Active document: ${activeDocument?.title ?? "None"}
+- Document type: ${activeDocument?.type ?? "N/A"}
+- Total documents in workspace: ${documents?.length ?? 0}
+
+Generate 2-4 concise suggestions that would help the user:
+1. Explore related topics
+2. Perform common actions (summarize, compare, explain)
+3. Ask clarifying questions
+4. Navigate to related content`,
+
+    minSuggestions: 2,
+    maxSuggestions: 4,
+  });
+}
+```
+
+**Contextual Suggestion Examples:**
+
+| Context | Generated Suggestions |
+|---------|----------------------|
+| After search results | "Show more sources", "Explain the first result", "Compare top 3" |
+| Viewing document | "Summarize this document", "Find related topics", "Extract key points" |
+| Empty workspace | "Import a document", "Search for a topic", "View recent queries" |
+| After error | "Try a different query", "Broaden search terms", "Contact support" |
+
+**Integration:**
+```tsx
+// frontend/components/copilot/CopilotProvider.tsx (add)
+import { useChatSuggestions } from "@/hooks/use-chat-suggestions";
+
+function CopilotContextProvider() {
+  useCopilotContext();
+  useChatSuggestions();
+  return null;
+}
+```
+
+**Acceptance Criteria:**
+1. `useCopilotChatSuggestions` configured with context-aware instructions
+2. 2-4 suggestions generated based on current state
+3. Suggestions appear as clickable chips in chat UI
+4. Suggestions update when context changes
+5. Tests verify suggestion generation
+6. Performance: suggestions don't block chat rendering
+
+---
+
+#### Story 21-A6: Implement useCopilotChat for Headless Control
+
+**Priority:** P2 - LOW
+**Story Points:** 3
+**Owner:** Frontend
+
+**Objective:** Enable programmatic chat control for testing, automation, and advanced use cases.
+
+**What `useCopilotChat` Provides:**
+- Send messages programmatically
+- Reload/regenerate responses
+- Stop generation mid-stream
+- Access chat history
+- Headless chat for custom UIs
+
+**Implementation:**
+
+```tsx
+// frontend/hooks/use-programmatic-chat.ts (new)
+import { useCopilotChat } from "@copilotkit/react-core";
+
+export function useProgrammaticChat() {
+  const {
+    visibleMessages,
+    appendMessage,
+    reloadMessages,
+    stopGeneration,
+    isLoading,
+    setMessages,
+  } = useCopilotChat();
+
+  // Send a message programmatically
+  const sendMessage = async (content: string) => {
+    await appendMessage({
+      role: "user",
+      content,
+    });
+  };
+
+  // Regenerate the last response
+  const regenerateLastResponse = async () => {
+    await reloadMessages();
+  };
+
+  // Clear chat history
+  const clearHistory = () => {
+    setMessages([]);
+  };
+
+  // Get message count
+  const messageCount = visibleMessages.length;
+
+  return {
+    messages: visibleMessages,
+    sendMessage,
+    regenerateLastResponse,
+    stopGeneration,
+    clearHistory,
+    isLoading,
+    messageCount,
+  };
+}
+```
+
+**Use Cases:**
+
+| Use Case | Method | Example |
+|----------|--------|---------|
+| Quick action buttons | `sendMessage` | "Summarize" button sends preset message |
+| Keyboard shortcuts | `regenerateLastResponse` | Cmd+R regenerates response |
+| Test automation | `sendMessage` + assertions | E2E tests send messages and verify |
+| Custom chat UI | All methods | Build entirely custom chat interface |
+| Onboarding flows | `sendMessage` | Guided tutorials with scripted messages |
+
+**Example: Quick Action Buttons:**
+```tsx
+// frontend/components/QuickActions.tsx
+import { useProgrammaticChat } from "@/hooks/use-programmatic-chat";
+
+export function QuickActions() {
+  const { sendMessage, isLoading } = useProgrammaticChat();
+
+  return (
+    <div className="flex gap-2">
+      <Button
+        disabled={isLoading}
+        onClick={() => sendMessage("Summarize the current document")}
+      >
+        Summarize
+      </Button>
+      <Button
+        disabled={isLoading}
+        onClick={() => sendMessage("Extract key insights")}
+      >
+        Key Insights
+      </Button>
+      <Button
+        disabled={isLoading}
+        onClick={() => sendMessage("Find related topics")}
+      >
+        Related Topics
+      </Button>
+    </div>
+  );
+}
+```
+
+**Acceptance Criteria:**
+1. `useCopilotChat` hook wrapped with convenient methods
+2. `sendMessage` function for programmatic message sending
+3. `regenerateLastResponse` for response regeneration
+4. `stopGeneration` for interrupting streaming
+5. `clearHistory` for resetting conversation
+6. Quick action buttons component implemented
+7. Tests verify programmatic control
+8. Keyboard shortcuts documented
+
+---
+
+#### Story 21-A7: Implement useCopilotAdditionalInstructions for Dynamic Prompts
+
+**Priority:** P2 - LOW
+**Story Points:** 2
+**Owner:** Frontend
+
+**Objective:** Enable dynamic system prompt modifications based on context.
+
+**What `useCopilotAdditionalInstructions` Provides:**
+- Add context-specific instructions to the system prompt
+- Instructions can change based on component state
+- Enables feature-specific AI behavior
+
+**Implementation:**
+
+```tsx
+// frontend/hooks/use-dynamic-instructions.ts (new)
+import { useCopilotAdditionalInstructions } from "@copilotkit/react-core";
+import { useWorkspace } from "@/hooks/use-workspace";
+
+export function useDynamicInstructions() {
+  const { activeDocument, expertMode } = useWorkspace();
+
+  // Add document-specific instructions
+  useCopilotAdditionalInstructions(
+    activeDocument?.type === "code"
+      ? "When discussing code, include syntax highlighting hints and best practices."
+      : activeDocument?.type === "pdf"
+      ? "When referencing the PDF, cite page numbers when available."
+      : ""
+  );
+
+  // Add expert mode instructions
+  useCopilotAdditionalInstructions(
+    expertMode
+      ? "Provide detailed technical explanations with citations. Assume advanced knowledge."
+      : "Provide clear, accessible explanations. Define technical terms when used."
+  );
+
+  // Add tenant-specific instructions (if any)
+  useCopilotAdditionalInstructions(
+    `Always scope searches to the current tenant context.
+     Never reveal information from other tenants.`
+  );
+}
+```
+
+**Instruction Categories:**
+
+| Category | Condition | Instruction Added |
+|----------|-----------|-------------------|
+| Document Type | PDF active | "Cite page numbers" |
+| Document Type | Code active | "Include syntax hints" |
+| User Mode | Expert mode on | "Detailed technical explanations" |
+| User Mode | Beginner mode | "Define technical terms" |
+| Security | Always | "Scope to current tenant" |
+
+**Acceptance Criteria:**
+1. `useCopilotAdditionalInstructions` used for dynamic prompts
+2. Document-type-specific instructions implemented
+3. Expert/beginner mode switching works
+4. Security instructions always applied
+5. Instructions update reactively
+6. Tests verify instruction injection
+
+---
+
 ### Group B: Observability & Debugging
 
 *Focus: Enable production debugging and analytics*
 *Priority: P0 - Critical for operations*
 
-#### Story 21-B1: Configure Observability Hooks
+#### Story 21-B1: Configure Observability Hooks and Dev Console
 
 **Priority:** P0 - HIGH
-**Story Points:** 3
+**Story Points:** 5
 **Owner:** Frontend + Backend
 
-**Objective:** Wire CopilotKit observability hooks to our telemetry pipeline.
+**Objective:** Wire CopilotKit observability hooks to our telemetry pipeline and enable development debugging tools.
 
 **Available Observability Hooks:**
 | Hook | Trigger | Data |
@@ -432,7 +819,50 @@ export function CopilotProvider({ children }: CopilotProviderProps) {
 NEXT_PUBLIC_COPILOTKIT_API_KEY=ck_pub_xxx  # For Copilot Cloud (optional)
 # OR
 NEXT_PUBLIC_COPILOTKIT_LICENSE_KEY=ck_lic_xxx  # For self-hosted with Inspector
+
+# Dev Console (development only)
+NEXT_PUBLIC_SHOW_DEV_CONSOLE=true  # Show visual debugging console
 ```
+
+**Updated CopilotProvider with showDevConsole:**
+```tsx
+// frontend/components/copilot/CopilotProvider.tsx (updated)
+export function CopilotProvider({ children }: CopilotProviderProps) {
+  const analytics = useAnalytics();
+  const isDev = process.env.NODE_ENV === "development";
+
+  return (
+    <CopilotKit
+      runtimeUrl="/api/copilotkit"
+      publicApiKey={process.env.NEXT_PUBLIC_COPILOTKIT_API_KEY}
+      showDevConsole={isDev && process.env.NEXT_PUBLIC_SHOW_DEV_CONSOLE === "true"}
+      onError={(errorEvent) => {
+        analytics.track("copilot_error", {
+          type: errorEvent.type,
+          error: errorEvent.error?.message,
+          context: errorEvent.context,
+          timestamp: errorEvent.timestamp,
+        });
+        if (isDev) {
+          console.error("CopilotKit Error:", errorEvent);
+        }
+      }}
+    >
+      <CopilotSidebar
+        observabilityHooks={{...}}
+      />
+      {children}
+    </CopilotKit>
+  );
+}
+```
+
+**What showDevConsole Provides:**
+- Visual error overlay in development
+- Request/response inspector
+- Event timeline visualization
+- State debugging tools
+- Real-time message stream viewer
 
 **Analytics Hook:**
 ```tsx
@@ -463,6 +893,10 @@ export function useAnalytics() {
 4. Development mode console logging
 5. Optional Copilot Cloud integration (with API key)
 6. Metrics visible in application logs
+7. `showDevConsole` enabled in development mode
+8. `onError` handler configured with structured logging
+9. Dev console provides visual debugging in development
+10. Production builds hide dev console
 
 ---
 
@@ -557,13 +991,13 @@ export function CopilotErrorHandler() {
 
 ---
 
-#### Story 21-B3: Implement STATE_DELTA Support
+#### Story 21-B3: Implement STATE_DELTA and MESSAGES_SNAPSHOT Support
 
 **Priority:** P1 - MEDIUM
-**Story Points:** 5
+**Story Points:** 8
 **Owner:** Backend + Frontend
 
-**Objective:** Add incremental state updates using JSON Patch operations.
+**Objective:** Add incremental state updates using JSON Patch operations and message history synchronization.
 
 **Why STATE_DELTA:**
 - `STATE_SNAPSHOT` replaces entire state (inefficient for large states)
@@ -609,6 +1043,47 @@ yield StateDeltaEvent(operations=[
 // The CopilotKit runtime applies JSON Patch operations to shared state
 ```
 
+**MESSAGES_SNAPSHOT Implementation:**
+
+The `MESSAGES_SNAPSHOT` event syncs the entire message history, useful for:
+- Session restoration after reconnection
+- Multi-tab synchronization
+- Chat history persistence across page reloads
+
+```python
+# backend/src/agentic_rag_backend/models/copilot.py (add to enum)
+class AGUIEventType(str, Enum):
+    # ... existing events ...
+    STATE_DELTA = "STATE_DELTA"
+    MESSAGES_SNAPSHOT = "MESSAGES_SNAPSHOT"  # NEW
+
+class MessagesSnapshotEvent(AGUIEvent):
+    """Event for syncing full message history."""
+
+    event: AGUIEventType = AGUIEventType.MESSAGES_SNAPSHOT
+
+    def __init__(self, messages: list[dict[str, Any]], **kwargs: Any) -> None:
+        """
+        Args:
+            messages: Full message history
+                [
+                    {"role": "user", "content": "Hello"},
+                    {"role": "assistant", "content": "Hi there!"},
+                ]
+        """
+        super().__init__(data={"messages": messages}, **kwargs)
+```
+
+**Usage for Session Restoration:**
+```python
+# backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py (update)
+async def restore_session(self, session_id: str) -> AsyncIterator[AGUIEvent]:
+    """Restore a previous chat session."""
+    messages = await self._load_session_messages(session_id)
+    if messages:
+        yield MessagesSnapshotEvent(messages=messages)
+```
+
 **Acceptance Criteria:**
 1. `STATE_DELTA` event type added to enum
 2. `StateDeltaEvent` class with JSON Patch operations
@@ -616,6 +1091,10 @@ yield StateDeltaEvent(operations=[
 4. Frontend receives and applies deltas correctly
 5. Tests verify delta application
 6. Performance improvement for large state updates
+7. `MESSAGES_SNAPSHOT` event type added to enum
+8. `MessagesSnapshotEvent` class for full history sync
+9. Session restoration uses MESSAGES_SNAPSHOT
+10. Tests verify message history synchronization
 
 ---
 
@@ -1121,6 +1600,556 @@ function A2UIFallback({ widget }: { widget: A2UIWidget }) {
 
 ---
 
+### Group E: Voice & Audio Features
+
+*Focus: Enable speech-to-text and text-to-speech capabilities*
+*Priority: P2 - Accessibility enhancement*
+
+#### Story 21-E1: Implement Voice Input (Speech-to-Text)
+
+**Priority:** P2 - MEDIUM
+**Story Points:** 5
+**Owner:** Frontend + Backend
+
+**Objective:** Enable voice input for chat messages using CopilotKit's transcription service.
+
+**What Voice Input Provides:**
+- Accessibility for users who prefer voice
+- Hands-free operation
+- Natural language input without typing
+- Mobile-friendly interaction
+
+**Configuration:**
+```bash
+# .env
+# Voice Input Configuration
+NEXT_PUBLIC_TRANSCRIBE_AUDIO_URL=/api/copilotkit/transcribe  # Transcription endpoint
+COPILOTKIT_TRANSCRIPTION_ENABLED=true|false  # Default: false
+COPILOTKIT_TRANSCRIPTION_LANGUAGE=en  # ISO language code
+```
+
+**Backend Implementation:**
+```python
+# backend/src/agentic_rag_backend/api/routes/copilot.py (add)
+from fastapi import UploadFile, File
+
+@router.post("/copilotkit/transcribe")
+async def transcribe_audio(
+    audio: UploadFile = File(...),
+    language: str = Query(default="en"),
+) -> dict[str, str]:
+    """Transcribe audio to text using configured transcription service."""
+    if not settings.copilotkit_transcription_enabled:
+        raise HTTPException(status_code=403, detail="Transcription disabled")
+
+    # Use configured transcription service (Whisper, AssemblyAI, etc.)
+    transcription = await transcription_service.transcribe(
+        audio_data=await audio.read(),
+        language=language,
+        format=audio.content_type,
+    )
+
+    return {
+        "text": transcription.text,
+        "language": transcription.detected_language,
+        "confidence": transcription.confidence,
+    }
+```
+
+**Frontend Implementation:**
+```tsx
+// frontend/components/copilot/CopilotProvider.tsx (update)
+<CopilotKit
+  runtimeUrl="/api/copilotkit"
+  transcribeAudioUrl={process.env.NEXT_PUBLIC_TRANSCRIBE_AUDIO_URL}
+>
+```
+
+**Audio Recording Component:**
+```tsx
+// frontend/components/copilot/VoiceInput.tsx (new)
+import { useState, useRef } from "react";
+import { Button } from "@/components/ui/button";
+import { Mic, MicOff, Loader2 } from "lucide-react";
+
+interface VoiceInputProps {
+  onTranscription: (text: string) => void;
+  disabled?: boolean;
+}
+
+export function VoiceInput({ onTranscription, disabled }: VoiceInputProps) {
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const mediaRecorder = useRef<MediaRecorder | null>(null);
+  const chunks = useRef<Blob[]>([]);
+
+  const startRecording = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder.current = new MediaRecorder(stream);
+    chunks.current = [];
+
+    mediaRecorder.current.ondataavailable = (e) => {
+      chunks.current.push(e.data);
+    };
+
+    mediaRecorder.current.onstop = async () => {
+      const blob = new Blob(chunks.current, { type: "audio/webm" });
+      await transcribeAudio(blob);
+    };
+
+    mediaRecorder.current.start();
+    setIsRecording(true);
+  };
+
+  const stopRecording = () => {
+    mediaRecorder.current?.stop();
+    setIsRecording(false);
+  };
+
+  const transcribeAudio = async (blob: Blob) => {
+    setIsTranscribing(true);
+    try {
+      const formData = new FormData();
+      formData.append("audio", blob);
+
+      const response = await fetch("/api/copilotkit/transcribe", {
+        method: "POST",
+        body: formData,
+      });
+
+      const { text } = await response.json();
+      onTranscription(text);
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      disabled={disabled || isTranscribing}
+      onClick={isRecording ? stopRecording : startRecording}
+    >
+      {isTranscribing ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : isRecording ? (
+        <MicOff className="h-4 w-4 text-red-500" />
+      ) : (
+        <Mic className="h-4 w-4" />
+      )}
+    </Button>
+  );
+}
+```
+
+**Acceptance Criteria:**
+1. `transcribeAudioUrl` configured in CopilotKit
+2. Backend transcription endpoint implemented
+3. Audio recording component functional
+4. Transcribed text populates chat input
+5. Visual feedback during recording/transcription
+6. Error handling for microphone permissions
+7. Tests verify transcription flow
+8. Accessibility labels for screen readers
+
+---
+
+#### Story 21-E2: Implement Voice Output (Text-to-Speech)
+
+**Priority:** P2 - LOW
+**Story Points:** 5
+**Owner:** Frontend + Backend
+
+**Objective:** Enable text-to-speech for AI responses.
+
+**What Voice Output Provides:**
+- Accessibility for visually impaired users
+- Hands-free consumption of AI responses
+- Enhanced user experience for audio learners
+- Mobile-friendly output
+
+**Configuration:**
+```bash
+# .env
+# Voice Output Configuration
+NEXT_PUBLIC_TEXT_TO_SPEECH_URL=/api/copilotkit/tts  # TTS endpoint
+COPILOTKIT_TTS_ENABLED=true|false  # Default: false
+COPILOTKIT_TTS_VOICE=alloy  # Voice selection (alloy, echo, fable, onyx, nova, shimmer)
+COPILOTKIT_TTS_SPEED=1.0  # Speed multiplier (0.25 to 4.0)
+```
+
+**Backend Implementation:**
+```python
+# backend/src/agentic_rag_backend/api/routes/copilot.py (add)
+from pydantic import BaseModel
+
+class TTSRequest(BaseModel):
+    text: str
+    voice: str = "alloy"
+    speed: float = 1.0
+
+@router.post("/copilotkit/tts")
+async def text_to_speech(request: TTSRequest) -> StreamingResponse:
+    """Convert text to speech audio stream."""
+    if not settings.copilotkit_tts_enabled:
+        raise HTTPException(status_code=403, detail="TTS disabled")
+
+    # Use configured TTS service (OpenAI, ElevenLabs, etc.)
+    audio_stream = await tts_service.synthesize(
+        text=request.text,
+        voice=request.voice,
+        speed=request.speed,
+    )
+
+    return StreamingResponse(
+        audio_stream,
+        media_type="audio/mpeg",
+        headers={"Content-Disposition": "inline; filename=response.mp3"},
+    )
+```
+
+**Frontend Implementation:**
+```tsx
+// frontend/components/copilot/CopilotProvider.tsx (update)
+<CopilotKit
+  runtimeUrl="/api/copilotkit"
+  textToSpeechUrl={process.env.NEXT_PUBLIC_TEXT_TO_SPEECH_URL}
+>
+```
+
+**Speech Playback Component:**
+```tsx
+// frontend/components/copilot/SpeakButton.tsx (new)
+import { useState, useRef } from "react";
+import { Button } from "@/components/ui/button";
+import { Volume2, VolumeX, Loader2 } from "lucide-react";
+
+interface SpeakButtonProps {
+  text: string;
+  disabled?: boolean;
+}
+
+export function SpeakButton({ text, disabled }: SpeakButtonProps) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const speak = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch("/api/copilotkit/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+
+      audioRef.current = new Audio(url);
+      audioRef.current.onended = () => setIsPlaying(false);
+      audioRef.current.play();
+      setIsPlaying(true);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const stop = () => {
+    audioRef.current?.pause();
+    setIsPlaying(false);
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      disabled={disabled || isLoading}
+      onClick={isPlaying ? stop : speak}
+    >
+      {isLoading ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : isPlaying ? (
+        <VolumeX className="h-4 w-4" />
+      ) : (
+        <Volume2 className="h-4 w-4" />
+      )}
+    </Button>
+  );
+}
+```
+
+**Acceptance Criteria:**
+1. `textToSpeechUrl` configured in CopilotKit
+2. Backend TTS endpoint implemented
+3. Speak button on assistant messages
+4. Audio playback with stop control
+5. Voice/speed configuration options
+6. Error handling for synthesis failures
+7. Tests verify TTS flow
+8. Accessibility: screen reader compatibility
+
+---
+
+### Group F: Alternative UI Components
+
+*Focus: Provide flexible UI options for different use cases*
+*Priority: P2 - UX flexibility*
+
+#### Story 21-F1: Implement CopilotPopup Component
+
+**Priority:** P2 - LOW
+**Story Points:** 3
+**Owner:** Frontend
+
+**Objective:** Add floating popup chat option as alternative to sidebar.
+
+**What CopilotPopup Provides:**
+- Floating button with expandable chat window
+- Less intrusive than full sidebar
+- Ideal for secondary/contextual assistance
+- Customizable position and styling
+
+**Implementation:**
+```tsx
+// frontend/components/copilot/PopupChat.tsx (new)
+"use client";
+
+import { CopilotPopup } from "@copilotkit/react-ui";
+import "@copilotkit/react-ui/styles.css";
+
+interface PopupChatProps {
+  position?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
+  buttonLabel?: string;
+}
+
+export function PopupChat({
+  position = "bottom-right",
+  buttonLabel = "AI Assistant",
+}: PopupChatProps) {
+  return (
+    <CopilotPopup
+      labels={{
+        title: "RAG Assistant",
+        initial: "How can I help you today?",
+      }}
+      defaultOpen={false}
+      clickOutsideToClose={true}
+      className={getPositionClass(position)}
+    />
+  );
+}
+
+function getPositionClass(position: string): string {
+  switch (position) {
+    case "bottom-left":
+      return "!left-4 !right-auto";
+    case "top-right":
+      return "!bottom-auto !top-4";
+    case "top-left":
+      return "!left-4 !right-auto !bottom-auto !top-4";
+    default:
+      return "";
+  }
+}
+```
+
+**Configuration Option:**
+```bash
+# .env
+NEXT_PUBLIC_COPILOT_UI_MODE=sidebar|popup  # Default: sidebar
+```
+
+**Conditional Rendering:**
+```tsx
+// frontend/components/copilot/ChatInterface.tsx (new)
+import { ChatSidebar } from "./ChatSidebar";
+import { PopupChat } from "./PopupChat";
+
+export function ChatInterface() {
+  const uiMode = process.env.NEXT_PUBLIC_COPILOT_UI_MODE || "sidebar";
+
+  if (uiMode === "popup") {
+    return <PopupChat />;
+  }
+
+  return <ChatSidebar />;
+}
+```
+
+**Acceptance Criteria:**
+1. CopilotPopup component implemented
+2. Configurable position (4 corners)
+3. Click-outside-to-close behavior
+4. Environment variable for UI mode selection
+5. Consistent styling with design system
+6. Tests verify popup behavior
+7. Responsive on mobile devices
+
+---
+
+#### Story 21-F2: Implement CopilotChat Embedded Component
+
+**Priority:** P2 - LOW
+**Story Points:** 3
+**Owner:** Frontend
+
+**Objective:** Add inline embedded chat option for page integration.
+
+**What CopilotChat Provides:**
+- Embedded chat panel within page content
+- No sidebar or popup - inline experience
+- Ideal for dedicated chat pages or sections
+- Full-width or contained layouts
+
+**Implementation:**
+```tsx
+// frontend/components/copilot/EmbeddedChat.tsx (new)
+"use client";
+
+import { CopilotChat } from "@copilotkit/react-ui";
+import "@copilotkit/react-ui/styles.css";
+
+interface EmbeddedChatProps {
+  className?: string;
+  welcomeMessage?: string;
+}
+
+export function EmbeddedChat({
+  className,
+  welcomeMessage = "Welcome! Ask me anything about your documents.",
+}: EmbeddedChatProps) {
+  return (
+    <div className={className}>
+      <CopilotChat
+        labels={{
+          initial: welcomeMessage,
+        }}
+        className="h-full"
+      />
+    </div>
+  );
+}
+```
+
+**Page Integration Example:**
+```tsx
+// frontend/app/chat/page.tsx (new)
+import { EmbeddedChat } from "@/components/copilot/EmbeddedChat";
+
+export default function ChatPage() {
+  return (
+    <div className="container mx-auto h-screen py-4">
+      <h1 className="text-2xl font-bold mb-4">AI Assistant</h1>
+      <EmbeddedChat className="h-[calc(100vh-8rem)] border rounded-lg" />
+    </div>
+  );
+}
+```
+
+**Acceptance Criteria:**
+1. CopilotChat embedded component implemented
+2. Configurable welcome message
+3. Responsive height/width
+4. Works in container layouts
+5. Dedicated chat page example
+6. Tests verify embedded rendering
+
+---
+
+#### Story 21-F3: Implement CopilotTextarea Component
+
+**Priority:** P3 - LOW
+**Story Points:** 5
+**Owner:** Frontend
+
+**Objective:** Add AI-powered textarea for inline text assistance.
+
+**What CopilotTextarea Provides:**
+- AI autocompletion in any textarea
+- Inline suggestions while typing
+- Tab to accept suggestions
+- Ideal for document editing, notes, forms
+
+**Implementation:**
+```tsx
+// frontend/components/copilot/AITextarea.tsx (new)
+"use client";
+
+import { CopilotTextarea } from "@copilotkit/react-textarea";
+import "@copilotkit/react-textarea/styles.css";
+
+interface AITextareaProps {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  className?: string;
+  autosuggestionsConfig?: {
+    textareaPurpose: string;
+    chatApiConfigs: Record<string, unknown>;
+  };
+}
+
+export function AITextarea({
+  value,
+  onChange,
+  placeholder = "Start typing...",
+  className,
+  autosuggestionsConfig,
+}: AITextareaProps) {
+  return (
+    <CopilotTextarea
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      className={className}
+      autosuggestionsConfig={
+        autosuggestionsConfig ?? {
+          textareaPurpose: "General purpose text editor",
+          chatApiConfigs: {},
+        }
+      }
+    />
+  );
+}
+```
+
+**Usage Example:**
+```tsx
+// frontend/components/notes/NoteEditor.tsx
+import { AITextarea } from "@/components/copilot/AITextarea";
+import { useState } from "react";
+
+export function NoteEditor() {
+  const [content, setContent] = useState("");
+
+  return (
+    <AITextarea
+      value={content}
+      onChange={setContent}
+      placeholder="Write your notes here... AI will help!"
+      className="min-h-[200px] w-full"
+      autosuggestionsConfig={{
+        textareaPurpose: "Note-taking and documentation",
+        chatApiConfigs: {},
+      }}
+    />
+  );
+}
+```
+
+**Acceptance Criteria:**
+1. CopilotTextarea component implemented
+2. AI autocompletion working
+3. Tab-to-accept suggestions
+4. Configurable purpose/context
+5. Works with React Hook Form
+6. Tests verify suggestion flow
+7. Performance: no typing lag
+
+---
+
 ## Testing Requirements
 
 ### Unit Tests
@@ -1130,14 +2159,23 @@ function A2UIFallback({ widget }: { widget: A2UIWidget }) {
 | 21-A1 | useFrontendTool migration | 90% |
 | 21-A2 | useHumanInTheLoop migration | 90% |
 | 21-A3 | useRenderToolCall renderers | 85% |
-| 21-B1 | Observability hook firing | 80% |
+| 21-A4 | useCopilotReadable context provision | 85% |
+| 21-A5 | useCopilotChatSuggestions generation | 80% |
+| 21-A6 | useCopilotChat programmatic control | 85% |
+| 21-A7 | useCopilotAdditionalInstructions dynamic prompts | 80% |
+| 21-B1 | Observability hook firing + showDevConsole | 80% |
 | 21-B2 | RUN_ERROR event emission | 90% |
-| 21-B3 | STATE_DELTA JSON Patch | 90% |
+| 21-B3 | STATE_DELTA + MESSAGES_SNAPSHOT events | 90% |
 | 21-C1 | MCP client configuration | 85% |
 | 21-C2 | MCP client factory | 85% |
 | 21-C3 | Tool registry merging | 90% |
 | 21-D1 | A2UI widget models | 90% |
 | 21-D2 | A2UI widget rendering | 85% |
+| 21-E1 | Voice input transcription flow | 80% |
+| 21-E2 | Text-to-speech synthesis flow | 80% |
+| 21-F1 | CopilotPopup positioning + behavior | 80% |
+| 21-F2 | CopilotChat embedded rendering | 80% |
+| 21-F3 | CopilotTextarea autocompletion | 75% |
 
 ### Integration Tests
 
@@ -1145,10 +2183,17 @@ function A2UIFallback({ widget }: { widget: A2UIWidget }) {
 |---------------|---------|
 | Full tool call lifecycle (start → execute → complete → render) | 21-A3 |
 | HITL dialog approval flow | 21-A2 |
+| Context provision → AI response uses context | 21-A4 |
+| Chat suggestions generation based on state | 21-A5 |
+| Programmatic chat control (send/reload/stop) | 21-A6 |
+| Dynamic instructions based on document type | 21-A7 |
 | MCP client discovery → tool call → result | 21-C1, 21-C2, 21-C3 |
 | A2UI widget emission → render | 21-D1, 21-D2 |
 | Error event emission → toast display | 21-B2 |
 | STATE_DELTA application → UI update | 21-B3 |
+| MESSAGES_SNAPSHOT → session restoration | 21-B3 |
+| Voice input recording → transcription → chat input | 21-E1 |
+| TTS synthesis → audio playback | 21-E2 |
 
 ### E2E Tests (Playwright)
 
@@ -1158,6 +2203,14 @@ function A2UIFallback({ widget }: { widget: A2UIWidget }) {
 | HITL dialog interaction | Click approve/reject |
 | A2UI card rendering | Verify card displays correctly |
 | Error toast appearance | Verify error notification |
+| Chat suggestions appear and are clickable | Verify suggestion chips work |
+| Quick action buttons send messages | Verify programmatic chat |
+| Dev console appears in development mode | Verify showDevConsole |
+| Microphone button records and transcribes | Verify voice input (21-E1) |
+| Speak button plays audio | Verify TTS (21-E2) |
+| CopilotPopup opens and closes | Verify popup behavior (21-F1) |
+| CopilotChat renders inline | Verify embedded chat (21-F2) |
+| CopilotTextarea shows suggestions | Verify autocompletion (21-F3) |
 
 ---
 
@@ -1171,6 +2224,7 @@ function A2UIFallback({ widget }: { widget: A2UIWidget }) {
 # --- Observability (21-B1) ---
 NEXT_PUBLIC_COPILOTKIT_API_KEY=ck_pub_xxx  # Optional: Copilot Cloud
 NEXT_PUBLIC_COPILOTKIT_LICENSE_KEY=ck_lic_xxx  # Optional: Self-hosted Inspector
+NEXT_PUBLIC_SHOW_DEV_CONSOLE=true|false  # Default: false (true in dev only)
 
 # --- MCP Client (21-C1, 21-C2) ---
 MCP_CLIENTS_ENABLED=true|false  # Default: false
@@ -1182,6 +2236,20 @@ MCP_CLIENT_SERVERS='[{"name":"github","url":"...","apiKey":"${GITHUB_MCP_KEY}"}]
 # --- A2UI (21-D1) ---
 A2UI_ENABLED=true|false  # Default: true (if using CopilotKit)
 A2UI_FALLBACK_RENDER=true  # Show fallback for unsupported widgets
+
+# --- Voice Input (21-E1) ---
+NEXT_PUBLIC_TRANSCRIBE_AUDIO_URL=/api/copilotkit/transcribe  # Transcription endpoint
+COPILOTKIT_TRANSCRIPTION_ENABLED=true|false  # Default: false
+COPILOTKIT_TRANSCRIPTION_LANGUAGE=en  # ISO language code (en, es, fr, de, etc.)
+
+# --- Voice Output (21-E2) ---
+NEXT_PUBLIC_TEXT_TO_SPEECH_URL=/api/copilotkit/tts  # TTS endpoint
+COPILOTKIT_TTS_ENABLED=true|false  # Default: false
+COPILOTKIT_TTS_VOICE=alloy  # Voice: alloy, echo, fable, onyx, nova, shimmer
+COPILOTKIT_TTS_SPEED=1.0  # Speed multiplier: 0.25 to 4.0
+
+# --- Alternative UI Components (21-F1, 21-F2, 21-F3) ---
+NEXT_PUBLIC_COPILOT_UI_MODE=sidebar|popup|embedded  # Default: sidebar
 ```
 
 ---
@@ -1193,7 +2261,8 @@ A2UI_FALLBACK_RENDER=true  # Show fallback for unsupported widgets
 | Dependency | Version | Purpose |
 |------------|---------|---------|
 | `@copilotkit/react-core` | ^1.x | Modern hooks |
-| `@copilotkit/react-ui` | ^1.x | UI components |
+| `@copilotkit/react-ui` | ^1.x | UI components (Sidebar, Popup, Chat) |
+| `@copilotkit/react-textarea` | ^1.x | AI-powered textarea (21-F3) |
 | `@copilotkit/runtime` | ^1.x | Runtime configuration |
 | `zod` | ^3.x | Schema validation |
 | `jsonpointer` | ^5.x | JSON Patch operations |
@@ -1204,29 +2273,60 @@ A2UI_FALLBACK_RENDER=true  # Show fallback for unsupported widgets
 |--------|-----------|
 | 21-A2 | 21-A1 (shared hook patterns) |
 | 21-A3 | 21-A1, 21-A2 (tool renderers) |
+| 21-A4 | 21-A1 (provider pattern established) |
+| 21-A5 | 21-A4 (context from useCopilotReadable) |
+| 21-A6 | 21-A1 (hook patterns) |
+| 21-A7 | 21-A4 (context-aware instructions) |
+| 21-B3 | 21-B2 (error events before state sync) |
 | 21-C3 | 21-C1, 21-C2 (MCP client) |
 | 21-D2 | 21-D1 (A2UI models) |
+| 21-E2 | 21-E1 (voice infrastructure) |
+| 21-F1 | 21-B1 (provider config with observability) |
+| 21-F2 | 21-B1 (provider config with observability) |
+| 21-F3 | 21-A4 (context for suggestions) |
 
 ---
 
 ## Sprint Allocation
 
-### Sprint 1 (Stories: 21-A1, 21-A2, 21-A3, 21-B1)
-- Focus: Hook migration + Tool visualization + Observability
+### Sprint 1 (Stories: 21-A1, 21-A2, 21-A3, 21-A4, 21-B1)
+- Focus: Hook migration + Tool visualization + Context provision + Observability
+- Points: 25
+- Goal: Modern patterns, context awareness, debugging capabilities
+
+### Sprint 2 (Stories: 21-A5, 21-A6, 21-A7, 21-B2, 21-B3)
+- Focus: Chat enhancements + Dynamic instructions + Error handling + State sync
+- Points: 19
+- Goal: Enhanced chat UX, robust error handling
+
+### Sprint 3 (Stories: 21-C1, 21-C2, 21-C3)
+- Focus: MCP client integration
 - Points: 18
-- Goal: Modern patterns, debugging capabilities
+- Goal: External MCP tool ecosystem access
 
-### Sprint 2 (Stories: 21-B2, 21-B3, 21-C1, 21-C2)
-- Focus: Error handling + STATE_DELTA + MCP client foundation
-- Points: 16
-- Goal: Robust error handling, MCP client ready
+### Sprint 4 (Stories: 21-D1, 21-D2, 21-E1, 21-E2)
+- Focus: A2UI rendering + Voice features
+- Points: 18
+- Goal: Rich UI widgets + Accessibility via voice
 
-### Sprint 3 (Stories: 21-C3, 21-D1, 21-D2)
-- Focus: MCP integration + A2UI rendering
-- Points: 13
-- Goal: External tools + Rich UI widgets
+### Sprint 5 (Stories: 21-F1, 21-F2, 21-F3)
+- Focus: Alternative UI components
+- Points: 11
+- Goal: Flexible UI options (popup, embedded, textarea)
 
-**Total: 47 story points across 3 sprints**
+**Total: 91 story points across 5 sprints**
+
+### Story Points Summary by Group
+
+| Group | Focus | Stories | Points |
+|-------|-------|---------|--------|
+| A | Modern Hook Migration | 21-A1 to 21-A7 | 28 |
+| B | Observability & Debugging | 21-B1 to 21-B3 | 16 |
+| C | MCP Client Integration | 21-C1 to 21-C3 | 18 |
+| D | A2UI Widget Rendering | 21-D1 to 21-D2 | 8 |
+| E | Voice & Audio Features | 21-E1 to 21-E2 | 10 |
+| F | Alternative UI Components | 21-F1 to 21-F3 | 11 |
+| **Total** | | **18 stories** | **91** |
 
 ---
 
@@ -1237,9 +2337,16 @@ A2UI_FALLBACK_RENDER=true  # Show fallback for unsupported widgets
 | Deprecated hook usage | 12 instances | 0 | Code search |
 | Tool call visibility | 0% | 100% | All MCP tools rendered |
 | Observability coverage | 0 hooks | 9 hooks | All hooks wired |
+| Context provision hooks | 0 | 4+ | useCopilotReadable registrations |
+| Chat suggestion accuracy | N/A | 70%+ | User click-through rate |
 | MCP ecosystem tools | 0 | 10+ | External server tools |
 | A2UI widget types | 0 | 6 | Supported widget types |
 | Error transparency | Text-only | Event-based | RUN_ERROR emissions |
+| State sync efficiency | Snapshot-only | Delta + Snapshot | STATE_DELTA usage |
+| Voice input availability | 0% | 100% | Transcription endpoint uptime |
+| Voice output availability | 0% | 100% | TTS endpoint uptime |
+| UI component options | 1 (sidebar) | 3 | sidebar, popup, embedded |
+| Dev console adoption | 0% | 80%+ | Developers using showDevConsole |
 
 ---
 
