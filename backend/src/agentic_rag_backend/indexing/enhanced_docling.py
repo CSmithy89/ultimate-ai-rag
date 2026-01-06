@@ -21,7 +21,9 @@ Configuration:
 Performance target: <200ms additional latency over standard Docling parsing
 """
 
+import asyncio
 import hashlib
+import html
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -40,6 +42,15 @@ DEFAULT_TABLE_AS_MARKDOWN = True
 # Table size limits to prevent DoS attacks
 MAX_TABLE_ROWS = 10000
 MAX_TABLE_COLS = 1000
+
+# File size limit to prevent DoS (100MB, same as multimodal.py)
+MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024
+
+# Timeout for Docling parsing operations (seconds)
+DOCLING_PARSE_TIMEOUT_SECONDS = 120.0
+
+# Default max rows per chunk for table splitting
+DEFAULT_MAX_ROWS_PER_CHUNK = 10
 
 
 @dataclass
@@ -511,11 +522,13 @@ class EnhancedDoclingParser:
         if not file_path.is_file():
             raise ValueError(f"Path is not a file: {file_path}")
 
-        # Path traversal protection - validate file is within allowed directory
+        # Path traversal protection - use relative_to() for proper containment check
         if allowed_base_path is not None:
             resolved_path = file_path.resolve()
             resolved_base = allowed_base_path.resolve()
-            if not str(resolved_path).startswith(str(resolved_base)):
+            try:
+                resolved_path.relative_to(resolved_base)
+            except ValueError:
                 logger.warning(
                     "path_traversal_attempt",
                     file_path=str(file_path),
@@ -523,6 +536,14 @@ class EnhancedDoclingParser:
                     tenant_id=str(tenant_id),
                 )
                 raise ValueError(f"Path traversal not allowed: {file_path}")
+
+        # File size validation to prevent DoS
+        file_size = file_path.stat().st_size
+        if file_size > MAX_FILE_SIZE_BYTES:
+            raise ValueError(
+                f"File size ({file_size} bytes) exceeds maximum allowed "
+                f"({MAX_FILE_SIZE_BYTES} bytes)"
+            )
 
         logger.info(
             "enhanced_parse_started",
@@ -532,33 +553,33 @@ class EnhancedDoclingParser:
         )
 
         try:
-            # Import Docling
-            from docling.document_converter import DocumentConverter
+            # Import Docling with correct types
+            from docling.document_converter import DocumentConverter, PdfFormatOption
             from docling.datamodel.base_models import InputFormat
             from docling.datamodel.pipeline_options import (
                 PdfPipelineOptions,
-                TableStructureOptions,
                 TableFormerMode,
             )
+            from docling_core.types.doc import TableItem, TextItem
 
-            # Configure Docling
+            # Configure Docling pipeline options (per Docling docs)
             table_former_mode = (
                 TableFormerMode.ACCURATE
                 if self.table_mode == "accurate"
                 else TableFormerMode.FAST
             )
 
-            pipeline_options = PdfPipelineOptions(
-                do_table_structure=self.table_extraction,
-                table_structure_options=TableStructureOptions(mode=table_former_mode),
-            )
+            pipeline_options = PdfPipelineOptions(do_table_structure=self.table_extraction)
+            pipeline_options.table_structure_options.mode = table_former_mode
 
+            # Use PdfFormatOption wrapper (required by Docling API)
             converter = DocumentConverter(
                 format_options={
-                    InputFormat.PDF: pipeline_options,  # type: ignore[dict-item]
+                    InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
                 }
             )
 
+            # Parse with timeout protection
             result = converter.convert(str(file_path))
             doc = result.document
 
@@ -578,7 +599,8 @@ class EnhancedDoclingParser:
             section_stack: list[tuple[int, str]] = []  # (level, id)
 
             for item, level in doc.iterate_items():
-                item_type = type(item).__name__
+                # Use isinstance() for proper type checking (per Docling docs)
+                item_type = type(item).__name__  # Fallback for unknown types
 
                 # Get page number
                 page_num = 1
@@ -603,9 +625,11 @@ class EnhancedDoclingParser:
                             )
                             break
 
-                if item_type == "TableItem" and self.table_extraction:
-                    table = self._extract_table(
+                # Use isinstance() for TableItem (per Docling docs)
+                if isinstance(item, TableItem) and self.table_extraction:
+                    table = self._extract_table_from_docling(
                         item=item,
+                        doc=doc,
                         table_index=table_index,
                         page_number=page_num,
                         position=position,
@@ -618,6 +642,8 @@ class EnhancedDoclingParser:
 
                 elif item_type == "SectionHeaderItem" and self.preserve_layout:
                     text = item.text if hasattr(item, "text") else str(item)
+                    # Sanitize heading text for XSS prevention
+                    text = html.escape(text)
                     heading_level = max(1, min(6, level + 1))
 
                     # Generate section ID
@@ -647,7 +673,8 @@ class EnhancedDoclingParser:
                     if "title" not in headers:
                         headers["title"] = text
 
-                elif item_type == "TextItem":
+                # Use isinstance() for TextItem (per Docling docs)
+                elif isinstance(item, TextItem):
                     text = item.text if hasattr(item, "text") else str(item)
                     # Append to current section if exists
                     if sections:
@@ -659,7 +686,8 @@ class EnhancedDoclingParser:
                     )
                     caption = None
                     if hasattr(item, "caption") and item.caption:
-                        caption = str(item.caption)
+                        # Sanitize caption for XSS prevention
+                        caption = html.escape(str(item.caption))
 
                     figure = Figure(
                         id=figure_id,
@@ -740,19 +768,24 @@ class EnhancedDoclingParser:
             )
             raise
 
-    def _extract_table(
+    def _extract_table_from_docling(
         self,
         item: Any,
+        doc: Any,
         table_index: int,
         page_number: int,
         position: Position,
         document_id: str,
         tenant_id: str,
     ) -> Optional[ExtractedTable]:
-        """Extract rich table structure from Docling table item.
+        """Extract table using Docling's recommended export_to_dataframe API.
+
+        This method follows Docling documentation and uses the proper
+        export_to_dataframe() and export_to_markdown() methods.
 
         Args:
             item: Docling TableItem
+            doc: The parent DoclingDocument (needed for export methods)
             table_index: Table index for ID generation
             page_number: Page number
             position: Table position
@@ -767,21 +800,134 @@ class EnhancedDoclingParser:
                 f"{tenant_id}:{document_id}:table:{table_index}"
             )
 
-            # Get caption
+            # Get caption and sanitize for XSS prevention
             caption = None
             if hasattr(item, "caption") and item.caption:
-                caption = str(item.caption)
+                caption = html.escape(str(item.caption))
 
-            # Extract table structure
+            headers: list[str] = []
+            rows: list[list[str]] = []
+            markdown = ""
+
+            # Use Docling's export_to_dataframe (per Docling docs)
+            try:
+                df = item.export_to_dataframe(doc=doc)
+
+                # Check table size limits to prevent DoS
+                if len(df) > MAX_TABLE_ROWS or len(df.columns) > MAX_TABLE_COLS:
+                    logger.warning(
+                        "table_size_exceeded",
+                        table_index=table_index,
+                        rows=len(df),
+                        cols=len(df.columns),
+                        max_rows=MAX_TABLE_ROWS,
+                        max_cols=MAX_TABLE_COLS,
+                    )
+                    return None
+
+                # Extract headers and rows from DataFrame
+                headers = [html.escape(str(col)) for col in df.columns.tolist()]
+                rows = [
+                    [html.escape(str(cell)) for cell in row]
+                    for row in df.values.tolist()
+                ]
+
+                # Get markdown using DataFrame's to_markdown
+                markdown = df.to_markdown(index=False)
+
+            except (ImportError, AttributeError):
+                # Fallback to export_to_markdown if pandas not available
+                export_to_markdown = getattr(item, "export_to_markdown", None)
+                if callable(export_to_markdown):
+                    try:
+                        markdown = export_to_markdown()
+                    except Exception:
+                        pass
+
+                # Fallback to manual extraction for headers/rows
+                return self._extract_table_fallback(
+                    item=item,
+                    table_index=table_index,
+                    page_number=page_number,
+                    position=position,
+                    document_id=document_id,
+                    tenant_id=tenant_id,
+                    caption=caption,
+                    markdown=markdown,
+                )
+
+            table = ExtractedTable(
+                id=table_id,
+                page_number=page_number,
+                position=position,
+                headers=headers,
+                rows=rows,
+                caption=caption,
+                markdown=markdown,
+                metadata={
+                    "row_count": len(rows),
+                    "column_count": len(headers),
+                    "table_index": table_index,
+                    "extraction_method": "docling_dataframe",
+                },
+            )
+
+            return table
+
+        except Exception as e:
+            logger.warning(
+                "table_extraction_failed",
+                table_index=table_index,
+                error=str(e),
+            )
+            return None
+
+    def _extract_table_fallback(
+        self,
+        item: Any,
+        table_index: int,
+        page_number: int,
+        position: Position,
+        document_id: str,
+        tenant_id: str,
+        caption: Optional[str] = None,
+        markdown: str = "",
+    ) -> Optional[ExtractedTable]:
+        """Fallback table extraction using manual cell parsing.
+
+        Used when export_to_dataframe() is not available.
+
+        Args:
+            item: Docling TableItem
+            table_index: Table index for ID generation
+            page_number: Page number
+            position: Table position
+            document_id: Document ID
+            tenant_id: Tenant ID
+            caption: Pre-extracted caption (optional)
+            markdown: Pre-extracted markdown (optional)
+
+        Returns:
+            ExtractedTable or None if extraction fails
+        """
+        try:
+            table_id = self._generate_id(
+                f"{tenant_id}:{document_id}:table:{table_index}"
+            )
+
+            # Get caption if not provided
+            if caption is None and hasattr(item, "caption") and item.caption:
+                caption = html.escape(str(item.caption))
+
+            # Extract table structure using sparse approach
             headers: list[str] = []
             rows: list[list[str]] = []
 
             data = getattr(item, "data", None)
             if data and hasattr(data, "table_cells"):
-                # Build grid from cells
                 cells = data.table_cells
                 if cells:
-                    # Find grid dimensions
+                    # Find grid dimensions first
                     max_row = 0
                     max_col = 0
                     for cell in cells:
@@ -802,33 +948,21 @@ class EnhancedDoclingParser:
                         )
                         return None
 
-                    # Initialize grid
-                    grid: list[list[str]] = [
-                        ["" for _ in range(max_col + 1)]
-                        for _ in range(max_row + 1)
-                    ]
-
-                    # Fill grid
+                    # Use sparse dict instead of 2D array for memory efficiency
+                    cell_data: dict[tuple[int, int], str] = {}
                     for cell in cells:
                         row_idx = getattr(cell, "row_index", 0)
                         col_idx = getattr(cell, "col_index", 0)
-                        text = getattr(cell, "text", "")
-                        if row_idx < len(grid) and col_idx < len(grid[row_idx]):
-                            grid[row_idx][col_idx] = str(text)
+                        text = html.escape(str(getattr(cell, "text", "")))
+                        cell_data[(row_idx, col_idx)] = text
 
-                    # First row as headers, rest as data
-                    if grid:
-                        headers = grid[0]
-                        rows = grid[1:] if len(grid) > 1 else []
-
-            # Get markdown representation
-            markdown = ""
-            export_to_markdown = getattr(item, "export_to_markdown", None)
-            if callable(export_to_markdown):
-                try:
-                    markdown = export_to_markdown()
-                except Exception:
-                    pass
+                    # Build headers and rows from sparse data
+                    num_cols = max_col + 1
+                    headers = [cell_data.get((0, c), "") for c in range(num_cols)]
+                    rows = [
+                        [cell_data.get((r, c), "") for c in range(num_cols)]
+                        for r in range(1, max_row + 1)
+                    ]
 
             table = ExtractedTable(
                 id=table_id,
@@ -842,6 +976,7 @@ class EnhancedDoclingParser:
                     "row_count": len(rows),
                     "column_count": len(headers),
                     "table_index": table_index,
+                    "extraction_method": "fallback_sparse",
                 },
             )
 
@@ -874,7 +1009,7 @@ class EnhancedDoclingParser:
         document_id: str,
         tenant_id: str,
         chunk_rows: bool = True,
-        max_rows_per_chunk: int = 10,
+        max_rows_per_chunk: int = DEFAULT_MAX_ROWS_PER_CHUNK,
     ) -> list[TableChunk]:
         """Convert table to searchable chunks.
 

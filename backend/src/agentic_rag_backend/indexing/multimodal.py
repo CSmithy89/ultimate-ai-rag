@@ -498,73 +498,74 @@ class OfficeParser:
 
         wb = load_workbook(str(file_path), data_only=True)
 
-        sheets: list[ExtractedSheet] = []
-        for sheet_idx, sheet_name in enumerate(wb.sheetnames):
-            if sheet_idx >= MAX_EXCEL_SHEETS:
-                logger.warning(
-                    "excel_sheet_limit_exceeded",
-                    document_id=document_id,
-                    limit=MAX_EXCEL_SHEETS,
-                )
-                break
-
-            ws = wb[sheet_name]
-
-            # Get dimensions
-            max_row = min(ws.max_row or 0, MAX_EXCEL_ROWS)
-            max_col = min(ws.max_column or 0, MAX_EXCEL_COLS)
-
-            if max_row == 0 or max_col == 0:
-                continue
-
-            # Extract data
-            cells: list[ExtractedCell] = []
-            all_rows: list[list[str]] = []
-
-            for row_idx, row in enumerate(ws.iter_rows(max_row=max_row, max_col=max_col)):
-                if row_idx >= MAX_EXCEL_ROWS:
+        try:
+            sheets: list[ExtractedSheet] = []
+            for sheet_idx, sheet_name in enumerate(wb.sheetnames):
+                if sheet_idx >= MAX_EXCEL_SHEETS:
+                    logger.warning(
+                        "excel_sheet_limit_exceeded",
+                        document_id=document_id,
+                        limit=MAX_EXCEL_SHEETS,
+                    )
                     break
-                row_values: list[str] = []
-                for col_idx, cell in enumerate(row):
-                    if col_idx >= MAX_EXCEL_COLS:
+
+                ws = wb[sheet_name]
+
+                # Get dimensions
+                max_row = min(ws.max_row or 0, MAX_EXCEL_ROWS)
+                max_col = min(ws.max_column or 0, MAX_EXCEL_COLS)
+
+                if max_row == 0 or max_col == 0:
+                    continue
+
+                # Extract data
+                cells: list[ExtractedCell] = []
+                all_rows: list[list[str]] = []
+
+                for row_idx, row in enumerate(ws.iter_rows(max_row=max_row, max_col=max_col)):
+                    if row_idx >= MAX_EXCEL_ROWS:
                         break
-                    value = str(cell.value) if cell.value is not None else ""
-                    data_type = type(cell.value).__name__ if cell.value is not None else "empty"
-                    row_values.append(value)
-                    cells.append(ExtractedCell(
-                        row=row_idx,
-                        column=col_idx,
-                        value=value,
-                        data_type=data_type,
-                    ))
-                all_rows.append(row_values)
+                    row_values: list[str] = []
+                    for col_idx, cell in enumerate(row):
+                        if col_idx >= MAX_EXCEL_COLS:
+                            break
+                        value = str(cell.value) if cell.value is not None else ""
+                        data_type = type(cell.value).__name__ if cell.value is not None else "empty"
+                        row_values.append(value)
+                        cells.append(ExtractedCell(
+                            row=row_idx,
+                            column=col_idx,
+                            value=value,
+                            data_type=data_type,
+                        ))
+                    all_rows.append(row_values)
 
-            # First row as headers
-            headers = all_rows[0] if all_rows else []
-            data_rows = all_rows[1:] if len(all_rows) > 1 else []
+                # First row as headers
+                headers = all_rows[0] if all_rows else []
+                data_rows = all_rows[1:] if len(all_rows) > 1 else []
 
-            sheets.append(ExtractedSheet(
-                name=sheet_name,
-                index=sheet_idx,
-                headers=headers,
-                rows=data_rows,
-                cells=cells,
-                row_count=len(all_rows),
-                column_count=max_col,
-            ))
+                sheets.append(ExtractedSheet(
+                    name=sheet_name,
+                    index=sheet_idx,
+                    headers=headers,
+                    rows=data_rows,
+                    cells=cells,
+                    row_count=len(all_rows),
+                    column_count=max_col,
+                ))
 
-        wb.close()
+            logger.info(
+                "parse_excel_completed",
+                document_id=document_id,
+                sheets=len(sheets),
+            )
 
-        logger.info(
-            "parse_excel_completed",
-            document_id=document_id,
-            sheets=len(sheets),
-        )
-
-        return ExcelContent(
-            sheets=sheets,
-            sheet_count=len(sheets),
-        )
+            return ExcelContent(
+                sheets=sheets,
+                sheet_count=len(sheets),
+            )
+        finally:
+            wb.close()
 
     def parse_powerpoint(
         self,
