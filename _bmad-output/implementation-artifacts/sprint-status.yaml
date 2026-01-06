@@ -363,7 +363,7 @@ development_status:
   # DEPENDS ON: Epic 19 (Quality Foundation must complete first)
   # See: epic-20-tech-spec.md
   # ==========================================
-  epic-20: in-progress
+  epic-20: done
 
   # --- Group A: Memory Platform (Compete with Mem0) ---
   20-A1-implement-memory-scopes: done
@@ -387,23 +387,23 @@ development_status:
   # Small-to-big retrieval pattern
 
   # --- Group D: Document Intelligence (RAGFlow Approach) ---
-  20-D1-enhance-table-layout-extraction: backlog
-  20-D2-implement-multimodal-ingestion: backlog
+  20-D1-enhance-table-layout-extraction: done
+  20-D2-implement-multimodal-ingestion: done
   # Images, Office docs, formulas
 
   # --- Group E: Advanced Features (Cognee-Inspired) ---
-  20-E1-implement-ontology-support: backlog
-  20-E2-implement-self-improving-feedback-loop: backlog
+  20-E1-implement-ontology-support: done
+  20-E2-implement-self-improving-feedback-loop: done
 
   # --- Group H: Additional Competitive Features ---
   # Origin: Qdrant, RAGFlow competitive analysis
-  20-H1-implement-sparse-vector-search-bm42: backlog
-  20-H2-implement-cross-language-query: backlog
-  20-H3-implement-external-data-source-sync: backlog
+  20-H1-implement-sparse-vector-search-bm42: done
+  20-H2-implement-cross-language-query: done
+  20-H3-implement-external-data-source-sync: done
   # Confluence, S3, Notion, Google Drive, Discord
-  20-H4-implement-voice-io: backlog
-  20-H5-implement-colbert-reranking: backlog
-  20-H6-implement-visual-workflow-editor: backlog
+  20-H4-implement-voice-io: done
+  20-H5-implement-colbert-reranking: done
+  20-H6-implement-visual-workflow-editor: done
 
   epic-20-retrospective: optional
 
