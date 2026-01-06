@@ -373,6 +373,12 @@ class Settings:
     confluence_spaces: str
     notion_api_key: str
     notion_database_ids: str
+    # Story 20-H4 - Voice I/O
+    voice_io_enabled: bool
+    whisper_model: str
+    tts_provider: str
+    tts_voice: str
+    tts_speed: float
 
 
 def load_settings() -> Settings:
@@ -1258,6 +1264,13 @@ def load_settings() -> Settings:
     notion_api_key = os.getenv("NOTION_API_KEY", "")
     notion_database_ids = os.getenv("NOTION_DATABASE_IDS", "")
 
+    # Story 20-H4 - Voice I/O settings
+    voice_io_enabled = get_bool_env("VOICE_IO_ENABLED", "false")
+    whisper_model = os.getenv("WHISPER_MODEL", "base")
+    tts_provider = os.getenv("TTS_PROVIDER", "openai")
+    tts_voice = os.getenv("TTS_VOICE", "alloy")
+    tts_speed = get_float_env("TTS_SPEED", 1.0, min_val=0.25)
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1503,6 +1516,12 @@ def load_settings() -> Settings:
         confluence_spaces=confluence_spaces,
         notion_api_key=notion_api_key,
         notion_database_ids=notion_database_ids,
+        # Story 20-H4 - Voice I/O
+        voice_io_enabled=voice_io_enabled,
+        whisper_model=whisper_model,
+        tts_provider=tts_provider,
+        tts_voice=tts_voice,
+        tts_speed=tts_speed,
     )
 
 
