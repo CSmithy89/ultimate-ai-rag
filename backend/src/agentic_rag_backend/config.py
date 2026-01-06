@@ -379,6 +379,10 @@ class Settings:
     tts_provider: str
     tts_voice: str
     tts_speed: float
+    # Story 20-H5 - ColBERT Reranking
+    colbert_enabled: bool
+    colbert_model: str
+    colbert_max_length: int
 
 
 def load_settings() -> Settings:
@@ -1271,6 +1275,11 @@ def load_settings() -> Settings:
     tts_voice = os.getenv("TTS_VOICE", "alloy")
     tts_speed = get_float_env("TTS_SPEED", 1.0, min_val=0.25)
 
+    # Story 20-H5 - ColBERT Reranking settings
+    colbert_enabled = get_bool_env("COLBERT_ENABLED", "false")
+    colbert_model = os.getenv("COLBERT_MODEL", "colbert-ir/colbertv2.0")
+    colbert_max_length = get_int_env("COLBERT_MAX_LENGTH", 512, min_val=64)
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1522,6 +1531,10 @@ def load_settings() -> Settings:
         tts_provider=tts_provider,
         tts_voice=tts_voice,
         tts_speed=tts_speed,
+        # Story 20-H5 - ColBERT Reranking
+        colbert_enabled=colbert_enabled,
+        colbert_model=colbert_model,
+        colbert_max_length=colbert_max_length,
     )
 
 

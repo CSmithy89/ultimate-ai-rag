@@ -125,6 +125,19 @@ from .cross_language import (
     DEFAULT_CROSS_LANGUAGE_TRANSLATION,
 )
 
+# Epic 20 - ColBERT Reranking (Story 20-H5)
+from .colbert_reranker import (
+    ColBERTResult,
+    TokenEmbeddings,
+    ColBERTEncoder,
+    MaxSimScorer,
+    ColBERTReranker,
+    create_colbert_reranker,
+    DEFAULT_COLBERT_ENABLED,
+    DEFAULT_COLBERT_MODEL,
+    DEFAULT_COLBERT_MAX_LENGTH,
+)
+
 __all__ = [
     # Epic 3 - Graph traversal and vector search
     "GraphEdge",
@@ -226,4 +239,14 @@ __all__ = [
     "DEFAULT_CROSS_LANGUAGE_ENABLED",
     "DEFAULT_CROSS_LANGUAGE_EMBEDDING",
     "DEFAULT_CROSS_LANGUAGE_TRANSLATION",
+    # Epic 20 - ColBERT Reranking
+    "ColBERTResult",
+    "TokenEmbeddings",
+    "ColBERTEncoder",
+    "MaxSimScorer",
+    "ColBERTReranker",
+    "create_colbert_reranker",
+    "DEFAULT_COLBERT_ENABLED",
+    "DEFAULT_COLBERT_MODEL",
+    "DEFAULT_COLBERT_MAX_LENGTH",
 ]
