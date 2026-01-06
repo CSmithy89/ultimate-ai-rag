@@ -12,6 +12,7 @@ Components:
 - SparseVectorAdapter: Feature flag wrapper for sparse vector features
 """
 
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol
 
@@ -152,25 +153,34 @@ class BM42Encoder:
         """
         self._model_name = model_name
         self._model: Any = None  # Lazy initialization
+        self._model_lock = threading.Lock()
 
     def _ensure_model(self) -> None:
-        """Lazily initialize the model on first use."""
+        """Lazily initialize the model on first use.
+
+        Uses double-check locking pattern for thread safety.
+        """
         if self._model is not None:
             return
 
-        try:
-            from fastembed import SparseTextEmbedding
+        with self._model_lock:
+            # Double-check after acquiring lock
+            if self._model is not None:
+                return
 
-            self._model = SparseTextEmbedding(model_name=self._model_name)
-            logger.info(
-                "bm42_encoder_initialized",
-                model_name=self._model_name,
-            )
-        except ImportError as e:
-            raise ImportError(
-                "fastembed is required for BM42 encoding. "
-                "Install with: pip install fastembed"
-            ) from e
+            try:
+                from fastembed import SparseTextEmbedding
+
+                self._model = SparseTextEmbedding(model_name=self._model_name)
+                logger.info(
+                    "bm42_encoder_initialized",
+                    model_name=self._model_name,
+                )
+            except ImportError as e:
+                raise ImportError(
+                    "fastembed is required for BM42 encoding. "
+                    "Install with: pip install fastembed"
+                ) from e
 
     def encode(self, texts: list[str]) -> list[SparseVector]:
         """Encode texts to sparse vectors.

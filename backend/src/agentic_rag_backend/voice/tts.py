@@ -23,6 +23,9 @@ from .models import (
 
 logger = structlog.get_logger(__name__)
 
+# Average speech rate for duration estimation (words per minute)
+DEFAULT_SPEECH_RATE_WPM = 150
+
 
 class TextToSpeech:
     """Text-to-speech generation.
@@ -31,11 +34,19 @@ class TextToSpeech:
     offline/local TTS.
 
     Example:
-        tts = TextToSpeech(provider=TTSProvider.OPENAI, api_key="xxx")
-        result = await tts.synthesize("Hello, world!")
-        with open("output.mp3", "wb") as f:
-            f.write(result.audio_data)
+        async with TextToSpeech(provider=TTSProvider.OPENAI, api_key="xxx") as tts:
+            result = await tts.synthesize("Hello, world!")
+            with open("output.mp3", "wb") as f:
+                f.write(result.audio_data)
     """
+
+    async def __aenter__(self) -> "TextToSpeech":
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Async context manager exit - ensures cleanup."""
+        await self.close()
 
     def __init__(
         self,
@@ -147,9 +158,9 @@ class TextToSpeech:
 
             audio_data = response.content
 
-            # Estimate duration (rough: ~150 words per minute at speed 1.0)
+            # Estimate duration based on average speech rate
             word_count = len(text.split())
-            duration = (word_count / 150) * 60 / speed
+            duration = (word_count / DEFAULT_SPEECH_RATE_WPM) * 60 / speed
 
             return TTSResult(
                 audio_data=audio_data,
@@ -221,9 +232,9 @@ class TextToSpeech:
                     if os.path.exists(temp_path):
                         os.unlink(temp_path)
 
-                # Estimate duration
+                # Estimate duration based on average speech rate
                 word_count = len(text.split())
-                duration = (word_count / 150) * 60 / speed
+                duration = (word_count / DEFAULT_SPEECH_RATE_WPM) * 60 / speed
 
                 return TTSResult(
                     audio_data=audio_data,
@@ -266,7 +277,15 @@ class TextToSpeech:
                 return []
 
     async def close(self) -> None:
-        """Close the TTS client."""
+        """Close the TTS client and cleanup resources."""
         if self._client:
             await self._client.aclose()
             self._client = None
+
+        # Cleanup pyttsx3 engine if initialized
+        if self._pyttsx3_engine is not None:
+            try:
+                self._pyttsx3_engine.stop()
+            except Exception:
+                pass  # Ignore errors during cleanup
+            self._pyttsx3_engine = None

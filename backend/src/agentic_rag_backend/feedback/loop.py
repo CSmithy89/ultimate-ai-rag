@@ -28,6 +28,10 @@ DEFAULT_FEEDBACK_DECAY_DAYS = 90
 DEFAULT_FEEDBACK_BOOST_MAX = 1.5
 DEFAULT_FEEDBACK_BOOST_MIN = 0.5
 
+# Storage limits to prevent memory exhaustion
+MAX_FEEDBACK_PER_TENANT = 10000
+MAX_QUERY_EMBEDDINGS = 5000
+
 
 class EmbeddingProvider(Protocol):
     """Protocol for embedding providers."""
@@ -116,6 +120,16 @@ class FeedbackLoop:
             # Store in tenant's feedback list
             if feedback.tenant_id not in self._feedback_store:
                 self._feedback_store[feedback.tenant_id] = []
+
+            # Enforce per-tenant storage limit (remove oldest if at limit)
+            if len(self._feedback_store[feedback.tenant_id]) >= MAX_FEEDBACK_PER_TENANT:
+                removed = self._feedback_store[feedback.tenant_id].pop(0)
+                logger.debug(
+                    "feedback_evicted_oldest",
+                    tenant_id=feedback.tenant_id,
+                    removed_id=removed.id,
+                )
+
             self._feedback_store[feedback.tenant_id].append(feedback)
 
             # Store in query's feedback list
@@ -433,6 +447,16 @@ class FeedbackLoop:
             return False
 
         try:
+            # Enforce embedding storage limit (remove oldest if at limit)
+            if len(self._query_embeddings) >= MAX_QUERY_EMBEDDINGS:
+                # Remove oldest entry (first key in dict)
+                oldest_key = next(iter(self._query_embeddings))
+                del self._query_embeddings[oldest_key]
+                logger.debug(
+                    "query_embedding_evicted",
+                    removed_query_id=oldest_key,
+                )
+
             embedding = await self._embeddings.embed(query)
             self._query_embeddings[query_id] = embedding
             return True
