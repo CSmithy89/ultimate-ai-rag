@@ -11,7 +11,6 @@ Story 19-G4: Supports configurable score normalization strategies.
 """
 
 import asyncio
-import math
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass

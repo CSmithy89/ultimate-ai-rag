@@ -27,7 +27,6 @@ Performance target: <500ms additional latency for typical documents
 
 import hashlib
 import time
-import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional
 

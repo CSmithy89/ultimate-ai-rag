@@ -30,7 +30,6 @@ from agentic_rag_backend.memory import (
 )
 from agentic_rag_backend.memory.models import (
     ConsolidationRequest,
-    ConsolidationResult,
     ConsolidationStatusResponse,
     DeleteByScopeResponse,
     MemoryListResponse,

@@ -359,6 +359,10 @@ class Settings:
     sparse_model: str
     hybrid_dense_weight: float
     hybrid_sparse_weight: float
+    # Story 20-H2 - Cross-Language Query
+    cross_language_enabled: bool
+    cross_language_embedding: str
+    cross_language_translation: bool
 
 
 def load_settings() -> Settings:
@@ -1226,6 +1230,13 @@ def load_settings() -> Settings:
             hint="Weights should sum to 1.0 for balanced hybrid search",
         )
 
+    # Story 20-H2 - Cross-Language Query settings
+    cross_language_enabled = get_bool_env("CROSS_LANGUAGE_ENABLED", "false")
+    cross_language_embedding = os.getenv(
+        "CROSS_LANGUAGE_EMBEDDING", "intfloat/multilingual-e5-base"
+    )
+    cross_language_translation = get_bool_env("CROSS_LANGUAGE_TRANSLATION", "false")
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1457,6 +1468,10 @@ def load_settings() -> Settings:
         sparse_model=sparse_model,
         hybrid_dense_weight=hybrid_dense_weight,
         hybrid_sparse_weight=hybrid_sparse_weight,
+        # Story 20-H2 - Cross-Language Query
+        cross_language_enabled=cross_language_enabled,
+        cross_language_embedding=cross_language_embedding,
+        cross_language_translation=cross_language_translation,
     )
 
 

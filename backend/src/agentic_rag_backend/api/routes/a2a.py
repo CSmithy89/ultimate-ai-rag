@@ -28,7 +28,6 @@ from ...protocols.a2a import A2ASessionManager
 from ...protocols.a2a_messages import (
     AgentCapability,
     TaskRequest,
-    TaskStatus,
     get_implemented_rag_capabilities,
 )
 from ...protocols.a2a_registry import A2AAgentRegistry

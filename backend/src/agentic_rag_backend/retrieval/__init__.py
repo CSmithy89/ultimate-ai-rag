@@ -113,6 +113,18 @@ from .sparse_vectors import (
     DEFAULT_HYBRID_SPARSE_WEIGHT,
 )
 
+# Epic 20 - Cross-Language Query (Story 20-H2)
+from .cross_language import (
+    LanguageDetector,
+    LanguageDetectionResult,
+    CrossLanguageEmbedding,
+    QueryTranslator,
+    CrossLanguageAdapter,
+    DEFAULT_CROSS_LANGUAGE_ENABLED,
+    DEFAULT_CROSS_LANGUAGE_EMBEDDING,
+    DEFAULT_CROSS_LANGUAGE_TRANSLATION,
+)
+
 __all__ = [
     # Epic 3 - Graph traversal and vector search
     "GraphEdge",
@@ -205,4 +217,13 @@ __all__ = [
     "DEFAULT_SPARSE_MODEL",
     "DEFAULT_HYBRID_DENSE_WEIGHT",
     "DEFAULT_HYBRID_SPARSE_WEIGHT",
+    # Epic 20 - Cross-Language Query
+    "LanguageDetector",
+    "LanguageDetectionResult",
+    "CrossLanguageEmbedding",
+    "QueryTranslator",
+    "CrossLanguageAdapter",
+    "DEFAULT_CROSS_LANGUAGE_ENABLED",
+    "DEFAULT_CROSS_LANGUAGE_EMBEDDING",
+    "DEFAULT_CROSS_LANGUAGE_TRANSLATION",
 ]

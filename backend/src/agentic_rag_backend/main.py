@@ -20,7 +20,7 @@ import structlog
 from .agents.orchestrator import OrchestratorAgent
 from .retrieval import create_reranker_client, get_reranker_adapter
 from .retrieval.grader import create_grader
-from .retrieval.reranking import init_reranker_cache, get_reranker_cache
+from .retrieval.reranking import init_reranker_cache
 from .api.routes import (
     ingest_router,
     knowledge_router,
@@ -49,7 +49,7 @@ from .protocols.a2a_registry import A2AAgentRegistry, RegistryConfig
 from .protocols.a2a_delegation import TaskDelegationManager, DelegationConfig
 from .protocols.a2a_messages import get_implemented_rag_capabilities
 from .memory.consolidation import MemoryConsolidator
-from .memory.scheduler import MemoryConsolidationScheduler, create_consolidation_scheduler
+from .memory.scheduler import create_consolidation_scheduler
 from .rate_limit import InMemoryRateLimiter, RateLimiter, RedisRateLimiter, close_redis
 from .schemas import QueryEnvelope, QueryRequest, QueryResponse, ResponseMeta
 from .trajectory import TrajectoryLogger, close_pool, create_pool
