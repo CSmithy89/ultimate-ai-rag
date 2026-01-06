@@ -77,6 +77,171 @@ Analysis of the CopilotKit Feature Gap Roadmap identified several advanced proto
 
 ---
 
+## Design Decisions & Clarifications
+
+### Open Questions Resolved
+
+| Question | Decision | Rationale |
+|----------|----------|-----------|
+| Agent registration auth? | **Tenant-scoped**: Registration requires valid `X-Tenant-ID` header + API key | Prevents cross-tenant agent pollution |
+| A2A limits persistence? | **Redis**: Use Redis for cross-worker enforcement; fallback to in-memory for dev | Required for multi-instance deployments |
+| Open-JSON-UI spec authority? | **Internal spec**: Define our own based on OpenAI patterns + shadcn components | OpenAI API docs are not a UI spec |
+| MCP-UI origins per tenant? | **Config-based**: Load from `MCP_UI_ALLOWED_ORIGINS` env + tenant config table | Allows tenant-specific allowlists |
+
+### A2A Registration Security
+
+All `/a2a/agents/*` endpoints require:
+1. **Authentication**: Valid API key in `Authorization: Bearer {key}` header
+2. **Tenant scoping**: `X-Tenant-ID` header must match the API key's tenant
+3. **Rate limiting**: Max 10 registrations per minute per tenant
+
+```python
+# backend/src/agentic_rag_backend/api/routes/a2a.py (update)
+@router.post("/a2a/agents/register")
+async def register_agent(
+    agent_info: A2AAgentInfo,
+    tenant_id: str = Depends(get_tenant_id),  # From X-Tenant-ID header
+    api_key: str = Depends(verify_api_key),    # Validates Bearer token
+    middleware: A2AMiddlewareAgent = Depends(get_a2a_middleware),
+) -> dict[str, str]:
+    """Register an agent for A2A collaboration (tenant-scoped)."""
+    # Validate agent belongs to this tenant
+    if not agent_info.agent_id.startswith(f"{tenant_id}:"):
+        raise HTTPException(403, "Agent ID must be prefixed with tenant ID")
+    middleware.register_agent(agent_info)
+    return {"status": "registered", "agent_id": agent_info.agent_id}
+```
+
+### A2A Limits Persistence Strategy
+
+| Environment | Backend | Configuration |
+|-------------|---------|---------------|
+| Development | In-memory | Default, no config needed |
+| Production | Redis | `A2A_LIMITS_BACKEND=redis`, `REDIS_URL` required |
+| High-scale | PostgreSQL | `A2A_LIMITS_BACKEND=postgres` for audit trail |
+
+```python
+# backend/src/agentic_rag_backend/protocols/a2a_limits.py (update)
+class A2AResourceManagerFactory:
+    @staticmethod
+    def create(config: Settings) -> A2AResourceManager:
+        backend = config.a2a_limits_backend
+        if backend == "redis":
+            return RedisA2AResourceManager(config.redis_url, config.a2a_limits)
+        elif backend == "postgres":
+            return PostgresA2AResourceManager(config.database_url, config.a2a_limits)
+        return InMemoryA2AResourceManager(config.a2a_limits)
+```
+
+### AG-UI Error Code Alignment with RFC 7807
+
+All AG-UI error events map to RFC 7807 `AppError` patterns:
+
+| AG-UI Error Code | RFC 7807 Type | HTTP Status |
+|------------------|---------------|-------------|
+| `AGENT_EXECUTION_ERROR` | `/errors/agent-execution` | 500 |
+| `TENANT_REQUIRED` | `/errors/tenant-required` | 401 |
+| `TENANT_UNAUTHORIZED` | `/errors/tenant-unauthorized` | 403 |
+| `RATE_LIMITED` | `/errors/rate-limited` | 429 |
+| `TIMEOUT` | `/errors/timeout` | 504 |
+
+This aligns with existing `AppError` patterns in `backend/src/agentic_rag_backend/core/errors.py`.
+
+### Prometheus Cardinality Strategy
+
+To prevent cardinality explosion from `tenant_id` labels:
+
+1. **Normalization**: Map tenant IDs to integer buckets for high-cardinality metrics
+2. **Sampling**: Only emit per-tenant metrics for top 100 tenants by volume
+3. **Aggregation**: Use `agui_stream_total{status="success"}` without tenant for global dashboards
+
+```python
+# backend/src/agentic_rag_backend/protocols/ag_ui_metrics.py (update)
+def normalize_tenant_id(tenant_id: str) -> str:
+    """Normalize tenant ID to prevent cardinality explosion."""
+    # For metrics, bucket tenants into groups
+    if settings.metrics_tenant_sampling_enabled:
+        bucket = hash(tenant_id) % settings.metrics_tenant_bucket_count
+        return f"bucket_{bucket}"
+    return tenant_id
+```
+
+### Open-JSON-UI Specification (Internal)
+
+Since OpenAI does not provide a formal UI spec, we define our own:
+
+**Version**: `1.0.0-internal`
+**Components**: `text`, `heading`, `code`, `list`, `table`, `image`, `link`, `button`, `card`, `divider`
+
+Schema enforced via Zod on frontend and Pydantic on backend. See Story 22-C2 for full schema.
+
+**Security**: All string content is sanitized via DOMPurify before rendering.
+
+---
+
+## Security Policies
+
+### MCP-UI Security
+
+| Concern | Mitigation |
+|---------|------------|
+| Iframe origin validation | Check against `MCP_UI_ALLOWED_ORIGINS` config |
+| CSP headers | `frame-src 'self' ${allowed_origins}` |
+| Signed URLs | HMAC-SHA256 with TTL (default 5 minutes) |
+| PostMessage validation | Validate `event.data` shape before processing |
+
+**PostMessage Validation:**
+```typescript
+const MCPUIMessageSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("mcp_ui_resize"), width: z.number(), height: z.number() }),
+  z.object({ type: z.literal("mcp_ui_result"), result: z.unknown() }),
+  z.object({ type: z.literal("mcp_ui_error"), error: z.string() }),
+]);
+
+const handleMessage = (event: MessageEvent) => {
+  if (!ALLOWED_ORIGINS.has(event.origin)) return;
+  const parsed = MCPUIMessageSchema.safeParse(event.data);
+  if (!parsed.success) {
+    console.warn("MCP-UI: Invalid message shape", parsed.error);
+    return;
+  }
+  // Process validated message
+};
+```
+
+### Open-JSON-UI Sanitization
+
+All string content is sanitized before rendering:
+
+```typescript
+import DOMPurify from "dompurify";
+
+function sanitizeContent(content: string): string {
+  return DOMPurify.sanitize(content, {
+    ALLOWED_TAGS: ["b", "i", "em", "strong", "code", "br"],
+    ALLOWED_ATTR: [],
+  });
+}
+```
+
+### A2A Resource Manager Lifecycle
+
+The `A2AResourceManager` must be properly wired to app lifecycle:
+
+```python
+# backend/src/agentic_rag_backend/main.py (update)
+@app.on_event("startup")
+async def startup():
+    app.state.a2a_resource_manager = A2AResourceManagerFactory.create(settings)
+    await app.state.a2a_resource_manager.start()
+
+@app.on_event("shutdown")
+async def shutdown():
+    await app.state.a2a_resource_manager.stop()
+```
+
+---
+
 ## Story Groups
 
 ### Group A: A2A Middleware & Collaboration
@@ -203,23 +368,37 @@ class A2AMiddlewareAgent:
         context: dict[str, Any] | None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Invoke an agent's capability via AG-UI protocol."""
-        import httpx
+        # Use pooled client for connection reuse
+        async with self._get_http_client().stream(
+            "POST",
+            endpoint,
+            json={
+                "capability": capability,
+                "input": input_data,
+                "context": context or {},
+            },
+            headers={"Accept": "text/event-stream"},
+            timeout=httpx.Timeout(30.0, connect=5.0),
+        ) as response:
+            async for line in response.aiter_lines():
+                if line.startswith("data: "):
+                    import json
+                    yield json.loads(line[6:])
 
-        async with httpx.AsyncClient() as client:
-            async with client.stream(
-                "POST",
-                endpoint,
-                json={
-                    "capability": capability,
-                    "input": input_data,
-                    "context": context or {},
-                },
-                headers={"Accept": "text/event-stream"},
-            ) as response:
-                async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        import json
-                        yield json.loads(line[6:])
+    def _get_http_client(self) -> httpx.AsyncClient:
+        """Get or create pooled HTTP client."""
+        if not hasattr(self, "_http_client") or self._http_client is None:
+            self._http_client = httpx.AsyncClient(
+                limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+                timeout=httpx.Timeout(30.0, connect=5.0),
+            )
+        return self._http_client
+
+    async def close(self) -> None:
+        """Close the HTTP client pool."""
+        if hasattr(self, "_http_client") and self._http_client:
+            await self._http_client.aclose()
+            self._http_client = None
 
 
 class A2AAgentNotFoundError(Exception):
@@ -615,6 +794,12 @@ ACTIVE_STREAMS = Gauge(
     ["tenant_id"],
 )
 
+STREAM_BYTES = Counter(
+    "agui_stream_bytes_total",
+    "Total bytes streamed via AG-UI",
+    ["tenant_id"],
+)
+
 
 class AGUIMetricsCollector:
     """Collects metrics for AG-UI streams."""
@@ -649,6 +834,10 @@ class AGUIMetricsCollector:
         self.last_event_time = now
         self.event_count += 1
         self.total_bytes += event_bytes
+
+        # Emit bytes counter
+        if event_bytes > 0:
+            STREAM_BYTES.labels(tenant_id=self.tenant_id).inc(event_bytes)
 
     def stream_completed(self, status: str = "success") -> None:
         """Record stream completion."""
@@ -948,12 +1137,13 @@ interface MCPUIRendererProps {
   onResult?: (result: unknown) => void;
 }
 
-// Allowed origins for MCP-UI iframes
-const ALLOWED_ORIGINS = new Set([
-  "https://mcp-ui.example.com",
-  "https://tools.copilotkit.ai",
-  // Add trusted origins here
-]);
+// Load allowed origins from environment config
+const ALLOWED_ORIGINS = new Set(
+  (process.env.NEXT_PUBLIC_MCP_UI_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
 
 export function MCPUIRenderer({ payload, onResult }: MCPUIRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -1505,16 +1695,23 @@ describe("AG-UI Frontend Compliance", () => {
 # Epic 22 - Advanced Protocol Integration
 
 # --- A2A Resource Limits (22-A2) ---
+A2A_LIMITS_BACKEND=memory|redis|postgres  # Default: memory
 A2A_SESSION_LIMIT_PER_TENANT=100
 A2A_MESSAGE_LIMIT_PER_SESSION=1000
 A2A_SESSION_TTL_HOURS=24
 A2A_MESSAGE_RATE_LIMIT=60
 A2A_CLEANUP_INTERVAL_MINUTES=15
 
+# --- AG-UI Metrics (22-B1) ---
+METRICS_TENANT_SAMPLING_ENABLED=true|false  # Default: false
+METRICS_TENANT_BUCKET_COUNT=100  # For cardinality control
+
 # --- MCP-UI (22-C1) ---
 MCP_UI_ENABLED=true|false
 MCP_UI_SIGNING_SECRET=secret-for-signed-urls
 MCP_UI_ALLOWED_ORIGINS=https://mcp-ui.example.com,https://tools.copilotkit.ai
+# Frontend (must match backend):
+NEXT_PUBLIC_MCP_UI_ALLOWED_ORIGINS=https://mcp-ui.example.com,https://tools.copilotkit.ai
 
 # --- Open-JSON-UI (22-C2) ---
 OPEN_JSON_UI_ENABLED=true|false
@@ -1531,6 +1728,10 @@ OPEN_JSON_UI_ENABLED=true|false
 | `prometheus_client` | ^0.x | Metrics export |
 | `jsonpatch` | ^1.x | JSON Patch operations |
 | `zod` | ^3.x | Schema validation |
+| `dompurify` | ^3.x | HTML sanitization for Open-JSON-UI |
+| `@types/dompurify` | ^3.x | TypeScript types |
+| `redis` | ^5.x | A2A limits persistence (production) |
+| `httpx` | ^0.27.x | HTTP client with pooling |
 
 ### Internal Dependencies
 
@@ -1586,6 +1787,70 @@ OPEN_JSON_UI_ENABLED=true|false
 | iframe security bypass | Critical | Low | Strict CSP, origin validation |
 | Open-JSON-UI spec changes | Medium | Low | Pin version, fallback rendering |
 | Prometheus cardinality | Medium | Medium | Label cardinality limits |
+
+---
+
+## Cross-Epic Requirements
+
+### Epic 21 → Epic 22 Dependency Chain
+
+Epic 22 **cannot begin** until these Epic 21 deliverables are complete:
+- **21-C3**: MCP client wired to CopilotRuntime (required for MCP-UI tool discovery)
+- **21-D2**: A2UI widget renderer (required for Open-JSON-UI pattern reuse)
+
+**Mitigation**: Stories 22-A1 and 22-A2 (A2A middleware) have no Epic 21 dependencies and can start immediately.
+
+### .env.example Updates
+
+Both epics must update `.env.example` with all new variables. Create a combined section:
+
+```bash
+# backend/.env.example (append)
+# ===========================================
+# EPIC 21: CopilotKit Full Integration
+# ===========================================
+NEXT_PUBLIC_SHOW_DEV_CONSOLE=false
+MCP_CLIENTS_ENABLED=false
+MCP_CLIENT_SERVERS=[]
+A2UI_ENABLED=true
+COPILOTKIT_TRANSCRIPTION_ENABLED=false
+COPILOTKIT_TTS_ENABLED=false
+
+# ===========================================
+# EPIC 22: Advanced Protocol Integration
+# ===========================================
+A2A_LIMITS_BACKEND=memory
+A2A_SESSION_LIMIT_PER_TENANT=100
+MCP_UI_ENABLED=false
+MCP_UI_ALLOWED_ORIGINS=
+OPEN_JSON_UI_ENABLED=true
+METRICS_TENANT_SAMPLING_ENABLED=false
+```
+
+### Test Infrastructure Requirements
+
+| Infrastructure | Purpose | Setup Story |
+|----------------|---------|-------------|
+| Mock MCP Server | Test MCP client (21-C) | 21-C1 setup task |
+| Mock AG-UI SSE Server | Test streaming (22-B) | 22-B1 setup task |
+| Redis Test Container | Test A2A limits (22-A2) | docker-compose.test.yml |
+| Playwright Fixtures | E2E tests for MCP-UI/A2UI | 22-D2 |
+
+**Playwright Fixtures Needed:**
+```typescript
+// tests/fixtures/mcp-ui-mock.ts
+// Mock MCP-UI iframe server for testing postMessage bridge
+
+// tests/fixtures/sse-mock.ts
+// Mock AG-UI SSE endpoint for stream lifecycle tests
+```
+
+### Ops Runbook Updates
+
+Both epics require ops runbook updates:
+- **Grafana dashboards**: AG-UI metrics (22-B1)
+- **Alerting rules**: Rate limit violations, stream failures
+- **Troubleshooting**: MCP client connection failures, A2A delegation timeouts
 
 ---
 
