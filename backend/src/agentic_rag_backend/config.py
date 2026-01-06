@@ -363,6 +363,16 @@ class Settings:
     cross_language_enabled: bool
     cross_language_embedding: str
     cross_language_translation: bool
+    # Story 20-H3 - External Data Source Sync
+    external_sync_enabled: bool
+    sync_sources: str
+    s3_sync_bucket: str
+    s3_sync_prefix: str
+    confluence_url: str
+    confluence_api_token: str
+    confluence_spaces: str
+    notion_api_key: str
+    notion_database_ids: str
 
 
 def load_settings() -> Settings:
@@ -1237,6 +1247,17 @@ def load_settings() -> Settings:
     )
     cross_language_translation = get_bool_env("CROSS_LANGUAGE_TRANSLATION", "false")
 
+    # Story 20-H3 - External Data Source Sync settings
+    external_sync_enabled = get_bool_env("EXTERNAL_SYNC_ENABLED", "false")
+    sync_sources = os.getenv("SYNC_SOURCES", "")
+    s3_sync_bucket = os.getenv("S3_SYNC_BUCKET", "")
+    s3_sync_prefix = os.getenv("S3_SYNC_PREFIX", "")
+    confluence_url = os.getenv("CONFLUENCE_URL", "")
+    confluence_api_token = os.getenv("CONFLUENCE_API_TOKEN", "")
+    confluence_spaces = os.getenv("CONFLUENCE_SPACES", "")
+    notion_api_key = os.getenv("NOTION_API_KEY", "")
+    notion_database_ids = os.getenv("NOTION_DATABASE_IDS", "")
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1472,6 +1493,16 @@ def load_settings() -> Settings:
         cross_language_enabled=cross_language_enabled,
         cross_language_embedding=cross_language_embedding,
         cross_language_translation=cross_language_translation,
+        # Story 20-H3 - External Data Source Sync
+        external_sync_enabled=external_sync_enabled,
+        sync_sources=sync_sources,
+        s3_sync_bucket=s3_sync_bucket,
+        s3_sync_prefix=s3_sync_prefix,
+        confluence_url=confluence_url,
+        confluence_api_token=confluence_api_token,
+        confluence_spaces=confluence_spaces,
+        notion_api_key=notion_api_key,
+        notion_database_ids=notion_database_ids,
     )
 
 

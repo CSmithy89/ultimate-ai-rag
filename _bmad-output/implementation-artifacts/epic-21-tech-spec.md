@@ -85,6 +85,7 @@ This epic was identified through comprehensive analysis using DeepWiki and Conte
 | CopilotPopup | Alternative floating UI | Not used |
 | CopilotChat | Embedded chat panel | Not used |
 | CopilotTextarea | AI-powered textarea | Not used |
+| useDefaultTool | Catch-all tool handler | Not used → 21-A8 |
 
 ---
 
@@ -877,6 +878,95 @@ export function useDynamicInstructions() {
 
 ---
 
+#### Story 21-A8: Implement useDefaultTool for Catch-All Tool Handling
+
+**Priority:** P2 - LOW
+**Story Points:** 2
+**Owner:** Frontend
+
+**Objective:** Implement `useDefaultTool` as a catch-all handler for unregistered backend tools.
+
+**What `useDefaultTool` Provides:**
+- Catches tool calls that don't have a specific frontend handler
+- Enables graceful handling of backend-defined MCP tools
+- Reduces duplication when many tools share similar handling logic
+- Fallback when specific tool renderers aren't needed
+
+**Implementation:**
+
+```tsx
+// frontend/hooks/use-default-tool.ts (new)
+import { useDefaultTool } from "@copilotkit/react-core";
+import { toast } from "@/hooks/use-toast";
+
+export function useDefaultToolHandler() {
+  useDefaultTool({
+    handler: async ({ name, args }) => {
+      // Log tool call for observability
+      console.log(`[DefaultTool] Executing: ${name}`, args);
+
+      // For backend-only tools, we just need to acknowledge
+      // The actual execution happens on the backend via MCP
+      toast({
+        title: "Tool Executed",
+        description: `${name} completed successfully`,
+      });
+
+      return { success: true, tool: name };
+    },
+    render: ({ name, args, status, result }) => {
+      // Optional: Render a generic tool card for unhandled tools
+      // Falls back to MCPToolCallCard from 21-A3 if not rendering
+      if (status === "Executing") {
+        return (
+          <div className="text-sm text-muted-foreground">
+            Running {name}...
+          </div>
+        );
+      }
+      return null;
+    },
+  });
+}
+```
+
+**Integration in CopilotProvider:**
+```tsx
+// frontend/components/copilot/CopilotProvider.tsx (add)
+import { useDefaultToolHandler } from "@/hooks/use-default-tool";
+
+function CopilotContextProvider() {
+  useCopilotContext();
+  useChatSuggestions();
+  useDefaultToolHandler();  // NEW: Catch-all tool handler
+  return null;
+}
+```
+
+**Use Cases:**
+
+| Scenario | Default Tool Behavior |
+|----------|----------------------|
+| New MCP tool added to backend | Auto-handled without frontend changes |
+| Testing new tools | Quick iteration without frontend deployment |
+| Admin/debug tools | Hidden from specific renderers, still functional |
+| Third-party MCP tools | Works out-of-box when MCP client is enabled |
+
+**Relationship to 21-A3 (Tool Call Visualization):**
+- `useDefaultTool`: Catches tools without specific handlers, provides fallback execution
+- `useRenderToolCall` with wildcard: Renders ANY tool call visually
+- Both can coexist: `useDefaultTool` handles execution, `useRenderToolCall` handles display
+
+**Acceptance Criteria:**
+1. `useDefaultTool` configured in CopilotProvider
+2. All unhandled tools execute via default handler
+3. Toast notification for tool completion
+4. Console logging for debugging
+5. Works with MCP tools from 21-C1
+6. Tests verify default tool handler invocation
+
+---
+
 ### Group B: Observability & Debugging
 
 *Focus: Enable production debugging and analytics*
@@ -974,20 +1064,25 @@ NEXT_PUBLIC_COPILOTKIT_LICENSE_KEY=ck_lic_xxx  # For self-hosted with Inspector
 
 # Dev Console (development only)
 NEXT_PUBLIC_SHOW_DEV_CONSOLE=true  # Show visual debugging console
+
+# Inspector (requires Copilot Cloud subscription or license)
+NEXT_PUBLIC_ENABLE_INSPECTOR=true  # Enable CopilotKit Inspector panel
 ```
 
-**Updated CopilotProvider with showDevConsole:**
+**Updated CopilotProvider with showDevConsole and enableInspector:**
 ```tsx
 // frontend/components/copilot/CopilotProvider.tsx (updated)
 export function CopilotProvider({ children }: CopilotProviderProps) {
   const analytics = useAnalytics();
   const isDev = process.env.NODE_ENV === "development";
+  const inspectorEnabled = process.env.NEXT_PUBLIC_ENABLE_INSPECTOR === "true";
 
   return (
     <CopilotKit
       runtimeUrl="/api/copilotkit"
       publicApiKey={process.env.NEXT_PUBLIC_COPILOTKIT_API_KEY}
       showDevConsole={isDev && process.env.NEXT_PUBLIC_SHOW_DEV_CONSOLE === "true"}
+      enableInspector={inspectorEnabled}  // NEW: Enable Inspector panel
       onError={(errorEvent) => {
         analytics.track("copilot_error", {
           type: errorEvent.type,
@@ -1015,6 +1110,15 @@ export function CopilotProvider({ children }: CopilotProviderProps) {
 - Event timeline visualization
 - State debugging tools
 - Real-time message stream viewer
+
+**What enableInspector Provides:**
+- CopilotKit Inspector panel (requires Copilot Cloud or license)
+- Deep request/response inspection with payload visibility
+- Agent execution timeline with step-by-step breakdown
+- Tool call visualization with input/output
+- Token usage and cost tracking
+- Session replay and debugging
+- Note: Requires `publicApiKey` or `licenseKey` to be configured
 
 **Analytics Hook:**
 ```tsx
@@ -1049,6 +1153,8 @@ export function useAnalytics() {
 8. `onError` handler configured with structured logging
 9. Dev console provides visual debugging in development
 10. Production builds hide dev console
+11. `enableInspector` configurable via environment variable
+12. Inspector panel available when license/API key configured
 
 ---
 
@@ -1208,6 +1314,7 @@ class AGUIEventType(str, Enum):
     # ... existing events ...
     STATE_DELTA = "STATE_DELTA"
     MESSAGES_SNAPSHOT = "MESSAGES_SNAPSHOT"  # NEW
+    CUSTOM_EVENT = "CUSTOM"  # NEW: For application-specific events
 
 class MessagesSnapshotEvent(AGUIEvent):
     """Event for syncing full message history."""
