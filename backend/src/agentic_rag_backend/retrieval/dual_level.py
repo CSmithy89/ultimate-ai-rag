@@ -110,6 +110,7 @@ class DualLevelRetriever:
         self.low_limit = getattr(settings, "dual_level_low_limit", 10)
         self.high_limit = getattr(settings, "dual_level_high_limit", 5)
         self.synthesis_model = getattr(settings, "dual_level_synthesis_model", "gpt-4o-mini")
+        self.synthesis_temperature = getattr(settings, "dual_level_synthesis_temperature", 0.3)
 
     async def retrieve(
         self,
@@ -221,11 +222,37 @@ class DualLevelRetriever:
 
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 
+            weighted_low_results = [
+                LowLevelResult(
+                    id=result.id,
+                    name=result.name,
+                    type=result.type,
+                    content=result.content,
+                    score=round(result.score * effective_low_weight, 3),
+                    source=result.source,
+                    labels=list(result.labels),
+                )
+                for result in low_level_results
+            ]
+            weighted_high_results = [
+                HighLevelResult(
+                    id=result.id,
+                    name=result.name,
+                    summary=result.summary,
+                    keywords=result.keywords,
+                    level=result.level,
+                    entity_count=result.entity_count,
+                    score=round(result.score * effective_high_weight, 3),
+                    entity_ids=result.entity_ids,
+                )
+                for result in high_level_results
+            ]
+
             result = DualLevelResult(
                 query=query,
                 tenant_id=tenant_id,
-                low_level_results=low_level_results,
-                high_level_results=high_level_results,
+                low_level_results=weighted_low_results,
+                high_level_results=weighted_high_results,
                 synthesis=synthesis,
                 confidence=confidence,
                 processing_time_ms=processing_time_ms,
@@ -405,6 +432,15 @@ class DualLevelRetriever:
             return []
 
         try:
+            if self._community_detector:
+                results = await self._semantic_high_level_search(
+                    query=query,
+                    tenant_id=tenant_id,
+                    limit=limit,
+                )
+                if results:
+                    return results
+
             # Query communities with text matching on name, summary, keywords
             query_lower = query.lower()
 
@@ -583,7 +619,7 @@ class DualLevelRetriever:
                         },
                         {"role": "user", "content": prompt},
                     ],
-                    temperature=0.3,
+                    temperature=self.synthesis_temperature,
                     max_tokens=1000,
                 )
 

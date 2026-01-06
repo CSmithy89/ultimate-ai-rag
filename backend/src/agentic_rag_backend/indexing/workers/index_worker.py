@@ -29,11 +29,15 @@ from agentic_rag_backend.db.redis import (
 )
 from agentic_rag_backend.embeddings import EmbeddingGenerator
 from agentic_rag_backend.llm.providers import get_embedding_adapter
-from agentic_rag_backend.indexing.chunker import chunk_document
+from agentic_rag_backend.indexing.chunker import ChunkData, chunk_document
 from agentic_rag_backend.indexing.contextual import (
     ContextualChunkEnricher,
     DocumentContext,
     create_contextual_enricher,
+)
+from agentic_rag_backend.indexing.hierarchical_chunker import (
+    HierarchicalChunker,
+    create_hierarchical_chunker,
 )
 from agentic_rag_backend.indexing.graphiti_ingestion import ingest_document_as_episode
 from agentic_rag_backend.llm import UnsupportedLLMProviderError, get_llm_adapter
@@ -57,6 +61,7 @@ async def process_index_job(
     chunk_size: int,
     chunk_overlap: int,
     contextual_enricher: Optional[ContextualChunkEnricher] = None,
+    hierarchical_chunker: Optional[HierarchicalChunker] = None,
 ) -> None:
     """
     Process a single indexing job.
@@ -84,6 +89,7 @@ async def process_index_job(
         chunk_size: Target chunk size in tokens
         chunk_overlap: Token overlap between chunks
         contextual_enricher: Optional contextual chunk enricher for improved retrieval
+        hierarchical_chunker: Optional hierarchical chunker for small-to-big retrieval
 
     Raises:
         ExtractionError: If indexing fails
@@ -211,18 +217,19 @@ async def process_index_job(
             },
         )
 
-        # Epic 12: Apply contextual enrichment if enabled
-        chunk_texts_for_embedding = []
-        chunk_metadata_list = []
-
+        doc_context = None
         if contextual_enricher:
-            # Create document context for enrichment
             doc_context = DocumentContext(
                 title=metadata_model.title or filename,
                 summary=metadata_model.description,
                 full_content=content,
             )
 
+        # Epic 12: Apply contextual enrichment if enabled
+        chunk_texts_for_embedding = []
+        chunk_metadata_list = []
+
+        if contextual_enricher:
             logger.info(
                 "contextual_enrichment_starting",
                 job_id=str(job_id),
@@ -272,6 +279,100 @@ async def process_index_job(
                 embedding=embedding,  # Embedding from enriched content
                 metadata=metadata,
             )
+
+        if hierarchical_chunker:
+            hierarchical_metadata = {
+                "source_type": source_type,
+                "source_url": metadata_model.source_url,
+                "filename": filename,
+            }
+            hierarchical_result = hierarchical_chunker.chunk_document(
+                content=content,
+                document_id=str(document_id),
+                tenant_id=str(tenant_id),
+                metadata=hierarchical_metadata,
+            )
+
+            embedding_level = hierarchical_chunker.embedding_level
+            embedding_chunks = hierarchical_result.chunks_by_level.get(embedding_level, [])
+            embedding_texts: list[str] = []
+            embedding_metadata_by_id: dict[str, dict[str, object]] = {}
+
+            if embedding_chunks:
+                if contextual_enricher and doc_context:
+                    logger.info(
+                        "hierarchical_contextual_enrichment_starting",
+                        job_id=str(job_id),
+                        chunk_count=len(embedding_chunks),
+                        level=embedding_level,
+                        model=contextual_enricher.get_model(),
+                    )
+                    chunk_data = []
+                    for chunk in embedding_chunks:
+                        chunk_index = chunk.metadata.get("chunk_index", 0)
+                        chunk_data.append(
+                            ChunkData(
+                                content=chunk.content,
+                                chunk_index=chunk_index,
+                                token_count=chunk.token_count,
+                                start_char=chunk.start_char,
+                                end_char=chunk.end_char,
+                            )
+                        )
+                    enriched_chunks = await contextual_enricher.enrich_chunks(
+                        chunk_data,
+                        doc_context,
+                    )
+                    enriched_by_index = {
+                        enriched.chunk_index: enriched
+                        for enriched in enriched_chunks
+                    }
+                    for chunk in embedding_chunks:
+                        chunk_index = chunk.metadata.get("chunk_index", 0)
+                        enriched = enriched_by_index.get(chunk_index)
+                        if enriched:
+                            embedding_texts.append(enriched.enriched_content)
+                            embedding_metadata_by_id[chunk.id] = {
+                                "contextual_enrichment": True,
+                                "context": enriched.context,
+                                "context_generation_ms": enriched.context_generation_ms,
+                            }
+                        else:
+                            embedding_texts.append(chunk.content)
+                else:
+                    embedding_texts = [chunk.content for chunk in embedding_chunks]
+
+            if embedding_texts:
+                embeddings = await embedding_generator.generate_embeddings(
+                    embedding_texts,
+                    tenant_id=str(tenant_id),
+                )
+                for chunk, embedding in zip(embedding_chunks, embeddings):
+                    chunk.embedding = embedding
+                    if chunk.id in embedding_metadata_by_id:
+                        chunk.metadata.update(embedding_metadata_by_id[chunk.id])
+
+            await postgres.delete_hierarchical_chunks_by_document(
+                document_id=document_id,
+                tenant_id=tenant_id,
+            )
+
+            for chunk in hierarchical_result.all_chunks:
+                await postgres.create_hierarchical_chunk(
+                    tenant_id=tenant_id,
+                    document_id=document_id,
+                    chunk_id=chunk.id,
+                    level=chunk.level,
+                    content=chunk.content,
+                    chunk_index=chunk.metadata.get("chunk_index", 0),
+                    token_count=chunk.token_count,
+                    start_char=chunk.start_char,
+                    end_char=chunk.end_char,
+                    parent_id=chunk.parent_id,
+                    child_ids=chunk.child_ids,
+                    embedding=chunk.embedding,
+                    metadata=chunk.metadata,
+                )
 
         ingestion_result = None
         if graphiti_client is None or not graphiti_client.is_connected:
@@ -462,6 +563,13 @@ async def run_index_worker(
 
     # Epic 12: Create contextual enricher if enabled
     contextual_enricher = create_contextual_enricher(settings)
+    hierarchical_chunker = None
+    if settings.hierarchical_chunks_enabled:
+        hierarchical_chunker = create_hierarchical_chunker(
+            level_sizes=settings.hierarchical_chunk_levels,
+            overlap_ratio=settings.hierarchical_overlap_ratio,
+            embedding_level=settings.hierarchical_embedding_level,
+        )
 
     logger.info(
         "index_worker_initialized",
@@ -471,6 +579,7 @@ async def run_index_worker(
         embedding_model=settings.embedding_model,
         contextual_enrichment=settings.contextual_retrieval_enabled,
         contextual_model=settings.contextual_model if settings.contextual_retrieval_enabled else None,
+        hierarchical_chunking=settings.hierarchical_chunks_enabled,
     )
 
     # Consume jobs from stream
@@ -491,6 +600,7 @@ async def run_index_worker(
                 chunk_size=settings.chunk_size,
                 chunk_overlap=settings.chunk_overlap,
                 contextual_enricher=contextual_enricher,
+                hierarchical_chunker=hierarchical_chunker,
             )
         except Exception as e:
             # Log but don't crash the worker

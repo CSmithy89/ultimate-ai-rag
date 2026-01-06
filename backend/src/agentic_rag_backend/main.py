@@ -18,7 +18,17 @@ from starlette.responses import JSONResponse, Response
 import structlog
 
 from .agents.orchestrator import OrchestratorAgent
-from .retrieval import create_reranker_client, get_reranker_adapter
+from .retrieval import (
+    create_reranker_client,
+    create_graph_reranker,
+    get_reranker_adapter,
+    get_graph_reranker_adapter,
+    get_small_to_big_adapter,
+    PostgresHierarchicalChunkStore,
+)
+from .retrieval.dual_level import DualLevelRetriever
+from .retrieval.lazy_rag import LazyRAGRetriever
+from .retrieval.query_router import QueryRouter
 from .retrieval.grader import create_grader
 from .retrieval.reranking import init_reranker_cache
 from .api.routes import (
@@ -37,6 +47,7 @@ from .api.routes import (
     query_router,
     dual_level_router,
 )
+from .mcp_server.routes import router as mcp_server_router
 from .api.routes.ingest import limiter as slowapi_limiter
 from .api.utils import rate_limit_exceeded
 from .config import Settings, load_settings
@@ -113,6 +124,87 @@ def _create_retrieval_enhancements(settings: Settings) -> tuple:
         )
 
     return reranker, grader
+
+
+def _create_small_to_big_adapter(settings: Settings, postgres_client) -> object:
+    if postgres_client is None:
+        return get_small_to_big_adapter(None, settings)
+    chunk_store = PostgresHierarchicalChunkStore(postgres=postgres_client)
+    return get_small_to_big_adapter(chunk_store, settings)
+
+
+def _create_graph_reranker(settings: Settings, neo4j_client, graphiti_client) -> object:
+    if neo4j_client is None:
+        return None
+    adapter = get_graph_reranker_adapter(settings)
+    if not adapter.enabled:
+        return None
+    return create_graph_reranker(
+        adapter=adapter,
+        neo4j_client=neo4j_client,
+        graphiti_client=graphiti_client,
+    )
+
+
+def _create_community_detector(settings: Settings, neo4j_client) -> object:
+    if not settings.community_detection_enabled or neo4j_client is None:
+        return None
+
+    try:
+        from .graph.community import CommunityDetector, CommunityAlgorithm, NETWORKX_AVAILABLE
+    except Exception as exc:  # pragma: no cover - optional dependency path
+        struct_logger.warning("community_detector_import_failed", error=str(exc))
+        return None
+
+    if not NETWORKX_AVAILABLE:
+        struct_logger.warning("community_detector_unavailable", reason="networkx not installed")
+        return None
+
+    algorithm = CommunityAlgorithm.LOUVAIN
+    if settings.community_algorithm == "leiden":
+        algorithm = CommunityAlgorithm.LEIDEN
+
+    try:
+        detector = CommunityDetector(
+            neo4j_client=neo4j_client,
+            llm_client=None,
+            algorithm=algorithm,
+            min_community_size=settings.community_min_size,
+            max_hierarchy_levels=settings.community_max_levels,
+            summary_model=settings.community_summary_model,
+        )
+        return detector
+    except Exception as exc:
+        struct_logger.warning("community_detector_init_failed", error=str(exc))
+        return None
+
+
+def _create_query_router(settings: Settings) -> object:
+    if not settings.query_routing_enabled:
+        return None
+    return QueryRouter(settings)
+
+
+def _create_lazy_rag_retriever(settings: Settings, graphiti_client, neo4j_client, community_detector) -> object:
+    if not settings.lazy_rag_enabled or neo4j_client is None:
+        return None
+    return LazyRAGRetriever(
+        graphiti_client=graphiti_client,
+        neo4j_client=neo4j_client,
+        settings=settings,
+        community_detector=community_detector,
+    )
+
+
+def _create_dual_level_retriever(settings: Settings, graphiti_client, neo4j_client, community_detector) -> object:
+    if not settings.dual_level_retrieval_enabled or neo4j_client is None:
+        return None
+    return DualLevelRetriever(
+        graphiti_client=graphiti_client,
+        neo4j_client=neo4j_client,
+        settings=settings,
+        community_detector=community_detector,
+    )
 
 
 @asynccontextmanager
@@ -251,6 +343,34 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.redis = None
         # Create retrieval enhancements (reranker, grader) if enabled
         reranker, grader = _create_retrieval_enhancements(settings)
+        small_to_big_adapter = _create_small_to_big_adapter(
+            settings,
+            getattr(app.state, "postgres", None),
+        )
+        graph_reranker = _create_graph_reranker(
+            settings,
+            getattr(app.state, "neo4j", None),
+            getattr(app.state, "graphiti", None),
+        )
+        community_detector = _create_community_detector(
+            settings,
+            getattr(app.state, "neo4j", None),
+        )
+        if community_detector:
+            app.state.community_detector = community_detector
+        query_router = _create_query_router(settings)
+        lazy_rag_retriever = _create_lazy_rag_retriever(
+            settings,
+            getattr(app.state, "graphiti", None),
+            getattr(app.state, "neo4j", None),
+            community_detector,
+        )
+        dual_level_retriever = _create_dual_level_retriever(
+            settings,
+            getattr(app.state, "graphiti", None),
+            getattr(app.state, "neo4j", None),
+            community_detector,
+        )
 
         app.state.orchestrator = OrchestratorAgent(
             api_key=llm_adapter.api_key or "",
@@ -263,13 +383,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger=None,
             postgres=getattr(app.state, "postgres", None),
             neo4j=getattr(app.state, "neo4j", None),
+            graphiti_client=getattr(app.state, "graphiti", None),
             embedding_model=settings.embedding_model,
             cost_tracker=getattr(app.state, "cost_tracker", None),
             model_router=getattr(app.state, "model_router", None),
             reranker=reranker,
             reranker_top_k=settings.reranker_top_k,
             grader=grader,
+            small_to_big_adapter=small_to_big_adapter,
+            graph_reranker=graph_reranker,
+            query_router=query_router,
+            lazy_rag_retriever=lazy_rag_retriever,
+            dual_level_retriever=dual_level_retriever,
         )
+        app.state.reranker = reranker
     else:
         pool = create_pool(settings.database_url, settings.db_pool_min, settings.db_pool_max)
         try:
@@ -318,6 +445,34 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         # Create retrieval enhancements (reranker, grader) if enabled
         reranker, grader = _create_retrieval_enhancements(settings)
+        small_to_big_adapter = _create_small_to_big_adapter(
+            settings,
+            getattr(app.state, "postgres", None),
+        )
+        graph_reranker = _create_graph_reranker(
+            settings,
+            getattr(app.state, "neo4j", None),
+            getattr(app.state, "graphiti", None),
+        )
+        community_detector = _create_community_detector(
+            settings,
+            getattr(app.state, "neo4j", None),
+        )
+        if community_detector:
+            app.state.community_detector = community_detector
+        query_router = _create_query_router(settings)
+        lazy_rag_retriever = _create_lazy_rag_retriever(
+            settings,
+            getattr(app.state, "graphiti", None),
+            getattr(app.state, "neo4j", None),
+            community_detector,
+        )
+        dual_level_retriever = _create_dual_level_retriever(
+            settings,
+            getattr(app.state, "graphiti", None),
+            getattr(app.state, "neo4j", None),
+            community_detector,
+        )
 
         app.state.orchestrator = OrchestratorAgent(
             api_key=llm_adapter.api_key or "",
@@ -330,13 +485,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger=app.state.trajectory_logger,
             postgres=getattr(app.state, "postgres", None),
             neo4j=getattr(app.state, "neo4j", None),
+            graphiti_client=getattr(app.state, "graphiti", None),
             embedding_model=settings.embedding_model,
             cost_tracker=getattr(app.state, "cost_tracker", None),
             model_router=getattr(app.state, "model_router", None),
             reranker=reranker,
             reranker_top_k=settings.reranker_top_k,
             grader=grader,
+            small_to_big_adapter=small_to_big_adapter,
+            graph_reranker=graph_reranker,
+            query_router=query_router,
+            lazy_rag_retriever=lazy_rag_retriever,
+            dual_level_retriever=dual_level_retriever,
         )
+        app.state.reranker = reranker
 
     app.state.a2a_manager = A2ASessionManager(
         session_ttl_seconds=settings.a2a_session_ttl_seconds,
@@ -417,6 +579,44 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         tool_timeouts=settings.mcp_tool_timeout_overrides,
         max_timeout_seconds=settings.mcp_tool_max_timeout_seconds,
     )
+
+    # Epic 14: Initialize MCP server (dedicated MCP protocol endpoints)
+    app.state.mcp_server = None
+    try:
+        from .mcp_server.server import MCPServerFactory
+        from .mcp_server.tools import register_graphiti_tools, register_rag_tools
+
+        mcp_server = MCPServerFactory.create_server(
+            name="agentic-rag-mcp",
+            version="1.0.0",
+            enable_auth=True,
+            rate_limit_requests=60,
+            rate_limit_window=60,
+            default_timeout=settings.mcp_tool_timeout_seconds,
+        )
+
+        graphiti_client = getattr(app.state, "graphiti", None)
+        if graphiti_client and getattr(graphiti_client, "is_connected", False):
+            register_graphiti_tools(mcp_server.registry, graphiti_client)
+
+            vector_service = app.state.orchestrator.vector_search_service
+            if vector_service:
+                register_rag_tools(
+                    registry=mcp_server.registry,
+                    graphiti_client=graphiti_client,
+                    vector_service=vector_service,
+                    reranker=app.state.reranker,
+                    retrieval_pipeline=app.state.orchestrator.retrieval_pipeline,
+                )
+
+        app.state.mcp_server = mcp_server
+        struct_logger.info(
+            "mcp_server_initialized",
+            has_graphiti=graphiti_client is not None,
+            has_vector_service=app.state.orchestrator.vector_search_service is not None,
+        )
+    except Exception as e:
+        struct_logger.warning("mcp_server_init_failed", error=str(e))
 
     # Story 20-A2: Initialize memory consolidation
     app.state.memory_consolidator = None
@@ -561,6 +761,7 @@ def create_app() -> FastAPI:
     app.include_router(lazy_rag_router, prefix="/api/v1")  # Epic 20: LazyRAG Pattern
     app.include_router(query_router, prefix="/api/v1")  # Epic 20: Query Routing
     app.include_router(dual_level_router, prefix="/api/v1")  # Epic 20: Dual-Level Retrieval
+    app.include_router(mcp_server_router)  # Epic 14: MCP Server (protocol endpoints)
 
     # Story 19-C5: Mount Prometheus metrics endpoint
     # Note: Settings are loaded fresh here since app.state.settings is set in lifespan

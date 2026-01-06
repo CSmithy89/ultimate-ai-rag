@@ -217,8 +217,9 @@ class EpisodeMentionsReranker(GraphReranker):
             async with self._neo4j.driver.session() as session:
                 result = await session.run(
                     """
-                    MATCH (e:Entity {id: $entity_id, tenant_id: $tenant_id})<-[:MENTIONS]-(ep:Episode)
-                    WHERE ep.created_at >= datetime($cutoff)
+                    MATCH (e:Entity {tenant_id: $tenant_id})<-[:MENTIONS]-(ep:Episode)
+                    WHERE (e.id = $entity_id OR e.uuid = $entity_id)
+                      AND ep.created_at >= datetime($cutoff)
                     RETURN count(DISTINCT ep) as mention_count
                     """,
                     entity_id=entity_id,
@@ -253,7 +254,8 @@ class EpisodeMentionsReranker(GraphReranker):
                 result = await session.run(
                     """
                     MATCH (e:Entity {tenant_id: $tenant_id})<-[:MENTIONS]-(ep:Episode)
-                    WHERE e.id IN $entity_ids AND ep.created_at >= datetime($cutoff)
+                    WHERE (e.id IN $entity_ids OR e.uuid IN $entity_ids)
+                      AND ep.created_at >= datetime($cutoff)
                     RETURN count(DISTINCT ep) as mention_count
                     """,
                     entity_ids=entity_ids,
@@ -270,6 +272,50 @@ class EpisodeMentionsReranker(GraphReranker):
                 error=str(e),
             )
             return 0
+
+    async def _get_mentions_by_entity(
+        self,
+        entity_ids: list[str],
+        tenant_id: str,
+    ) -> dict[str, int]:
+        """Get episode mention counts for each entity ID in a batch."""
+        if not entity_ids:
+            return {}
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=self._episode_window_days)
+        try:
+            async with self._neo4j.driver.session() as session:
+                result = await session.run(
+                    """
+                    MATCH (e:Entity {tenant_id: $tenant_id})<-[:MENTIONS]-(ep:Episode)
+                    WHERE (e.id IN $entity_ids OR e.uuid IN $entity_ids)
+                      AND ep.created_at >= datetime($cutoff)
+                    RETURN e.id AS id, e.uuid AS uuid, count(DISTINCT ep) AS mention_count
+                    """,
+                    entity_ids=entity_ids,
+                    tenant_id=tenant_id,
+                    cutoff=cutoff.isoformat(),
+                )
+                records = await result.data()
+
+            counts: dict[str, int] = {}
+            for record in records:
+                count = int(record.get("mention_count", 0) or 0)
+                entity_id = record.get("id")
+                entity_uuid = record.get("uuid")
+                if entity_id:
+                    counts[str(entity_id)] = count
+                if entity_uuid:
+                    counts[str(entity_uuid)] = count
+            return counts
+        except Exception as e:
+            logger.warning(
+                "batch_episode_count_failed",
+                entity_count=len(entity_ids),
+                tenant_id=tenant_id,
+                error=str(e),
+            )
+            return {}
 
     def _normalize_episode_score(self, mention_count: int) -> float:
         """Normalize episode mentions to 0-1 score.
@@ -292,15 +338,22 @@ class EpisodeMentionsReranker(GraphReranker):
         start_time = time.perf_counter()
         reranked: list[GraphRerankedResult] = []
 
-        # Process each result
+        result_entities_map: list[list[str]] = []
+        all_entity_ids: set[str] = set()
         for result in results:
-            original_score = float(result.get("score", 0.0))
             entity_ids = self._extract_entities(result)
+            result_entities_map.append(entity_ids)
+            all_entity_ids.update(entity_ids)
 
-            if entity_ids:
-                total_mentions = await self._get_total_mentions(entity_ids, tenant_id)
-            else:
-                total_mentions = 0
+        mention_counts = await self._get_mentions_by_entity(
+            list(all_entity_ids),
+            tenant_id,
+        )
+
+        # Process each result
+        for result, entity_ids in zip(results, result_entities_map):
+            original_score = float(result.get("score", 0.0))
+            total_mentions = sum(mention_counts.get(entity_id, 0) for entity_id in entity_ids)
 
             episode_score = self._normalize_episode_score(total_mentions)
             combined_score = (
@@ -451,14 +504,17 @@ class NodeDistanceReranker(GraphReranker):
             async with self._neo4j.driver.session() as session:
                 result = await session.run(
                     """
-                    MATCH (a:Entity {id: $id1, tenant_id: $tenant_id}),
-                          (b:Entity {id: $id2, tenant_id: $tenant_id})
-                    MATCH path = shortestPath((a)-[*..10]-(b))
+                    MATCH (a:Entity {tenant_id: $tenant_id}),
+                          (b:Entity {tenant_id: $tenant_id})
+                    WHERE (a.id = $id1 OR a.uuid = $id1)
+                      AND (b.id = $id2 OR b.uuid = $id2)
+                    MATCH path = shortestPath((a)-[*..$max_distance]-(b))
                     RETURN length(path) as distance
                     """,
                     id1=entity_id_1,
                     id2=entity_id_2,
                     tenant_id=tenant_id,
+                    max_distance=self._max_distance,
                 )
                 record = await result.single()
                 if record:
@@ -489,18 +545,20 @@ class NodeDistanceReranker(GraphReranker):
                     """
                     MATCH (a:Entity {tenant_id: $tenant_id}),
                           (b:Entity {tenant_id: $tenant_id})
-                    WHERE a.id IN $query_ids AND b.id IN $result_ids
-                    MATCH path = shortestPath((a)-[*..10]-(b))
+                    WHERE (a.id IN $query_ids OR a.uuid IN $query_ids)
+                      AND (b.id IN $result_ids OR b.uuid IN $result_ids)
+                    MATCH path = shortestPath((a)-[*..$max_distance]-(b))
                     RETURN min(length(path)) as min_distance
                     """,
                     query_ids=query_entity_ids,
                     result_ids=result_entity_ids,
                     tenant_id=tenant_id,
+                    max_distance=self._max_distance,
                 )
                 record = await result.single()
                 if record and record["min_distance"] is not None:
                     return int(record["min_distance"])
-                return None
+            return None
         except Exception as e:
             logger.debug(
                 "batch_distance_calculation_failed",
@@ -509,6 +567,55 @@ class NodeDistanceReranker(GraphReranker):
                 error=str(e),
             )
             return None
+
+    async def _get_min_distance_map(
+        self,
+        query_entity_ids: list[str],
+        result_entity_ids: list[str],
+        tenant_id: str,
+    ) -> dict[str, int]:
+        """Get minimum distance for each result entity ID."""
+        if not query_entity_ids or not result_entity_ids:
+            return {}
+
+        try:
+            async with self._neo4j.driver.session() as session:
+                result = await session.run(
+                    """
+                    MATCH (a:Entity {tenant_id: $tenant_id}),
+                          (b:Entity {tenant_id: $tenant_id})
+                    WHERE (a.id IN $query_ids OR a.uuid IN $query_ids)
+                      AND (b.id IN $result_ids OR b.uuid IN $result_ids)
+                    MATCH path = shortestPath((a)-[*..$max_distance]-(b))
+                    RETURN b.id AS id, b.uuid AS uuid, min(length(path)) as min_distance
+                    """,
+                    query_ids=query_entity_ids,
+                    result_ids=result_entity_ids,
+                    tenant_id=tenant_id,
+                    max_distance=self._max_distance,
+                )
+                records = await result.data()
+
+            distance_map: dict[str, int] = {}
+            for record in records:
+                distance = record.get("min_distance")
+                if distance is None:
+                    continue
+                entity_id = record.get("id")
+                entity_uuid = record.get("uuid")
+                if entity_id:
+                    distance_map[str(entity_id)] = int(distance)
+                if entity_uuid:
+                    distance_map[str(entity_uuid)] = int(distance)
+            return distance_map
+        except Exception as e:
+            logger.debug(
+                "batch_distance_calculation_failed",
+                query_count=len(query_entity_ids),
+                result_count=len(result_entity_ids),
+                error=str(e),
+            )
+            return {}
 
     def _distance_to_score(self, distance: Optional[int]) -> float:
         """Convert distance to 0-1 score.
@@ -537,18 +644,32 @@ class NodeDistanceReranker(GraphReranker):
         # Extract entities from query
         query_entities = await self._extract_query_entities(query, tenant_id)
 
+        result_entities_map: list[list[str]] = []
+        all_result_ids: set[str] = set()
+        for result in results:
+            entity_ids = self._extract_entities(result)
+            result_entities_map.append(entity_ids)
+            all_result_ids.update(entity_ids)
+
+        distance_map = await self._get_min_distance_map(
+            query_entity_ids=query_entities,
+            result_entity_ids=list(all_result_ids),
+            tenant_id=tenant_id,
+        )
+
         reranked: list[GraphRerankedResult] = []
 
-        for result in results:
+        for result, result_entities in zip(results, result_entities_map):
             original_score = float(result.get("score", 0.0))
-            result_entities = self._extract_entities(result)
 
-            if query_entities and result_entities:
-                min_distance = await self._get_min_distance_batch(
-                    query_entities, result_entities, tenant_id
-                )
-            else:
-                min_distance = None
+            min_distance = None
+            if query_entities and result_entities and distance_map:
+                distances = [
+                    distance_map.get(entity_id)
+                    for entity_id in result_entities
+                    if entity_id in distance_map
+                ]
+                min_distance = min(distances) if distances else None
 
             distance_score = self._distance_to_score(min_distance)
 

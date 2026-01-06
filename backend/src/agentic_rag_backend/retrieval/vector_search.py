@@ -115,6 +115,18 @@ class VectorSearchService:
             self._cache.set(cache_key, hits)
         return hits
 
+    async def generate_embedding(self, query: str, tenant_id: str) -> list[float]:
+        """Generate an embedding for a query using configured provider."""
+        if not self.embedding_generator:
+            raise RuntimeError("Embedding generator not configured")
+        return await self._await_with_timeout(
+            self.embedding_generator.generate_embedding(
+                query,
+                tenant_id=tenant_id,
+            ),
+            "vector_search_embedding_timeout",
+        )
+
     async def _await_with_timeout(self, awaitable, event: str):
         if self.timeout_seconds <= 0:
             return await awaitable

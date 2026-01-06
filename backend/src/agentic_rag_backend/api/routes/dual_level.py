@@ -272,6 +272,7 @@ async def get_dual_level_status(
         low_limit=settings.dual_level_low_limit,
         high_limit=settings.dual_level_high_limit,
         synthesis_model=settings.dual_level_synthesis_model,
+        synthesis_temperature=settings.dual_level_synthesis_temperature,
         graphiti_available=graphiti_available,
         community_detection_available=community_available,
     )

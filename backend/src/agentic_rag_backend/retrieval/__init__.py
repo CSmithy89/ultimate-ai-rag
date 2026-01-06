@@ -4,6 +4,7 @@
 from .graph_traversal import GraphTraversalService
 from .types import GraphEdge, GraphNode, GraphPath, GraphTraversalResult, VectorHit
 from .vector_search import VectorSearchService
+from .pipeline import RetrievalPipeline, VectorSearchResult, HybridRetrievalResult
 
 # Epic 5 - Graphiti Integration
 from .graphiti_retrieval import (
@@ -98,6 +99,7 @@ from .small_to_big import (
     SmallToBigAdapter,
     get_small_to_big_adapter,
 )
+from .hierarchical_store import PostgresHierarchicalChunkStore
 
 # Epic 20 - Sparse Vector Search (Story 20-H1)
 from .sparse_vectors import (
@@ -147,6 +149,9 @@ __all__ = [
     "GraphTraversalService",
     "VectorHit",
     "VectorSearchService",
+    "RetrievalPipeline",
+    "VectorSearchResult",
+    "HybridRetrievalResult",
     # Epic 5 - Hybrid retrieval
     "graphiti_search",
     "GraphitiSearchResult",
@@ -219,6 +224,7 @@ __all__ = [
     "SmallToBigRetriever",
     "SmallToBigAdapter",
     "get_small_to_big_adapter",
+    "PostgresHierarchicalChunkStore",
     # Epic 20 - Sparse Vector Search
     "SparseVector",
     "BM42Encoder",

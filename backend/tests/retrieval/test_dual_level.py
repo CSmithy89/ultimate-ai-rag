@@ -697,6 +697,7 @@ class TestDualLevelModels:
             low_limit=10,
             high_limit=5,
             synthesis_model="gpt-4o-mini",
+            synthesis_temperature=0.3,
             graphiti_available=True,
             community_detection_available=True,
         )
@@ -705,6 +706,7 @@ class TestDualLevelModels:
         assert status.graphiti_available is True
         assert status.community_detection_available is True
         assert status.synthesis_model == "gpt-4o-mini"
+        assert status.synthesis_temperature == 0.3
 
 
 class TestDualLevelSynthesis:

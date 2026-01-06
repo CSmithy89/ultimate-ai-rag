@@ -330,6 +330,7 @@ class Settings:
     dual_level_low_limit: int
     dual_level_high_limit: int
     dual_level_synthesis_model: str
+    dual_level_synthesis_temperature: float
     # Story 20-C3 - Parent-Child Chunk Hierarchy
     hierarchical_chunks_enabled: bool
     hierarchical_chunk_levels: list[int]
@@ -1145,6 +1146,12 @@ def load_settings() -> Settings:
     dual_level_low_limit = get_int_env("DUAL_LEVEL_LOW_LIMIT", 10, min_val=1)
     dual_level_high_limit = get_int_env("DUAL_LEVEL_HIGH_LIMIT", 5, min_val=1)
     dual_level_synthesis_model = os.getenv("DUAL_LEVEL_SYNTHESIS_MODEL", "gpt-4o-mini")
+    dual_level_synthesis_temperature = get_float_env(
+        "DUAL_LEVEL_SYNTHESIS_TEMPERATURE",
+        0.3,
+        min_val=0.0,
+    )
+    dual_level_synthesis_temperature = max(0.0, min(2.0, dual_level_synthesis_temperature))
 
     # Story 20-C3 - Parent-Child Chunk Hierarchy settings
     hierarchical_chunks_enabled = get_bool_env("HIERARCHICAL_CHUNKS_ENABLED", "false")
@@ -1491,6 +1498,7 @@ def load_settings() -> Settings:
         dual_level_low_limit=dual_level_low_limit,
         dual_level_high_limit=dual_level_high_limit,
         dual_level_synthesis_model=dual_level_synthesis_model,
+        dual_level_synthesis_temperature=dual_level_synthesis_temperature,
         # Story 20-C3 - Parent-Child Chunk Hierarchy
         hierarchical_chunks_enabled=hierarchical_chunks_enabled,
         hierarchical_chunk_levels=hierarchical_chunk_levels,

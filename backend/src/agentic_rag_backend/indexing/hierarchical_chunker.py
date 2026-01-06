@@ -44,6 +44,7 @@ ENCODING = tiktoken.get_encoding("cl100k_base")
 DEFAULT_LEVEL_SIZES = [256, 512, 1024, 2048]
 DEFAULT_OVERLAP_RATIO = 0.1
 DEFAULT_EMBEDDING_LEVEL = 0
+MAX_OVERLAP_PROBE_CHARS = 2000
 
 
 @dataclass
@@ -422,8 +423,11 @@ class HierarchicalChunker:
         parent_index = 0
 
         for child in child_chunks:
+            projected_children = current_children + [child]
+            projected_tokens = self._estimate_combined_tokens(projected_children)
+
             # Check if adding this child would exceed target size
-            if current_tokens + child.token_count > target_size and current_children:
+            if projected_tokens > target_size and current_children:
                 # Create parent from accumulated children
                 parent = self._create_parent_chunk(
                     children=current_children,
@@ -438,10 +442,10 @@ class HierarchicalChunker:
 
                 # Start new accumulation
                 current_children = [child]
-                current_tokens = child.token_count
+                current_tokens = self._estimate_combined_tokens(current_children)
             else:
-                current_children.append(child)
-                current_tokens += child.token_count
+                current_children = projected_children
+                current_tokens = projected_tokens
 
         # Handle remaining children
         if current_children:
@@ -479,15 +483,15 @@ class HierarchicalChunker:
         Returns:
             Parent chunk containing combined content
         """
-        # Combine content from children
-        combined_content = " ".join(child.content for child in children)
+        # Combine content from children while trimming overlaps
+        combined_content = self._merge_child_contents(children)
 
         # Calculate positions from children
         start_char = children[0].start_char if children else 0
         end_char = children[-1].end_char if children else 0
 
-        # Calculate token count
-        token_count = sum(child.token_count for child in children)
+        # Calculate token count based on merged content
+        token_count = len(ENCODING.encode(combined_content))
 
         chunk_id = self._generate_chunk_id(
             document_id=document_id,
@@ -513,6 +517,32 @@ class HierarchicalChunker:
                 "child_count": len(children),
             },
         )
+
+    def _merge_child_contents(self, children: list[HierarchicalChunk]) -> str:
+        """Merge child chunk contents while removing overlaps."""
+        if not children:
+            return ""
+        merged = children[0].content
+        for child in children[1:]:
+            overlap = self._find_overlap(merged, child.content)
+            if overlap > 0:
+                merged = f"{merged}{child.content[overlap:]}"
+            else:
+                merged = f"{merged} {child.content}"
+        return merged.strip()
+
+    def _find_overlap(self, left: str, right: str) -> int:
+        """Find the length of the largest suffix/prefix overlap."""
+        max_probe = min(len(left), len(right), MAX_OVERLAP_PROBE_CHARS)
+        for size in range(max_probe, 0, -1):
+            if left.endswith(right[:size]):
+                return size
+        return 0
+
+    def _estimate_combined_tokens(self, children: list[HierarchicalChunk]) -> int:
+        """Estimate combined token count for a group of children."""
+        combined_content = self._merge_child_contents(children)
+        return len(ENCODING.encode(combined_content)) if combined_content else 0
 
     def _link_parent_children(
         self,

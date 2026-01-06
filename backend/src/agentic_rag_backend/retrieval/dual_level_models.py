@@ -116,6 +116,7 @@ class DualLevelStatusResponse(BaseModel):
     low_limit: int = Field(..., description="Default low-level limit")
     high_limit: int = Field(..., description="Default high-level limit")
     synthesis_model: str = Field(..., description="LLM model for synthesis")
+    synthesis_temperature: float = Field(..., description="LLM temperature for synthesis")
     graphiti_available: bool = Field(
         ..., description="Whether Graphiti is available for low-level"
     )
