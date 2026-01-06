@@ -60,6 +60,8 @@ dependencies = [
   "apscheduler>=3.10.0",
   # Story 20-B1 - Community Detection (Graph Intelligence)
   "networkx>=3.0",
+  # Story 20-H1 - Sparse Vector Search (BM42)
+  "fastembed>=0.3.0",
 ]
 
 [project.scripts]

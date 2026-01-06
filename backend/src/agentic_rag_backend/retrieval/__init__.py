@@ -99,6 +99,20 @@ from .small_to_big import (
     get_small_to_big_adapter,
 )
 
+# Epic 20 - Sparse Vector Search (Story 20-H1)
+from .sparse_vectors import (
+    SparseVector,
+    BM42Encoder,
+    HybridVectorSearch,
+    HybridSearchResult,
+    SparseVectorAdapter,
+    DenseSearchProtocol,
+    DEFAULT_SPARSE_VECTORS_ENABLED,
+    DEFAULT_SPARSE_MODEL,
+    DEFAULT_HYBRID_DENSE_WEIGHT,
+    DEFAULT_HYBRID_SPARSE_WEIGHT,
+)
+
 __all__ = [
     # Epic 3 - Graph traversal and vector search
     "GraphEdge",
@@ -180,4 +194,15 @@ __all__ = [
     "SmallToBigRetriever",
     "SmallToBigAdapter",
     "get_small_to_big_adapter",
+    # Epic 20 - Sparse Vector Search
+    "SparseVector",
+    "BM42Encoder",
+    "HybridVectorSearch",
+    "HybridSearchResult",
+    "SparseVectorAdapter",
+    "DenseSearchProtocol",
+    "DEFAULT_SPARSE_VECTORS_ENABLED",
+    "DEFAULT_SPARSE_MODEL",
+    "DEFAULT_HYBRID_DENSE_WEIGHT",
+    "DEFAULT_HYBRID_SPARSE_WEIGHT",
 ]

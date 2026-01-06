@@ -354,6 +354,11 @@ class Settings:
     feedback_decay_days: int
     feedback_boost_max: float
     feedback_boost_min: float
+    # Story 20-H1 - Sparse Vector Search (BM42)
+    sparse_vectors_enabled: bool
+    sparse_model: str
+    hybrid_dense_weight: float
+    hybrid_sparse_weight: float
 
 
 def load_settings() -> Settings:
@@ -1203,6 +1208,24 @@ def load_settings() -> Settings:
     feedback_boost_max = max(1.0, min(1.5, feedback_boost_max))
     feedback_boost_min = max(0.5, min(1.0, feedback_boost_min))
 
+    # Story 20-H1 - Sparse Vector Search (BM42) settings
+    sparse_vectors_enabled = get_bool_env("SPARSE_VECTORS_ENABLED", "false")
+    sparse_model = os.getenv(
+        "SPARSE_MODEL", "Qdrant/bm42-all-minilm-l6-v2-attentions"
+    )
+    hybrid_dense_weight = get_float_env("HYBRID_DENSE_WEIGHT", 0.7, min_val=0.0)
+    hybrid_sparse_weight = get_float_env("HYBRID_SPARSE_WEIGHT", 0.3, min_val=0.0)
+    # Validate that weights sum to 1.0 (with tolerance for floating point)
+    weight_sum = hybrid_dense_weight + hybrid_sparse_weight
+    if abs(weight_sum - 1.0) > 0.01:
+        logger.warning(
+            "hybrid_weights_not_normalized",
+            dense_weight=hybrid_dense_weight,
+            sparse_weight=hybrid_sparse_weight,
+            sum=weight_sum,
+            hint="Weights should sum to 1.0 for balanced hybrid search",
+        )
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1429,6 +1452,11 @@ def load_settings() -> Settings:
         feedback_decay_days=feedback_decay_days,
         feedback_boost_max=feedback_boost_max,
         feedback_boost_min=feedback_boost_min,
+        # Story 20-H1 - Sparse Vector Search (BM42)
+        sparse_vectors_enabled=sparse_vectors_enabled,
+        sparse_model=sparse_model,
+        hybrid_dense_weight=hybrid_dense_weight,
+        hybrid_sparse_weight=hybrid_sparse_weight,
     )
 
 
