@@ -405,3 +405,79 @@ development_status:
   20-H6-implement-visual-workflow-editor: backlog
 
   epic-20-retrospective: optional
+
+  # ==========================================
+  # Epic 21: CopilotKit Full Integration
+  # ORIGIN: Party Mode Deep Dive Analysis (2026-01-06)
+  # RESEARCH: DeepWiki + Context7 CopilotKit repository analysis
+  # GAPS FOUND: A2UI, MCP Client, Modern Hooks, Observability
+  # See: epic-21-tech-spec.md
+  # ==========================================
+  epic-21: backlog
+
+  # --- Group A: Modern Hook Migration (Tech Debt) ---
+  21-A1-migrate-to-usefrontendtool-pattern: backlog
+  # Replace deprecated useCopilotAction with handler to useFrontendTool
+  21-A2-migrate-to-usehumanintheloop-pattern: backlog
+  # Replace deprecated useCopilotAction with render to useHumanInTheLoop
+  21-A3-implement-tool-call-visualization: backlog
+  # Add useRenderToolCall for MCP tool call visibility
+
+  # --- Group B: Observability & Debugging ---
+  21-B1-configure-observability-hooks: backlog
+  # Wire all observabilityHooks to analytics pipeline
+  21-B2-add-run-error-event-support: backlog
+  # Emit RUN_ERROR instead of embedding errors in text
+  21-B3-implement-state-delta-support: backlog
+  # Add STATE_DELTA for incremental JSON Patch updates
+
+  # --- Group C: MCP Client Integration ---
+  21-C1-implement-mcp-client-configuration: backlog
+  # Add MCP_CLIENT_SERVERS env + config models
+  21-C2-implement-mcp-client-factory: backlog
+  # Create MCPClient + MCPClientFactory with retry/timeout
+  21-C3-wire-mcp-client-to-copilotruntime: backlog
+  # Merge external tools into unified registry
+
+  # --- Group D: A2UI Widget Rendering ---
+  21-D1-enable-a2ui-support: backlog
+  # Backend A2UI widget emission via STATE_SNAPSHOT
+  21-D2-implement-a2ui-widget-renderer: backlog
+  # Frontend A2UI components (card, table, chart, form, list, image)
+
+  epic-21-retrospective: optional
+
+  # ==========================================
+  # Epic 22: Advanced Protocol Integration
+  # ORIGIN: Party Mode Deep Dive Analysis (2026-01-06)
+  # DEPENDS ON: Epic 21 (CopilotKit Full Integration)
+  # FEATURES: A2A Middleware, AG-UI Telemetry, Resource Limits, MCP-UI, Open-JSON-UI
+  # See: epic-22-tech-spec.md
+  # ==========================================
+  epic-22: backlog
+
+  # --- Group A: A2A Middleware & Collaboration ---
+  22-A1-implement-a2a-middleware-agent: backlog
+  # A2AMiddlewareAgent for agent delegation and discovery
+  22-A2-implement-a2a-session-resource-limits: backlog
+  # Per-tenant session/message caps, rate limiting
+
+  # --- Group B: AG-UI Telemetry & Error Handling ---
+  22-B1-implement-agui-stream-metrics: backlog
+  # Prometheus metrics: stream_started, completed, event_emitted, duration, latency
+  22-B2-implement-extended-agui-error-events: backlog
+  # Full error taxonomy: RATE_LIMITED, TIMEOUT, CAPABILITY_NOT_FOUND, etc.
+
+  # --- Group C: MCP-UI & Open-JSON-UI Rendering ---
+  22-C1-implement-mcp-ui-renderer: backlog
+  # Iframe sandbox, origin allowlist, postMessage bridge
+  22-C2-implement-open-json-ui-renderer: backlog
+  # OpenAI-style declarative UI: text, heading, code, table, image, button, etc.
+
+  # --- Group D: Protocol Polish & Documentation ---
+  22-D1-create-protocol-integration-guide: backlog
+  # Comprehensive docs: AG-UI, A2A, MCP, A2UI, MCP-UI, Open-JSON-UI
+  22-D2-implement-protocol-compliance-tests: backlog
+  # Contract tests for all protocol interfaces
+
+  epic-22-retrospective: optional
