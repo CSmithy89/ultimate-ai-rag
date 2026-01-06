@@ -25,8 +25,10 @@ Configuration:
 - LAZY_RAG_SUMMARY_MODEL: LLM model for summaries (default: gpt-4o-mini)
 """
 
+import asyncio
 import re
 import time
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 import structlog
@@ -45,6 +47,26 @@ from .lazy_rag_models import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Safe hop patterns for Cypher queries (prevents injection via max_hops)
+# Keys are validated max_hops values (1-5), values are Cypher path patterns
+_SAFE_HOP_PATTERNS: dict[int, str] = {
+    1: "[*1..1]",
+    2: "[*1..2]",
+    3: "[*1..3]",
+    4: "[*1..4]",
+    5: "[*1..5]",
+}
+
+# Default timeout for LLM API calls in seconds
+LLM_CALL_TIMEOUT_SECONDS = 30.0
+
+# Context formatting limits (for LLM prompt context window management)
+MAX_ENTITIES_IN_CONTEXT = 50
+MAX_RELATIONSHIPS_IN_CONTEXT = 50
+MAX_ENTITY_DESCRIPTION_LENGTH = 200
+MAX_RELATIONSHIP_FACT_LENGTH = 100
+LOG_QUERY_TRUNCATE_LENGTH = 50
 
 
 # Summary prompt template
@@ -107,6 +129,24 @@ class LazyRAGRetriever:
         self.max_hops = getattr(settings, "lazy_rag_max_hops", 2)
         self.use_communities = getattr(settings, "lazy_rag_use_communities", True)
         self.summary_model = getattr(settings, "lazy_rag_summary_model", "gpt-4o-mini")
+
+        # Circuit breaker state for Graphiti failures
+        self._graphiti_circuit_open_until: Optional[datetime] = None
+        self._graphiti_failure_count: int = 0
+        self._graphiti_circuit_threshold: int = 3  # failures before opening circuit
+        self._graphiti_circuit_timeout: int = 30  # seconds to keep circuit open
+
+    def _maybe_open_circuit_breaker(self) -> None:
+        """Open circuit breaker if failure threshold reached."""
+        if self._graphiti_failure_count >= self._graphiti_circuit_threshold:
+            self._graphiti_circuit_open_until = datetime.now() + timedelta(
+                seconds=self._graphiti_circuit_timeout
+            )
+            logger.warning(
+                "graphiti_circuit_breaker_opened",
+                failure_count=self._graphiti_failure_count,
+                open_until=self._graphiti_circuit_open_until.isoformat(),
+            )
 
     async def query(
         self,
@@ -306,6 +346,9 @@ class LazyRAGRetriever:
         Uses Graphiti's integrated semantic + BM25 + graph search to find
         the most relevant entities for the query.
 
+        Implements circuit breaker pattern to avoid repeated failures
+        when Graphiti is unhealthy.
+
         Args:
             query: Natural language query
             tenant_id: Tenant identifier (used as group_id)
@@ -328,12 +371,25 @@ class LazyRAGRetriever:
             )
             return await self._fallback_seed_search(query, tenant_id, num_results)
 
+        # Check circuit breaker - skip Graphiti if circuit is open
+        if self._graphiti_circuit_open_until and datetime.now() < self._graphiti_circuit_open_until:
+            logger.debug(
+                "graphiti_circuit_breaker_open",
+                open_until=self._graphiti_circuit_open_until.isoformat(),
+                hint="Using fallback due to recent failures",
+            )
+            return await self._fallback_seed_search(query, tenant_id, num_results)
+
         try:
             search_result = await self._graphiti.client.search(
                 query=query,
                 group_ids=[tenant_id],
                 num_results=num_results,
             )
+
+            # Success - reset circuit breaker
+            self._graphiti_failure_count = 0
+            self._graphiti_circuit_open_until = None
 
             entities = []
             for node in getattr(search_result, "nodes", []):
@@ -350,15 +406,51 @@ class LazyRAGRetriever:
             logger.debug(
                 "seed_entities_found",
                 count=len(entities),
-                query=query[:50],
+                query=query[:LOG_QUERY_TRUNCATE_LENGTH],
             )
 
             return entities
 
+        except asyncio.TimeoutError:
+            logger.warning(
+                "graphiti_search_timeout",
+                query=query[:LOG_QUERY_TRUNCATE_LENGTH],
+                hint="Falling back to direct Neo4j search",
+            )
+            return await self._fallback_seed_search(query, tenant_id, num_results)
+
+        except (ConnectionError, OSError) as e:
+            # Network-related errors: ConnectionRefusedError, ConnectionResetError, etc.
+            self._graphiti_failure_count += 1
+            self._maybe_open_circuit_breaker()
+            logger.warning(
+                "graphiti_connection_error",
+                error=str(e),
+                error_type=type(e).__name__,
+                failure_count=self._graphiti_failure_count,
+                hint="Falling back to direct Neo4j search",
+            )
+            return await self._fallback_seed_search(query, tenant_id, num_results)
+
+        except ValueError as e:
+            # Invalid parameters or data format issues
+            logger.warning(
+                "graphiti_search_value_error",
+                error=str(e),
+                query=query[:LOG_QUERY_TRUNCATE_LENGTH],
+                hint="Falling back to direct Neo4j search",
+            )
+            return await self._fallback_seed_search(query, tenant_id, num_results)
+
         except Exception as e:
+            # Unexpected errors - track for circuit breaker
+            self._graphiti_failure_count += 1
+            self._maybe_open_circuit_breaker()
             logger.warning(
                 "graphiti_search_failed",
                 error=str(e),
+                error_type=type(e).__name__,
+                failure_count=self._graphiti_failure_count,
                 hint="Falling back to direct Neo4j search",
             )
             return await self._fallback_seed_search(query, tenant_id, num_results)
@@ -486,12 +578,15 @@ class LazyRAGRetriever:
                 hint="Using standard Cypher for expansion",
             )
             try:
+                # Use safe hop pattern lookup to prevent Cypher injection
+                # max_hops is validated to 1-5 range by Pydantic models
+                hop_pattern = _SAFE_HOP_PATTERNS.get(max_hops, "[*1..2]")
                 async with self._neo4j.driver.session() as session:
                     expansion_result = await session.run(
                         f"""
                         MATCH (seed:Entity {{tenant_id: $tenant_id}})
                         WHERE seed.id IN $seed_ids
-                        MATCH path = (seed)-[*1..{max_hops}]-(related:Entity {{tenant_id: $tenant_id}})
+                        MATCH path = (seed)-{hop_pattern}-(related:Entity {{tenant_id: $tenant_id}})
                         WITH DISTINCT related
                         RETURN related.id AS id, related.name AS name, related.type AS type,
                                related.description AS description, related.summary AS summary
@@ -698,18 +793,34 @@ class LazyRAGRetriever:
             if llm_adapter.provider in OPENAI_COMPATIBLE_LLM_PROVIDERS:
                 client = AsyncOpenAI(**llm_adapter.openai_kwargs())
 
-                response = await client.chat.completions.create(
-                    model=self.summary_model,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "You are a knowledge graph analyst providing accurate, concise answers based on graph data.",
-                        },
-                        {"role": "user", "content": prompt},
-                    ],
-                    temperature=0.3,
-                    max_tokens=1000,
-                )
+                # Wrap LLM call with timeout to prevent indefinite blocking
+                try:
+                    response = await asyncio.wait_for(
+                        client.chat.completions.create(
+                            model=self.summary_model,
+                            messages=[
+                                {
+                                    "role": "system",
+                                    "content": "You are a knowledge graph analyst providing accurate, concise answers based on graph data.",
+                                },
+                                {"role": "user", "content": prompt},
+                            ],
+                            temperature=0.3,
+                            max_tokens=1000,
+                        ),
+                        timeout=LLM_CALL_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(
+                        "llm_call_timeout",
+                        timeout_seconds=LLM_CALL_TIMEOUT_SECONDS,
+                        model=self.summary_model,
+                    )
+                    return SummaryResult(
+                        text=f"Summary generation timed out after {LLM_CALL_TIMEOUT_SECONDS}s. Based on {len(entities)} entities found.",
+                        confidence=0.3,
+                        missing_info="LLM summary timed out",
+                    )
 
                 summary_text = response.choices[0].message.content or ""
 
@@ -766,9 +877,9 @@ class LazyRAGRetriever:
             Formatted entity string
         """
         lines = []
-        for e in entities[:50]:  # Limit to 50 for context window
+        for e in entities[:MAX_ENTITIES_IN_CONTEXT]:
             desc = e.description or e.summary or "No description"
-            lines.append(f"- {e.name} ({e.type}): {desc[:200]}")
+            lines.append(f"- {e.name} ({e.type}): {desc[:MAX_ENTITY_DESCRIPTION_LENGTH]}")
         return "\n".join(lines) if lines else "No entities found."
 
     def _format_relationships(self, relationships: list[LazyRAGRelationship]) -> str:
@@ -781,8 +892,8 @@ class LazyRAGRetriever:
             Formatted relationship string
         """
         lines = []
-        for r in relationships[:50]:  # Limit to 50 for context window
-            fact_text = f" - {r.fact[:100]}" if r.fact else ""
+        for r in relationships[:MAX_RELATIONSHIPS_IN_CONTEXT]:
+            fact_text = f" - {r.fact[:MAX_RELATIONSHIP_FACT_LENGTH]}" if r.fact else ""
             lines.append(f"- [{r.source_id}] --{r.type}--> [{r.target_id}]{fact_text}")
         return "\n".join(lines) if lines else "No relationships found."
 

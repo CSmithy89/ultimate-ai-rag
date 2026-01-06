@@ -14,8 +14,11 @@ the system to answer abstract questions using community summaries while
 providing precise entity-level answers for specific questions.
 """
 
+import hashlib
 import re
 import time
+from collections import OrderedDict
+from dataclasses import dataclass
 from typing import Optional, Pattern
 
 import structlog
@@ -27,11 +30,27 @@ from .query_router_models import QueryType, RoutingDecision
 
 logger = structlog.get_logger(__name__)
 
+# Maximum query length for routing to prevent DoS via expensive regex operations
+MAX_QUERY_LENGTH = 10000
+
+# LRU Cache settings for routing decisions
+ROUTING_CACHE_MAX_SIZE = 1000  # Maximum number of cached entries
+ROUTING_CACHE_TTL_SECONDS = 300  # 5 minutes TTL for cached decisions
+
+
+@dataclass
+class _CacheEntry:
+    """Cache entry for routing decisions with TTL."""
+
+    decision: RoutingDecision
+    timestamp: float
+
 
 # Compiled regex patterns for rule-based classification
 # Patterns are compiled once at module load for performance (<10ms per query)
 
 # Global patterns indicate need for corpus-wide understanding
+# Note: Use non-greedy .{0,N}? to prevent ReDoS while matching across words
 GLOBAL_PATTERNS: list[Pattern[str]] = [
     # Theme/topic patterns
     re.compile(r"\b(what|which)\s+(are|is)\s+the\s+(main|primary|key|overall|central)\b", re.IGNORECASE),
@@ -41,18 +60,19 @@ GLOBAL_PATTERNS: list[Pattern[str]] = [
     re.compile(r"\b(summarize|summary|overview|synopsis)\b", re.IGNORECASE),
     re.compile(r"\b(give|provide)\s+(me\s+)?(a\s+)?(general\s+)?(overview|summary)\b", re.IGNORECASE),
     re.compile(r"\bgeneral\s+(understanding|overview|summary)\b", re.IGNORECASE),
-    # Aggregation patterns
-    re.compile(r"\b(all|every|each)\s+.{0,20}(types?|kinds?|categories?)\b", re.IGNORECASE),
-    re.compile(r"\bhow\s+(many|much)\s+.{0,30}(total|overall|in\s+general)\b", re.IGNORECASE),
+    # Aggregation patterns (use non-greedy ? to prevent ReDoS)
+    re.compile(r"\b(all|every|each)\s+.{0,20}?(types?|kinds?|categories?)\b", re.IGNORECASE),
+    re.compile(r"\bhow\s+(many|much)\s+.{0,30}?(total|overall|in\s+general)\b", re.IGNORECASE),
     # Trend/analysis patterns
     re.compile(r"\b(trends?|patterns?|tendencies?)\s+(in|across)\b", re.IGNORECASE),
     re.compile(r"\b(overall|in\s+general|as\s+a\s+whole)\b", re.IGNORECASE),
-    re.compile(r"\btell\s+me\s+about\s+.{0,30}(in\s+general|overall|as\s+a\s+whole)\b", re.IGNORECASE),
+    re.compile(r"\btell\s+me\s+about\s+.{0,30}?(in\s+general|overall|as\s+a\s+whole)\b", re.IGNORECASE),
     # Comparison across corpus
-    re.compile(r"\bcompare\s+.{0,30}(across|between|among)\b", re.IGNORECASE),
+    re.compile(r"\bcompare\s+.{0,30}?(across|between|among)\b", re.IGNORECASE),
 ]
 
 # Local patterns indicate need for specific entity details
+# Note: Use non-greedy .{0,N}? to prevent ReDoS while matching across words
 LOCAL_PATTERNS: list[Pattern[str]] = [
     # What is X patterns
     re.compile(r"\bwhat\s+is\s+(\w+)\b", re.IGNORECASE),
@@ -67,14 +87,14 @@ LOCAL_PATTERNS: list[Pattern[str]] = [
     # Specific entity patterns
     re.compile(r"\b(specific|particular|exact|precise)\b", re.IGNORECASE),
     re.compile(r"\b(this|that|the)\s+(\w+)\s+(function|class|method|file|module)\b", re.IGNORECASE),
-    # Find/locate patterns
-    re.compile(r"\b(find|locate|get)\s+.{0,20}(named|called|about|for)\b", re.IGNORECASE),
+    # Find/locate patterns (use non-greedy ? to prevent ReDoS)
+    re.compile(r"\b(find|locate|get)\s+.{0,20}?(named|called|about|for)\b", re.IGNORECASE),
     # Definition patterns
     re.compile(r"\bdefine\s+(\w+)\b", re.IGNORECASE),
     re.compile(r"\bdefinition\s+of\s+", re.IGNORECASE),
     # Function/code patterns (common in codebase queries)
     re.compile(r"\bfunction\s+(named|called)\b", re.IGNORECASE),
-    re.compile(r"\b(what|how)\s+.{0,10}function\b", re.IGNORECASE),
+    re.compile(r"\b(what|how)\s+.{0,10}?function\b", re.IGNORECASE),
 ]
 
 # LLM Classification prompt template
@@ -140,6 +160,9 @@ class QueryRouter:
         )
         self._openai_client: Optional[AsyncOpenAI] = None
 
+        # LRU cache for routing decisions (OrderedDict for LRU ordering)
+        self._routing_cache: OrderedDict[str, _CacheEntry] = OrderedDict()
+
     async def route(
         self,
         query: str,
@@ -175,6 +198,28 @@ class QueryRouter:
                 processing_time_ms=0,
             )
 
+        # Validate query length to prevent DoS via expensive regex operations
+        if len(query) > MAX_QUERY_LENGTH:
+            raise ValueError(
+                f"Query exceeds maximum length of {MAX_QUERY_LENGTH} characters"
+            )
+
+        # Check cache for existing routing decision
+        should_use_llm = use_llm if use_llm is not None else self.use_llm
+        cache_key = self._get_cache_key(query, should_use_llm)
+        cached = self._get_cached_decision(cache_key)
+        if cached is not None:
+            # Update processing time for cache hit
+            processing_time_ms = int((time.perf_counter() - start_time) * 1000)
+            cached.processing_time_ms = processing_time_ms
+            logger.debug(
+                "routing_cache_hit",
+                query=query[:100],
+                tenant_id=tenant_id,
+                query_type=cached.query_type.value,
+            )
+            return cached
+
         # Step 1: Rule-based classification (always runs, fast)
         rule_decision = self._rule_based_classify(query)
 
@@ -188,8 +233,7 @@ class QueryRouter:
             local_matches=rule_decision.local_matches,
         )
 
-        # Step 2: Check if LLM classification is needed
-        should_use_llm = use_llm if use_llm is not None else self.use_llm
+        # Step 2: Check if LLM classification is needed (should_use_llm already set above)
         if (
             should_use_llm
             and rule_decision.confidence < self.confidence_threshold
@@ -235,6 +279,9 @@ class QueryRouter:
             method=final_decision.classification_method,
             processing_time_ms=processing_time_ms,
         )
+
+        # Cache the decision for future queries
+        self._cache_decision(cache_key, final_decision)
 
         return final_decision
 
@@ -475,6 +522,84 @@ class QueryRouter:
                 local_matches=rule_decision.local_matches,
             )
 
+    def _get_cache_key(self, query: str, use_llm: bool) -> str:
+        """Generate a cache key for a routing decision.
+
+        Args:
+            query: The query text
+            use_llm: Whether LLM classification is enabled
+
+        Returns:
+            A hash-based cache key
+        """
+        # Include use_llm in key since it affects the routing decision
+        key_data = f"{query}|{use_llm}"
+        return hashlib.sha256(key_data.encode()).hexdigest()[:32]
+
+    def _get_cached_decision(self, cache_key: str) -> Optional[RoutingDecision]:
+        """Get a cached routing decision if valid.
+
+        Args:
+            cache_key: The cache key to look up
+
+        Returns:
+            The cached RoutingDecision if valid, None otherwise
+        """
+        if cache_key not in self._routing_cache:
+            return None
+
+        entry = self._routing_cache[cache_key]
+        now = time.time()
+
+        # Check if entry has expired
+        if now - entry.timestamp > ROUTING_CACHE_TTL_SECONDS:
+            del self._routing_cache[cache_key]
+            return None
+
+        # Move to end for LRU ordering
+        self._routing_cache.move_to_end(cache_key)
+
+        # Return a copy to avoid mutation issues
+        decision = entry.decision
+        return RoutingDecision(
+            query_type=decision.query_type,
+            confidence=decision.confidence,
+            reasoning=decision.reasoning,
+            global_weight=decision.global_weight,
+            local_weight=decision.local_weight,
+            classification_method=f"{decision.classification_method}_cached",
+            processing_time_ms=decision.processing_time_ms,
+            global_matches=decision.global_matches,
+            local_matches=decision.local_matches,
+        )
+
+    def _cache_decision(self, cache_key: str, decision: RoutingDecision) -> None:
+        """Cache a routing decision.
+
+        Args:
+            cache_key: The cache key
+            decision: The routing decision to cache
+        """
+        # Evict oldest entries if cache is full
+        while len(self._routing_cache) >= ROUTING_CACHE_MAX_SIZE:
+            self._routing_cache.popitem(last=False)
+
+        self._routing_cache[cache_key] = _CacheEntry(
+            decision=decision,
+            timestamp=time.time(),
+        )
+
+    def clear_cache(self) -> int:
+        """Clear the routing decision cache.
+
+        Returns:
+            Number of entries cleared
+        """
+        count = len(self._routing_cache)
+        self._routing_cache.clear()
+        logger.debug("routing_cache_cleared", entries_cleared=count)
+        return count
+
     @classmethod
     def get_global_patterns(cls) -> list[str]:
         """Get list of global pattern strings for debugging.
@@ -492,3 +617,17 @@ class QueryRouter:
             List of regex pattern strings
         """
         return [pattern.pattern for pattern in LOCAL_PATTERNS]
+
+    async def close(self) -> None:
+        """Clean up resources, including the OpenAI client.
+
+        Should be called when the QueryRouter instance is no longer needed
+        to properly close connection pools.
+        """
+        if self._openai_client is not None:
+            try:
+                await self._openai_client.close()
+            except Exception as e:
+                logger.warning("openai_client_close_error", error=str(e))
+            finally:
+                self._openai_client = None

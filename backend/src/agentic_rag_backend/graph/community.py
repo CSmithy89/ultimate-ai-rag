@@ -17,7 +17,10 @@ Key Features:
 - Configurable: Algorithm, min size, max levels via env vars
 """
 
+import asyncio
+import html
 import time
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import uuid4
@@ -28,6 +31,15 @@ from .errors import CommunityDetectionError, CommunityNotFoundError, GraphTooSma
 from .models import Community, CommunityAlgorithm
 
 logger = structlog.get_logger(__name__)
+
+# Maximum query length for search operations to prevent DoS
+MAX_SEARCH_QUERY_LENGTH = 1000
+
+# Maximum concurrent LLM calls for summary generation
+MAX_CONCURRENT_SUMMARIES = 5
+
+# Maximum length for community names to prevent XSS/display issues
+MAX_COMMUNITY_NAME_LENGTH = 200
 
 # Check for optional dependencies
 try:
@@ -395,9 +407,9 @@ class CommunityDetector:
             if len(node_ids) < min_size:
                 continue
 
-            # Get entity names for naming
+            # Get entity names for naming (sanitize to prevent XSS)
             entity_names = [
-                graph.nodes[nid].get("name", nid)
+                html.escape(str(graph.nodes[nid].get("name", nid)))[:50]
                 for nid in node_ids[:5]  # Use first 5 for naming
             ]
 
@@ -406,6 +418,10 @@ class CommunityDetector:
                 name = f"{entity_names[0]} Community"
             else:
                 name = f"{entity_names[0]}, {entity_names[1]} and {len(node_ids) - 2} others"
+
+            # Truncate name to prevent display issues
+            if len(name) > MAX_COMMUNITY_NAME_LENGTH:
+                name = name[:MAX_COMMUNITY_NAME_LENGTH - 3] + "..."
 
             community = Community(
                 id=str(uuid4()),
@@ -468,18 +484,26 @@ class CommunityDetector:
                     entity_count=community.entity_count,
                 )
 
-            # Add edges between communities based on cross-community relationships
-            for c1 in current_level_communities:
-                for c2 in current_level_communities:
-                    if c1.id >= c2.id:
-                        continue
-                    # Count edges between communities
-                    edge_count = sum(
-                        1 for e1 in c1.entity_ids for e2 in c2.entity_ids
-                        if graph.has_edge(e1, e2)
-                    )
-                    if edge_count > 0:
-                        meta_graph.add_edge(c1.id, c2.id, weight=edge_count)
+            # Optimized cross-community edge counting: O(|edges|) instead of O(|communities|^2 * |entities|^2)
+            # Step 1: Build entity-to-community mapping (O(total entities))
+            entity_to_community: dict[str, str] = {}
+            for community in current_level_communities:
+                for entity_id in community.entity_ids:
+                    entity_to_community[entity_id] = community.id
+
+            # Step 2: Count cross-community edges in single pass over graph edges (O(|edges|))
+            community_edge_counts: dict[tuple[str, str], int] = defaultdict(int)
+            for u, v in graph.edges():
+                c1_id = entity_to_community.get(u)
+                c2_id = entity_to_community.get(v)
+                if c1_id and c2_id and c1_id != c2_id:
+                    # Use sorted tuple as key to avoid double-counting
+                    key = tuple(sorted([c1_id, c2_id]))
+                    community_edge_counts[key] += 1
+
+            # Step 3: Add edges to meta-graph
+            for (c1_id, c2_id), edge_count in community_edge_counts.items():
+                meta_graph.add_edge(c1_id, c2_id, weight=edge_count)
 
             # Skip if no edges between communities
             if len(meta_graph.edges) == 0:
@@ -551,10 +575,11 @@ class CommunityDetector:
         communities: list[Community],
         tenant_id: str,
     ) -> None:
-        """Generate LLM summaries for communities.
+        """Generate LLM summaries for communities concurrently.
 
         Uses the configured LLM to generate a summary and keywords
         for each community based on its entity names and descriptions.
+        Processes up to MAX_CONCURRENT_SUMMARIES communities in parallel.
 
         Args:
             communities: List of communities to summarize
@@ -568,36 +593,44 @@ class CommunityDetector:
             )
             return
 
-        for community in communities:
-            try:
-                # Get entity details for context
-                entity_context = await self._get_entity_context(
-                    community.entity_ids[:20],  # Limit for context length
-                    tenant_id,
-                )
+        # Use semaphore to limit concurrent LLM calls
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_SUMMARIES)
 
-                # Generate summary using LLM
-                prompt = self._build_summary_prompt(community, entity_context)
-                response = await self._llm_client.generate(
-                    prompt=prompt,
-                    model=self.summary_model,
-                )
+        async def generate_single_summary(community: Community) -> None:
+            """Generate summary for a single community with semaphore."""
+            async with semaphore:
+                try:
+                    # Get entity details for context
+                    entity_context = await self._get_entity_context(
+                        community.entity_ids[:20],  # Limit for context length
+                        tenant_id,
+                    )
 
-                # Parse response
-                summary, keywords = self._parse_summary_response(response)
-                community.summary = summary
-                community.keywords = keywords
+                    # Generate summary using LLM
+                    prompt = self._build_summary_prompt(community, entity_context)
+                    response = await self._llm_client.generate(
+                        prompt=prompt,
+                        model=self.summary_model,
+                    )
 
-            except Exception as e:
-                logger.warning(
-                    "community_summary_generation_failed",
-                    community_id=community.id,
-                    tenant_id=tenant_id,
-                    error=str(e),
-                )
-                # Set a default summary
-                community.summary = f"A community of {community.entity_count} related entities"
-                community.keywords = []
+                    # Parse response
+                    summary, keywords = self._parse_summary_response(response)
+                    community.summary = summary
+                    community.keywords = keywords
+
+                except Exception as e:
+                    logger.warning(
+                        "community_summary_generation_failed",
+                        community_id=community.id,
+                        tenant_id=tenant_id,
+                        error=str(e),
+                    )
+                    # Set a default summary
+                    community.summary = f"A community of {community.entity_count} related entities"
+                    community.keywords = []
+
+        # Process all communities concurrently with semaphore limiting
+        await asyncio.gather(*[generate_single_summary(c) for c in communities])
 
     async def _get_entity_context(
         self,
@@ -683,7 +716,8 @@ KEYWORDS: keyword1, keyword2, keyword3
                 summary = line.replace("SUMMARY:", "").strip()
             elif line.startswith("KEYWORDS:"):
                 keyword_text = line.replace("KEYWORDS:", "").strip()
-                keywords = [k.strip() for k in keyword_text.split(",") if k.strip()]
+                # Avoid calling strip() twice per keyword
+                keywords = [stripped for k in keyword_text.split(",") if (stripped := k.strip())]
 
         return summary or "A community of related entities", keywords
 
@@ -717,7 +751,7 @@ KEYWORDS: keyword1, keyword2, keyword3
                         c.parent_id = $parent_id,
                         c.child_ids = $child_ids,
                         c.created_at = datetime($created_at),
-                        c.updated_at = datetime()
+                        c.updated_at = datetime($updated_at)
                     """,
                     id=community.id,
                     tenant_id=tenant_id,
@@ -729,6 +763,7 @@ KEYWORDS: keyword1, keyword2, keyword3
                     parent_id=community.parent_id,
                     child_ids=community.child_ids,
                     created_at=community.created_at.isoformat() if community.created_at else datetime.now(timezone.utc).isoformat(),
+                    updated_at=datetime.now(timezone.utc).isoformat(),
                 )
 
                 # Create BELONGS_TO relationships from entities using UNWIND (batch)
@@ -949,17 +984,26 @@ KEYWORDS: keyword1, keyword2, keyword3
             Number of communities deleted
         """
         async with self._neo4j.driver.session() as session:
-            result = await session.run(
+            # Count first, then delete (the previous query had incorrect count logic)
+            count_result = await session.run(
                 """
                 MATCH (c:Community {tenant_id: $tenant_id})
-                WITH c, count(c) as total
-                DETACH DELETE c
-                RETURN total
+                RETURN count(c) as total
                 """,
                 tenant_id=tenant_id,
             )
-            record = await result.single()
-            count = record["total"] if record else 0
+            count_record = await count_result.single()
+            count = count_record["total"] if count_record else 0
+
+            # Now delete all communities
+            if count > 0:
+                await session.run(
+                    """
+                    MATCH (c:Community {tenant_id: $tenant_id})
+                    DETACH DELETE c
+                    """,
+                    tenant_id=tenant_id,
+                )
 
             logger.info(
                 "all_communities_deleted",
@@ -981,14 +1025,25 @@ KEYWORDS: keyword1, keyword2, keyword3
         Performs a text search on community names, summaries, and keywords.
 
         Args:
-            query: Search query string
+            query: Search query string (1-1000 characters)
             tenant_id: Tenant identifier
             level: Filter by hierarchy level (optional)
             limit: Maximum results
 
         Returns:
             List of matching communities
+
+        Raises:
+            ValueError: If query is empty or exceeds MAX_SEARCH_QUERY_LENGTH
         """
+        # Validate query length to prevent DoS via expensive text operations
+        if not query or not query.strip():
+            raise ValueError("Search query cannot be empty")
+        if len(query) > MAX_SEARCH_QUERY_LENGTH:
+            raise ValueError(
+                f"Search query exceeds maximum length of {MAX_SEARCH_QUERY_LENGTH} characters"
+            )
+
         async with self._neo4j.driver.session() as session:
             # Build query with text matching
             if level is not None:

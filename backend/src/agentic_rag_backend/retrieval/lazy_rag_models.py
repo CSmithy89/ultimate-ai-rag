@@ -158,7 +158,16 @@ class LazyRAGStatusResponse(BaseModel):
 
 @dataclass(frozen=True)
 class LazyRAGEntity:
-    """Internal entity representation for LazyRAG processing."""
+    """Internal entity representation for LazyRAG processing.
+
+    Attributes:
+        id: Unique entity identifier (UUID string)
+        name: Human-readable entity name
+        type: Entity type/category (e.g., 'Person', 'Organization')
+        description: Optional detailed description of the entity
+        summary: Optional brief summary from the knowledge graph
+        labels: Neo4j node labels for the entity (e.g., ['Entity', 'Person'])
+    """
 
     id: str
     name: str
@@ -180,7 +189,16 @@ class LazyRAGEntity:
 
 @dataclass(frozen=True)
 class LazyRAGRelationship:
-    """Internal relationship representation for LazyRAG processing."""
+    """Internal relationship representation for LazyRAG processing.
+
+    Attributes:
+        source_id: UUID of the source entity
+        target_id: UUID of the target entity
+        type: Relationship type (e.g., 'WORKS_FOR', 'LOCATED_IN')
+        fact: Optional fact/statement describing the relationship
+        confidence: Optional confidence score (0.0-1.0) from extraction.
+            Reserved for future use in weighted relationship processing.
+    """
 
     source_id: str
     target_id: str
