@@ -101,11 +101,41 @@ This epic was identified through comprehensive analysis using DeepWiki and Conte
 
 ### Tool Status Enum Verification
 
-CopilotKit's actual `useRenderToolCall` status enum (verified via Context7):
+CopilotKit's actual `useRenderToolCall` status enum (verified via DeepWiki):
 ```typescript
-type ToolCallStatus = "inProgress" | "executing" | "complete";
+// IMPORTANT: Status values are PascalCase, NOT lowercase!
+type ToolCallStatus = "InProgress" | "Executing" | "Complete";
 ```
-This matches our implementation in 21-A3.
+
+**Warning**: Many examples show lowercase comparisons, but the actual enum values are PascalCase. Code must use exact casing:
+```typescript
+// CORRECT
+if (status === "Executing") { ... }
+
+// WRONG - will never match!
+if (status === "executing") { ... }
+```
+
+### CopilotSidebar Tool Call Rendering
+
+**Important**: CopilotSidebar (and CopilotChat) **automatically render tool calls** via the internal `CopilotChatToolCallsView` component. You do NOT need `useRenderToolCall` separately when using these components.
+
+| Scenario | Approach |
+|----------|----------|
+| Using CopilotSidebar/CopilotChat | Tool calls auto-rendered. Use `renderToolCalls` prop on `CopilotKitProvider` for custom renderers |
+| Building custom chat UI | Use `useRenderToolCall` hook directly |
+| Catch-all rendering | Pass `wildcardRenderer` to `renderToolCalls` prop |
+
+**Story 21-A3 Scope Clarification**: Since we use CopilotSidebar, 21-A3 should configure custom renderers via `CopilotKitProvider.renderToolCalls` prop rather than calling `useRenderToolCall` directly.
+
+### useCopilotAction Deprecation Status
+
+`useCopilotAction` is deprecated but **still functional** for backwards compatibility. Migration is recommended for:
+- Better type safety
+- Clearer intent (separate hooks for different use cases)
+- Future-proofing against eventual removal
+
+Migration does NOT need to be urgent - existing code will continue to work.
 
 ### A2UI + STATE_DELTA Merge Strategy
 
@@ -178,6 +208,36 @@ export function redactSensitiveKeys(obj: Record<string, unknown>): Record<string
 | Tool namespace collisions | Prefix external tools with server name: `github:create_issue` |
 | Circuit breaker | Wrap calls with `tenacity` retry + circuit breaker pattern |
 | Credential exposure | API keys injected at runtime, never logged |
+
+### MCP Client Experimental Status
+
+**Warning**: CopilotKit's `mcpServers` and `createMCPClient` are marked `@experimental` in the CopilotKit source code.
+
+| Concern | Mitigation |
+|---------|------------|
+| API instability | Pin CopilotKit version: `@copilotkit/runtime@1.x.y` (exact version) |
+| Feature flag | Gate with `MCP_CLIENTS_ENABLED=false` by default |
+| Breaking changes | Monitor CopilotKit changelog before upgrades |
+| Fallback | If MCP client fails, log error and continue without external tools |
+
+```typescript
+// Import uses experimental_ prefix in some versions
+import { experimental_createMCPClient } from "@ai-sdk/mcp";
+// OR in newer versions:
+import { createMCPClient } from "@copilotkit/runtime";
+```
+
+### Generative UI Scope (Epic 21 vs Epic 22)
+
+Epic 21 implements **A2UI only**. Other UI specs are in Epic 22:
+
+| UI Spec | Epic | Description |
+|---------|------|-------------|
+| A2UI | **Epic 21** | Native CopilotKit widget rendering |
+| MCP-UI | Epic 22 | Iframe-based external tool embedding |
+| Open-JSON-UI | Epic 22 | OpenAI-style declarative UI components |
+
+This is intentional - A2UI is the foundation; MCP-UI and Open-JSON-UI extend it for interoperability.
 
 ---
 
@@ -274,7 +334,7 @@ useCopilotAction({
   description: "Request human approval for sources",
   parameters: [...],
   render: ({ status, args }) => {
-    if (status === "executing" && args.sources) {
+    if (status === "Executing" && args.sources) {
       setTimeout(() => startValidation(args.sources), 0);
     }
     return <></>;
@@ -295,7 +355,7 @@ useHumanInTheLoop({
     query: z.string().optional().describe("Original query for context"),
   }),
   render: ({ args, respond, status }) => {
-    if (status === "executing" && respond) {
+    if (status === "Executing" && respond) {
       return (
         <SourceValidationDialog
           sources={args.sources}
@@ -364,8 +424,8 @@ export function ToolCallRenderer() {
     render: ({ args, status, result }) => (
       <VectorSearchCard
         query={args.query}
-        isSearching={status === "executing"}
-        results={status === "complete" ? result : null}
+        isSearching={status === "Executing"}
+        results={status === "Complete" ? result : null}
       />
     ),
   });
@@ -380,7 +440,7 @@ export function ToolCallRenderer() {
 interface MCPToolCallCardProps {
   name: string;
   args: Record<string, unknown>;
-  status: "inProgress" | "executing" | "complete";
+  status: "InProgress" | "Executing" | "Complete";
   result?: unknown;
 }
 
@@ -405,7 +465,7 @@ export function MCPToolCallCard({ name, args, status, result }: MCPToolCallCardP
                 {JSON.stringify(args, null, 2)}
               </pre>
             </div>
-            {status === "complete" && result && (
+            {status === "Complete" && result && (
               <div>
                 <Label>Result</Label>
                 <pre className="text-xs bg-muted p-2 rounded overflow-auto max-h-40">
