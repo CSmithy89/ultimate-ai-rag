@@ -36,6 +36,7 @@ from agentic_rag_backend.memory.models import (
     MemorySearchRequest,
     MemorySearchResponse,
 )
+from agentic_rag_backend.memory.scopes import validate_scope_context
 
 logger = structlog.get_logger(__name__)
 
@@ -97,10 +98,12 @@ async def get_memory_store(request: Request) -> ScopedMemoryStore:
         settings: Settings = request.app.state.settings
         postgres: PostgresClient = request.app.state.postgres
         redis: Optional[RedisClient] = getattr(request.app.state, "redis_client", None)
+        graphiti = getattr(request.app.state, "graphiti", None)
 
         request.app.state.memory_store = ScopedMemoryStore(
             postgres_client=postgres,
             redis_client=redis,
+            graphiti_client=graphiti,
             embedding_provider=settings.embedding_provider,
             embedding_api_key=settings.embedding_api_key,
             embedding_base_url=settings.embedding_base_url,
@@ -217,15 +220,28 @@ async def list_memories(
     """
     check_feature_enabled(settings)
 
-    memories, total = await store.list_memories(
-        tenant_id=str(tenant_id),
-        scope=scope,
-        user_id=str(user_id) if user_id else None,
-        session_id=str(session_id) if session_id else None,
-        agent_id=agent_id,
-        limit=limit,
-        offset=offset,
-    )
+    try:
+        if scope:
+            is_valid, error_msg = validate_scope_context(
+                scope,
+                str(user_id) if user_id else None,
+                str(session_id) if session_id else None,
+                agent_id,
+            )
+            if not is_valid:
+                raise MemoryScopeError(scope.value, error_msg or "Invalid scope context")
+
+        memories, total = await store.list_memories(
+            tenant_id=str(tenant_id),
+            scope=scope,
+            user_id=str(user_id) if user_id else None,
+            session_id=str(session_id) if session_id else None,
+            agent_id=agent_id,
+            limit=limit,
+            offset=offset,
+        )
+    except MemoryScopeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     response = MemoryListResponse(
         memories=memories,
@@ -265,16 +281,35 @@ async def search_memories(
     """
     check_feature_enabled(settings)
 
-    memories, scopes_searched = await store.search_memories(
-        query=search_request.query,
-        scope=search_request.scope,
-        tenant_id=str(search_request.tenant_id),
-        user_id=str(search_request.user_id) if search_request.user_id else None,
-        session_id=str(search_request.session_id) if search_request.session_id else None,
-        agent_id=search_request.agent_id,
-        limit=search_request.limit,
-        include_parent_scopes=search_request.include_parent_scopes,
+    scope = search_request.scope or MemoryScope(settings.memory_default_scope)
+    include_parent_scopes = (
+        settings.memory_include_parent_scopes
+        if search_request.include_parent_scopes is None
+        else search_request.include_parent_scopes
     )
+
+    try:
+        is_valid, error_msg = validate_scope_context(
+            scope,
+            str(search_request.user_id) if search_request.user_id else None,
+            str(search_request.session_id) if search_request.session_id else None,
+            search_request.agent_id,
+        )
+        if not is_valid:
+            raise MemoryScopeError(scope.value, error_msg or "Invalid scope context")
+
+        memories, scopes_searched = await store.search_memories(
+            query=search_request.query,
+            scope=scope,
+            tenant_id=str(search_request.tenant_id),
+            user_id=str(search_request.user_id) if search_request.user_id else None,
+            session_id=str(search_request.session_id) if search_request.session_id else None,
+            agent_id=search_request.agent_id,
+            limit=search_request.limit,
+            include_parent_scopes=include_parent_scopes,
+        )
+    except MemoryScopeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     response = MemorySearchResponse(
         memories=memories,
@@ -286,7 +321,7 @@ async def search_memories(
     logger.info(
         "memory_search",
         query_length=len(search_request.query),
-        scope=search_request.scope.value,
+        scope=scope.value,
         results_count=len(memories),
         scopes_searched=[s.value for s in scopes_searched],
     )
@@ -473,13 +508,25 @@ async def delete_memories_by_scope(
     """
     check_feature_enabled(settings)
 
-    deleted_count = await store.delete_memories_by_scope(
-        scope=scope,
-        tenant_id=str(tenant_id),
-        user_id=str(user_id) if user_id else None,
-        session_id=str(session_id) if session_id else None,
-        agent_id=agent_id,
-    )
+    try:
+        is_valid, error_msg = validate_scope_context(
+            scope,
+            str(user_id) if user_id else None,
+            str(session_id) if session_id else None,
+            agent_id,
+        )
+        if not is_valid:
+            raise MemoryScopeError(scope.value, error_msg or "Invalid scope context")
+
+        deleted_count = await store.delete_memories_by_scope(
+            scope=scope,
+            tenant_id=str(tenant_id),
+            user_id=str(user_id) if user_id else None,
+            session_id=str(session_id) if session_id else None,
+            agent_id=agent_id,
+        )
+    except MemoryScopeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     response = DeleteByScopeResponse(
         deleted_count=deleted_count,

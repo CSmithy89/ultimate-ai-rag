@@ -34,7 +34,7 @@ from .api.routes import (
     memories_router,
     communities_router,
     lazy_rag_router,
-    query_router_router,
+    query_router,
     dual_level_router,
 )
 from .api.routes.ingest import limiter as slowapi_limiter
@@ -434,6 +434,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             memory_store = ScopedMemoryStore(
                 postgres_client=postgres_client,
                 redis_client=redis_client_for_memory,
+                graphiti_client=getattr(app.state, "graphiti", None),
                 embedding_provider=settings.embedding_provider,
                 embedding_api_key=settings.embedding_api_key,
                 embedding_base_url=settings.embedding_base_url,
@@ -558,7 +559,7 @@ def create_app() -> FastAPI:
     app.include_router(memories_router, prefix="/api/v1")  # Epic 20: Memory Platform
     app.include_router(communities_router, prefix="/api/v1")  # Epic 20: Community Detection
     app.include_router(lazy_rag_router, prefix="/api/v1")  # Epic 20: LazyRAG Pattern
-    app.include_router(query_router_router, prefix="/api/v1")  # Epic 20: Query Routing
+    app.include_router(query_router, prefix="/api/v1")  # Epic 20: Query Routing
     app.include_router(dual_level_router, prefix="/api/v1")  # Epic 20: Dual-Level Retrieval
 
     # Story 19-C5: Mount Prometheus metrics endpoint

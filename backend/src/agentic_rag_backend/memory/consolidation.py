@@ -10,6 +10,7 @@ The consolidation process is designed to be tenant-isolated and
 can run on a schedule or be triggered manually via API.
 """
 
+import asyncio
 import time
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
@@ -131,6 +132,8 @@ class MemoryConsolidator:
         # Track last consolidation status for API queries
         self._last_run_at: Optional[datetime] = None
         self._last_result: Optional[ConsolidationResult] = None
+        self._tenant_lock_guard = asyncio.Lock()
+        self._tenant_locks: dict[str, asyncio.Lock] = {}
 
     @property
     def last_run_at(self) -> Optional[datetime]:
@@ -167,6 +170,25 @@ class MemoryConsolidator:
         Returns:
             ConsolidationResult with counts of processed, merged, decayed, removed
         """
+        lock = await self._get_tenant_lock(tenant_id)
+        async with lock:
+            return await self._run_consolidation(
+                tenant_id=tenant_id,
+                scope=scope,
+                user_id=user_id,
+                session_id=session_id,
+                agent_id=agent_id,
+            )
+
+    async def _run_consolidation(
+        self,
+        tenant_id: str,
+        scope: Optional[MemoryScope],
+        user_id: Optional[str],
+        session_id: Optional[str],
+        agent_id: Optional[str],
+    ) -> ConsolidationResult:
+        """Internal consolidation runner (callers must hold tenant lock)."""
         start_time = time.perf_counter()
 
         logger.info(
@@ -243,6 +265,15 @@ class MemoryConsolidator:
 
         return result
 
+    async def _get_tenant_lock(self, tenant_id: str) -> asyncio.Lock:
+        """Get or create a per-tenant consolidation lock."""
+        async with self._tenant_lock_guard:
+            lock = self._tenant_locks.get(tenant_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._tenant_locks[tenant_id] = lock
+            return lock
+
     async def consolidate_all_tenants(self) -> list[ConsolidationResult]:
         """Consolidate memories for all tenants.
 
@@ -306,7 +337,7 @@ class MemoryConsolidator:
         offset = 0
 
         while True:
-            memories, total = await self.store.list_memories(
+            memories, _ = await self.store.list_memories(
                 tenant_id=tenant_id,
                 scope=scope,
                 user_id=user_id,
@@ -319,17 +350,15 @@ class MemoryConsolidator:
             if not memories:
                 break
 
-            # Fetch embeddings for each memory (needed for similarity comparison)
-            # The list_memories doesn't include embeddings by default
+            # Fetch embeddings in bulk for similarity comparison
+            embedding_map = await self.store.get_memory_embeddings(
+                tenant_id=tenant_id,
+                memory_ids=[str(memory.id) for memory in memories],
+            )
             for memory in memories:
-                if memory.embedding is None:
-                    # Fetch full memory to get embedding
-                    full_memory = await self.store.get_memory(
-                        memory_id=str(memory.id),
-                        tenant_id=tenant_id,
-                    )
-                    if full_memory and full_memory.embedding:
-                        memory.embedding = full_memory.embedding
+                embedding = embedding_map.get(str(memory.id))
+                if embedding is not None:
+                    memory.embedding = embedding
 
             all_memories.extend(memories)
             offset += len(memories)
@@ -420,43 +449,62 @@ class MemoryConsolidator:
 
         # Filter to memories with embeddings only
         memories_with_embeddings = [m for m in memories if m.embedding]
+        groups = self._group_by_merge_context(memories_with_embeddings)
 
-        for i, primary in enumerate(memories_with_embeddings):
-            primary_id = str(primary.id)
-            if primary_id in processed_ids:
-                continue
+        for group_memories in groups.values():
+            # Prefer most important memories as primaries
+            group_memories.sort(
+                key=lambda m: (m.importance, m.accessed_at),
+                reverse=True,
+            )
 
-            # Find similar memories
-            similar_memories: list[ScopedMemory] = []
+            embeddings = np.array(
+                [m.embedding for m in group_memories],
+                dtype=np.float32,
+            )
+            norms = np.linalg.norm(embeddings, axis=1)
+            valid = norms > 0
+            embeddings[valid] = embeddings[valid] / norms[valid][:, None]
 
-            for secondary in memories_with_embeddings[i + 1:]:
-                secondary_id = str(secondary.id)
-                if secondary_id in processed_ids:
+            for i, primary in enumerate(group_memories):
+                primary_id = str(primary.id)
+                if primary_id in processed_ids or not valid[i]:
                     continue
 
-                # Must be same scope for merging
-                if secondary.scope != primary.scope:
+                similarities = embeddings[i + 1:] @ embeddings[i]
+                similar_indices = np.where(similarities >= self.similarity_threshold)[0]
+                if similar_indices.size == 0:
                     continue
 
-                similarity = cosine_similarity(
-                    primary.embedding or [],
-                    secondary.embedding or [],
-                )
+                similar_memories: list[ScopedMemory] = []
+                for idx in similar_indices:
+                    candidate = group_memories[i + 1 + idx]
+                    candidate_id = str(candidate.id)
+                    if candidate_id in processed_ids:
+                        continue
+                    similar_memories.append(candidate)
 
-                if similarity >= self.similarity_threshold:
-                    similar_memories.append(secondary)
+                if not similar_memories:
+                    continue
 
-            if similar_memories:
                 # Merge all similar memories into primary
                 merged_metadata = await self._merge_memories(primary, similar_memories)
 
                 # Update primary with merged data
-                await self.store.update_memory(
+                updated = await self.store.update_memory(
                     memory_id=primary_id,
                     tenant_id=tenant_id,
                     importance=merged_metadata["importance"],
+                    access_count=merged_metadata["access_count"],
                     metadata=merged_metadata["metadata"],
                 )
+                if not updated:
+                    logger.warning(
+                        "memory_merge_update_failed",
+                        primary_id=primary_id,
+                        tenant_id=tenant_id,
+                    )
+                    continue
 
                 # Delete secondary memories
                 for secondary in similar_memories:
@@ -476,6 +524,45 @@ class MemoryConsolidator:
                 )
 
         return merged_count
+
+    @staticmethod
+    def _same_scope_context(primary: ScopedMemory, secondary: ScopedMemory) -> bool:
+        """Check whether two memories share the same merge context."""
+        if primary.scope != secondary.scope:
+            return False
+
+        if primary.scope == MemoryScope.USER:
+            return primary.user_id == secondary.user_id
+        if primary.scope == MemoryScope.SESSION:
+            if primary.session_id != secondary.session_id:
+                return False
+            if primary.user_id and secondary.user_id:
+                return primary.user_id == secondary.user_id
+            return True
+        if primary.scope == MemoryScope.AGENT:
+            return primary.agent_id == secondary.agent_id
+        return True
+
+    def _group_by_merge_context(
+        self,
+        memories: list[ScopedMemory],
+    ) -> dict[tuple, list[ScopedMemory]]:
+        """Group memories by merge context to avoid cross-scope comparisons."""
+        groups: dict[tuple, list[ScopedMemory]] = {}
+        for memory in memories:
+            key = self._merge_context_key(memory)
+            groups.setdefault(key, []).append(memory)
+        return groups
+
+    @staticmethod
+    def _merge_context_key(memory: ScopedMemory) -> tuple:
+        if memory.scope == MemoryScope.USER:
+            return (memory.scope.value, memory.user_id)
+        if memory.scope == MemoryScope.SESSION:
+            return (memory.scope.value, memory.session_id, memory.user_id)
+        if memory.scope == MemoryScope.AGENT:
+            return (memory.scope.value, memory.agent_id)
+        return (memory.scope.value,)
 
     async def _merge_memories(
         self,

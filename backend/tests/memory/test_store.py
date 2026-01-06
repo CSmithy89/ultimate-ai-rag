@@ -362,7 +362,9 @@ class TestListMemories:
         assert memories[1].content == "Memory 2"
 
     @pytest.mark.asyncio
-    async def test_list_memories_with_scope_filter(self, store, mock_postgres, sample_tenant_id):
+    async def test_list_memories_with_scope_filter(
+        self, store, mock_postgres, sample_tenant_id, sample_user_id
+    ):
         """Can filter memories by scope."""
         mock_postgres._conn_mock.fetchrow = AsyncMock(return_value={"total": 0})
         mock_postgres._conn_mock.fetch = AsyncMock(return_value=[])
@@ -370,10 +372,22 @@ class TestListMemories:
         await store.list_memories(
             tenant_id=sample_tenant_id,
             scope=MemoryScope.USER,
+            user_id=sample_user_id,
         )
 
         # Verify scope was included in query (check execute call)
         assert mock_postgres._conn_mock.fetch.called
+
+    @pytest.mark.asyncio
+    async def test_list_memories_missing_scope_context_raises(
+        self, store, sample_tenant_id
+    ):
+        """Missing scope context should raise MemoryScopeError."""
+        with pytest.raises(MemoryScopeError):
+            await store.list_memories(
+                tenant_id=sample_tenant_id,
+                scope=MemoryScope.USER,
+            )
 
 
 class TestDeleteMemory:
@@ -431,6 +445,17 @@ class TestDeleteMemoriesByScope:
         )
 
         assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_by_scope_missing_context_raises(
+        self, store, sample_tenant_id
+    ):
+        """Missing scope context should raise MemoryScopeError."""
+        with pytest.raises(MemoryScopeError):
+            await store.delete_memories_by_scope(
+                scope=MemoryScope.SESSION,
+                tenant_id=sample_tenant_id,
+            )
 
 
 class TestSearchMemories:
@@ -500,6 +525,18 @@ class TestSearchMemories:
 
         # Should only include SESSION
         assert scopes_searched == [MemoryScope.SESSION]
+
+    @pytest.mark.asyncio
+    async def test_search_missing_scope_context_raises(
+        self, store, sample_tenant_id
+    ):
+        """Missing scope context should raise MemoryScopeError."""
+        with pytest.raises(MemoryScopeError):
+            await store.search_memories(
+                query="test",
+                scope=MemoryScope.SESSION,
+                tenant_id=sample_tenant_id,
+            )
 
 
 class TestUpdateMemory:

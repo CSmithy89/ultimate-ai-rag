@@ -64,6 +64,7 @@ def mock_store():
     store = MagicMock()
     store.list_memories = AsyncMock(return_value=([], 0))
     store.get_memory = AsyncMock(return_value=None)
+    store.get_memory_embeddings = AsyncMock(return_value={})
     store.update_memory = AsyncMock(return_value=None)
     store.delete_memory = AsyncMock(return_value=True)
     store._postgres = MagicMock()
@@ -425,6 +426,74 @@ class TestMemoryMerging:
         merged = await consolidator._merge_memories(memory1, [memory2])
 
         assert merged["access_count"] == memory1.access_count + memory2.access_count
+
+    @pytest.mark.asyncio
+    async def test_merge_respects_user_context(self, consolidator, sample_embedding):
+        """Merges should not cross different user contexts."""
+        tenant_id = uuid4()
+        now = datetime.now(timezone.utc)
+
+        memory1 = ScopedMemory(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            content="User A memory",
+            scope=MemoryScope.USER,
+            user_id=uuid4(),
+            session_id=None,
+            agent_id=None,
+            importance=0.8,
+            access_count=2,
+            embedding=sample_embedding,
+            metadata={},
+            created_at=now,
+            updated_at=now,
+            accessed_at=now,
+        )
+
+        memory2 = ScopedMemory(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            content="User B memory",
+            scope=MemoryScope.USER,
+            user_id=uuid4(),
+            session_id=None,
+            agent_id=None,
+            importance=0.7,
+            access_count=1,
+            embedding=sample_embedding,
+            metadata={},
+            created_at=now,
+            updated_at=now,
+            accessed_at=now,
+        )
+
+        consolidator.store.update_memory.return_value = memory1
+        consolidator.store.delete_memory.return_value = True
+
+        merged_count = await consolidator._merge_similar_memories(
+            [memory1, memory2],
+            tenant_id=str(tenant_id),
+        )
+
+        assert merged_count == 0
+        consolidator.store.update_memory.assert_not_called()
+        consolidator.store.delete_memory.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_merge_skips_deletes_on_update_failure(
+        self, consolidator, two_similar_memories
+    ):
+        """Secondary memories should not be deleted when update fails."""
+        memory1, memory2 = two_similar_memories
+        consolidator.store.update_memory.return_value = None
+
+        merged_count = await consolidator._merge_similar_memories(
+            [memory1, memory2],
+            tenant_id=str(memory1.tenant_id),
+        )
+
+        assert merged_count == 0
+        consolidator.store.delete_memory.assert_not_called()
 
 
 class TestTenantIsolation:

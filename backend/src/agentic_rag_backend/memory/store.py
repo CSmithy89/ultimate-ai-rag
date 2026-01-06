@@ -6,6 +6,7 @@ Provides CRUD operations for scoped memories with:
 - Optional Graphiti integration for graph-based relationships
 """
 
+import inspect
 import json
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -157,6 +158,17 @@ class ScopedMemoryStore:
         now = datetime.now(timezone.utc)
         memory_id = uuid4()
 
+        memory_metadata = dict(metadata or {})
+        graphiti_episode_id = await self._maybe_add_graphiti_episode(
+            tenant_id=tenant_id,
+            memory_id=str(memory_id),
+            content=content,
+            scope=scope,
+            created_at=now,
+        )
+        if graphiti_episode_id:
+            memory_metadata.setdefault("graphiti_episode_id", graphiti_episode_id)
+
         # Store in PostgreSQL
         memory = await self._store_in_postgres(
             memory_id=memory_id,
@@ -167,7 +179,7 @@ class ScopedMemoryStore:
             session_id=session_id,
             agent_id=agent_id,
             importance=importance,
-            metadata=metadata or {},
+            metadata=memory_metadata,
             embedding=embedding,
             created_at=now,
             accessed_at=now,
@@ -267,6 +279,13 @@ class ScopedMemoryStore:
             )
             offset = MAX_OFFSET
 
+        if scope:
+            is_valid, error_msg = validate_scope_context(
+                scope, user_id, session_id, agent_id
+            )
+            if not is_valid:
+                raise MemoryScopeError(scope.value, error_msg or "Invalid scope context")
+
         return await self._list_from_postgres(
             tenant_id=tenant_id,
             scope=scope,
@@ -316,6 +335,12 @@ class ScopedMemoryStore:
         if not query or len(query) > MAX_QUERY_LENGTH:
             raise ValueError(f"Query must be 1-{MAX_QUERY_LENGTH} characters")
 
+        is_valid, error_msg = validate_scope_context(
+            scope, user_id, session_id, agent_id
+        )
+        if not is_valid:
+            raise MemoryScopeError(scope.value, error_msg or "Invalid scope context")
+
         scopes_to_search = get_scopes_to_search(scope, include_parent_scopes)
 
         # Generate query embedding for similarity search
@@ -342,9 +367,12 @@ class ScopedMemoryStore:
             limit=limit,
         )
 
-        # Update access stats for returned memories
-        for memory in memories:
-            await self._update_access_stats(str(memory.id), tenant_id)
+        # Update access stats for returned memories (batch to avoid N+1 updates)
+        if memories:
+            await self._update_access_stats_bulk(
+                [str(memory.id) for memory in memories],
+                tenant_id,
+            )
 
         return memories, scopes_to_search
 
@@ -354,6 +382,7 @@ class ScopedMemoryStore:
         tenant_id: str,
         content: Optional[str] = None,
         importance: Optional[float] = None,
+        access_count: Optional[int] = None,
         metadata: Optional[dict[str, Any]] = None,
     ) -> Optional[ScopedMemory]:
         """Update a memory's content, importance, or metadata.
@@ -363,6 +392,7 @@ class ScopedMemoryStore:
             tenant_id: Tenant identifier
             content: New content (if updating)
             importance: New importance score (if updating)
+            access_count: New access count (if updating)
             metadata: New metadata (replaces existing if provided)
 
         Returns:
@@ -390,6 +420,7 @@ class ScopedMemoryStore:
             tenant_id=tenant_id,
             content=content,
             importance=importance,
+            access_count=access_count,
             metadata=metadata,
             embedding=embedding,
         )
@@ -405,6 +436,7 @@ class ScopedMemoryStore:
             tenant_id=tenant_id,
             content_updated=content is not None,
             importance_updated=importance is not None,
+            access_count_updated=access_count is not None,
             metadata_updated=metadata is not None,
         )
 
@@ -424,10 +456,22 @@ class ScopedMemoryStore:
         Returns:
             True if deleted, False if not found
         """
+        graphiti_episode_id = None
+        if self._graphiti and getattr(self._graphiti, "is_connected", False):
+            existing = await self._get_from_postgres(memory_id, tenant_id)
+            if existing and isinstance(existing.metadata, dict):
+                graphiti_episode_id = existing.metadata.get("graphiti_episode_id")
+
         deleted = await self._delete_from_postgres(memory_id, tenant_id)
 
         if deleted and self._redis:
             await self._invalidate_cache_entry(tenant_id, memory_id)
+
+        if deleted and graphiti_episode_id:
+            await self._maybe_delete_graphiti_episode(
+                tenant_id=tenant_id,
+                episode_id=graphiti_episode_id,
+            )
 
         if deleted:
             logger.info("memory_deleted", memory_id=memory_id, tenant_id=tenant_id)
@@ -457,6 +501,22 @@ class ScopedMemoryStore:
         Returns:
             Count of deleted memories
         """
+        is_valid, error_msg = validate_scope_context(
+            scope, user_id, session_id, agent_id
+        )
+        if not is_valid:
+            raise MemoryScopeError(scope.value, error_msg or "Invalid scope context")
+
+        graphiti_episode_ids: list[str] = []
+        if self._graphiti and getattr(self._graphiti, "is_connected", False):
+            graphiti_episode_ids = await self._collect_graphiti_episode_ids(
+                tenant_id=tenant_id,
+                scope=scope,
+                user_id=user_id,
+                session_id=session_id,
+                agent_id=agent_id,
+            )
+
         count = await self._delete_scope_from_postgres(
             scope=scope,
             tenant_id=tenant_id,
@@ -474,6 +534,13 @@ class ScopedMemoryStore:
                 session_id=session_id,
                 agent_id=agent_id,
             )
+
+        if count and graphiti_episode_ids:
+            for episode_id in graphiti_episode_ids:
+                await self._maybe_delete_graphiti_episode(
+                    tenant_id=tenant_id,
+                    episode_id=episode_id,
+                )
 
         logger.info(
             "memories_deleted_by_scope",
@@ -584,6 +651,45 @@ class ScopedMemoryStore:
                 accessed_at=row["accessed_at"],
                 access_count=row["access_count"],
             )
+
+    async def get_memory_embeddings(
+        self,
+        tenant_id: str,
+        memory_ids: list[str],
+    ) -> dict[str, list[float]]:
+        """Fetch embeddings for a set of memories in a single query."""
+        if not memory_ids:
+            return {}
+
+        async with self._postgres.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, embedding
+                FROM scoped_memories
+                WHERE tenant_id = $1 AND id = ANY($2::uuid[])
+                """,
+                UUID(tenant_id),
+                [UUID(memory_id) for memory_id in memory_ids],
+            )
+
+        embeddings: dict[str, list[float]] = {}
+        for row in rows:
+            embedding = row["embedding"]
+            if embedding is None:
+                continue
+            if hasattr(embedding, "tolist"):
+                embedding = embedding.tolist()
+            elif isinstance(embedding, tuple):
+                embedding = list(embedding)
+            elif not isinstance(embedding, list):
+                try:
+                    embedding = list(embedding)
+                except TypeError:
+                    continue
+
+            embeddings[str(row["id"])] = embedding
+
+        return embeddings
 
     async def _list_from_postgres(
         self,
@@ -816,6 +922,7 @@ class ScopedMemoryStore:
         tenant_id: str,
         content: Optional[str],
         importance: Optional[float],
+        access_count: Optional[int],
         metadata: Optional[dict[str, Any]],
         embedding: Optional[list[float]],
     ) -> Optional[ScopedMemory]:
@@ -834,6 +941,11 @@ class ScopedMemoryStore:
             if importance is not None:
                 updates.append(f"importance = ${param_idx}")
                 params.append(importance)
+                param_idx += 1
+
+            if access_count is not None:
+                updates.append(f"access_count = ${param_idx}")
+                params.append(access_count)
                 param_idx += 1
 
             if metadata is not None:
@@ -989,6 +1101,137 @@ class ScopedMemoryStore:
                 error=str(e),
             )
 
+    async def _update_access_stats_bulk(
+        self,
+        memory_ids: list[str],
+        tenant_id: str,
+    ) -> None:
+        """Batch update access stats for a list of memories."""
+        if not memory_ids:
+            return
+
+        try:
+            async with self._postgres.pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE scoped_memories
+                    SET accessed_at = NOW(), access_count = access_count + 1
+                    WHERE tenant_id = $1 AND id = ANY($2::uuid[])
+                    """,
+                    UUID(tenant_id),
+                    [UUID(memory_id) for memory_id in memory_ids],
+                )
+        except Exception as e:
+            logger.warning(
+                "memory_access_stats_bulk_update_failed",
+                memory_ids=len(memory_ids),
+                error=str(e),
+            )
+
+    async def _maybe_add_graphiti_episode(
+        self,
+        tenant_id: str,
+        memory_id: str,
+        content: str,
+        scope: MemoryScope,
+        created_at: datetime,
+    ) -> Optional[str]:
+        """Best-effort Graphiti ingestion for a memory entry."""
+        if not self._graphiti or not getattr(self._graphiti, "is_connected", False):
+            return None
+
+        content_stripped = content.strip()
+        if len(content_stripped) < 10:
+            return None
+
+        try:
+            episode = await self._graphiti.client.add_episode(
+                name=f"Memory {memory_id}",
+                episode_body=content,
+                source_description=f"scoped_memory:{scope.value}",
+                reference_time=created_at,
+                group_id=tenant_id,
+            )
+            episode_id = str(getattr(episode, "uuid", "")) or None
+            if episode_id:
+                logger.info(
+                    "memory_graphiti_episode_created",
+                    memory_id=memory_id,
+                    episode_id=episode_id,
+                    tenant_id=tenant_id,
+                )
+            return episode_id
+        except Exception as e:
+            logger.warning(
+                "memory_graphiti_ingestion_failed",
+                memory_id=memory_id,
+                tenant_id=tenant_id,
+                error=str(e),
+            )
+            return None
+
+    async def _maybe_delete_graphiti_episode(
+        self,
+        tenant_id: str,
+        episode_id: str,
+    ) -> None:
+        """Best-effort Graphiti cleanup for a memory entry."""
+        if not self._graphiti or not getattr(self._graphiti, "is_connected", False):
+            return
+
+        try:
+            await self._graphiti.client.delete_episode(episode_id)
+            logger.info(
+                "memory_graphiti_episode_deleted",
+                episode_id=episode_id,
+                tenant_id=tenant_id,
+            )
+        except Exception as e:
+            logger.warning(
+                "memory_graphiti_delete_failed",
+                episode_id=episode_id,
+                tenant_id=tenant_id,
+                error=str(e),
+            )
+
+    async def _collect_graphiti_episode_ids(
+        self,
+        tenant_id: str,
+        scope: MemoryScope,
+        user_id: Optional[str],
+        session_id: Optional[str],
+        agent_id: Optional[str],
+    ) -> list[str]:
+        """Collect Graphiti episode IDs for a scoped delete."""
+        episode_ids: list[str] = []
+        limit = 200
+        offset = 0
+
+        while True:
+            memories, _ = await self._list_from_postgres(
+                tenant_id=tenant_id,
+                scope=scope,
+                user_id=user_id,
+                session_id=session_id,
+                agent_id=agent_id,
+                limit=limit,
+                offset=offset,
+            )
+            if not memories:
+                break
+
+            for memory in memories:
+                if isinstance(memory.metadata, dict):
+                    episode_id = memory.metadata.get("graphiti_episode_id")
+                    if episode_id:
+                        episode_ids.append(episode_id)
+
+            offset += len(memories)
+            if len(memories) < limit:
+                break
+
+        return episode_ids
+
     # ------------ Redis Cache Operations ------------
 
     async def _cache_memory(self, memory: ScopedMemory) -> None:
@@ -1062,16 +1305,32 @@ class ScopedMemoryStore:
             keys_to_delete: list[str] = []
             batch_size = 100
 
-            async for key in self._redis.client.scan_iter(match=pattern):
-                keys_to_delete.append(key)
+            scan_iter = self._redis.client.scan_iter(match=pattern)
+            if inspect.isawaitable(scan_iter):
+                scan_iter = await scan_iter
 
-                # Process in batches to avoid memory issues with large key sets
-                if len(keys_to_delete) >= batch_size:
-                    async with self._redis.client.pipeline(transaction=False) as pipe:
-                        for k in keys_to_delete:
-                            pipe.delete(k)
-                        await pipe.execute()
-                    keys_to_delete = []
+            if hasattr(scan_iter, "__aiter__"):
+                async for key in scan_iter:
+                    keys_to_delete.append(key)
+
+                    # Process in batches to avoid memory issues with large key sets
+                    if len(keys_to_delete) >= batch_size:
+                        async with self._redis.client.pipeline(transaction=False) as pipe:
+                            for k in keys_to_delete:
+                                pipe.delete(k)
+                            await pipe.execute()
+                        keys_to_delete = []
+            else:
+                for key in scan_iter:
+                    keys_to_delete.append(key)
+
+                    # Process in batches to avoid memory issues with large key sets
+                    if len(keys_to_delete) >= batch_size:
+                        async with self._redis.client.pipeline(transaction=False) as pipe:
+                            for k in keys_to_delete:
+                                pipe.delete(k)
+                            await pipe.execute()
+                        keys_to_delete = []
 
             # Delete remaining keys
             if keys_to_delete:

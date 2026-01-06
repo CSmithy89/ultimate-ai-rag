@@ -139,7 +139,10 @@ class MemorySearchRequest(BaseModel):
     query: str = Field(
         ..., min_length=1, max_length=1000, description="Search query"
     )
-    scope: MemoryScope = Field(..., description="Search starting scope")
+    scope: Optional[MemoryScope] = Field(
+        default=None,
+        description="Search starting scope (defaults to MEMORY_DEFAULT_SCOPE)",
+    )
     tenant_id: UUID = Field(..., description="Tenant identifier")
     user_id: Optional[UUID] = Field(
         default=None, description="User ID for USER/SESSION scope"
@@ -151,8 +154,9 @@ class MemorySearchRequest(BaseModel):
         default=None, description="Agent ID for AGENT scope"
     )
     limit: int = Field(default=10, ge=1, le=100, description="Maximum results to return")
-    include_parent_scopes: bool = Field(
-        default=True, description="Include memories from parent scopes in hierarchy"
+    include_parent_scopes: Optional[bool] = Field(
+        default=None,
+        description="Include memories from parent scopes in hierarchy (defaults to MEMORY_INCLUDE_PARENT_SCOPES)",
     )
 
     model_config = {
