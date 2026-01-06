@@ -5,7 +5,7 @@
 
 'use client';
 
-import { memo, useState } from 'react';
+import { memo, useState, useEffect, useCallback } from 'react';
 import type { Workflow } from '../../types/workflow';
 
 interface WorkflowToolbarProps {
@@ -46,6 +46,23 @@ function WorkflowToolbarComponent({
     setShowLoadMenu(false);
   };
 
+  const handleClear = useCallback(() => {
+    if (window.confirm('Are you sure you want to clear the workflow? This cannot be undone.')) {
+      onClear();
+    }
+  }, [onClear]);
+
+  // Close dropdown on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showLoadMenu) {
+        setShowLoadMenu(false);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [showLoadMenu]);
+
   const savedWorkflows = getSavedWorkflows();
 
   return (
@@ -70,7 +87,7 @@ function WorkflowToolbarComponent({
       <div className="flex items-center gap-2">
         {/* Clear button */}
         <button
-          onClick={onClear}
+          onClick={handleClear}
           className="
             px-3 py-1.5 text-sm font-medium
             text-gray-600 hover:text-gray-800

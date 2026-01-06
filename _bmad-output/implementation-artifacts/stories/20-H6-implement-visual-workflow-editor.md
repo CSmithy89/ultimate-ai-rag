@@ -83,14 +83,15 @@ VISUAL_WORKFLOW_ENABLED=true|false    # Default: false
 ## Tasks / Subtasks
 
 - [x] Create workflow types (TypeScript)
-- [x] Create WorkflowNode base component
-- [x] Create pipeline node components (Ingest, Chunk, Embed, etc.)
+- [x] Create WorkflowNode universal component (handles all 8 node types via nodeType prop)
 - [x] Create WorkflowEditor with React Flow
-- [x] Create WorkflowToolbar
-- [x] Create WorkflowSidebar
-- [x] Add workflow state hook
-- [x] Add workflow page route
-- [x] Add feature flag environment variable
+- [x] Create WorkflowToolbar with save/load/run/clear
+- [x] Create WorkflowSidebar with draggable node palette
+- [x] Add workflow state hook (use-workflow-store)
+- [x] Add workflow page route (/workflow)
+- [x] Add feature flag (NEXT_PUBLIC_VISUAL_WORKFLOW_ENABLED)
+- [x] Add edge connection validation (prevent invalid connections)
+- [x] Add debug logging during execution
 - [ ] Write unit tests (deferred - MVP complete)
 
 ## Testing Requirements
@@ -126,19 +127,13 @@ VISUAL_WORKFLOW_ENABLED=true|false    # Default: false
 | File | Action | Description |
 |------|--------|-------------|
 | `frontend/types/workflow.ts` | NEW | TypeScript types for workflow |
-| `frontend/components/workflow/WorkflowNode.tsx` | NEW | Base custom node component |
-| `frontend/components/workflow/nodes/IngestNode.tsx` | NEW | Ingestion node |
-| `frontend/components/workflow/nodes/ChunkNode.tsx` | NEW | Chunking node |
-| `frontend/components/workflow/nodes/EmbedNode.tsx` | NEW | Embedding node |
-| `frontend/components/workflow/nodes/IndexNode.tsx` | NEW | Indexing node |
-| `frontend/components/workflow/nodes/RetrieveNode.tsx` | NEW | Retrieval node |
-| `frontend/components/workflow/nodes/RerankNode.tsx` | NEW | Reranking node |
-| `frontend/components/workflow/nodes/RespondNode.tsx` | NEW | Response node |
-| `frontend/components/workflow/WorkflowToolbar.tsx` | NEW | Toolbar with actions |
-| `frontend/components/workflow/WorkflowSidebar.tsx` | NEW | Node palette and config |
-| `frontend/components/workflow/WorkflowEditor.tsx` | NEW | Main editor component |
-| `frontend/components/workflow/hooks/use-workflow-store.ts` | NEW | Workflow state |
-| `frontend/app/workflow/page.tsx` | NEW | Workflow editor page |
+| `frontend/components/workflow/WorkflowNode.tsx` | NEW | Universal node component (handles all 8 node types via nodeType prop) |
+| `frontend/components/workflow/WorkflowToolbar.tsx` | NEW | Toolbar with save/load/run/clear actions |
+| `frontend/components/workflow/WorkflowSidebar.tsx` | NEW | Node palette with draggable items |
+| `frontend/components/workflow/WorkflowEditor.tsx` | NEW | Main React Flow editor component |
+| `frontend/components/workflow/hooks/use-workflow-store.ts` | NEW | Workflow state management with localStorage persistence |
+| `frontend/components/workflow/index.ts` | NEW | Module exports |
+| `frontend/app/workflow/page.tsx` | NEW | Workflow editor page route with feature flag |
 
 ### Change Log
 
@@ -146,3 +141,4 @@ VISUAL_WORKFLOW_ENABLED=true|false    # Default: false
 |------|--------|---------|
 | 2026-01-06 | Initial implementation | Created story file |
 | 2026-01-06 | Full implementation | Created React Flow-based workflow editor with WorkflowEditor, WorkflowNode, WorkflowSidebar, WorkflowToolbar components. Added workflow types, state hook, and /workflow page route. TypeScript compiles cleanly. |
+| 2026-01-06 | Code review fixes | Fixed: feature flag now respects NEXT_PUBLIC_VISUAL_WORKFLOW_ENABLED env var (was always true), deprecated substr() -> substring(), added edge connection validation (prevent respond->any, any->ingest, duplicates), added Clear confirmation dialog, Escape key closes dropdown, empty workflow validation, debug logging during execution. Updated File List to match actual implementation (single universal WorkflowNode vs separate node files). |

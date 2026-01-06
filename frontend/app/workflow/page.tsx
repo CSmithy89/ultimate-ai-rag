@@ -9,14 +9,11 @@ import { WorkflowEditor } from '../../components/workflow';
 
 /**
  * Get feature flag from environment variable.
- * In a real app, this might come from a config API or server component.
+ * NEXT_PUBLIC_VISUAL_WORKFLOW_ENABLED must be set to 'true' to enable.
+ * Default: disabled (false) per AC4.
  */
 function isWorkflowEnabled(): boolean {
-  // Check for client-side env var or default to true for development
-  if (typeof window !== 'undefined') {
-    // Could check localStorage or API for feature flag
-    return true; // Default enabled for now
-  }
+  // Next.js exposes NEXT_PUBLIC_ vars at build time
   return process.env.NEXT_PUBLIC_VISUAL_WORKFLOW_ENABLED === 'true';
 }
 

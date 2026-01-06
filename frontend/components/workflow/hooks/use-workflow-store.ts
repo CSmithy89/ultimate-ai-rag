@@ -29,7 +29,7 @@ const STORAGE_KEY = 'rag-workflow-drafts';
  * Generate a unique ID for nodes and edges.
  */
 function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
 }
 
 /**
@@ -74,14 +74,49 @@ export function useWorkflowStore() {
   const [execution, setExecution] = useState<WorkflowExecution | null>(null);
 
   /**
+   * Validate edge connection between nodes.
+   * Returns true if connection is valid.
+   */
+  const isValidConnection = useCallback(
+    (source: string, target: string): boolean => {
+      const sourceNode = nodes.find((n) => n.id === source);
+      const targetNode = nodes.find((n) => n.id === target);
+
+      if (!sourceNode || !targetNode) return false;
+
+      const sourceType = sourceNode.data?.nodeType;
+      const targetType = targetNode.data?.nodeType;
+
+      // Respond nodes cannot have outgoing connections
+      if (sourceType === 'respond') return false;
+
+      // Ingest nodes cannot have incoming connections
+      if (targetType === 'ingest') return false;
+
+      // Prevent self-connections
+      if (source === target) return false;
+
+      // Prevent duplicate edges
+      const isDuplicate = edges.some(
+        (e) => e.source === source && e.target === target
+      );
+      if (isDuplicate) return false;
+
+      return true;
+    },
+    [nodes, edges]
+  );
+
+  /**
    * Handle new edge connections.
    */
   const onConnect = useCallback(
     (connection: Connection) => {
-      // Validate connection (basic validation)
+      // Validate connection
       if (!connection.source || !connection.target) return;
+      if (!isValidConnection(connection.source, connection.target)) return;
 
-      // Add the edge with animation
+      // Add the edge
       setEdges((eds) =>
         addEdge(
           {
@@ -94,7 +129,7 @@ export function useWorkflowStore() {
         )
       );
     },
-    [setEdges]
+    [setEdges, isValidConnection]
   );
 
   /**
@@ -167,8 +202,15 @@ export function useWorkflowStore() {
 
   /**
    * Save workflow to localStorage.
+   * Returns false if workflow is empty or save fails.
    */
   const saveWorkflow = useCallback(() => {
+    // Validate: workflow must have at least one node
+    if (nodes.length === 0) {
+      console.warn('Cannot save empty workflow');
+      return false;
+    }
+
     const workflow: Workflow = {
       id: workflowId,
       name: workflowName,
@@ -256,9 +298,19 @@ export function useWorkflowStore() {
   }, []);
 
   /**
-   * Simulate workflow execution (placeholder for real implementation).
+   * Execute workflow with debug information.
+   * Simulates pipeline execution (placeholder for real backend integration).
    */
   const executeWorkflow = useCallback(async () => {
+    // Validate: workflow must have at least one node
+    if (nodes.length === 0) {
+      console.warn('Cannot execute empty workflow');
+      return;
+    }
+
+    console.log(`[Workflow Debug] Starting execution: ${workflowName} (${workflowId})`);
+    console.log(`[Workflow Debug] Nodes: ${nodes.length}, Edges: ${edges.length}`);
+
     // Reset all nodes to idle
     setNodes((nds) =>
       nds.map((node) => ({
@@ -278,15 +330,24 @@ export function useWorkflowStore() {
     // Get nodes in topological order (simplified: just process in order)
     const nodeOrder = [...nodes];
 
-    for (const node of nodeOrder) {
+    for (let i = 0; i < nodeOrder.length; i++) {
+      const node = nodeOrder[i];
+      const nodeData = node.data as WorkflowNodeData;
+
+      console.log(`[Workflow Debug] Step ${i + 1}/${nodeOrder.length}: ${nodeData.label} (${nodeData.nodeType})`);
+      console.log(`[Workflow Debug] Config:`, nodeData.config);
+
       updateNodeStatus(node.id, 'running');
 
       // Simulate processing delay
       await new Promise((resolve) => setTimeout(resolve, 500));
 
       // Simulate success (in real impl, would call backend)
+      console.log(`[Workflow Debug] Completed: ${nodeData.label}`);
       updateNodeStatus(node.id, 'success');
     }
+
+    console.log(`[Workflow Debug] Workflow execution completed successfully`);
 
     setExecution((prev) =>
       prev
@@ -297,7 +358,7 @@ export function useWorkflowStore() {
           }
         : null
     );
-  }, [workflowId, nodes, setNodes, updateNodeStatus]);
+  }, [workflowId, workflowName, nodes, edges, setNodes, updateNodeStatus]);
 
   return {
     // State
