@@ -348,6 +348,12 @@ class Settings:
     ontology_support_enabled: bool
     ontology_path: Optional[str]
     ontology_auto_type: bool
+    # Story 20-E2 - Self-Improving Feedback Loop
+    feedback_loop_enabled: bool
+    feedback_min_samples: int
+    feedback_decay_days: int
+    feedback_boost_max: float
+    feedback_boost_min: float
 
 
 def load_settings() -> Settings:
@@ -1176,6 +1182,27 @@ def load_settings() -> Settings:
     ontology_path = os.getenv("ONTOLOGY_PATH") or None
     ontology_auto_type = get_bool_env("ONTOLOGY_AUTO_TYPE", "false")
 
+    # Story 20-E2 - Self-Improving Feedback Loop settings
+    feedback_loop_enabled = get_bool_env("FEEDBACK_LOOP_ENABLED", "false")
+    feedback_min_samples = get_int_env("FEEDBACK_MIN_SAMPLES", 10, min_val=1)
+    feedback_decay_days = get_int_env("FEEDBACK_DECAY_DAYS", 90, min_val=1)
+    feedback_boost_max = get_float_env("FEEDBACK_BOOST_MAX", 1.5, min_val=1.0)
+    feedback_boost_min = get_float_env("FEEDBACK_BOOST_MIN", 0.5, min_val=0.0)
+    # Validate boost range
+    if feedback_boost_min >= feedback_boost_max:
+        logger.warning(
+            "invalid_feedback_boost_range",
+            min=feedback_boost_min,
+            max=feedback_boost_max,
+            hint="FEEDBACK_BOOST_MIN must be less than FEEDBACK_BOOST_MAX, using defaults",
+        )
+        feedback_boost_min = 0.5
+        feedback_boost_max = 1.5
+    # Clamp boost values to model's valid range (0.5 to 1.5)
+    # This ensures config values match QueryBoost model constraints
+    feedback_boost_max = max(1.0, min(1.5, feedback_boost_max))
+    feedback_boost_min = max(0.5, min(1.0, feedback_boost_min))
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1396,6 +1423,12 @@ def load_settings() -> Settings:
         ontology_support_enabled=ontology_support_enabled,
         ontology_path=ontology_path,
         ontology_auto_type=ontology_auto_type,
+        # Story 20-E2 - Self-Improving Feedback Loop
+        feedback_loop_enabled=feedback_loop_enabled,
+        feedback_min_samples=feedback_min_samples,
+        feedback_decay_days=feedback_decay_days,
+        feedback_boost_max=feedback_boost_max,
+        feedback_boost_min=feedback_boost_min,
     )
 
 
