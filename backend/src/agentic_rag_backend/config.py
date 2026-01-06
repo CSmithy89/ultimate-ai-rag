@@ -344,6 +344,10 @@ class Settings:
     # Story 20-D2 - Multimodal Ingestion
     multimodal_ingestion_enabled: bool
     office_docs_enabled: bool
+    # Story 20-E1 - Ontology Support
+    ontology_support_enabled: bool
+    ontology_path: Optional[str]
+    ontology_auto_type: bool
 
 
 def load_settings() -> Settings:
@@ -1167,6 +1171,11 @@ def load_settings() -> Settings:
     multimodal_ingestion_enabled = get_bool_env("MULTIMODAL_INGESTION_ENABLED", "false")
     office_docs_enabled = get_bool_env("OFFICE_DOCS_ENABLED", "true")
 
+    # Story 20-E1 - Ontology Support settings
+    ontology_support_enabled = get_bool_env("ONTOLOGY_SUPPORT_ENABLED", "false")
+    ontology_path = os.getenv("ONTOLOGY_PATH") or None
+    ontology_auto_type = get_bool_env("ONTOLOGY_AUTO_TYPE", "false")
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1383,6 +1392,10 @@ def load_settings() -> Settings:
         # Story 20-D2 - Multimodal Ingestion
         multimodal_ingestion_enabled=multimodal_ingestion_enabled,
         office_docs_enabled=office_docs_enabled,
+        # Story 20-E1 - Ontology Support
+        ontology_support_enabled=ontology_support_enabled,
+        ontology_path=ontology_path,
+        ontology_auto_type=ontology_auto_type,
     )
 
 
