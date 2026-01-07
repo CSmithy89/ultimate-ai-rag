@@ -162,6 +162,7 @@ class Settings:
     embedding_provider: str
     embedding_api_key: Optional[str]
     embedding_base_url: Optional[str]
+    embedding_dimension: int
     database_url: str
     db_pool_min: int
     db_pool_max: int
@@ -736,6 +737,8 @@ def load_settings() -> Settings:
             raise ValueError(
                 f"{key_name} is required when EMBEDDING_PROVIDER={embedding_provider}."
             )
+
+    embedding_dimension = get_int_env("EMBEDDING_DIMENSION", 1536, min_val=1)
 
     database_url = cast(str, values["DATABASE_URL"])
     neo4j_uri = cast(str, values["NEO4J_URI"])
@@ -1340,6 +1343,7 @@ def load_settings() -> Settings:
         embedding_provider=embedding_provider,
         embedding_api_key=embedding_api_key,
         embedding_base_url=embedding_base_url,
+        embedding_dimension=embedding_dimension,
         database_url=database_url,
         db_pool_min=db_pool_min,
         db_pool_max=db_pool_max,

@@ -146,7 +146,7 @@ def _create_graph_reranker(settings: Settings, neo4j_client, graphiti_client) ->
     )
 
 
-def _create_community_detector(settings: Settings, neo4j_client) -> object:
+def _create_community_detector(settings: Settings, neo4j_client, rate_limiter) -> object:
     if not settings.community_detection_enabled or neo4j_client is None:
         return None
 
@@ -172,6 +172,7 @@ def _create_community_detector(settings: Settings, neo4j_client) -> object:
             min_community_size=settings.community_min_size,
             max_hierarchy_levels=settings.community_max_levels,
             summary_model=settings.community_summary_model,
+            rate_limiter=rate_limiter,
         )
         return detector
     except Exception as exc:
@@ -185,7 +186,7 @@ def _create_query_router(settings: Settings) -> object:
     return QueryRouter(settings)
 
 
-def _create_lazy_rag_retriever(settings: Settings, graphiti_client, neo4j_client, community_detector) -> object:
+def _create_lazy_rag_retriever(settings: Settings, graphiti_client, neo4j_client, community_detector, rate_limiter) -> object:
     if not settings.lazy_rag_enabled or neo4j_client is None:
         return None
     return LazyRAGRetriever(
@@ -193,10 +194,11 @@ def _create_lazy_rag_retriever(settings: Settings, graphiti_client, neo4j_client
         neo4j_client=neo4j_client,
         settings=settings,
         community_detector=community_detector,
+        rate_limiter=rate_limiter,
     )
 
 
-def _create_dual_level_retriever(settings: Settings, graphiti_client, neo4j_client, community_detector) -> object:
+def _create_dual_level_retriever(settings: Settings, graphiti_client, neo4j_client, community_detector, rate_limiter) -> object:
     if not settings.dual_level_retrieval_enabled or neo4j_client is None:
         return None
     return DualLevelRetriever(
@@ -204,6 +206,7 @@ def _create_dual_level_retriever(settings: Settings, graphiti_client, neo4j_clie
         neo4j_client=neo4j_client,
         settings=settings,
         community_detector=community_detector,
+        rate_limiter=rate_limiter,
     )
 
 
@@ -450,6 +453,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 window_seconds=settings.codebase_index_rate_limit_window_seconds,
                 key_prefix=f"{settings.rate_limit_redis_prefix}:codebase-index",
             )
+            # LLM API rate limiter (100 requests per minute per tenant)
+            app.state.llm_rate_limiter = RedisRateLimiter(
+                client=redis_client,
+                max_requests=100,
+                window_seconds=60,
+                key_prefix=f"{settings.rate_limit_redis_prefix}:llm",
+            )
         else:
             app.state.redis = None
             app.state.rate_limiter = InMemoryRateLimiter(
@@ -459,6 +469,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             app.state.codebase_index_limiter = InMemoryRateLimiter(
                 max_requests=settings.codebase_index_rate_limit_max,
                 window_seconds=settings.codebase_index_rate_limit_window_seconds,
+            )
+            app.state.llm_rate_limiter = InMemoryRateLimiter(
+                max_requests=100,
+                window_seconds=60,
             )
 
         # Create retrieval enhancements (reranker, grader) if enabled
@@ -475,6 +489,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         community_detector = _create_community_detector(
             settings,
             getattr(app.state, "neo4j", None),
+            app.state.llm_rate_limiter,
         )
         if community_detector:
             app.state.community_detector = community_detector
@@ -484,12 +499,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             getattr(app.state, "graphiti", None),
             getattr(app.state, "neo4j", None),
             community_detector,
+            app.state.llm_rate_limiter,
         )
         dual_level_retriever = _create_dual_level_retriever(
             settings,
             getattr(app.state, "graphiti", None),
             getattr(app.state, "neo4j", None),
             community_detector,
+            app.state.llm_rate_limiter,
         )
 
         app.state.orchestrator = OrchestratorAgent(
@@ -660,6 +677,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     embedding_model=settings.embedding_model,
                     cache_ttl_seconds=settings.memory_cache_ttl_seconds,
                     max_per_scope=settings.memory_max_per_scope,
+                    embedding_dimension=settings.embedding_dimension,
                 )
                 app.state.memory_store = memory_store
 

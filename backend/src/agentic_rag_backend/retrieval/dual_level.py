@@ -37,6 +37,7 @@ from openai import AsyncOpenAI
 from ..config import Settings
 from ..db.graphiti import GraphitiClient, GRAPHITI_AVAILABLE
 from ..llm.providers import get_llm_adapter, OPENAI_COMPATIBLE_LLM_PROVIDERS
+from ..rate_limit import RateLimiter
 from .dual_level_models import (
     DualLevelResult,
     HighLevelResult,
@@ -90,6 +91,7 @@ class DualLevelRetriever:
         neo4j_client: Any,
         settings: Settings,
         community_detector: Optional[Any] = None,
+        rate_limiter: Optional[RateLimiter] = None,
     ) -> None:
         """Initialize DualLevelRetriever.
 
@@ -98,11 +100,13 @@ class DualLevelRetriever:
             neo4j_client: Neo4j client for graph queries
             settings: Application settings
             community_detector: CommunityDetector instance from 20-B1
+            rate_limiter: Optional rate limiter for LLM calls
         """
         self._graphiti = graphiti_client
         self._neo4j = neo4j_client
         self._settings = settings
         self._community_detector = community_detector
+        self._rate_limiter = rate_limiter
 
         # Extract settings with defaults
         self.low_weight = getattr(settings, "dual_level_low_weight", 0.6)
@@ -214,6 +218,7 @@ class DualLevelRetriever:
                     query=query,
                     low_level_results=low_level_results,
                     high_level_results=high_level_results,
+                    tenant_id=tenant_id,
                 )
                 synthesis = synthesis_result.text if synthesis_result else None
                 # Update confidence with synthesis confidence if available
@@ -552,6 +557,7 @@ class DualLevelRetriever:
         query: str,
         low_level_results: list[LowLevelResult],
         high_level_results: list[HighLevelResult],
+        tenant_id: str,
     ) -> Optional[SynthesisResult]:
         """Synthesize low-level and high-level results via LLM.
 
@@ -562,10 +568,20 @@ class DualLevelRetriever:
             query: Original query
             low_level_results: Low-level entity/chunk results
             high_level_results: High-level community/theme results
+            tenant_id: Tenant identifier for rate limiting
 
         Returns:
             SynthesisResult with combined text and confidence
         """
+        # Check rate limit
+        if self._rate_limiter and not await self._rate_limiter.allow(f"llm:{tenant_id}"):
+            logger.warning("llm_rate_limit_exceeded", tenant_id=tenant_id)
+            return SynthesisResult(
+                text="Synthesis unavailable due to rate limits.",
+                confidence=0.0,
+                reasoning="LLM rate limit exceeded",
+            )
+
         if not low_level_results and not high_level_results:
             return SynthesisResult(
                 text="",

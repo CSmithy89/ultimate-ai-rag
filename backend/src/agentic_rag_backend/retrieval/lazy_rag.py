@@ -28,6 +28,7 @@ Configuration:
 import asyncio
 import re
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
@@ -37,6 +38,7 @@ from openai import AsyncOpenAI
 from ..config import Settings
 from ..db.graphiti import GraphitiClient, GRAPHITI_AVAILABLE
 from ..llm.providers import get_llm_adapter, OPENAI_COMPATIBLE_LLM_PROVIDERS
+from ..rate_limit import RateLimiter
 from .lazy_rag_models import (
     LazyRAGCommunity,
     LazyRAGEntity,
@@ -91,6 +93,13 @@ Instructions:
 Answer:"""
 
 
+@dataclass
+class CircuitBreakerState:
+    """State for per-tenant circuit breaker."""
+    failure_count: int = 0
+    open_until: Optional[datetime] = None
+
+
 class LazyRAGRetriever:
     """LazyRAG query-time summarization retriever.
 
@@ -110,6 +119,7 @@ class LazyRAGRetriever:
         neo4j_client: Any,
         settings: Settings,
         community_detector: Optional[Any] = None,
+        rate_limiter: Optional[RateLimiter] = None,
     ) -> None:
         """Initialize LazyRAGRetriever.
 
@@ -118,11 +128,13 @@ class LazyRAGRetriever:
             neo4j_client: Neo4j client for graph traversal
             settings: Application settings
             community_detector: Optional CommunityDetector instance from 20-B1
+            rate_limiter: Optional rate limiter for LLM calls
         """
         self._graphiti = graphiti_client
         self._neo4j = neo4j_client
         self._settings = settings
         self._community_detector = community_detector
+        self._rate_limiter = rate_limiter
 
         # Extract settings with defaults
         self.max_entities = getattr(settings, "lazy_rag_max_entities", 50)
@@ -130,22 +142,29 @@ class LazyRAGRetriever:
         self.use_communities = getattr(settings, "lazy_rag_use_communities", True)
         self.summary_model = getattr(settings, "lazy_rag_summary_model", "gpt-4o-mini")
 
-        # Circuit breaker state for Graphiti failures
-        self._graphiti_circuit_open_until: Optional[datetime] = None
-        self._graphiti_failure_count: int = 0
+        # Circuit breaker state for Graphiti failures (per tenant)
+        self._circuit_breakers: dict[str, CircuitBreakerState] = {}
         self._graphiti_circuit_threshold: int = 3  # failures before opening circuit
         self._graphiti_circuit_timeout: int = 30  # seconds to keep circuit open
 
-    def _maybe_open_circuit_breaker(self) -> None:
+    def _get_circuit_breaker(self, tenant_id: str) -> CircuitBreakerState:
+        """Get or create circuit breaker state for a tenant."""
+        if tenant_id not in self._circuit_breakers:
+            self._circuit_breakers[tenant_id] = CircuitBreakerState()
+        return self._circuit_breakers[tenant_id]
+
+    def _maybe_open_circuit_breaker(self, tenant_id: str) -> None:
         """Open circuit breaker if failure threshold reached."""
-        if self._graphiti_failure_count >= self._graphiti_circuit_threshold:
-            self._graphiti_circuit_open_until = datetime.now() + timedelta(
+        cb = self._get_circuit_breaker(tenant_id)
+        if cb.failure_count >= self._graphiti_circuit_threshold:
+            cb.open_until = datetime.now() + timedelta(
                 seconds=self._graphiti_circuit_timeout
             )
             logger.warning(
                 "graphiti_circuit_breaker_opened",
-                failure_count=self._graphiti_failure_count,
-                open_until=self._graphiti_circuit_open_until.isoformat(),
+                tenant_id=tenant_id,
+                failure_count=cb.failure_count,
+                open_until=cb.open_until.isoformat(),
             )
 
     async def query(
@@ -233,6 +252,7 @@ class LazyRAGRetriever:
                     entities=all_entities,
                     relationships=expansion_result.relationships,
                     communities=communities,
+                    tenant_id=tenant_id,
                 )
             elif not all_entities:
                 # No entities found - create empty result with explanation
@@ -372,10 +392,12 @@ class LazyRAGRetriever:
             return await self._fallback_seed_search(query, tenant_id, num_results)
 
         # Check circuit breaker - skip Graphiti if circuit is open
-        if self._graphiti_circuit_open_until and datetime.now() < self._graphiti_circuit_open_until:
+        cb = self._get_circuit_breaker(tenant_id)
+        if cb.open_until and datetime.now() < cb.open_until:
             logger.debug(
                 "graphiti_circuit_breaker_open",
-                open_until=self._graphiti_circuit_open_until.isoformat(),
+                tenant_id=tenant_id,
+                open_until=cb.open_until.isoformat(),
                 hint="Using fallback due to recent failures",
             )
             return await self._fallback_seed_search(query, tenant_id, num_results)
@@ -388,8 +410,8 @@ class LazyRAGRetriever:
             )
 
             # Success - reset circuit breaker
-            self._graphiti_failure_count = 0
-            self._graphiti_circuit_open_until = None
+            cb.failure_count = 0
+            cb.open_until = None
 
             entities = []
             for node in getattr(search_result, "nodes", []):
@@ -421,13 +443,13 @@ class LazyRAGRetriever:
 
         except (ConnectionError, OSError) as e:
             # Network-related errors: ConnectionRefusedError, ConnectionResetError, etc.
-            self._graphiti_failure_count += 1
-            self._maybe_open_circuit_breaker()
+            cb.failure_count += 1
+            self._maybe_open_circuit_breaker(tenant_id)
             logger.warning(
                 "graphiti_connection_error",
                 error=str(e),
                 error_type=type(e).__name__,
-                failure_count=self._graphiti_failure_count,
+                failure_count=cb.failure_count,
                 hint="Falling back to direct Neo4j search",
             )
             return await self._fallback_seed_search(query, tenant_id, num_results)
@@ -444,13 +466,13 @@ class LazyRAGRetriever:
 
         except Exception as e:
             # Unexpected errors - track for circuit breaker
-            self._graphiti_failure_count += 1
-            self._maybe_open_circuit_breaker()
+            cb.failure_count += 1
+            self._maybe_open_circuit_breaker(tenant_id)
             logger.warning(
                 "graphiti_search_failed",
                 error=str(e),
                 error_type=type(e).__name__,
-                failure_count=self._graphiti_failure_count,
+                failure_count=cb.failure_count,
                 hint="Falling back to direct Neo4j search",
             )
             return await self._fallback_seed_search(query, tenant_id, num_results)
@@ -740,6 +762,7 @@ class LazyRAGRetriever:
         entities: list[LazyRAGEntity],
         relationships: list[LazyRAGRelationship],
         communities: list[LazyRAGCommunity],
+        tenant_id: str,
     ) -> SummaryResult:
         """Generate LLM summary at query time.
 
@@ -751,10 +774,20 @@ class LazyRAGRetriever:
             entities: Entities in the subgraph
             relationships: Relationships in the subgraph
             communities: Community context
+            tenant_id: Tenant identifier for rate limiting
 
         Returns:
             SummaryResult with text and confidence
         """
+        # Check rate limit
+        if self._rate_limiter and not await self._rate_limiter.allow(f"llm:{tenant_id}"):
+            logger.warning("llm_rate_limit_exceeded", tenant_id=tenant_id)
+            return SummaryResult(
+                text=f"Rate limit exceeded. Found {len(entities)} relevant entities with {len(relationships)} relationships.",
+                confidence=self._estimate_confidence(query, entities, relationships),
+                missing_info="LLM summary unavailable due to rate limits",
+            )
+
         if not entities:
             return SummaryResult(
                 text="",

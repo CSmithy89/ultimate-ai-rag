@@ -29,6 +29,7 @@ import structlog
 
 from .errors import CommunityDetectionError, CommunityNotFoundError, GraphTooSmallError
 from .models import Community, CommunityAlgorithm
+from ..rate_limit import RateLimiter
 
 logger = structlog.get_logger(__name__)
 
@@ -95,6 +96,7 @@ class CommunityDetector:
         min_community_size: int = 3,
         max_hierarchy_levels: int = 3,
         summary_model: str = "gpt-4o-mini",
+        rate_limiter: Optional[RateLimiter] = None,
     ) -> None:
         """Initialize CommunityDetector.
 
@@ -105,6 +107,7 @@ class CommunityDetector:
             min_community_size: Minimum entities per community
             max_hierarchy_levels: Maximum hierarchy depth
             summary_model: LLM model for summaries
+            rate_limiter: Optional rate limiter for LLM calls
 
         Raises:
             ImportError: If networkx is not installed
@@ -121,6 +124,7 @@ class CommunityDetector:
         self.min_community_size = min_community_size
         self.max_hierarchy_levels = max_hierarchy_levels
         self.summary_model = summary_model
+        self._rate_limiter = rate_limiter
 
         # Per-tenant locks to prevent concurrent community detection
         # for the same tenant (which could cause race conditions)
@@ -675,6 +679,17 @@ class CommunityDetector:
 
         async def generate_single_summary(community: Community) -> None:
             """Generate summary for a single community with semaphore."""
+            # Check rate limit before acquiring semaphore
+            if self._rate_limiter and not await self._rate_limiter.allow(f"llm:{tenant_id}"):
+                logger.warning(
+                    "community_summary_rate_limited",
+                    community_id=community.id,
+                    tenant_id=tenant_id,
+                )
+                community.summary = f"A community of {community.entity_count} related entities (summary skipped due to rate limit)"
+                community.keywords = []
+                return
+
             async with semaphore:
                 try:
                     # Get entity details for context

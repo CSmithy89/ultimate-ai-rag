@@ -245,6 +245,16 @@ class EpisodeMentionsReranker(GraphReranker):
         """Get total episode mentions for a list of entities."""
         if not entity_ids:
             return 0
+            
+        if len(entity_ids) > 1000:
+            logger.warning(
+                "batch_size_exceeded",
+                method="_get_total_mentions",
+                count=len(entity_ids),
+                limit=1000,
+            )
+            # Truncate to limit to prevent exhaustion
+            entity_ids = entity_ids[:1000]
 
         # Batch query for efficiency
         cutoff = datetime.now(timezone.utc) - timedelta(days=self._episode_window_days)
@@ -281,6 +291,15 @@ class EpisodeMentionsReranker(GraphReranker):
         """Get episode mention counts for each entity ID in a batch."""
         if not entity_ids:
             return {}
+            
+        if len(entity_ids) > 1000:
+            logger.warning(
+                "batch_size_exceeded",
+                method="_get_mentions_by_entity",
+                count=len(entity_ids),
+                limit=1000,
+            )
+            entity_ids = entity_ids[:1000]
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=self._episode_window_days)
         try:
@@ -538,6 +557,11 @@ class NodeDistanceReranker(GraphReranker):
         """Get minimum distance between any query entity and any result entity."""
         if not query_entity_ids or not result_entity_ids:
             return None
+            
+        if len(query_entity_ids) > 1000:
+            query_entity_ids = query_entity_ids[:1000]
+        if len(result_entity_ids) > 1000:
+            result_entity_ids = result_entity_ids[:1000]
 
         try:
             async with self._neo4j.driver.session() as session:
@@ -577,6 +601,11 @@ class NodeDistanceReranker(GraphReranker):
         """Get minimum distance for each result entity ID."""
         if not query_entity_ids or not result_entity_ids:
             return {}
+            
+        if len(query_entity_ids) > 1000:
+            query_entity_ids = query_entity_ids[:1000]
+        if len(result_entity_ids) > 1000:
+            result_entity_ids = result_entity_ids[:1000]
 
         try:
             async with self._neo4j.driver.session() as session:

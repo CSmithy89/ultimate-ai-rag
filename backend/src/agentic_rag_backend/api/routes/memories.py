@@ -110,6 +110,7 @@ async def get_memory_store(request: Request) -> ScopedMemoryStore:
             embedding_model=settings.embedding_model,
             cache_ttl_seconds=settings.memory_cache_ttl_seconds,
             max_per_scope=settings.memory_max_per_scope,
+            embedding_dimension=settings.embedding_dimension,
         )
     return request.app.state.memory_store
 

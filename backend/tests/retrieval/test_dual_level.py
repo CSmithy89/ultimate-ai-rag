@@ -730,6 +730,7 @@ class TestDualLevelSynthesis:
             query="test",
             low_level_results=[],
             high_level_results=[],
+            tenant_id="tenant-1",
         )
 
         assert result is not None
@@ -769,6 +770,7 @@ class TestDualLevelSynthesis:
                     query="What is FastAPI?",
                     low_level_results=low_results,
                     high_level_results=[],
+                    tenant_id="tenant-1",
                 )
 
                 assert result is not None

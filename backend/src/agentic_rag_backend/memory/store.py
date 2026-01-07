@@ -53,6 +53,7 @@ class ScopedMemoryStore:
         embedding_model: str = "text-embedding-3-small",
         cache_ttl_seconds: int = 3600,
         max_per_scope: int = 10000,
+        embedding_dimension: int = 1536,
     ) -> None:
         """Initialize the scoped memory store.
 
@@ -66,12 +67,14 @@ class ScopedMemoryStore:
             embedding_model: Embedding model name
             cache_ttl_seconds: TTL for Redis cache entries
             max_per_scope: Maximum memories allowed per scope
+            embedding_dimension: Dimension of embedding vectors (default: 1536)
         """
         self._postgres = postgres_client
         self._redis = redis_client
         self._graphiti = graphiti_client
         self._cache_ttl_seconds = cache_ttl_seconds
         self._max_per_scope = max_per_scope
+        self._embedding_dimension = embedding_dimension
 
         # Initialize embedding generator if credentials provided
         self._embedding_generator = None
@@ -578,10 +581,10 @@ class ScopedMemoryStore:
             embedding_str = None
             if embedding:
                 # Validate embedding dimension matches pgvector column
-                if len(embedding) != EXPECTED_EMBEDDING_DIMENSION:
+                if len(embedding) != self._embedding_dimension:
                     raise ValueError(
                         f"Embedding dimension mismatch: got {len(embedding)}, "
-                        f"expected {EXPECTED_EMBEDDING_DIMENSION}. "
+                        f"expected {self._embedding_dimension}. "
                         "Ensure embedding model matches database schema."
                     )
                 embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
@@ -671,6 +674,10 @@ class ScopedMemoryStore:
         """Fetch embeddings for a set of memories in a single query."""
         if not memory_ids:
             return {}
+        
+        # Prevent memory exhaustion with large batches
+        if len(memory_ids) > 1000:
+            raise ValueError(f"Batch size {len(memory_ids)} exceeds maximum of 1000")
 
         async with self._postgres.pool.acquire() as conn:
             rows = await conn.fetch(
@@ -966,10 +973,10 @@ class ScopedMemoryStore:
 
             if embedding is not None:
                 # Validate embedding dimension matches pgvector column
-                if len(embedding) != EXPECTED_EMBEDDING_DIMENSION:
+                if len(embedding) != self._embedding_dimension:
                     raise ValueError(
                         f"Embedding dimension mismatch: got {len(embedding)}, "
-                        f"expected {EXPECTED_EMBEDDING_DIMENSION}. "
+                        f"expected {self._embedding_dimension}. "
                         "Ensure embedding model matches database schema."
                     )
                 embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
