@@ -178,6 +178,7 @@ class Settings:
     neo4j_pool_acquire_timeout_seconds: float
     neo4j_connection_timeout_seconds: float
     neo4j_max_connection_lifetime_seconds: int
+    neo4j_transaction_timeout_seconds: float  # Query timeout for expensive operations
     redis_url: str
     backend_host: str
     backend_port: int
@@ -471,6 +472,10 @@ def load_settings() -> Settings:
         neo4j_max_connection_lifetime_seconds = int(
             os.getenv("NEO4J_MAX_CONNECTION_LIFETIME_SECONDS", "3600")
         )
+        # Transaction timeout for expensive queries (default 60s for LazyRAG traversals)
+        neo4j_transaction_timeout_seconds = float(
+            os.getenv("NEO4J_TRANSACTION_TIMEOUT_SECONDS", "60")
+        )
     except ValueError as exc:
         raise ValueError(
             "NEO4J_POOL_MIN, NEO4J_POOL_MAX, and Neo4j timeout settings must be numeric."
@@ -487,6 +492,8 @@ def load_settings() -> Settings:
         raise ValueError("NEO4J_CONNECTION_TIMEOUT_SECONDS must be > 0.")
     if neo4j_max_connection_lifetime_seconds <= 0:
         raise ValueError("NEO4J_MAX_CONNECTION_LIFETIME_SECONDS must be > 0.")
+    if neo4j_transaction_timeout_seconds <= 0:
+        raise ValueError("NEO4J_TRANSACTION_TIMEOUT_SECONDS must be > 0.")
     if rate_limit_per_minute < 1:
         raise ValueError("RATE_LIMIT_PER_MINUTE must be >= 1.")
     if rate_limit_retry_after_seconds < 1:
@@ -1345,6 +1352,7 @@ def load_settings() -> Settings:
         neo4j_pool_acquire_timeout_seconds=neo4j_pool_acquire_timeout_seconds,
         neo4j_connection_timeout_seconds=neo4j_connection_timeout_seconds,
         neo4j_max_connection_lifetime_seconds=neo4j_max_connection_lifetime_seconds,
+        neo4j_transaction_timeout_seconds=neo4j_transaction_timeout_seconds,
         redis_url=redis_url,
         backend_host=os.getenv("BACKEND_HOST", "0.0.0.0"),
         backend_port=backend_port,

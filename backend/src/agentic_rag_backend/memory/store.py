@@ -23,6 +23,10 @@ from .scopes import get_scopes_to_search, validate_scope_context
 
 logger = structlog.get_logger(__name__)
 
+# Expected embedding dimension for pgvector column (matches alembic migration)
+# Must match the vector(1536) column definition in PostgreSQL
+EXPECTED_EMBEDDING_DIMENSION = 1536
+
 
 class ScopedMemoryStore:
     """Store and retrieve memories with scope-aware queries.
@@ -570,9 +574,16 @@ class ScopedMemoryStore:
     ) -> ScopedMemory:
         """Store a memory in PostgreSQL."""
         async with self._postgres.pool.acquire() as conn:
-            # Convert embedding to pgvector format
+            # Convert embedding to pgvector format with dimension validation
             embedding_str = None
             if embedding:
+                # Validate embedding dimension matches pgvector column
+                if len(embedding) != EXPECTED_EMBEDDING_DIMENSION:
+                    raise ValueError(
+                        f"Embedding dimension mismatch: got {len(embedding)}, "
+                        f"expected {EXPECTED_EMBEDDING_DIMENSION}. "
+                        "Ensure embedding model matches database schema."
+                    )
                 embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
 
             await conn.execute(
@@ -703,30 +714,30 @@ class ScopedMemoryStore:
     ) -> tuple[list[ScopedMemory], int]:
         """List memories from PostgreSQL with filtering."""
         async with self._postgres.pool.acquire() as conn:
-            # Build WHERE clause
+            # Build WHERE clause using parameterized queries
+            # SECURITY NOTE: Column names are hardcoded (whitelisted) below,
+            # and all values use parameterized placeholders ($N) - this is safe.
+            # Allowed filter columns (whitelist for explicit security):
+            _ALLOWED_COLUMNS = frozenset({"scope", "user_id", "session_id", "agent_id"})
+
             conditions = ["tenant_id = $1"]
             params: list[Any] = [UUID(tenant_id)]
             param_idx = 2
 
-            if scope:
-                conditions.append(f"scope = ${param_idx}")
-                params.append(scope.value)
-                param_idx += 1
+            # Build filter conditions using whitelisted columns only
+            filter_map = {
+                "scope": (scope, lambda v: v.value) if scope else None,
+                "user_id": (user_id, lambda v: UUID(v)) if user_id else None,
+                "session_id": (session_id, lambda v: UUID(v)) if session_id else None,
+                "agent_id": (agent_id, lambda v: v) if agent_id else None,
+            }
 
-            if user_id:
-                conditions.append(f"user_id = ${param_idx}")
-                params.append(UUID(user_id))
-                param_idx += 1
-
-            if session_id:
-                conditions.append(f"session_id = ${param_idx}")
-                params.append(UUID(session_id))
-                param_idx += 1
-
-            if agent_id:
-                conditions.append(f"agent_id = ${param_idx}")
-                params.append(agent_id)
-                param_idx += 1
+            for column, filter_data in filter_map.items():
+                if filter_data is not None and column in _ALLOWED_COLUMNS:
+                    value, transform = filter_data
+                    conditions.append(f"{column} = ${param_idx}")
+                    params.append(transform(value))
+                    param_idx += 1
 
             where_clause = " AND ".join(conditions)
 
@@ -954,6 +965,13 @@ class ScopedMemoryStore:
                 param_idx += 1
 
             if embedding is not None:
+                # Validate embedding dimension matches pgvector column
+                if len(embedding) != EXPECTED_EMBEDDING_DIMENSION:
+                    raise ValueError(
+                        f"Embedding dimension mismatch: got {len(embedding)}, "
+                        f"expected {EXPECTED_EMBEDDING_DIMENSION}. "
+                        "Ensure embedding model matches database schema."
+                    )
                 embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
                 updates.append(f"embedding = ${param_idx}::vector")
                 params.append(embedding_str)

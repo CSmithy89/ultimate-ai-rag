@@ -44,6 +44,11 @@ MAX_COMMUNITY_NAME_LENGTH = 200
 # Maximum edges in meta-graph to prevent memory exhaustion on large graphs
 MAX_META_GRAPH_EDGES = 50000
 
+# Maximum entities/relationships for community detection to prevent OOM
+# Default: 100k entities is typically manageable; for larger graphs use streaming/sampling
+MAX_COMMUNITY_ENTITIES = 100000
+MAX_COMMUNITY_RELATIONSHIPS = 500000
+
 # Check for optional dependencies
 try:
     import networkx as nx
@@ -267,30 +272,65 @@ class CommunityDetector:
 
         Returns:
             NetworkX Graph with entities as nodes and relationships as edges
+
+        Raises:
+            CommunityDetectionError: If graph exceeds safe size limits
         """
         async with self._neo4j.driver.session() as session:
-            # Fetch all entities for the tenant
+            # Fetch entities for the tenant with LIMIT to prevent OOM
+            # LIMIT is MAX + 1 to detect if we're over the limit
             node_result = await session.run(
                 """
                 MATCH (e:Entity {tenant_id: $tenant_id})
                 RETURN e.id as id, e.name as name, e.type as type,
                        e.description as description
+                LIMIT $limit
                 """,
                 tenant_id=tenant_id,
+                limit=MAX_COMMUNITY_ENTITIES + 1,
             )
             node_records = await node_result.data()
 
-            # Fetch all relationships between entities
+            # Check if we hit the limit (indicates graph too large)
+            if len(node_records) > MAX_COMMUNITY_ENTITIES:
+                logger.error(
+                    "community_detection_graph_too_large",
+                    tenant_id=tenant_id,
+                    entity_count=len(node_records),
+                    max_entities=MAX_COMMUNITY_ENTITIES,
+                )
+                raise CommunityDetectionError(
+                    f"Graph has too many entities ({len(node_records)}+). "
+                    f"Maximum supported: {MAX_COMMUNITY_ENTITIES}. "
+                    "Consider filtering by entity type or using sampling.",
+                    tenant_id=tenant_id,
+                    algorithm="graph_export",
+                )
+
+            # Fetch relationships between entities with LIMIT
             edge_result = await session.run(
                 """
                 MATCH (source:Entity {tenant_id: $tenant_id})-[r]-(target:Entity {tenant_id: $tenant_id})
                 WHERE source.id < target.id
                 RETURN source.id as source_id, target.id as target_id,
                        type(r) as rel_type, r.confidence as confidence
+                LIMIT $limit
                 """,
                 tenant_id=tenant_id,
+                limit=MAX_COMMUNITY_RELATIONSHIPS + 1,
             )
             edge_records = await edge_result.data()
+
+            # Check if we hit the relationship limit
+            if len(edge_records) > MAX_COMMUNITY_RELATIONSHIPS:
+                logger.warning(
+                    "community_detection_relationships_truncated",
+                    tenant_id=tenant_id,
+                    relationship_count=len(edge_records),
+                    max_relationships=MAX_COMMUNITY_RELATIONSHIPS,
+                )
+                # Truncate to limit (don't fail, just warn)
+                edge_records = edge_records[:MAX_COMMUNITY_RELATIONSHIPS]
 
         # Build NetworkX graph
         G = nx.Graph()
@@ -768,69 +808,95 @@ KEYWORDS: keyword1, keyword2, keyword3
         Creates Community nodes and BELONGS_TO relationships from entities,
         as well as PARENT_OF/CHILD_OF relationships for hierarchy.
 
-        Uses UNWIND for batch relationship creation to avoid N+1 query pattern.
+        Uses UNWIND for batch operations to avoid N+1 query pattern.
 
         Args:
             communities: Communities to store
             tenant_id: Tenant identifier
         """
+        if not communities:
+            return
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        # Prepare batch data for community nodes
+        community_data = [
+            {
+                "id": c.id,
+                "name": c.name,
+                "level": c.level,
+                "summary": c.summary or "",
+                "keywords": c.keywords,
+                "entity_count": c.entity_count,
+                "parent_id": c.parent_id,
+                "child_ids": c.child_ids,
+                "created_at": c.created_at.isoformat() if c.created_at else now_iso,
+                "updated_at": now_iso,
+            }
+            for c in communities
+        ]
+
+        # Prepare batch data for entity relationships
+        entity_rels = [
+            {"community_id": c.id, "entity_ids": c.entity_ids}
+            for c in communities
+            if c.entity_ids
+        ]
+
+        # Prepare batch data for hierarchy relationships
+        hierarchy_rels = [
+            {"child_id": c.id, "parent_id": c.parent_id}
+            for c in communities
+            if c.parent_id
+        ]
+
         async with self._neo4j.driver.session() as session:
-            for community in communities:
-                # Create community node
+            # Batch create all community nodes in single query
+            await session.run(
+                """
+                UNWIND $communities AS comm
+                MERGE (c:Community {id: comm.id, tenant_id: $tenant_id})
+                SET c.name = comm.name,
+                    c.level = comm.level,
+                    c.summary = comm.summary,
+                    c.keywords = comm.keywords,
+                    c.entity_count = comm.entity_count,
+                    c.parent_id = comm.parent_id,
+                    c.child_ids = comm.child_ids,
+                    c.created_at = datetime(comm.created_at),
+                    c.updated_at = datetime(comm.updated_at)
+                """,
+                communities=community_data,
+                tenant_id=tenant_id,
+            )
+
+            # Batch create BELONGS_TO relationships
+            if entity_rels:
                 await session.run(
                     """
-                    MERGE (c:Community {id: $id, tenant_id: $tenant_id})
-                    SET c.name = $name,
-                        c.level = $level,
-                        c.summary = $summary,
-                        c.keywords = $keywords,
-                        c.entity_count = $entity_count,
-                        c.parent_id = $parent_id,
-                        c.child_ids = $child_ids,
-                        c.created_at = datetime($created_at),
-                        c.updated_at = datetime($updated_at)
+                    UNWIND $rels AS rel
+                    UNWIND rel.entity_ids AS entity_id
+                    MATCH (e:Entity {id: entity_id, tenant_id: $tenant_id})
+                    MATCH (c:Community {id: rel.community_id, tenant_id: $tenant_id})
+                    MERGE (e)-[:BELONGS_TO]->(c)
                     """,
-                    id=community.id,
+                    rels=entity_rels,
                     tenant_id=tenant_id,
-                    name=community.name,
-                    level=community.level,
-                    summary=community.summary or "",
-                    keywords=community.keywords,
-                    entity_count=community.entity_count,
-                    parent_id=community.parent_id,
-                    child_ids=community.child_ids,
-                    created_at=community.created_at.isoformat() if community.created_at else datetime.now(timezone.utc).isoformat(),
-                    updated_at=datetime.now(timezone.utc).isoformat(),
                 )
 
-                # Create BELONGS_TO relationships from entities using UNWIND (batch)
-                # This replaces the N+1 loop with a single batch query
-                if community.entity_ids:
-                    await session.run(
-                        """
-                        UNWIND $entity_ids AS entity_id
-                        MATCH (e:Entity {id: entity_id, tenant_id: $tenant_id})
-                        MATCH (c:Community {id: $community_id, tenant_id: $tenant_id})
-                        MERGE (e)-[:BELONGS_TO]->(c)
-                        """,
-                        entity_ids=community.entity_ids,
-                        community_id=community.id,
-                        tenant_id=tenant_id,
-                    )
-
-                # Create hierarchy relationships
-                if community.parent_id:
-                    await session.run(
-                        """
-                        MATCH (child:Community {id: $child_id, tenant_id: $tenant_id})
-                        MATCH (parent:Community {id: $parent_id, tenant_id: $tenant_id})
-                        MERGE (parent)-[:PARENT_OF]->(child)
-                        MERGE (child)-[:CHILD_OF]->(parent)
-                        """,
-                        child_id=community.id,
-                        parent_id=community.parent_id,
-                        tenant_id=tenant_id,
-                    )
+            # Batch create hierarchy relationships
+            if hierarchy_rels:
+                await session.run(
+                    """
+                    UNWIND $rels AS rel
+                    MATCH (child:Community {id: rel.child_id, tenant_id: $tenant_id})
+                    MATCH (parent:Community {id: rel.parent_id, tenant_id: $tenant_id})
+                    MERGE (parent)-[:PARENT_OF]->(child)
+                    MERGE (child)-[:CHILD_OF]->(parent)
+                    """,
+                    rels=hierarchy_rels,
+                    tenant_id=tenant_id,
+                )
 
         logger.info(
             "communities_stored",
