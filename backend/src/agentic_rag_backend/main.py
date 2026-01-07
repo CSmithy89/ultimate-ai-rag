@@ -238,45 +238,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from .db.postgres import PostgresClient
     from .db.redis import RedisClient
 
-    try:
-        # Initialize Redis (for knowledge ingestion)
-        app.state.redis_client = RedisClient(settings.redis_url)
-        await app.state.redis_client.connect()
-
-        # Initialize PostgreSQL (for knowledge ingestion)
-        app.state.postgres = PostgresClient(settings.database_url)
-        await app.state.postgres.connect()
-        await app.state.postgres.create_tables()
-        app.state.cost_tracker = CostTracker(
-            app.state.postgres.pool,
-            pricing_json=settings.model_pricing_json,
-        )
-        app.state.model_router = ModelRouter(
-            simple_model=settings.routing_simple_model,
-            medium_model=settings.routing_medium_model,
-            complex_model=settings.routing_complex_model,
-            baseline_model=settings.routing_baseline_model,
-            simple_max_score=settings.routing_simple_max_score,
-            complex_min_score=settings.routing_complex_min_score,
-        )
-
-        # Initialize Neo4j
-        app.state.neo4j = Neo4jClient(
-            settings.neo4j_uri,
-            settings.neo4j_user,
-            settings.neo4j_password,
-            pool_min_size=settings.neo4j_pool_min,
-            pool_max_size=settings.neo4j_pool_max,
-            pool_acquire_timeout=settings.neo4j_pool_acquire_timeout_seconds,
-            connection_timeout=settings.neo4j_connection_timeout_seconds,
-            max_connection_lifetime=settings.neo4j_max_connection_lifetime_seconds,
-        )
-        await app.state.neo4j.connect()
-        await app.state.neo4j.create_indexes()
-
-        struct_logger.info("database_connections_initialized")
-    except Exception as e:
-        struct_logger.warning("database_connection_failed", error=str(e))
+    if _should_skip_pool():
+        app.state.redis_client = None
+        app.state.postgres = None
+        app.state.neo4j = None
         app.state.cost_tracker = None
         app.state.model_router = ModelRouter(
             simple_model=settings.routing_simple_model,
@@ -286,6 +251,59 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             simple_max_score=settings.routing_simple_max_score,
             complex_min_score=settings.routing_complex_min_score,
         )
+        struct_logger.info(
+            "database_connections_skipped",
+            reason="SKIP_DB_POOL",
+        )
+    else:
+        try:
+            # Initialize Redis (for knowledge ingestion)
+            app.state.redis_client = RedisClient(settings.redis_url)
+            await app.state.redis_client.connect()
+
+            # Initialize PostgreSQL (for knowledge ingestion)
+            app.state.postgres = PostgresClient(settings.database_url)
+            await app.state.postgres.connect()
+            await app.state.postgres.create_tables()
+            app.state.cost_tracker = CostTracker(
+                app.state.postgres.pool,
+                pricing_json=settings.model_pricing_json,
+            )
+            app.state.model_router = ModelRouter(
+                simple_model=settings.routing_simple_model,
+                medium_model=settings.routing_medium_model,
+                complex_model=settings.routing_complex_model,
+                baseline_model=settings.routing_baseline_model,
+                simple_max_score=settings.routing_simple_max_score,
+                complex_min_score=settings.routing_complex_min_score,
+            )
+
+            # Initialize Neo4j
+            app.state.neo4j = Neo4jClient(
+                settings.neo4j_uri,
+                settings.neo4j_user,
+                settings.neo4j_password,
+                pool_min_size=settings.neo4j_pool_min,
+                pool_max_size=settings.neo4j_pool_max,
+                pool_acquire_timeout=settings.neo4j_pool_acquire_timeout_seconds,
+                connection_timeout=settings.neo4j_connection_timeout_seconds,
+                max_connection_lifetime=settings.neo4j_max_connection_lifetime_seconds,
+            )
+            await app.state.neo4j.connect()
+            await app.state.neo4j.create_indexes()
+
+            struct_logger.info("database_connections_initialized")
+        except Exception as e:
+            struct_logger.warning("database_connection_failed", error=str(e))
+            app.state.cost_tracker = None
+            app.state.model_router = ModelRouter(
+                simple_model=settings.routing_simple_model,
+                medium_model=settings.routing_medium_model,
+                complex_model=settings.routing_complex_model,
+                baseline_model=settings.routing_baseline_model,
+                simple_max_score=settings.routing_simple_max_score,
+                complex_min_score=settings.routing_complex_min_score,
+            )
 
     redis_client = getattr(app.state, "redis_client", None)
     app.state.hitl_manager = HITLManager(
