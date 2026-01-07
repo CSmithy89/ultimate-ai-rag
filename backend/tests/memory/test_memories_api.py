@@ -114,6 +114,7 @@ def test_app_enabled(mock_memory_store, mock_settings_enabled):
         router,
         get_settings,
         get_memory_store,
+        get_rate_limiter,
     )
     from agentic_rag_backend.core.errors import AppError, app_error_handler
 
@@ -121,9 +122,15 @@ def test_app_enabled(mock_memory_store, mock_settings_enabled):
     app.include_router(router, prefix="/api/v1")
     app.add_exception_handler(AppError, app_error_handler)
 
+    # Mock rate limiter in state
+    mock_limiter = MagicMock()
+    mock_limiter.allow = AsyncMock(return_value=True)
+    app.state.rate_limiter = mock_limiter
+
     # Override dependencies
     app.dependency_overrides[get_settings] = lambda: mock_settings_enabled
     app.dependency_overrides[get_memory_store] = lambda: mock_memory_store
+    app.dependency_overrides[get_rate_limiter] = lambda: mock_limiter
 
     return app
 
@@ -135,13 +142,20 @@ def test_app_disabled(mock_settings_disabled, mock_memory_store):
         router,
         get_settings,
         get_memory_store,
+        get_rate_limiter,
     )
 
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
 
+    # Mock rate limiter in state
+    mock_limiter = MagicMock()
+    mock_limiter.allow = AsyncMock(return_value=True)
+    app.state.rate_limiter = mock_limiter
+
     app.dependency_overrides[get_settings] = lambda: mock_settings_disabled
     app.dependency_overrides[get_memory_store] = lambda: mock_memory_store
+    app.dependency_overrides[get_rate_limiter] = lambda: mock_limiter
 
     return app
 

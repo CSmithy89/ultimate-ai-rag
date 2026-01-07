@@ -473,9 +473,9 @@ def load_settings() -> Settings:
         neo4j_max_connection_lifetime_seconds = int(
             os.getenv("NEO4J_MAX_CONNECTION_LIFETIME_SECONDS", "3600")
         )
-        # Transaction timeout for expensive queries (default 60s for LazyRAG traversals)
+        # Transaction timeout for expensive queries (default 300s for LazyRAG traversals)
         neo4j_transaction_timeout_seconds = float(
-            os.getenv("NEO4J_TRANSACTION_TIMEOUT_SECONDS", "60")
+            os.getenv("NEO4J_TRANSACTION_TIMEOUT_SECONDS", "300")
         )
     except ValueError as exc:
         raise ValueError(
@@ -1134,11 +1134,15 @@ def load_settings() -> Settings:
             original=graph_reranker_original_weight,
             hint="Weights will be normalized to sum to 1.0",
         )
-        # Normalize weights
+        # Normalize weights or fall back to safe defaults when sum is non-positive
         if weight_sum > 0:
             graph_reranker_episode_weight /= weight_sum
             graph_reranker_distance_weight /= weight_sum
             graph_reranker_original_weight /= weight_sum
+        else:
+            graph_reranker_episode_weight = 0.3
+            graph_reranker_distance_weight = 0.3
+            graph_reranker_original_weight = 0.4
 
     graph_reranker_episode_window_days = get_int_env(
         "GRAPH_RERANKER_EPISODE_WINDOW_DAYS", 30, min_val=1
@@ -1164,10 +1168,13 @@ def load_settings() -> Settings:
             high_weight=dual_level_high_weight,
             hint="Weights will be normalized to sum to 1.0",
         )
-        # Normalize weights
+        # Normalize weights or fall back to safe defaults when sum is non-positive
         if dual_weight_sum > 0:
             dual_level_low_weight /= dual_weight_sum
             dual_level_high_weight /= dual_weight_sum
+        else:
+            dual_level_low_weight = 0.6
+            dual_level_high_weight = 0.4
     dual_level_low_limit = get_int_env("DUAL_LEVEL_LOW_LIMIT", 10, min_val=1)
     dual_level_high_limit = get_int_env("DUAL_LEVEL_HIGH_LIMIT", 5, min_val=1)
     dual_level_synthesis_model = os.getenv("DUAL_LEVEL_SYNTHESIS_MODEL", "gpt-4o-mini")
@@ -1290,10 +1297,14 @@ def load_settings() -> Settings:
             sum=weight_sum,
             hint="Weights will be normalized to sum to 1.0 for balanced hybrid search",
         )
-        # Normalize weights to keep hybrid search well behaved
+        # Normalize weights to keep hybrid search well behaved,
+        # or fall back to defaults when sum is non-positive
         if weight_sum > 0:
             hybrid_dense_weight /= weight_sum
             hybrid_sparse_weight /= weight_sum
+        else:
+            hybrid_dense_weight = 0.7
+            hybrid_sparse_weight = 0.3
 
     # Story 20-H2 - Cross-Language Query settings
     cross_language_enabled = get_bool_env("CROSS_LANGUAGE_ENABLED", "false")

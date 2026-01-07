@@ -419,16 +419,16 @@ class OfficeParser:
                     )
                     break
                 if para.text.strip():
-                    # Sanitize for XSS prevention
-                    paragraphs.append(html.escape(para.text))
+                    # Sanitize for XSS prevention - REMOVED: Store raw content
+                    paragraphs.append(para.text)
 
             # Extract tables with XSS sanitization
             tables: list[list[list[str]]] = []
             for table in doc.tables:
                 table_data: list[list[str]] = []
                 for row in table.rows:
-                    # Sanitize cell text for XSS prevention
-                    row_data = [html.escape(cell.text) for cell in row.cells]
+                    # Sanitize cell text for XSS prevention - REMOVED: Store raw content
+                    row_data = [cell.text for cell in row.cells]
                     table_data.append(row_data)
                 if table_data:
                     tables.append(table_data)
@@ -440,11 +440,11 @@ class OfficeParser:
             metadata: dict[str, str] = {}
             core_props = doc.core_properties
             if core_props.author:
-                metadata["author"] = html.escape(str(core_props.author))
+                metadata["author"] = str(core_props.author)
             if core_props.title:
-                metadata["title"] = html.escape(str(core_props.title))
+                metadata["title"] = str(core_props.title)
             if core_props.subject:
-                metadata["subject"] = html.escape(str(core_props.subject))
+                metadata["subject"] = str(core_props.subject)
             if core_props.created:
                 metadata["created"] = str(core_props.created)
             if core_props.modified:
@@ -537,9 +537,8 @@ class OfficeParser:
                     for col_idx, cell in enumerate(row):
                         if col_idx >= MAX_EXCEL_COLS:
                             break
-                        # Sanitize cell value for XSS prevention
-                        raw_value = str(cell.value) if cell.value is not None else ""
-                        value = html.escape(raw_value)
+                        # REMOVED: html.escape - store raw content
+                        value = str(cell.value) if cell.value is not None else ""
                         data_type = type(cell.value).__name__ if cell.value is not None else "empty"
                         row_values.append(value)
                         cells.append(ExtractedCell(
@@ -633,11 +632,11 @@ class OfficeParser:
             content_parts: list[str] = []
             shapes_text: list[str] = []
 
-            # Extract title and text from shapes with XSS sanitization
+            # Extract title and text from shapes
             for shape in slide.shapes:
                 if hasattr(shape, "text") and shape.text.strip():
-                    # Sanitize text for XSS prevention
-                    text = html.escape(shape.text.strip())
+                    # REMOVED: html.escape - store raw content
+                    text = shape.text.strip()
                     shapes_text.append(text)
 
                     # Check if this is the title
@@ -652,14 +651,15 @@ class OfficeParser:
 
             content = "\n".join(content_parts)
 
-            # Extract speaker notes with proper null check and XSS sanitization
+            # Extract speaker notes
             notes: Optional[str] = None
             if slide.has_notes_slide:
                 notes_slide = slide.notes_slide
                 if notes_slide is not None and notes_slide.notes_text_frame is not None:
                     notes_text = notes_slide.notes_text_frame.text
                     if notes_text and notes_text.strip():
-                        notes = html.escape(notes_text.strip())
+                        # REMOVED: html.escape - store raw content
+                        notes = notes_text.strip()
 
             extracted_slide = ExtractedSlide(
                 number=slide_number,
@@ -762,6 +762,10 @@ class MultimodalIngester:
             raise FileNotFoundError(f"Document not found: {file_path}")
         if not file_path.is_file():
             raise ValueError(f"Path is not a file: {file_path}")
+        
+        # Security: Disallow symlinks to prevent traversal/access bypass
+        if file_path.is_symlink():
+            raise ValueError(f"Symlinks are not allowed: {file_path}")
 
         # Path traversal protection - use resolve() and relative_to() for proper containment check
         if allowed_base_path is not None:

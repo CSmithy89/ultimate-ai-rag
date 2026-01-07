@@ -17,6 +17,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from agentic_rag_backend.api.utils import rate_limit_exceeded
 from agentic_rag_backend.config import Settings
 from agentic_rag_backend.db.postgres import PostgresClient
 from agentic_rag_backend.db.redis import RedisClient
@@ -38,6 +39,7 @@ from agentic_rag_backend.memory.models import (
     MemorySearchResponse,
 )
 from agentic_rag_backend.memory.scopes import validate_scope_context
+from agentic_rag_backend.rate_limit import RateLimiter
 
 logger = structlog.get_logger(__name__)
 
@@ -93,6 +95,11 @@ async def get_redis(request: Request) -> Optional[RedisClient]:
     return getattr(request.app.state, "redis_client", None)
 
 
+async def get_rate_limiter(request: Request) -> RateLimiter:
+    """Get rate limiter from app state."""
+    return request.app.state.rate_limiter
+
+
 async def get_memory_store(request: Request) -> ScopedMemoryStore:
     """Get or create memory store from app.state."""
     if not hasattr(request.app.state, "memory_store"):
@@ -142,6 +149,7 @@ async def create_memory(
     memory_request: ScopedMemoryCreate,
     settings: Settings = Depends(get_settings),
     store: ScopedMemoryStore = Depends(get_memory_store),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> dict[str, Any]:
     """Create a new scoped memory.
 
@@ -149,6 +157,7 @@ async def create_memory(
         memory_request: Memory creation request with content and scope
         settings: Application settings
         store: Memory store instance
+        limiter: Rate limiter
 
     Returns:
         Success response with created memory
@@ -156,9 +165,12 @@ async def create_memory(
     Raises:
         HTTPException: 400 if scope context is invalid
         HTTPException: 404 if feature is disabled
-        HTTPException: 429 if scope limit exceeded
+        HTTPException: 429 if scope limit or rate limit exceeded
     """
     check_feature_enabled(settings)
+
+    if not await limiter.allow(f"memories:{memory_request.tenant_id}"):
+        raise rate_limit_exceeded()
 
     try:
         memory = await store.add_memory(
@@ -203,6 +215,7 @@ async def list_memories(
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     settings: Settings = Depends(get_settings),
     store: ScopedMemoryStore = Depends(get_memory_store),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> dict[str, Any]:
     """List memories with filtering.
 
@@ -216,11 +229,15 @@ async def list_memories(
         offset: Pagination offset
         settings: Application settings
         store: Memory store instance
+        limiter: Rate limiter
 
     Returns:
         Success response with memory list and total count
     """
     check_feature_enabled(settings)
+
+    if not await limiter.allow(f"memories:{tenant_id}"):
+        raise rate_limit_exceeded()
 
     try:
         if scope:
@@ -265,6 +282,7 @@ async def search_memories(
     search_request: MemorySearchRequest,
     settings: Settings = Depends(get_settings),
     store: ScopedMemoryStore = Depends(get_memory_store),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> dict[str, Any]:
     """Search memories using semantic similarity.
 
@@ -277,11 +295,15 @@ async def search_memories(
         search_request: Search parameters
         settings: Application settings
         store: Memory store instance
+        limiter: Rate limiter
 
     Returns:
         Success response with matching memories and scopes searched
     """
     check_feature_enabled(settings)
+
+    if not await limiter.allow(f"memories:{search_request.tenant_id}"):
+        raise rate_limit_exceeded()
 
     scope = search_request.scope or MemoryScope(settings.memory_default_scope)
     include_parent_scopes = (
@@ -342,6 +364,7 @@ async def get_memory(
     tenant_id: UUID = Query(..., description="Tenant identifier"),
     settings: Settings = Depends(get_settings),
     store: ScopedMemoryStore = Depends(get_memory_store),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> dict[str, Any]:
     """Get a specific memory by ID.
 
@@ -350,6 +373,7 @@ async def get_memory(
         tenant_id: Tenant identifier for access control
         settings: Application settings
         store: Memory store instance
+        limiter: Rate limiter
 
     Returns:
         Success response with memory data
@@ -358,6 +382,9 @@ async def get_memory(
         HTTPException: 404 if memory not found
     """
     check_feature_enabled(settings)
+
+    if not await limiter.allow(f"memories:{tenant_id}"):
+        raise rate_limit_exceeded()
 
     memory = await store.get_memory(
         memory_id=str(memory_id),
@@ -382,6 +409,7 @@ async def update_memory(
     tenant_id: UUID = Query(..., description="Tenant identifier"),
     settings: Settings = Depends(get_settings),
     store: ScopedMemoryStore = Depends(get_memory_store),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> dict[str, Any]:
     """Update a memory.
 
@@ -391,6 +419,7 @@ async def update_memory(
         tenant_id: Tenant identifier for access control
         settings: Application settings
         store: Memory store instance
+        limiter: Rate limiter
 
     Returns:
         Success response with updated memory
@@ -399,6 +428,9 @@ async def update_memory(
         HTTPException: 404 if memory not found
     """
     check_feature_enabled(settings)
+
+    if not await limiter.allow(f"memories:{tenant_id}"):
+        raise rate_limit_exceeded()
 
     memory = await store.update_memory(
         memory_id=str(memory_id),
@@ -431,6 +463,7 @@ async def delete_memory(
     tenant_id: UUID = Query(..., description="Tenant identifier"),
     settings: Settings = Depends(get_settings),
     store: ScopedMemoryStore = Depends(get_memory_store),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> dict[str, Any]:
     """Delete a specific memory.
 
@@ -439,6 +472,7 @@ async def delete_memory(
         tenant_id: Tenant identifier for access control
         settings: Application settings
         store: Memory store instance
+        limiter: Rate limiter
 
     Returns:
         Success response confirming deletion
@@ -447,6 +481,9 @@ async def delete_memory(
         HTTPException: 404 if memory not found
     """
     check_feature_enabled(settings)
+
+    if not await limiter.allow(f"memories:{tenant_id}"):
+        raise rate_limit_exceeded()
 
     deleted = await store.delete_memory(
         memory_id=str(memory_id),
@@ -479,6 +516,7 @@ async def delete_memories_by_scope(
     agent_id: Optional[str] = Query(default=None, description="Agent ID (for AGENT scope)"),
     settings: Settings = Depends(get_settings),
     store: ScopedMemoryStore = Depends(get_memory_store),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> dict[str, Any]:
     """Delete all memories in a scope.
 
@@ -495,11 +533,15 @@ async def delete_memories_by_scope(
         agent_id: Agent identifier (for AGENT scope)
         settings: Application settings
         store: Memory store instance
+        limiter: Rate limiter
 
     Returns:
         Success response with count of deleted memories
     """
     check_feature_enabled(settings)
+
+    if not await limiter.allow(f"memories:{tenant_id}"):
+        raise rate_limit_exceeded()
 
     try:
         is_valid, error_msg = validate_scope_context(
@@ -580,6 +622,7 @@ async def consolidate_memories(
     consolidation_request: ConsolidationRequest,
     settings: Settings = Depends(get_settings),
     consolidator=Depends(get_consolidator),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> dict[str, Any]:
     """Manually trigger memory consolidation.
 
@@ -592,6 +635,7 @@ async def consolidate_memories(
         consolidation_request: Consolidation parameters
         settings: Application settings
         consolidator: Memory consolidator instance
+        limiter: Rate limiter
 
     Returns:
         Success response with consolidation results
@@ -600,9 +644,13 @@ async def consolidate_memories(
         HTTPException: 404 if feature is disabled
         HTTPException: 400 if scope context is invalid
         HTTPException: 500 if consolidator not initialized
+        HTTPException: 429 if rate limit exceeded
     """
     check_feature_enabled(settings)
     check_consolidation_enabled(settings)
+
+    if not await limiter.allow(f"memories:{consolidation_request.tenant_id}"):
+        raise rate_limit_exceeded()
 
     if not consolidator:
         raise HTTPException(

@@ -157,8 +157,9 @@ class Neo4jClient:
                 await session.run(
                     "CREATE INDEX community_tenant IF NOT EXISTS FOR (c:Community) ON (c.tenant_id)"
                 )
+                # Composite index for tenant-scoped level queries
                 await session.run(
-                    "CREATE INDEX community_level IF NOT EXISTS FOR (c:Community) ON (c.level)"
+                    "CREATE INDEX community_level IF NOT EXISTS FOR (c:Community) ON (c.tenant_id, c.level)"
                 )
                 logger.info("neo4j_indexes_created")
         except Neo4jDriverError as e:

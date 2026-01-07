@@ -397,7 +397,7 @@ class TestQueryRouterErrorHandling:
     ):
         """Test that route errors return 500 status."""
         mock_query_router.route.side_effect = RuntimeError("Test error")
-
+    
         client = TestClient(query_router_app, raise_server_exceptions=False)
         response = client.post(
             "/api/v1/query-router/route",
@@ -406,11 +406,11 @@ class TestQueryRouterErrorHandling:
                 "tenant_id": str(sample_tenant_id),
             },
         )
-
+    
         assert response.status_code == 500
-        assert "Test error" in response.json()["detail"]
-
-
+        # Sanitized error message
+        assert "internal server error" in response.json()["detail"].lower()
+    
 class TestQueryRouterIntegration:
     """Integration tests using real QueryRouter (without mocks)."""
 

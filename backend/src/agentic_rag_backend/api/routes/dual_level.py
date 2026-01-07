@@ -176,11 +176,10 @@ async def retrieve_dual_level(
 
     Raises:
         HTTPException: 404 if feature is disabled
-        HTTPException: 503 if Neo4j is not available
         HTTPException: 500 if retrieval fails
     """
     check_feature_enabled(settings)
-    check_neo4j_available(request)
+    # check_neo4j_available(request) -- Removed to allow partial retrieval (low-level only)
 
     tenant_id = str(retrieve_request.tenant_id)
 

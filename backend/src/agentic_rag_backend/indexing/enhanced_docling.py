@@ -522,6 +522,14 @@ class EnhancedDoclingParser:
         if not file_path.is_file():
             raise ValueError(f"Path is not a file: {file_path}")
 
+        # Security: Disallow symlinks to prevent traversal/access bypass
+        if file_path.is_symlink():
+            raise ValueError(f"Symlinks are not allowed: {file_path}")
+
+        # Security: Disallow symlinks to prevent traversal/access bypass
+        if file_path.is_symlink():
+            raise ValueError(f"Symlinks are not allowed: {file_path}")
+
         # Path traversal protection - use resolve() and relative_to() for proper containment check
         if allowed_base_path is not None:
             try:
@@ -663,8 +671,7 @@ class EnhancedDoclingParser:
 
                 elif item_type == "SectionHeaderItem" and self.preserve_layout:
                     text = item.text if hasattr(item, "text") else str(item)
-                    # Sanitize heading text for XSS prevention
-                    text = html.escape(text)
+                    # REMOVED: html.escape - store raw content
                     heading_level = max(1, min(6, level + 1))
 
                     # Generate section ID
@@ -707,8 +714,8 @@ class EnhancedDoclingParser:
                     )
                     caption = None
                     if hasattr(item, "caption") and item.caption:
-                        # Sanitize caption for XSS prevention
-                        caption = html.escape(str(item.caption))
+                        # REMOVED: html.escape - store raw content
+                        caption = str(item.caption)
 
                     figure = Figure(
                         id=figure_id,
@@ -821,10 +828,11 @@ class EnhancedDoclingParser:
                 f"{tenant_id}:{document_id}:table:{table_index}"
             )
 
-            # Get caption and sanitize for XSS prevention
+            # Get caption
             caption = None
             if hasattr(item, "caption") and item.caption:
-                caption = html.escape(str(item.caption))
+                # REMOVED: html.escape - store raw content
+                caption = str(item.caption)
 
             headers: list[str] = []
             rows: list[list[str]] = []
@@ -846,10 +854,10 @@ class EnhancedDoclingParser:
                     )
                     return None
 
-                # Extract headers and rows from DataFrame
-                headers = [html.escape(str(col)) for col in df.columns.tolist()]
+                # Extract headers and rows from DataFrame - REMOVED: html.escape
+                headers = [str(col) for col in df.columns.tolist()]
                 rows = [
-                    [html.escape(str(cell)) for cell in row]
+                    [str(cell) for cell in row]
                     for row in df.values.tolist()
                 ]
 
@@ -938,7 +946,8 @@ class EnhancedDoclingParser:
 
             # Get caption if not provided
             if caption is None and hasattr(item, "caption") and item.caption:
-                caption = html.escape(str(item.caption))
+                # REMOVED: html.escape - store raw content
+                caption = str(item.caption)
 
             # Extract table structure using sparse approach
             headers: list[str] = []
@@ -974,7 +983,8 @@ class EnhancedDoclingParser:
                     for cell in cells:
                         row_idx = getattr(cell, "row_index", 0)
                         col_idx = getattr(cell, "col_index", 0)
-                        text = html.escape(str(getattr(cell, "text", "")))
+                        # REMOVED: html.escape - store raw content
+                        text = str(getattr(cell, "text", ""))
                         cell_data[(row_idx, col_idx)] = text
 
                     # Build headers and rows from sparse data

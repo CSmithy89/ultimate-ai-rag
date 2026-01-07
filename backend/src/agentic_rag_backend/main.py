@@ -376,6 +376,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         community_detector = _create_community_detector(
             settings,
             getattr(app.state, "neo4j", None),
+            app.state.rate_limiter,
         )
         if community_detector:
             app.state.community_detector = community_detector
@@ -385,12 +386,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             getattr(app.state, "graphiti", None),
             getattr(app.state, "neo4j", None),
             community_detector,
+            app.state.rate_limiter,
         )
         dual_level_retriever = _create_dual_level_retriever(
             settings,
             getattr(app.state, "graphiti", None),
             getattr(app.state, "neo4j", None),
             community_detector,
+            app.state.rate_limiter,
         )
 
         app.state.orchestrator = OrchestratorAgent(

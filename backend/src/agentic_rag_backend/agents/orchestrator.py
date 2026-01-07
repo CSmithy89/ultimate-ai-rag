@@ -447,7 +447,8 @@ class OrchestratorAgent:
     def _build_lazy_rag_hits(self, result: Any) -> list[VectorHit]:
         hits: list[VectorHit] = []
         summary = getattr(result, "summary", None)
-        confidence = float(getattr(result, "confidence", 0.8) or 0.8)
+        raw_confidence = getattr(result, "confidence", None)
+        confidence = float(raw_confidence if raw_confidence is not None else 0.8)
 
         if summary:
             hits.append(
@@ -488,7 +489,8 @@ class OrchestratorAgent:
     def _build_dual_level_hits(self, result: Any) -> list[VectorHit]:
         hits: list[VectorHit] = []
         synthesis = getattr(result, "synthesis", None)
-        confidence = float(getattr(result, "confidence", 0.7) or 0.7)
+        raw_confidence = getattr(result, "confidence", None)
+        confidence = float(raw_confidence if raw_confidence is not None else 0.7)
 
         if synthesis:
             hits.append(
@@ -865,6 +867,8 @@ class OrchestratorAgent:
             events.append((EventType.ACTION, action_note))
         try:
             result = await self._retrieval_pipeline.graph_traversal(query, tenant_id)
+            if result is None:
+                return None
         except Exception as exc:
             error_note = f"Graph traversal failed: {exc}"
             if self._logger and trajectory_id:

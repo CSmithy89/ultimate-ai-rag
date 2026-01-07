@@ -67,6 +67,21 @@ def mock_store():
     store.get_memory_embeddings = AsyncMock(return_value={})
     store.update_memory = AsyncMock(return_value=None)
     store.delete_memory = AsyncMock(return_value=True)
+    
+    # Mock Redis for distributed locking
+    mock_redis = MagicMock()
+    mock_redis.client = MagicMock()
+    # Support for manual SET pattern
+    mock_redis.client.set = AsyncMock(return_value=True)
+    mock_redis.client.eval = AsyncMock(return_value=1)
+    # Support for redis-py lock() pattern
+    mock_lock = AsyncMock()
+    mock_lock.acquire = AsyncMock(return_value=True)
+    mock_lock.release = AsyncMock(return_value=None)
+    mock_redis.client.lock = MagicMock(return_value=mock_lock)
+    
+    store._redis = mock_redis
+    
     store._postgres = MagicMock()
     store._postgres.pool = MagicMock()
     store._postgres.pool.acquire = MagicMock()

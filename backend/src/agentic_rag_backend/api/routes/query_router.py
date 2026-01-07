@@ -184,7 +184,7 @@ async def route_query(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Query routing failed: {str(e)}",
+            detail="Query routing failed due to an internal server error.",
         ) from e
 
 
@@ -260,14 +260,16 @@ async def get_status(
         Success response with router status
     """
     # Check if community detection is available
-    community_detection_available = settings.community_detection_enabled
-    if hasattr(request.app.state, "community_detector"):
-        community_detection_available = request.app.state.community_detector is not None
+    community_detector = getattr(request.app.state, "community_detector", None)
+    community_detection_available = (
+        settings.community_detection_enabled and community_detector is not None
+    )
 
     # Check if LazyRAG is available
-    lazy_rag_available = settings.lazy_rag_enabled
-    if hasattr(request.app.state, "lazy_rag_retriever"):
-        lazy_rag_available = request.app.state.lazy_rag_retriever is not None
+    lazy_rag_retriever = getattr(request.app.state, "lazy_rag_retriever", None)
+    lazy_rag_available = (
+        settings.lazy_rag_enabled and lazy_rag_retriever is not None
+    )
 
     response = RouterStatusResponse(
         enabled=settings.query_routing_enabled,

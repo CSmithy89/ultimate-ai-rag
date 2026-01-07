@@ -14,6 +14,7 @@ import asyncio
 import time
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
+from uuid import uuid4
 
 import numpy as np
 import structlog
@@ -170,15 +171,51 @@ class MemoryConsolidator:
         Returns:
             ConsolidationResult with counts of processed, merged, decayed, removed
         """
-        lock = await self._get_tenant_lock(tenant_id)
-        async with lock:
-            return await self._run_consolidation(
-                tenant_id=tenant_id,
-                scope=scope,
-                user_id=user_id,
-                session_id=session_id,
-                agent_id=agent_id,
+        # Distributed locking with Redis (if available)
+        lock_key = f"lock:consolidation:{tenant_id}"
+        lock_val = str(uuid4())
+        distributed_locked = False
+
+        if self.store._redis:
+            # Try to acquire distributed lock (5 minute timeout)
+            distributed_locked = await self.store._redis.client.set(
+                lock_key, lock_val, ex=300, nx=True
             )
+            if not distributed_locked:
+                logger.info("consolidation_lock_exists", tenant_id=tenant_id)
+                # Return empty result indicating locked
+                return ConsolidationResult(
+                    memories_processed=0,
+                    duplicates_merged=0,
+                    memories_decayed=0,
+                    memories_removed=0,
+                    processing_time_ms=0,
+                    scope=scope,
+                    tenant_id=tenant_id,
+                )
+
+        try:
+            # Process-level locking
+            lock = await self._get_tenant_lock(tenant_id)
+            async with lock:
+                return await self._run_consolidation(
+                    tenant_id=tenant_id,
+                    scope=scope,
+                    user_id=user_id,
+                    session_id=session_id,
+                    agent_id=agent_id,
+                )
+        finally:
+            # Release distributed lock if we acquired it
+            if distributed_locked and self.store._redis:
+                release_script = """
+                if redis.call("get", KEYS[1]) == ARGV[1] then
+                    return redis.call("del", KEYS[1])
+                else
+                    return 0
+                end
+                """
+                await self.store._redis.client.eval(release_script, 1, lock_key, lock_val)
 
     async def _run_consolidation(
         self,

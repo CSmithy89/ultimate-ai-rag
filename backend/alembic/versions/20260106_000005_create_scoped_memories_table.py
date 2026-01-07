@@ -115,17 +115,16 @@ def upgrade() -> None:
     )
 
     # Multi-tenant index (required for all queries per CLAUDE.md)
-    op.create_index(
-        "idx_scoped_memories_tenant_id",
-        "scoped_memories",
-        ["tenant_id"],
+    # Use raw SQL for IF NOT EXISTS support to be idempotent
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_scoped_memories_tenant_id "
+        "ON scoped_memories(tenant_id)"
     )
 
     # Scope-based filtering indexes
-    op.create_index(
-        "idx_scoped_memories_tenant_scope",
-        "scoped_memories",
-        ["tenant_id", "scope"],
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_scoped_memories_tenant_scope "
+        "ON scoped_memories(tenant_id, scope)"
     )
     op.create_index(
         "idx_scoped_memories_tenant_user",

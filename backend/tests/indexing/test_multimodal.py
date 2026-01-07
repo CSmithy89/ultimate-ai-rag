@@ -686,20 +686,20 @@ class TestSecurityValidation:
     def test_ingest_path_traversal_via_symlink(self, tmp_path: Path) -> None:
         """Test that symlinks pointing outside allowed path are rejected."""
         ingester = MultimodalIngester(multimodal_enabled=True)
-
+    
         # Create allowed directory and a file outside it
         allowed_dir = tmp_path / "allowed"
         allowed_dir.mkdir()
-
+    
         outside_file = tmp_path / "secret.txt"
         outside_file.write_text("secret content")
-
+    
         # Create symlink inside allowed dir pointing outside
         symlink = allowed_dir / "sneaky_link.txt"
         symlink.symlink_to(outside_file)
-
-        # The resolved path should be outside allowed_dir, triggering rejection
-        with pytest.raises(ValueError, match="Path traversal not allowed"):
+    
+        # Security: Symlinks are now disallowed entirely for safety
+        with pytest.raises(ValueError, match="Symlinks are not allowed"):
             ingester.ingest(
                 file_path=symlink,
                 document_id=uuid4(),
