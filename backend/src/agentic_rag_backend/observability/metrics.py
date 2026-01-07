@@ -341,8 +341,116 @@ No labels as this is a global cache metric.
 
 
 # =============================================================================
+# New Performance Metrics (Medium Priority)
+# =============================================================================
+
+REDIS_CACHE_HITS = Counter(
+    "redis_cache_hits_total",
+    "Total Redis cache hits",
+    labelnames=["type", "tenant_id"],
+    registry=_registry,
+)
+"""Counter for Redis cache hits.
+
+Labels:
+    type: memory|other
+    tenant_id: Tenant identifier
+"""
+
+REDIS_CACHE_MISSES = Counter(
+    "redis_cache_misses_total",
+    "Total Redis cache misses",
+    labelnames=["type", "tenant_id"],
+    registry=_registry,
+)
+"""Counter for Redis cache misses.
+
+Labels:
+    type: memory|other
+    tenant_id: Tenant identifier
+"""
+
+LLM_API_CALLS_TOTAL = Counter(
+    "llm_api_calls_total",
+    "Total LLM API calls",
+    labelnames=["model", "operation", "tenant_id"],
+    registry=_registry,
+)
+"""Counter for LLM API calls.
+
+Labels:
+    model: Model name
+    operation: summary|synthesis|embedding|chat
+    tenant_id: Tenant identifier
+"""
+
+LLM_API_COST_TOTAL = Counter(
+    "llm_api_cost_total",
+    "Total cost of LLM API calls in USD",
+    labelnames=["model", "tenant_id"],
+    registry=_registry,
+)
+"""Counter for LLM API cost.
+
+Labels:
+    model: Model name
+    tenant_id: Tenant identifier
+"""
+
+
+# =============================================================================
 # Helper Functions
 # =============================================================================
+
+
+def record_redis_cache_hit(cache_type: str, tenant_id: str) -> None:
+    """Record a Redis cache hit.
+
+    Args:
+        cache_type: Type of cache (memory, etc.)
+        tenant_id: Tenant identifier
+    """
+    tenant_label = normalize_tenant_label(tenant_id)
+    REDIS_CACHE_HITS.labels(type=cache_type, tenant_id=tenant_label).inc()
+
+
+def record_redis_cache_miss(cache_type: str, tenant_id: str) -> None:
+    """Record a Redis cache miss.
+
+    Args:
+        cache_type: Type of cache (memory, etc.)
+        tenant_id: Tenant identifier
+    """
+    tenant_label = normalize_tenant_label(tenant_id)
+    REDIS_CACHE_MISSES.labels(type=cache_type, tenant_id=tenant_label).inc()
+
+
+def record_llm_call(
+    model: str,
+    operation: str,
+    tenant_id: str,
+    cost_usd: float = 0.0,
+) -> None:
+    """Record an LLM API call and its cost.
+
+    Args:
+        model: Model name
+        operation: Operation type
+        tenant_id: Tenant identifier
+        cost_usd: Cost in USD (optional)
+    """
+    tenant_label = normalize_tenant_label(tenant_id)
+    LLM_API_CALLS_TOTAL.labels(
+        model=model,
+        operation=operation,
+        tenant_id=tenant_label,
+    ).inc()
+    
+    if cost_usd > 0:
+        LLM_API_COST_TOTAL.labels(
+            model=model,
+            tenant_id=tenant_label,
+        ).inc(cost_usd)
 
 
 def record_retrieval_request(

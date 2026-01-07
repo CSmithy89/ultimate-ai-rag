@@ -22,6 +22,7 @@ from agentic_rag_backend.db.postgres import PostgresClient
 from agentic_rag_backend.db.redis import RedisClient
 from agentic_rag_backend.memory import (
     MemoryLimitExceededError,
+    MemoryNotFoundError,
     MemoryScope,
     MemoryScopeError,
     ScopedMemoryCreate,
@@ -364,10 +365,7 @@ async def get_memory(
     )
 
     if not memory:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Memory with ID '{memory_id}' not found",
-        )
+        raise MemoryNotFoundError(str(memory_id))
 
     return success_response(memory.model_dump(mode="json", exclude={"embedding"}))
 
@@ -411,10 +409,7 @@ async def update_memory(
     )
 
     if not memory:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Memory with ID '{memory_id}' not found",
-        )
+        raise MemoryNotFoundError(str(memory_id))
 
     logger.info(
         "memory_updated",
@@ -459,10 +454,7 @@ async def delete_memory(
     )
 
     if not deleted:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Memory with ID '{memory_id}' not found",
-        )
+        raise MemoryNotFoundError(str(memory_id))
 
     logger.info(
         "memory_deleted",

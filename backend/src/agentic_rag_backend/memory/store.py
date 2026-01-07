@@ -16,6 +16,10 @@ import structlog
 
 from agentic_rag_backend.db.postgres import PostgresClient
 from agentic_rag_backend.db.redis import RedisClient
+from agentic_rag_backend.observability.metrics import (
+    record_redis_cache_hit,
+    record_redis_cache_miss,
+)
 
 from .errors import MemoryLimitExceededError, MemoryScopeError
 from .models import MemoryScope, ScopedMemory
@@ -75,6 +79,12 @@ class ScopedMemoryStore:
         self._cache_ttl_seconds = cache_ttl_seconds
         self._max_per_scope = max_per_scope
         self._embedding_dimension = embedding_dimension
+
+        # Redis circuit breaker state
+        self._redis_failure_count = 0
+        self._redis_circuit_open_until: Optional[datetime] = None
+        self._redis_circuit_threshold = 5
+        self._redis_circuit_timeout = 30  # seconds
 
         # Initialize embedding generator if credentials provided
         self._embedding_generator = None
@@ -1259,9 +1269,38 @@ class ScopedMemoryStore:
 
     # ------------ Redis Cache Operations ------------
 
+    def _check_redis_circuit(self) -> bool:
+        """Check if Redis circuit breaker is open.
+
+        Returns:
+            True if circuit is closed (Redis available), False if open (Redis unavailable)
+        """
+        if self._redis_circuit_open_until:
+            if datetime.now(timezone.utc) < self._redis_circuit_open_until:
+                return False
+            # Circuit timeout expired, try again (half-open state implicitly handled by allowing next request)
+            self._redis_circuit_open_until = None
+            self._redis_failure_count = 0
+        return True
+
+    def _handle_redis_failure(self, error: Exception) -> None:
+        """Handle Redis operation failure and update circuit breaker."""
+        self._redis_failure_count += 1
+        if self._redis_failure_count >= self._redis_circuit_threshold:
+            from datetime import timedelta
+            self._redis_circuit_open_until = datetime.now(timezone.utc) + timedelta(
+                seconds=self._redis_circuit_timeout
+            )
+            logger.warning(
+                "redis_circuit_breaker_opened",
+                failure_count=self._redis_failure_count,
+                open_until=self._redis_circuit_open_until.isoformat(),
+                error=str(error),
+            )
+
     async def _cache_memory(self, memory: ScopedMemory) -> None:
         """Cache a memory in Redis."""
-        if not self._redis:
+        if not self._redis or not self._check_redis_circuit():
             return
 
         cache_key = f"memory:{memory.tenant_id}:{memory.id}"
@@ -1273,38 +1312,50 @@ class ScopedMemoryStore:
                 self._cache_ttl_seconds,
                 json.dumps(cache_data),
             )
+            # Reset failure count on success
+            self._redis_failure_count = 0
             logger.debug("memory_cached", memory_id=str(memory.id), key=cache_key)
         except Exception as e:
+            self._handle_redis_failure(e)
             logger.warning("memory_cache_failed", error=str(e))
 
     async def _get_cached_memory(
         self, tenant_id: str, memory_id: str
     ) -> Optional[ScopedMemory]:
         """Get a memory from Redis cache."""
-        if not self._redis:
+        if not self._redis or not self._check_redis_circuit():
             return None
 
         cache_key = f"memory:{tenant_id}:{memory_id}"
         try:
             data = await self._redis.client.get(cache_key)
             if data:
+                record_redis_cache_hit("memory", tenant_id)
+                # Reset failure count on success
+                self._redis_failure_count = 0
                 if isinstance(data, bytes):
                     data = data.decode("utf-8")
                 parsed = json.loads(data)
                 return ScopedMemory.model_validate(parsed)
+            
+            record_redis_cache_miss("memory", tenant_id)
+            self._redis_failure_count = 0
         except Exception as e:
+            self._handle_redis_failure(e)
             logger.warning("memory_cache_get_failed", error=str(e))
         return None
 
     async def _invalidate_cache_entry(self, tenant_id: str, memory_id: str) -> None:
         """Invalidate a single cache entry."""
-        if not self._redis:
+        if not self._redis or not self._check_redis_circuit():
             return
 
         cache_key = f"memory:{tenant_id}:{memory_id}"
         try:
             await self._redis.client.delete(cache_key)
+            self._redis_failure_count = 0
         except Exception as e:
+            self._handle_redis_failure(e)
             logger.warning("memory_cache_invalidate_failed", error=str(e))
 
     async def _invalidate_scope_cache(
@@ -1320,7 +1371,7 @@ class ScopedMemoryStore:
         Uses Redis pipeline for efficient batch deletion instead of deleting
         keys one at a time.
         """
-        if not self._redis:
+        if not self._redis or not self._check_redis_circuit():
             return
 
         # Use pattern matching to find relevant keys
@@ -1369,5 +1420,7 @@ class ScopedMemoryStore:
                 scope=scope.value,
                 tenant_id=tenant_id,
             )
+            self._redis_failure_count = 0
         except Exception as e:
+            self._handle_redis_failure(e)
             logger.warning("memory_scope_cache_invalidate_failed", error=str(e))

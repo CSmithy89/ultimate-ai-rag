@@ -115,9 +115,11 @@ def test_app_enabled(mock_memory_store, mock_settings_enabled):
         get_settings,
         get_memory_store,
     )
+    from agentic_rag_backend.core.errors import AppError, app_error_handler
 
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
+    app.add_exception_handler(AppError, app_error_handler)
 
     # Override dependencies
     app.dependency_overrides[get_settings] = lambda: mock_settings_enabled

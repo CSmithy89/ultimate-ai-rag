@@ -37,6 +37,7 @@ from openai import AsyncOpenAI
 from ..config import Settings
 from ..db.graphiti import GraphitiClient, GRAPHITI_AVAILABLE
 from ..llm.providers import get_llm_adapter, OPENAI_COMPATIBLE_LLM_PROVIDERS
+from ..observability.metrics import record_llm_call
 from ..rate_limit import RateLimiter
 from .dual_level_models import (
     DualLevelResult,
@@ -641,6 +642,13 @@ class DualLevelRetriever:
                         max_tokens=1000,
                     ),
                     timeout=30.0,  # 30 second timeout for synthesis
+                )
+
+                # Record metric
+                record_llm_call(
+                    model=self.synthesis_model,
+                    operation="synthesis",
+                    tenant_id=tenant_id,
                 )
 
                 synthesis_text = response.choices[0].message.content or ""

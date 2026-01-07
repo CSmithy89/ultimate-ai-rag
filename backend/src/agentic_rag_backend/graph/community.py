@@ -29,6 +29,7 @@ import structlog
 
 from .errors import CommunityDetectionError, CommunityNotFoundError, GraphTooSmallError
 from .models import Community, CommunityAlgorithm
+from ..observability.metrics import record_llm_call
 from ..rate_limit import RateLimiter
 
 logger = structlog.get_logger(__name__)
@@ -478,7 +479,9 @@ class CommunityDetector:
             if len(node_ids) < min_size:
                 continue
 
-            # Get entity names for naming (sanitize to prevent XSS)
+            # Get entity names for naming
+            # SECURITY: Sanitize to prevent XSS if these names are ever rendered in a frontend context.
+            # While currently primarily for backend use, defensive coding here prevents future vulnerabilities.
             entity_names = [
                 html.escape(str(graph.nodes[nid].get("name", nid)))[:50]
                 for nid in node_ids[:5]  # Use first 5 for naming
@@ -703,6 +706,13 @@ class CommunityDetector:
                     response = await self._llm_client.generate(
                         prompt=prompt,
                         model=self.summary_model,
+                    )
+
+                    # Record metric
+                    record_llm_call(
+                        model=self.summary_model,
+                        operation="community_summary",
+                        tenant_id=tenant_id,
                     )
 
                     # Parse response

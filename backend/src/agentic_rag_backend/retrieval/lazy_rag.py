@@ -38,6 +38,7 @@ from openai import AsyncOpenAI
 from ..config import Settings
 from ..db.graphiti import GraphitiClient, GRAPHITI_AVAILABLE
 from ..llm.providers import get_llm_adapter, OPENAI_COMPATIBLE_LLM_PROVIDERS
+from ..observability.metrics import record_llm_call
 from ..rate_limit import RateLimiter
 from .lazy_rag_models import (
     LazyRAGCommunity,
@@ -858,6 +859,13 @@ class LazyRAGRetriever:
                         confidence=0.3,
                         missing_info="LLM summary timed out",
                     )
+
+                # Record metric
+                record_llm_call(
+                    model=self.summary_model,
+                    operation="summary",
+                    tenant_id=tenant_id,
+                )
 
                 summary_text = response.choices[0].message.content or ""
 

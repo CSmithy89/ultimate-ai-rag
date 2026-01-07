@@ -132,7 +132,7 @@ class JobNotFoundError(AppError):
     def __init__(self, job_id: str) -> None:
         super().__init__(
             code=ErrorCode.JOB_NOT_FOUND,
-            message=f"Job with ID '{job_id}' not found",
+            message="Requested job not found",
             status=404,
             details={"job_id": job_id},
         )
@@ -441,7 +441,7 @@ class A2AAgentNotFoundError(AppError):
     def __init__(self, agent_id: str) -> None:
         super().__init__(
             code=ErrorCode.A2A_AGENT_NOT_FOUND,
-            message=f"Agent '{agent_id}' not found in registry",
+            message="Requested A2A agent not found",
             status=404,
             details={"agent_id": agent_id},
         )
@@ -453,7 +453,7 @@ class A2AAgentUnhealthyError(AppError):
     def __init__(self, agent_id: str, reason: str = "Agent is not responding to heartbeats") -> None:
         super().__init__(
             code=ErrorCode.A2A_AGENT_UNHEALTHY,
-            message=f"Agent '{agent_id}' is unhealthy: {reason}",
+            message=f"Agent is unhealthy: {reason}",
             status=503,
             details={"agent_id": agent_id, "reason": reason},
         )
@@ -465,7 +465,7 @@ class A2ACapabilityNotFoundError(AppError):
     def __init__(self, capability_name: str) -> None:
         super().__init__(
             code=ErrorCode.A2A_CAPABILITY_NOT_FOUND,
-            message=f"No healthy agent found with capability '{capability_name}'",
+            message="No healthy agent found with required capability",
             status=404,
             details={"capability_name": capability_name},
         )
@@ -477,7 +477,7 @@ class A2ATaskNotFoundError(AppError):
     def __init__(self, task_id: str) -> None:
         super().__init__(
             code=ErrorCode.A2A_TASK_NOT_FOUND,
-            message=f"Task '{task_id}' not found",
+            message="Requested A2A task not found",
             status=404,
             details={"task_id": task_id},
         )

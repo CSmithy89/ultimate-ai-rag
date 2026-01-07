@@ -49,6 +49,13 @@ class _CacheEntry:
 # Compiled regex patterns for rule-based classification
 # Patterns are compiled once at module load for performance (<10ms per query)
 
+# SECURITY: ReDoS Prevention
+# These patterns are designed to be safe against Regular Expression Denial of Service (ReDoS).
+# - Non-greedy quantifiers (e.g., .{0,N}?) are used to limit backtracking.
+# - Bounded repetitions (e.g., {0,20}) prevent catastrophic backtracking on long inputs.
+# - MAX_QUERY_LENGTH check ensures inputs are within safe limits.
+# - Anchors (\b) are used to match whole words where appropriate.
+
 # Global patterns indicate need for corpus-wide understanding
 # Note: Use non-greedy .{0,N}? to prevent ReDoS while matching across words
 GLOBAL_PATTERNS: list[Pattern[str]] = [
