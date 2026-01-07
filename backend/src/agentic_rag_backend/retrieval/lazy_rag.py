@@ -578,8 +578,12 @@ class LazyRAGRetriever:
                 hint="Using standard Cypher for expansion",
             )
             try:
-                # Use safe hop pattern lookup to prevent Cypher injection
-                # max_hops is validated to 1-5 range by Pydantic models
+                # SECURITY: Cypher Injection Prevention
+                # hop_pattern uses a whitelist lookup (_SAFE_HOP_PATTERNS) that only
+                # allows values [*1..1] through [*1..5]. This is NOT user-controlled
+                # input - max_hops is validated to 1-5 range by Pydantic models.
+                # The f-string is safe because hop_pattern can only be one of the
+                # pre-defined safe patterns.
                 hop_pattern = _SAFE_HOP_PATTERNS.get(max_hops, "[*1..2]")
                 async with self._neo4j.driver.session() as session:
                     expansion_result = await session.run(

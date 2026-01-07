@@ -41,6 +41,9 @@ MAX_CONCURRENT_SUMMARIES = 5
 # Maximum length for community names to prevent XSS/display issues
 MAX_COMMUNITY_NAME_LENGTH = 200
 
+# Maximum edges in meta-graph to prevent memory exhaustion on large graphs
+MAX_META_GRAPH_EDGES = 50000
+
 # Check for optional dependencies
 try:
     import networkx as nx
@@ -114,6 +117,25 @@ class CommunityDetector:
         self.max_hierarchy_levels = max_hierarchy_levels
         self.summary_model = summary_model
 
+        # Per-tenant locks to prevent concurrent community detection
+        # for the same tenant (which could cause race conditions)
+        self._tenant_locks: dict[str, asyncio.Lock] = {}
+        self._locks_lock = asyncio.Lock()
+
+    async def _get_tenant_lock(self, tenant_id: str) -> asyncio.Lock:
+        """Get or create a per-tenant lock for synchronization.
+
+        Args:
+            tenant_id: Tenant identifier
+
+        Returns:
+            asyncio.Lock for the tenant
+        """
+        async with self._locks_lock:
+            if tenant_id not in self._tenant_locks:
+                self._tenant_locks[tenant_id] = asyncio.Lock()
+            return self._tenant_locks[tenant_id]
+
     async def detect_communities(
         self,
         tenant_id: str,
@@ -158,76 +180,81 @@ class CommunityDetector:
             max_levels=max_hierarchy_levels,
         )
 
-        try:
-            # Step 1: Export graph to NetworkX
-            G = await self._build_networkx_graph(tenant_id)
+        # Acquire per-tenant lock to prevent concurrent community detection
+        # for the same tenant (race condition prevention)
+        tenant_lock = await self._get_tenant_lock(tenant_id)
 
-            if len(G.nodes) < min_community_size:
-                raise GraphTooSmallError(
-                    node_count=len(G.nodes),
-                    min_required=min_community_size,
+        async with tenant_lock:
+            try:
+                # Step 1: Export graph to NetworkX
+                G = await self._build_networkx_graph(tenant_id)
+
+                if len(G.nodes) < min_community_size:
+                    raise GraphTooSmallError(
+                        node_count=len(G.nodes),
+                        min_required=min_community_size,
+                        tenant_id=tenant_id,
+                    )
+
+                # Step 2: Run community detection algorithm
+                if algo == CommunityAlgorithm.LEIDEN:
+                    partition = self._run_leiden(G)
+                else:
+                    partition = self._run_louvain(G)
+
+                # Step 3: Build community objects from partition
+                communities = self._build_communities(
+                    partition=partition,
+                    graph=G,
                     tenant_id=tenant_id,
+                    min_size=min_community_size,
                 )
 
-            # Step 2: Run community detection algorithm
-            if algo == CommunityAlgorithm.LEIDEN:
-                partition = self._run_leiden(G)
-            else:
-                partition = self._run_louvain(G)
+                if not communities:
+                    logger.info(
+                        "no_communities_detected",
+                        tenant_id=tenant_id,
+                        reason="All communities below minimum size",
+                    )
+                    return []
 
-            # Step 3: Build community objects from partition
-            communities = self._build_communities(
-                partition=partition,
-                graph=G,
-                tenant_id=tenant_id,
-                min_size=min_community_size,
-            )
+                # Step 4: Build hierarchy (multiple levels)
+                hierarchical_communities = self._build_hierarchy(
+                    communities=communities,
+                    graph=G,
+                    tenant_id=tenant_id,
+                    max_levels=max_hierarchy_levels,
+                )
 
-            if not communities:
+                # Step 5: Generate summaries using LLM
+                if generate_summaries and self._llm_client:
+                    await self._generate_summaries(hierarchical_communities, tenant_id)
+
+                # Step 6: Store communities to Neo4j
+                await self._store_communities(hierarchical_communities, tenant_id)
+
+                processing_time_ms = int((time.perf_counter() - start_time) * 1000)
+
                 logger.info(
-                    "no_communities_detected",
+                    "community_detection_completed",
                     tenant_id=tenant_id,
-                    reason="All communities below minimum size",
+                    communities_created=len(hierarchical_communities),
+                    processing_time_ms=processing_time_ms,
+                    algorithm=algo.value,
                 )
-                return []
 
-            # Step 4: Build hierarchy (multiple levels)
-            hierarchical_communities = self._build_hierarchy(
-                communities=communities,
-                graph=G,
-                tenant_id=tenant_id,
-                max_levels=max_hierarchy_levels,
-            )
+                return hierarchical_communities
 
-            # Step 5: Generate summaries using LLM
-            if generate_summaries and self._llm_client:
-                await self._generate_summaries(hierarchical_communities, tenant_id)
-
-            # Step 6: Store communities to Neo4j
-            await self._store_communities(hierarchical_communities, tenant_id)
-
-            processing_time_ms = int((time.perf_counter() - start_time) * 1000)
-
-            logger.info(
-                "community_detection_completed",
-                tenant_id=tenant_id,
-                communities_created=len(hierarchical_communities),
-                processing_time_ms=processing_time_ms,
-                algorithm=algo.value,
-            )
-
-            return hierarchical_communities
-
-        except GraphTooSmallError:
-            raise
-        except Exception as e:
-            logger.error(
-                "community_detection_failed",
-                tenant_id=tenant_id,
-                error=str(e),
-                algorithm=algo.value,
-            )
-            raise CommunityDetectionError(str(e), tenant_id, algo.value) from e
+            except GraphTooSmallError:
+                raise
+            except Exception as e:
+                logger.error(
+                    "community_detection_failed",
+                    tenant_id=tenant_id,
+                    error=str(e),
+                    algorithm=algo.value,
+                )
+                raise CommunityDetectionError(str(e), tenant_id, algo.value) from e
 
     async def _build_networkx_graph(self, tenant_id: str) -> "nx.Graph":
         """Export Neo4j graph to NetworkX format.
@@ -501,9 +528,19 @@ class CommunityDetector:
                     key = tuple(sorted([c1_id, c2_id]))
                     community_edge_counts[key] += 1
 
-            # Step 3: Add edges to meta-graph
+            # Step 3: Add edges to meta-graph (with limit to prevent memory exhaustion)
+            edge_count_added = 0
             for (c1_id, c2_id), edge_count in community_edge_counts.items():
+                if edge_count_added >= MAX_META_GRAPH_EDGES:
+                    logger.warning(
+                        "meta_graph_edge_limit_reached",
+                        tenant_id=tenant_id,
+                        level=current_level,
+                        max_edges=MAX_META_GRAPH_EDGES,
+                    )
+                    break
                 meta_graph.add_edge(c1_id, c2_id, weight=edge_count)
+                edge_count_added += 1
 
             # Skip if no edges between communities
             if len(meta_graph.edges) == 0:

@@ -610,17 +610,21 @@ class DualLevelRetriever:
             if llm_adapter.provider in OPENAI_COMPATIBLE_LLM_PROVIDERS:
                 client = AsyncOpenAI(**llm_adapter.openai_kwargs())
 
-                response = await client.chat.completions.create(
-                    model=self.synthesis_model,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "You are a knowledge synthesis expert that combines multiple perspectives into coherent answers.",
-                        },
-                        {"role": "user", "content": prompt},
-                    ],
-                    temperature=self.synthesis_temperature,
-                    max_tokens=1000,
+                # Add timeout to prevent indefinite blocking on LLM calls
+                response = await asyncio.wait_for(
+                    client.chat.completions.create(
+                        model=self.synthesis_model,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": "You are a knowledge synthesis expert that combines multiple perspectives into coherent answers.",
+                            },
+                            {"role": "user", "content": prompt},
+                        ],
+                        temperature=self.synthesis_temperature,
+                        max_tokens=1000,
+                    ),
+                    timeout=30.0,  # 30 second timeout for synthesis
                 )
 
                 synthesis_text = response.choices[0].message.content or ""

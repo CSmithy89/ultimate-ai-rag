@@ -65,16 +65,22 @@ def get_int_env(key: str, default: int, min_val: Optional[int] = None) -> int:
         return default
 
 
-def get_float_env(key: str, default: float, min_val: Optional[float] = None) -> float:
-    """Parse a float environment variable with optional minimum validation.
+def get_float_env(
+    key: str,
+    default: float,
+    min_val: Optional[float] = None,
+    max_val: Optional[float] = None,
+) -> float:
+    """Parse a float environment variable with optional min/max validation.
 
     Args:
         key: Environment variable name
         default: Default value if not set or invalid
         min_val: Optional minimum value; if current value < min_val, returns default
+        max_val: Optional maximum value; if current value > max_val, returns default
 
     Returns:
-        Parsed float value, or default if parsing fails or value < min_val
+        Parsed float value, or default if parsing fails or value out of range
     """
     raw_value = os.getenv(key)
     if raw_value is None:
@@ -87,6 +93,15 @@ def get_float_env(key: str, default: float, min_val: Optional[float] = None) -> 
                 key=key,
                 value=value,
                 min_val=min_val,
+                using_default=default,
+            )
+            return default
+        if max_val is not None and value > max_val:
+            _config_logger.warning(
+                "config_value_above_maximum",
+                key=key,
+                value=value,
+                max_val=max_val,
                 using_default=default,
             )
             return default
@@ -1289,7 +1304,7 @@ def load_settings() -> Settings:
     whisper_model = os.getenv("WHISPER_MODEL", "base")
     tts_provider = os.getenv("TTS_PROVIDER", "openai")
     tts_voice = os.getenv("TTS_VOICE", "alloy")
-    tts_speed = get_float_env("TTS_SPEED", 1.0, min_val=0.25)
+    tts_speed = get_float_env("TTS_SPEED", 1.0, min_val=0.25, max_val=4.0)
 
     # Story 20-H5 - ColBERT Reranking settings
     colbert_enabled = get_bool_env("COLBERT_ENABLED", "false")
