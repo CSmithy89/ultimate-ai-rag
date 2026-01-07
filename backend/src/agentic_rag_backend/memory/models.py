@@ -1,11 +1,12 @@
 """Pydantic models for Epic 20 Memory Platform."""
 
+import math
 from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class MemoryScope(str, Enum):
@@ -112,6 +113,19 @@ class ScopedMemory(BaseModel):
     embedding: Optional[list[float]] = Field(
         default=None, description="Embedding vector (1536 dimensions)"
     )
+
+    @field_validator("embedding")
+    @classmethod
+    def validate_embedding(cls, v: Optional[list[float]]) -> Optional[list[float]]:
+        """Validate embedding dimension and values."""
+        if v is None:
+            return v
+        if len(v) != 1536:
+            raise ValueError(f"Embedding must have 1536 dimensions, got {len(v)}")
+        for i, val in enumerate(v):
+            if not math.isfinite(val):
+                raise ValueError(f"Invalid embedding value at index {i}: {val}")
+        return v
 
     model_config = {
         "json_schema_extra": {

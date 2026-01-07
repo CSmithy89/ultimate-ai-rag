@@ -23,6 +23,28 @@ def _validate_workspace_content(content: str) -> None:
         )
 
 
+import math
+
+def _validate_embedding(embedding: list[float], expected_dim: int = 1536) -> None:
+    """Validate embedding dimension and values.
+    
+    Args:
+        embedding: Vector to validate
+        expected_dim: Expected number of dimensions (default 1536)
+        
+    Raises:
+        ValueError: If dimension mismatch or contains non-finite values (NaN/Inf)
+    """
+    if len(embedding) != expected_dim:
+        raise ValueError(
+            f"Embedding dimension mismatch: expected {expected_dim}, got {len(embedding)}"
+        )
+    
+    for i, val in enumerate(embedding):
+        if not math.isfinite(val):
+            raise ValueError(f"Invalid embedding value at index {i}: {val}")
+
+
 class PostgresClient:
     """
     Async PostgreSQL client for managing documents, ingestion jobs, and chunks.
@@ -880,6 +902,7 @@ class PostgresClient:
                 # Convert embedding list to string format for pgvector
                 embedding_str = None
                 if embedding is not None:
+                    _validate_embedding(embedding)
                     embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
 
                 row = await conn.fetchrow(
@@ -976,18 +999,11 @@ class PostgresClient:
         similarity_threshold: float = 0.7,
     ) -> list[dict[str, Any]]:
         """
-        Search for similar chunks using cosine similarity.
-
-        Args:
-            tenant_id: Tenant identifier for filtering
-            embedding: Query embedding vector (1536 dimensions)
-            limit: Maximum number of results
-            similarity_threshold: Minimum similarity score (0.0-1.0)
-
         Returns:
             List of chunk records with similarity scores
         """
         try:
+            _validate_embedding(embedding)
             async with self.pool.acquire() as conn:
                 # Convert embedding to string format
                 embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
@@ -1092,6 +1108,7 @@ class PostgresClient:
             async with self.pool.acquire() as conn:
                 embedding_str = None
                 if embedding is not None:
+                    _validate_embedding(embedding)
                     embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
 
                 await conn.execute(
@@ -1247,6 +1264,7 @@ class PostgresClient:
             List of chunk records with similarity scores
         """
         try:
+            _validate_embedding(embedding)
             async with self.pool.acquire() as conn:
                 embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
 

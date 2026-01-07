@@ -402,7 +402,9 @@ class MemoryConsolidator:
 
         for memory in memories:
             # Calculate days since last access
-            days_since_access = (now - memory.accessed_at).total_seconds() / 86400
+            # Defensive check: if accessed_at is missing, use created_at or now
+            last_access = memory.accessed_at or memory.created_at or now
+            days_since_access = (now - last_access).total_seconds() / 86400
 
             # Calculate new importance
             new_importance = calculate_importance(

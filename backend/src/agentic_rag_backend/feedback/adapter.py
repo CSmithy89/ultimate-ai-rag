@@ -132,7 +132,7 @@ class FeedbackLoopAdapter:
 
         return await self._loop.get_query_boost(query, tenant_id)
 
-    def get_feedback_stats(self, query_id: str) -> Optional[FeedbackStats]:
+    async def get_feedback_stats(self, query_id: str) -> Optional[FeedbackStats]:
         """Get aggregated stats for a query.
 
         Args:
@@ -144,9 +144,9 @@ class FeedbackLoopAdapter:
         if not self._enabled or self._loop is None:
             return None
 
-        return self._loop.get_feedback_stats(query_id)
+        return await self._loop.get_feedback_stats(query_id)
 
-    def get_feedback_for_query(
+    async def get_feedback_for_query(
         self,
         query_id: str,
         tenant_id: str,
@@ -163,9 +163,9 @@ class FeedbackLoopAdapter:
         if not self._enabled or self._loop is None:
             return []
 
-        return self._loop.get_feedback_for_query(query_id, tenant_id)
+        return await self._loop.get_feedback_for_query(query_id, tenant_id)
 
-    def get_feedback_count(self, tenant_id: str) -> int:
+    async def get_feedback_count(self, tenant_id: str) -> int:
         """Get total feedback count for a tenant.
 
         Args:
@@ -177,7 +177,7 @@ class FeedbackLoopAdapter:
         if not self._enabled or self._loop is None:
             return 0
 
-        return self._loop.get_feedback_count(tenant_id)
+        return await self._loop.get_feedback_count(tenant_id)
 
     async def store_query_embedding(
         self,
@@ -198,7 +198,7 @@ class FeedbackLoopAdapter:
 
         return await self._loop.store_query_embedding(query_id, query)
 
-    def clear_tenant_feedback(self, tenant_id: str) -> int:
+    async def clear_tenant_feedback(self, tenant_id: str) -> int:
         """Clear all feedback for a tenant.
 
         Args:
@@ -210,4 +210,4 @@ class FeedbackLoopAdapter:
         if not self._enabled or self._loop is None:
             return 0
 
-        return self._loop.clear_tenant_feedback(tenant_id)
+        return await self._loop.clear_tenant_feedback(tenant_id)

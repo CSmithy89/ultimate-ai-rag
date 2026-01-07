@@ -3,6 +3,7 @@
 Story 20-E2: Implement Self-Improving Feedback Loop
 """
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -109,34 +110,36 @@ class FeedbackStats:
     result_id: Optional[str] = None
     feedback_types: dict[str, int] = field(default_factory=dict)
     last_feedback_at: Optional[datetime] = None
+    _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
 
-    def add_feedback(self, feedback: UserFeedback) -> None:
+    async def add_feedback(self, feedback: UserFeedback) -> None:
         """Update stats with a new feedback item.
 
         Args:
             feedback: The new feedback to incorporate
         """
-        self.total_count += 1
+        async with self._lock:
+            self.total_count += 1
 
-        if feedback.is_positive:
-            self.positive_count += 1
-        elif feedback.is_negative:
-            self.negative_count += 1
+            if feedback.is_positive:
+                self.positive_count += 1
+            elif feedback.is_negative:
+                self.negative_count += 1
 
-        if feedback.has_correction:
-            self.correction_count += 1
+            if feedback.has_correction:
+                self.correction_count += 1
 
-        # Update average score
-        # new_avg = old_avg + (new_value - old_avg) / count
-        self.average_score += (feedback.score - self.average_score) / self.total_count
+            # Update average score
+            # new_avg = old_avg + (new_value - old_avg) / count
+            self.average_score += (feedback.score - self.average_score) / self.total_count
 
-        # Track by type
-        type_key = feedback.feedback_type.value
-        self.feedback_types[type_key] = self.feedback_types.get(type_key, 0) + 1
+            # Track by type
+            type_key = feedback.feedback_type.value
+            self.feedback_types[type_key] = self.feedback_types.get(type_key, 0) + 1
 
-        # Update last feedback time
-        if self.last_feedback_at is None or feedback.created_at > self.last_feedback_at:
-            self.last_feedback_at = feedback.created_at
+            # Update last feedback time
+            if self.last_feedback_at is None or feedback.created_at > self.last_feedback_at:
+                self.last_feedback_at = feedback.created_at
 
 
 @dataclass

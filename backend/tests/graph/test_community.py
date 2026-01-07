@@ -419,7 +419,7 @@ class TestCommunityStorage:
         """Test deleting a community."""
         mock_session = AsyncMock()
         mock_result = AsyncMock()
-        mock_result.single.return_value = {"deleted": 1}
+        mock_result.single.return_value = {"deleted": True}
         mock_session.run.return_value = mock_result
 
         mock_driver = MagicMock()

@@ -152,8 +152,10 @@ class OntologyLoader:
             return OntologyLoadResult.failure(error=error or "Invalid path", load_time_ms=elapsed_ms)
 
         try:
-            # Load ontology using owlready2
-            onto = get_ontology(ontology_path).load()
+            # Load ontology using owlready2 in a thread to avoid blocking the event loop
+            import asyncio
+            onto_obj = get_ontology(ontology_path)
+            onto = await asyncio.to_thread(onto_obj.load)
 
             # Extract classes
             classes: list[OntologyClass] = []

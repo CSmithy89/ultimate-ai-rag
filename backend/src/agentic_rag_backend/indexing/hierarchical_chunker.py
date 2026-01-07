@@ -349,16 +349,27 @@ class HierarchicalChunker:
         step_size = max(1, chunk_size - overlap_tokens)
         token_start = 0
         chunk_index = 0
+        
+        # Track cumulative character position to avoid O(n^2) decoding
+        current_char_pos = 0
+        last_token_idx = 0
 
         while token_start < total_tokens:
             token_end = min(token_start + chunk_size, total_tokens)
+            
+            # Update current character position incrementally
+            if token_start > last_token_idx:
+                current_char_pos += len(ENCODING.decode(tokens[last_token_idx:token_start]))
+                last_token_idx = token_start
+                
             chunk_tokens = tokens[token_start:token_end]
-            chunk_text = ENCODING.decode(chunk_tokens).strip()
+            chunk_decoded = ENCODING.decode(chunk_tokens)
+            chunk_text = chunk_decoded.strip()
 
             if chunk_text:
-                # Calculate character positions
-                start_char = len(ENCODING.decode(tokens[:token_start]))
-                end_char = start_char + len(ENCODING.decode(chunk_tokens))
+                # Calculate character positions using incremental offset
+                start_char = current_char_pos
+                end_char = start_char + len(chunk_decoded)
 
                 chunk_id = self._generate_chunk_id(
                     document_id=document_id,
@@ -419,15 +430,15 @@ class HierarchicalChunker:
 
         parent_chunks = []
         current_children: list[HierarchicalChunk] = []
-        current_tokens = 0
+        # Use simple sum of tokens as a fast estimate to avoid repeated re-encoding.
+        # Merged content will have FEWER tokens than the sum due to overlap removal,
+        # so this is a conservative estimate that prevents exceeding target_size.
+        current_sum_tokens = 0
         parent_index = 0
 
         for child in child_chunks:
-            projected_children = current_children + [child]
-            projected_tokens = self._estimate_combined_tokens(projected_children)
-
-            # Check if adding this child would exceed target size
-            if projected_tokens > target_size and current_children:
+            # Check if adding this child would likely exceed target size
+            if current_sum_tokens + child.token_count > target_size and current_children:
                 # Create parent from accumulated children
                 parent = self._create_parent_chunk(
                     children=current_children,
@@ -442,10 +453,10 @@ class HierarchicalChunker:
 
                 # Start new accumulation
                 current_children = [child]
-                current_tokens = self._estimate_combined_tokens(current_children)
+                current_sum_tokens = child.token_count
             else:
-                current_children = projected_children
-                current_tokens = projected_tokens
+                current_children.append(child)
+                current_sum_tokens += child.token_count
 
         # Handle remaining children
         if current_children:

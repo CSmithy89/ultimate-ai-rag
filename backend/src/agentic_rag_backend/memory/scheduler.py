@@ -188,7 +188,9 @@ class MemoryConsolidationScheduler:
             return
 
         try:
-            self._scheduler.shutdown(wait=True)  # type: ignore
+            # Use non-blocking shutdown to avoid stalling the event loop
+            # APScheduler's AsyncIOScheduler.shutdown() is a synchronous call
+            self._scheduler.shutdown(wait=False)  # type: ignore
             self._running = False
             logger.info("scheduler_stopped")
         except Exception as e:

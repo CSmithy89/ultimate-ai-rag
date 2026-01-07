@@ -228,7 +228,7 @@ async def retrieve_dual_level(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Dual-level retrieval failed: {str(e)}",
+            detail="Dual-level retrieval failed due to an internal error.",
         ) from e
 
 

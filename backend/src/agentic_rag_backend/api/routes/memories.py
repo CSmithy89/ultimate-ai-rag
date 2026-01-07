@@ -605,6 +605,7 @@ async def consolidate_memories(
 
     Raises:
         HTTPException: 404 if feature is disabled
+        HTTPException: 400 if scope context is invalid
         HTTPException: 500 if consolidator not initialized
     """
     check_feature_enabled(settings)
@@ -615,6 +616,21 @@ async def consolidate_memories(
             status_code=500,
             detail="Memory consolidator not initialized. Check application startup logs.",
         )
+
+    # Validate scope context so invalid combinations return 400 instead of 500
+    if consolidation_request.scope is not None:
+        is_valid, error_msg = validate_scope_context(
+            consolidation_request.scope,
+            str(consolidation_request.user_id) if consolidation_request.user_id else None,
+            str(consolidation_request.session_id) if consolidation_request.session_id else None,
+            consolidation_request.agent_id,
+        )
+        if not is_valid:
+            raise HTTPException(
+                status_code=400,
+                detail=error_msg
+                or f"Invalid scope context for '{consolidation_request.scope.value}'",
+            )
 
     try:
         result = await consolidator.consolidate(
@@ -636,6 +652,9 @@ async def consolidate_memories(
 
         return success_response(result.model_dump(mode="json"))
 
+    except MemoryScopeError as e:
+        # Map scope validation errors from the store/consolidator to a 400 response
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error(
             "memory_consolidation_failed",
@@ -644,7 +663,7 @@ async def consolidate_memories(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Consolidation failed: {str(e)}",
+            detail="Memory consolidation failed due to an internal error.",
         ) from e
 
 
@@ -676,17 +695,21 @@ async def get_consolidation_status(
 
     Raises:
         HTTPException: 404 if feature is disabled
+        HTTPException: 500 if consolidator not initialized
     """
     check_feature_enabled(settings)
     check_consolidation_enabled(settings)
 
-    last_run_at = None
-    last_result = None
-    next_scheduled_run = None
+    if not consolidator:
+        # Consolidation is enabled in settings but the consolidator was not initialized
+        raise HTTPException(
+            status_code=500,
+            detail="Memory consolidator not initialized. Check application startup logs.",
+        )
 
-    if consolidator:
-        last_run_at = consolidator.last_run_at
-        last_result = consolidator.last_result
+    last_run_at = consolidator.last_run_at
+    last_result = consolidator.last_result
+    next_scheduled_run = None
 
     if scheduler:
         next_scheduled_run = scheduler.get_next_run_time()

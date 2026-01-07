@@ -763,20 +763,25 @@ class MultimodalIngester:
         if not file_path.is_file():
             raise ValueError(f"Path is not a file: {file_path}")
 
-        # Path traversal protection - use relative_to() for proper containment check
+        # Path traversal protection - use resolve() and relative_to() for proper containment check
         if allowed_base_path is not None:
-            resolved_path = file_path.resolve()
-            resolved_base = allowed_base_path.resolve()
             try:
+                # Ensure base path exists before resolving
+                if not allowed_base_path.exists():
+                    raise ValueError(f"Allowed base path does not exist: {allowed_base_path}")
+                
+                resolved_path = file_path.resolve()
+                resolved_base = allowed_base_path.resolve()
                 resolved_path.relative_to(resolved_base)
-            except ValueError:
+            except (ValueError, RuntimeError, OSError) as e:
                 logger.warning(
                     "path_traversal_attempt",
                     file_path=str(file_path),
                     allowed_base=str(allowed_base_path),
                     tenant_id=str(tenant_id),
+                    error=str(e),
                 )
-                raise ValueError(f"Path traversal not allowed: {file_path}")
+                raise ValueError(f"Path traversal not allowed or invalid path: {file_path}")
 
         # File size validation to prevent DoS
         file_size = file_path.stat().st_size

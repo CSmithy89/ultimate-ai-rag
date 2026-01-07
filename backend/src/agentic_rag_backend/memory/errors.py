@@ -10,7 +10,7 @@ class MemoryNotFoundError(AppError):
     def __init__(self, memory_id: str) -> None:
         super().__init__(
             code=ErrorCode.MEMORY_NOT_FOUND,
-            message=f"Memory with ID '{memory_id}' not found",
+            message="Requested memory not found",
             status=404,
             details={"memory_id": memory_id},
         )

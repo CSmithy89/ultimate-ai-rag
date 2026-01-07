@@ -6,6 +6,7 @@ This module provides a feedback mechanism that uses user corrections
 and preferences to improve retrieval quality over time.
 """
 
+import asyncio
 import math
 from datetime import datetime, timezone
 from typing import Any, Optional, Protocol
@@ -100,6 +101,7 @@ class FeedbackLoop:
         self._query_feedback: dict[str, list[UserFeedback]] = {}  # query_id -> list
         self._query_stats: dict[str, FeedbackStats] = {}  # query_id -> stats
         self._query_embeddings: dict[str, list[float]] = {}  # query_id -> embedding
+        self._lock = asyncio.Lock()
 
     async def record_feedback(
         self,
@@ -116,76 +118,68 @@ class FeedbackLoop:
         Returns:
             FeedbackRecordResult indicating success or failure
         """
-        try:
-            # Store in tenant's feedback list
-            if feedback.tenant_id not in self._feedback_store:
-                self._feedback_store[feedback.tenant_id] = []
+        async with self._lock:
+            try:
+                # Store in tenant's feedback list
+                if feedback.tenant_id not in self._feedback_store:
+                    self._feedback_store[feedback.tenant_id] = []
 
-            # Enforce per-tenant storage limit (remove oldest if at limit)
-            if len(self._feedback_store[feedback.tenant_id]) >= MAX_FEEDBACK_PER_TENANT:
-                removed = self._feedback_store[feedback.tenant_id].pop(0)
-                logger.debug(
-                    "feedback_evicted_oldest",
+                # Enforce per-tenant storage limit (remove oldest if at limit)
+                if len(self._feedback_store[feedback.tenant_id]) >= MAX_FEEDBACK_PER_TENANT:
+                    removed = self._feedback_store[feedback.tenant_id].pop(0)
+                    logger.debug(
+                        "feedback_evicted_oldest",
+                        tenant_id=feedback.tenant_id,
+                        removed_id=removed.id,
+                    )
+
+                self._feedback_store[feedback.tenant_id].append(feedback)
+
+                # Store in query's feedback list
+                if feedback.query_id not in self._query_feedback:
+                    self._query_feedback[feedback.query_id] = []
+                self._query_feedback[feedback.query_id].append(feedback)
+
+                # Update query stats
+                if feedback.query_id not in self._query_stats:
+                    self._query_stats[feedback.query_id] = FeedbackStats(
+                        query_id=feedback.query_id,
+                        result_id=feedback.result_id,
+                    )
+                await self._query_stats[feedback.query_id].add_feedback(feedback)
+
+                # If correction provided, learn from it
+                if feedback.has_correction:
+                    await self._learn_from_correction_unlocked(feedback)
+
+                logger.info(
+                    "feedback_recorded",
+                    feedback_id=feedback.id,
+                    feedback_type=feedback.feedback_type.value,
+                    score=feedback.score,
+                    has_correction=feedback.has_correction,
                     tenant_id=feedback.tenant_id,
-                    removed_id=removed.id,
                 )
 
-            self._feedback_store[feedback.tenant_id].append(feedback)
-
-            # Store in query's feedback list
-            if feedback.query_id not in self._query_feedback:
-                self._query_feedback[feedback.query_id] = []
-            self._query_feedback[feedback.query_id].append(feedback)
-
-            # Update query stats
-            if feedback.query_id not in self._query_stats:
-                self._query_stats[feedback.query_id] = FeedbackStats(
-                    query_id=feedback.query_id,
-                    result_id=feedback.result_id,
+                return FeedbackRecordResult(
+                    feedback_id=feedback.id,
+                    success=True,
+                    stats_updated=True,
                 )
-            self._query_stats[feedback.query_id].add_feedback(feedback)
 
-            # If correction provided, learn from it
-            if feedback.has_correction:
-                await self._learn_from_correction(feedback)
+            except Exception as e:
+                logger.error(
+                    "feedback_record_failed",
+                    feedback_id=feedback.id,
+                    error=str(e),
+                )
+                return FeedbackRecordResult.failure(error=str(e))
 
-            logger.info(
-                "feedback_recorded",
-                feedback_id=feedback.id,
-                feedback_type=feedback.feedback_type.value,
-                score=feedback.score,
-                has_correction=feedback.has_correction,
-                tenant_id=feedback.tenant_id,
-            )
-
-            return FeedbackRecordResult(
-                feedback_id=feedback.id,
-                success=True,
-                stats_updated=True,
-            )
-
-        except Exception as e:
-            logger.error(
-                "feedback_record_failed",
-                feedback_id=feedback.id,
-                error=str(e),
-            )
-            return FeedbackRecordResult.failure(error=str(e))
-
-    async def _learn_from_correction(
+    async def _learn_from_correction_unlocked(
         self,
         feedback: UserFeedback,
     ) -> None:
-        """Learn from a user correction.
-
-        This method can:
-        1. Store the correction as a high-quality example
-        2. Generate embedding for the correction
-        3. Associate correction with query for future retrieval
-
-        Args:
-            feedback: The feedback containing the correction
-        """
+        """Learn from a user correction. Internal method, must be called with lock held."""
         if not feedback.correction:
             return
 
@@ -237,72 +231,73 @@ class FeedbackLoop:
         # Find similar past queries with feedback
         similar_queries = await self._find_similar_queries(query, tenant_id)
 
-        if not similar_queries:
-            return QueryBoost.neutral()
+        async with self._lock:
+            if not similar_queries:
+                return QueryBoost.neutral()
 
-        # Aggregate feedback scores with decay
-        total_weighted_score = 0.0
-        total_weight = 0.0
-        feedback_count = 0
-        now = datetime.now(timezone.utc)
+            # Aggregate feedback scores with decay
+            total_weighted_score = 0.0
+            total_weight = 0.0
+            feedback_count = 0
+            now = datetime.now(timezone.utc)
 
-        for similar in similar_queries:
-            query_id = similar.get("query_id", similar.get("id"))
-            if not query_id:
-                continue
-
-            feedback_list = self._query_feedback.get(query_id, [])
-
-            for fb in feedback_list:
-                # Only consider feedback from same tenant
-                if fb.tenant_id != tenant_id:
+            for similar in similar_queries:
+                query_id = similar.get("query_id", similar.get("id"))
+                if not query_id:
                     continue
 
-                # Calculate decay weight based on age
-                age_days = (now - fb.created_at).days
-                if age_days > self._decay_days:
-                    # Apply exponential decay after threshold
-                    decay_factor = math.exp(
-                        -(age_days - self._decay_days) / self._decay_days
-                    )
-                else:
-                    decay_factor = 1.0
+                feedback_list = self._query_feedback.get(query_id, [])
 
-                total_weighted_score += fb.score * decay_factor
-                total_weight += decay_factor
-                feedback_count += 1
+                for fb in feedback_list:
+                    # Only consider feedback from same tenant
+                    if fb.tenant_id != tenant_id:
+                        continue
 
-        if feedback_count < self._min_samples:
-            # Not enough samples to be confident
+                    # Calculate decay weight based on age
+                    age_days = (now - fb.created_at).days
+                    if age_days > self._decay_days:
+                        # Apply exponential decay after threshold
+                        decay_factor = math.exp(
+                            -(age_days - self._decay_days) / self._decay_days
+                        )
+                    else:
+                        decay_factor = 1.0
+
+                    total_weighted_score += fb.score * decay_factor
+                    total_weight += decay_factor
+                    feedback_count += 1
+
+            if feedback_count < self._min_samples:
+                # Not enough samples to be confident
+                return QueryBoost(
+                    boost=1.0,
+                    based_on_queries=len(similar_queries),
+                    feedback_count=feedback_count,
+                    confidence=feedback_count / self._min_samples,
+                    decay_applied=total_weight < feedback_count,
+                )
+
+            avg_score = total_weighted_score / total_weight if total_weight > 0 else 0
+
+            # Convert score (-1 to 1) to boost factor
+            # score = -1 -> boost = 0.5
+            # score = 0 -> boost = 1.0
+            # score = 1 -> boost = 1.5
+            boost = 1.0 + (avg_score * 0.5)
+
+            # Clamp to configured range
+            boost = max(self._boost_min, min(self._boost_max, boost))
+
+            # Calculate confidence (based on sample count and recency)
+            confidence = min(1.0, feedback_count / (self._min_samples * 2))
+
             return QueryBoost(
-                boost=1.0,
+                boost=boost,
                 based_on_queries=len(similar_queries),
                 feedback_count=feedback_count,
-                confidence=feedback_count / self._min_samples,
+                confidence=confidence,
                 decay_applied=total_weight < feedback_count,
             )
-
-        avg_score = total_weighted_score / total_weight if total_weight > 0 else 0
-
-        # Convert score (-1 to 1) to boost factor
-        # score = -1 -> boost = 0.5
-        # score = 0 -> boost = 1.0
-        # score = 1 -> boost = 1.5
-        boost = 1.0 + (avg_score * 0.5)
-
-        # Clamp to configured range
-        boost = max(self._boost_min, min(self._boost_max, boost))
-
-        # Calculate confidence (based on sample count and recency)
-        confidence = min(1.0, feedback_count / (self._min_samples * 2))
-
-        return QueryBoost(
-            boost=boost,
-            based_on_queries=len(similar_queries),
-            feedback_count=feedback_count,
-            confidence=confidence,
-            decay_applied=total_weight < feedback_count,
-        )
 
     async def _find_similar_queries(
         self,
@@ -322,10 +317,10 @@ class FeedbackLoop:
         """
         if not self._embeddings:
             # Without embeddings, return all queries for this tenant
-            # (This is a fallback - production should use embeddings)
-            tenant_feedback = self._feedback_store.get(tenant_id, [])
-            unique_queries = set(fb.query_id for fb in tenant_feedback)
-            return [{"query_id": qid} for qid in list(unique_queries)[:limit]]
+            async with self._lock:
+                tenant_feedback = self._feedback_store.get(tenant_id, [])
+                unique_queries = set(fb.query_id for fb in tenant_feedback)
+                return [{"query_id": qid} for qid in list(unique_queries)[:limit]]
 
         try:
             # Generate embedding for the query
@@ -333,26 +328,27 @@ class FeedbackLoop:
 
             # Find similar queries using cosine similarity
             similar = []
-            for query_id, embedding in self._query_embeddings.items():
-                # Skip correction embeddings (they have ':correction:' in the key)
-                if ":correction:" in query_id:
-                    continue
+            async with self._lock:
+                for query_id, embedding in self._query_embeddings.items():
+                    # Skip correction embeddings (they have ':correction:' in the key)
+                    if ":correction:" in query_id:
+                        continue
 
-                # Check if this query has feedback from this tenant
-                feedback_list = self._query_feedback.get(query_id, [])
-                tenant_feedback = [
-                    fb for fb in feedback_list if fb.tenant_id == tenant_id
-                ]
-                if not tenant_feedback:
-                    continue
+                    # Check if this query has feedback from this tenant
+                    feedback_list = self._query_feedback.get(query_id, [])
+                    tenant_feedback = [
+                        fb for fb in feedback_list if fb.tenant_id == tenant_id
+                    ]
+                    if not tenant_feedback:
+                        continue
 
-                # Calculate cosine similarity
-                similarity = self._cosine_similarity(query_embedding, embedding)
-                similar.append({
-                    "query_id": query_id,
-                    "similarity": similarity,
-                    "feedback_count": len(tenant_feedback),
-                })
+                    # Calculate cosine similarity
+                    similarity = self._cosine_similarity(query_embedding, embedding)
+                    similar.append({
+                        "query_id": query_id,
+                        "similarity": similarity,
+                        "feedback_count": len(tenant_feedback),
+                    })
 
             # Sort by similarity and return top matches
             similar.sort(key=lambda x: x["similarity"], reverse=True)
@@ -369,15 +365,7 @@ class FeedbackLoop:
 
     @staticmethod
     def _cosine_similarity(a: list[float], b: list[float]) -> float:
-        """Calculate cosine similarity between two vectors.
-
-        Args:
-            a: First vector
-            b: Second vector
-
-        Returns:
-            Cosine similarity (0.0 to 1.0)
-        """
+        """Calculate cosine similarity between two vectors."""
         if len(a) != len(b):
             return 0.0
 
@@ -390,75 +378,49 @@ class FeedbackLoop:
 
         return dot_product / (norm_a * norm_b)
 
-    def get_feedback_stats(self, query_id: str) -> Optional[FeedbackStats]:
-        """Get aggregated stats for a query.
+    async def get_feedback_stats(self, query_id: str) -> Optional[FeedbackStats]:
+        """Get aggregated stats for a query."""
+        async with self._lock:
+            return self._query_stats.get(query_id)
 
-        Args:
-            query_id: The query identifier
-
-        Returns:
-            FeedbackStats or None if no feedback exists
-        """
-        return self._query_stats.get(query_id)
-
-    def get_feedback_for_query(
+    async def get_feedback_for_query(
         self,
         query_id: str,
         tenant_id: str,
     ) -> list[UserFeedback]:
-        """Get all feedback for a query.
+        """Get all feedback for a query."""
+        async with self._lock:
+            feedback_list = self._query_feedback.get(query_id, [])
+            return [fb for fb in feedback_list if fb.tenant_id == tenant_id]
 
-        Args:
-            query_id: The query identifier
-            tenant_id: The tenant identifier for filtering
-
-        Returns:
-            List of UserFeedback for this query and tenant
-        """
-        feedback_list = self._query_feedback.get(query_id, [])
-        return [fb for fb in feedback_list if fb.tenant_id == tenant_id]
-
-    def get_feedback_count(self, tenant_id: str) -> int:
-        """Get total feedback count for a tenant.
-
-        Args:
-            tenant_id: The tenant identifier
-
-        Returns:
-            Total number of feedback items
-        """
-        return len(self._feedback_store.get(tenant_id, []))
+    async def get_feedback_count(self, tenant_id: str) -> int:
+        """Get total feedback count for a tenant."""
+        async with self._lock:
+            return len(self._feedback_store.get(tenant_id, []))
 
     async def store_query_embedding(
         self,
         query_id: str,
         query: str,
     ) -> bool:
-        """Store embedding for a query (for later similarity search).
-
-        Args:
-            query_id: The query identifier
-            query: The query text
-
-        Returns:
-            True if stored successfully
-        """
+        """Store embedding for a query (for later similarity search)."""
         if not self._embeddings:
             return False
 
         try:
-            # Enforce embedding storage limit (remove oldest if at limit)
-            if len(self._query_embeddings) >= MAX_QUERY_EMBEDDINGS:
-                # Remove oldest entry (first key in dict)
-                oldest_key = next(iter(self._query_embeddings))
-                del self._query_embeddings[oldest_key]
-                logger.debug(
-                    "query_embedding_evicted",
-                    removed_query_id=oldest_key,
-                )
-
             embedding = await self._embeddings.embed(query)
-            self._query_embeddings[query_id] = embedding
+            async with self._lock:
+                # Enforce embedding storage limit (remove oldest if at limit)
+                if len(self._query_embeddings) >= MAX_QUERY_EMBEDDINGS:
+                    # Remove oldest entry (first key in dict)
+                    oldest_key = next(iter(self._query_embeddings))
+                    del self._query_embeddings[oldest_key]
+                    logger.debug(
+                        "query_embedding_evicted",
+                        removed_query_id=oldest_key,
+                    )
+
+                self._query_embeddings[query_id] = embedding
             return True
         except Exception as e:
             logger.warning(
@@ -468,34 +430,49 @@ class FeedbackLoop:
             )
             return False
 
-    def clear_tenant_feedback(self, tenant_id: str) -> int:
-        """Clear all feedback for a tenant.
+    async def clear_tenant_feedback(self, tenant_id: str) -> int:
+        """Clear all feedback for a tenant and remove orphaned embeddings."""
+        async with self._lock:
+            count = len(self._feedback_store.get(tenant_id, []))
+            self._feedback_store[tenant_id] = []
 
-        Args:
-            tenant_id: The tenant identifier
+            # Also clear from query feedback and track potentially orphaned queries
+            affected_query_ids = set()
+            for query_id in list(self._query_feedback.keys()):
+                original_list = self._query_feedback[query_id]
+                self._query_feedback[query_id] = [
+                    fb for fb in original_list
+                    if fb.tenant_id != tenant_id
+                ]
+                
+                # If feedback list changed, it might be orphaned
+                if len(self._query_feedback[query_id]) != len(original_list):
+                    affected_query_ids.add(query_id)
 
-        Returns:
-            Number of feedback items cleared
-        """
-        count = len(self._feedback_store.get(tenant_id, []))
-        self._feedback_store[tenant_id] = []
+                # Remove empty query feedback lists and stats
+                if not self._query_feedback[query_id]:
+                    del self._query_feedback[query_id]
+                    if query_id in self._query_stats:
+                        del self._query_stats[query_id]
 
-        # Also clear from query feedback
-        for query_id in list(self._query_feedback.keys()):
-            self._query_feedback[query_id] = [
-                fb for fb in self._query_feedback[query_id]
-                if fb.tenant_id != tenant_id
-            ]
-            # Remove empty query feedback lists
-            if not self._query_feedback[query_id]:
-                del self._query_feedback[query_id]
-                if query_id in self._query_stats:
-                    del self._query_stats[query_id]
+            # Remove orphaned embeddings (those with no more associated feedback)
+            for qid in affected_query_ids:
+                if qid not in self._query_feedback:
+                    # No more feedback for this query, remove its embedding
+                    if qid in self._query_embeddings:
+                        del self._query_embeddings[qid]
+                    
+                    # Also remove any associated correction embeddings
+                    correction_prefix = f"{qid}:correction:"
+                    for key in list(self._query_embeddings.keys()):
+                        if key.startswith(correction_prefix):
+                            del self._query_embeddings[key]
 
-        logger.info(
-            "tenant_feedback_cleared",
-            tenant_id=tenant_id,
-            count=count,
-        )
+            logger.info(
+                "tenant_feedback_cleared",
+                tenant_id=tenant_id,
+                count=count,
+                orphaned_embeddings_removed=len(affected_query_ids),
+            )
 
-        return count
+            return count

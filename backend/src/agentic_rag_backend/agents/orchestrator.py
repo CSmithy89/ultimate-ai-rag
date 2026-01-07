@@ -341,7 +341,7 @@ class OrchestratorAgent:
                 thoughts.append(routing_note)
                 events.append((EventType.ACTION, routing_note))
 
-                if decision.query_type == QueryType.GLOBAL and self._lazy_rag_retriever:
+                if decision.query_type == QueryType.LOCAL and self._lazy_rag_retriever:
                     lazy_result = await self._lazy_rag_retriever.query(
                         query=query,
                         tenant_id=tenant_id,
@@ -622,7 +622,7 @@ class OrchestratorAgent:
             vector_result: VectorSearchResult = await self._retrieval_pipeline.vector_search(
                 query=query,
                 tenant_id=tenant_id,
-                use_reranking=self._reranker is not None,
+                use_reranking=True,  # Let the pipeline decide based on its internal reranker
                 top_k=self._reranker_top_k,
                 strategy=strategy,
             )
@@ -644,7 +644,8 @@ class OrchestratorAgent:
 
         # Epic 12: Apply reranking if enabled
         if vector_result.reranking_applied and vector_result.reranked:
-            rerank_thought = f"Reranking {len(hits)} results with {self._reranker.get_model()}"
+            model_name = vector_result.reranker_model or "unknown"
+            rerank_thought = f"Reranking {len(hits)} results with {model_name}"
             thoughts.append(rerank_thought)
             if self._logger and trajectory_id:
                 await self._logger.log_thought(tenant_id, trajectory_id, rerank_thought)

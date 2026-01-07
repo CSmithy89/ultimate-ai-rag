@@ -1285,8 +1285,12 @@ def load_settings() -> Settings:
             dense_weight=hybrid_dense_weight,
             sparse_weight=hybrid_sparse_weight,
             sum=weight_sum,
-            hint="Weights should sum to 1.0 for balanced hybrid search",
+            hint="Weights will be normalized to sum to 1.0 for balanced hybrid search",
         )
+        # Normalize weights to keep hybrid search well behaved
+        if weight_sum > 0:
+            hybrid_dense_weight /= weight_sum
+            hybrid_sparse_weight /= weight_sum
 
     # Story 20-H2 - Cross-Language Query settings
     cross_language_enabled = get_bool_env("CROSS_LANGUAGE_ENABLED", "false")

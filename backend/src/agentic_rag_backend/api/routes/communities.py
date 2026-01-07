@@ -107,6 +107,9 @@ async def get_community_detector(request: Request) -> CommunityDetector:
     if hasattr(request.app.state, "community_detector"):
         return request.app.state.community_detector
 
+    # Ensure required graph library is available before constructing detector
+    check_networkx_available()
+
     neo4j = getattr(request.app.state, "neo4j", None)
     if not neo4j:
         raise HTTPException(

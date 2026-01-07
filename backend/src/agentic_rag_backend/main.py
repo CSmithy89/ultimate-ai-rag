@@ -641,58 +641,68 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.memory_consolidation_scheduler = None
 
     if settings.memory_scopes_enabled and settings.memory_consolidation_enabled:
-        # Get memory store (created lazily in memories.py, but we need it here)
-        # Create it now if database clients are available
-        postgres_client = getattr(app.state, "postgres", None)
-        redis_client_for_memory = getattr(app.state, "redis_client", None)
+        try:
+            # Get memory store (created lazily in memories.py, but we need it here)
+            # Create it now if database clients are available
+            postgres_client = getattr(app.state, "postgres", None)
+            redis_client_for_memory = getattr(app.state, "redis_client", None)
 
-        if postgres_client:
-            from .memory import ScopedMemoryStore
+            if postgres_client:
+                from .memory import ScopedMemoryStore
 
-            memory_store = ScopedMemoryStore(
-                postgres_client=postgres_client,
-                redis_client=redis_client_for_memory,
-                graphiti_client=getattr(app.state, "graphiti", None),
-                embedding_provider=settings.embedding_provider,
-                embedding_api_key=settings.embedding_api_key,
-                embedding_base_url=settings.embedding_base_url,
-                embedding_model=settings.embedding_model,
-                cache_ttl_seconds=settings.memory_cache_ttl_seconds,
-                max_per_scope=settings.memory_max_per_scope,
-            )
-            app.state.memory_store = memory_store
+                memory_store = ScopedMemoryStore(
+                    postgres_client=postgres_client,
+                    redis_client=redis_client_for_memory,
+                    graphiti_client=getattr(app.state, "graphiti", None),
+                    embedding_provider=settings.embedding_provider,
+                    embedding_api_key=settings.embedding_api_key,
+                    embedding_base_url=settings.embedding_base_url,
+                    embedding_model=settings.embedding_model,
+                    cache_ttl_seconds=settings.memory_cache_ttl_seconds,
+                    max_per_scope=settings.memory_max_per_scope,
+                )
+                app.state.memory_store = memory_store
 
-            # Create consolidator
-            consolidator = MemoryConsolidator(
-                store=memory_store,
-                similarity_threshold=settings.memory_similarity_threshold,
-                decay_half_life_days=settings.memory_decay_half_life_days,
-                min_importance=settings.memory_min_importance,
-                consolidation_batch_size=settings.memory_consolidation_batch_size,
-            )
-            app.state.memory_consolidator = consolidator
+                # Create consolidator
+                consolidator = MemoryConsolidator(
+                    store=memory_store,
+                    similarity_threshold=settings.memory_similarity_threshold,
+                    decay_half_life_days=settings.memory_decay_half_life_days,
+                    min_importance=settings.memory_min_importance,
+                    consolidation_batch_size=settings.memory_consolidation_batch_size,
+                )
+                app.state.memory_consolidator = consolidator
 
-            # Create and start scheduler
-            scheduler = create_consolidation_scheduler(
-                consolidator=consolidator,
-                schedule=settings.memory_consolidation_schedule,
-                enabled=True,
-            )
-            await scheduler.start()
-            app.state.memory_consolidation_scheduler = scheduler
+                # Create and start scheduler
+                scheduler = create_consolidation_scheduler(
+                    consolidator=consolidator,
+                    schedule=settings.memory_consolidation_schedule,
+                    enabled=True,
+                )
+                await scheduler.start()
+                app.state.memory_consolidation_scheduler = scheduler
 
-            struct_logger.info(
-                "memory_consolidation_initialized",
-                schedule=settings.memory_consolidation_schedule,
-                similarity_threshold=settings.memory_similarity_threshold,
-                decay_half_life_days=settings.memory_decay_half_life_days,
-                min_importance=settings.memory_min_importance,
+                struct_logger.info(
+                    "memory_consolidation_initialized",
+                    schedule=settings.memory_consolidation_schedule,
+                    similarity_threshold=settings.memory_similarity_threshold,
+                    decay_half_life_days=settings.memory_decay_half_life_days,
+                    min_importance=settings.memory_min_importance,
+                )
+            else:
+                struct_logger.warning(
+                    "memory_consolidation_skipped",
+                    reason="PostgreSQL client not available",
+                )
+        except Exception as e:
+            struct_logger.error(
+                "memory_consolidation_init_failed",
+                error=str(e),
+                hint="Application will continue without memory consolidation",
             )
-        else:
-            struct_logger.warning(
-                "memory_consolidation_skipped",
-                reason="PostgreSQL client not available",
-            )
+            # Ensure partial state is cleaned up
+            app.state.memory_consolidator = None
+            app.state.memory_consolidation_scheduler = None
     elif settings.memory_scopes_enabled:
         struct_logger.info(
             "memory_consolidation_disabled",

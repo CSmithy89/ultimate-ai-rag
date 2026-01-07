@@ -59,51 +59,66 @@ from .youtube_ingestion import (
     chunk_transcript,
     ingest_youtube_video,
 )
+
 # Epic 20 - Hierarchical Chunking (Story 20-C3)
-from .hierarchical_chunker import (
-    HierarchicalChunk,
-    HierarchicalChunkResult,
-    HierarchicalChunker,
-    create_hierarchical_chunker,
-    DEFAULT_LEVEL_SIZES,
-    DEFAULT_OVERLAP_RATIO,
-    DEFAULT_EMBEDDING_LEVEL,
-)
+try:
+    from .hierarchical_chunker import (
+        HierarchicalChunk,
+        HierarchicalChunkResult,
+        HierarchicalChunker,
+        create_hierarchical_chunker,
+        DEFAULT_LEVEL_SIZES,
+        DEFAULT_OVERLAP_RATIO,
+        DEFAULT_EMBEDDING_LEVEL,
+    )
+    HIERARCHICAL_AVAILABLE = True
+except ImportError:
+    HIERARCHICAL_AVAILABLE = False
+
 # Epic 20 - Enhanced Table/Layout Extraction (Story 20-D1)
-from .enhanced_docling import (
-    Position,
-    ExtractedTable,
-    DocumentSection as EnhancedDocumentSection,
-    Figure,
-    Footnote,
-    DocumentLayout,
-    TableChunk,
-    EnhancedDoclingParser,
-    EnhancedDoclingAdapter,
-    get_enhanced_docling_adapter,
-    DEFAULT_TABLE_EXTRACTION,
-    DEFAULT_PRESERVE_LAYOUT,
-    DEFAULT_TABLE_AS_MARKDOWN,
-)
+try:
+    from .enhanced_docling import (
+        Position,
+        ExtractedTable,
+        DocumentSection as EnhancedDocumentSection,
+        Figure,
+        Footnote,
+        DocumentLayout,
+        TableChunk,
+        EnhancedDoclingParser,
+        EnhancedDoclingAdapter,
+        get_enhanced_docling_adapter,
+        DEFAULT_TABLE_EXTRACTION,
+        DEFAULT_PRESERVE_LAYOUT,
+        DEFAULT_TABLE_AS_MARKDOWN,
+    )
+    DOCLING_AVAILABLE = True
+except ImportError:
+    DOCLING_AVAILABLE = False
+
 # Epic 20 - Multimodal Ingestion (Story 20-D2)
-from .multimodal import (
-    DocumentType,
-    ExtractedCell,
-    ExtractedSheet,
-    ExtractedSlide,
-    WordContent,
-    ExcelContent,
-    PowerPointContent,
-    MultimodalIngestionResult,
-    OfficeParser,
-    MultimodalIngester,
-    MultimodalIngestionAdapter,
-    get_multimodal_ingestion_adapter,
-    DEFAULT_MULTIMODAL_ENABLED,
-    DEFAULT_OFFICE_DOCS_ENABLED,
-    EXTENSION_TYPE_MAP,
-    MIME_TYPE_MAP,
-)
+try:
+    from .multimodal import (
+        DocumentType,
+        ExtractedCell,
+        ExtractedSheet,
+        ExtractedSlide,
+        WordContent,
+        ExcelContent,
+        PowerPointContent,
+        MultimodalIngestionResult,
+        OfficeParser,
+        MultimodalIngester,
+        MultimodalIngestionAdapter,
+        get_multimodal_ingestion_adapter,
+        DEFAULT_MULTIMODAL_ENABLED,
+        DEFAULT_OFFICE_DOCS_ENABLED,
+        EXTENSION_TYPE_MAP,
+        MIME_TYPE_MAP,
+    )
+    MULTIMODAL_AVAILABLE = True
+except ImportError:
+    MULTIMODAL_AVAILABLE = False
 
 __all__ = [
     # Crawler (Story 13.3: Crawl4AI migration)
@@ -165,6 +180,7 @@ __all__ = [
     "chunk_transcript",
     "ingest_youtube_video",
     # Epic 20: Hierarchical Chunking (Story 20-C3)
+    "HIERARCHICAL_AVAILABLE",
     "HierarchicalChunk",
     "HierarchicalChunkResult",
     "HierarchicalChunker",
@@ -173,6 +189,7 @@ __all__ = [
     "DEFAULT_OVERLAP_RATIO",
     "DEFAULT_EMBEDDING_LEVEL",
     # Epic 20: Enhanced Table/Layout Extraction (Story 20-D1)
+    "DOCLING_AVAILABLE",
     "Position",
     "ExtractedTable",
     "EnhancedDocumentSection",
@@ -187,6 +204,7 @@ __all__ = [
     "DEFAULT_PRESERVE_LAYOUT",
     "DEFAULT_TABLE_AS_MARKDOWN",
     # Epic 20: Multimodal Ingestion (Story 20-D2)
+    "MULTIMODAL_AVAILABLE",
     "DocumentType",
     "ExtractedCell",
     "ExtractedSheet",
@@ -204,3 +222,4 @@ __all__ = [
     "EXTENSION_TYPE_MAP",
     "MIME_TYPE_MAP",
 ]
+

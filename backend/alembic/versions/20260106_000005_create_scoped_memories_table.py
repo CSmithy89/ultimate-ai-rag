@@ -30,79 +30,82 @@ def upgrade() -> None:
     )
     scope_enum.create(op.get_bind(), checkfirst=True)
 
-    op.create_table(
-        "scoped_memories",
-        sa.Column(
-            "id",
-            postgresql.UUID(as_uuid=True),
-            primary_key=True,
-            nullable=False,
-        ),
-        sa.Column(
-            "tenant_id",
-            postgresql.UUID(as_uuid=True),
-            nullable=False,
-        ),
-        sa.Column(
-            "scope",
-            postgresql.ENUM(
-                "user", "session", "agent", "global",
-                name="memory_scope",
-                create_type=False,
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if not inspector.has_table("scoped_memories"):
+        op.create_table(
+            "scoped_memories",
+            sa.Column(
+                "id",
+                postgresql.UUID(as_uuid=True),
+                primary_key=True,
+                nullable=False,
             ),
-            nullable=False,
-        ),
-        sa.Column(
-            "user_id",
-            postgresql.UUID(as_uuid=True),
-            nullable=True,
-        ),
-        sa.Column(
-            "session_id",
-            postgresql.UUID(as_uuid=True),
-            nullable=True,
-        ),
-        sa.Column(
-            "agent_id",
-            sa.Text(),
-            nullable=True,
-        ),
-        sa.Column(
-            "content",
-            sa.Text(),
-            nullable=False,
-        ),
-        sa.Column(
-            "importance",
-            sa.Float(),
-            nullable=False,
-            server_default="1.0",
-        ),
-        sa.Column(
-            "metadata",
-            postgresql.JSONB(),
-            nullable=True,
-            server_default="{}",
-        ),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("now()"),
-        ),
-        sa.Column(
-            "accessed_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("now()"),
-        ),
-        sa.Column(
-            "access_count",
-            sa.Integer(),
-            nullable=False,
-            server_default="0",
-        ),
-    )
+            sa.Column(
+                "tenant_id",
+                postgresql.UUID(as_uuid=True),
+                nullable=False,
+            ),
+            sa.Column(
+                "scope",
+                postgresql.ENUM(
+                    "user", "session", "agent", "global",
+                    name="memory_scope",
+                    create_type=False,
+                ),
+                nullable=False,
+            ),
+            sa.Column(
+                "user_id",
+                postgresql.UUID(as_uuid=True),
+                nullable=True,
+            ),
+            sa.Column(
+                "session_id",
+                postgresql.UUID(as_uuid=True),
+                nullable=True,
+            ),
+            sa.Column(
+                "agent_id",
+                sa.Text(),
+                nullable=True,
+            ),
+            sa.Column(
+                "content",
+                sa.Text(),
+                nullable=False,
+            ),
+            sa.Column(
+                "importance",
+                sa.Float(),
+                nullable=False,
+                server_default="1.0",
+            ),
+            sa.Column(
+                "metadata",
+                postgresql.JSONB(),
+                nullable=True,
+                server_default="{}",
+            ),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.text("now()"),
+            ),
+            sa.Column(
+                "accessed_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.text("now()"),
+            ),
+            sa.Column(
+                "access_count",
+                sa.Integer(),
+                nullable=False,
+                server_default="0",
+            ),
+        )
 
     # Create pgvector column using raw SQL (1536-dimension for OpenAI ada-002)
     # Note: Using raw SQL because SQLAlchemy doesn't natively support pgvector type
@@ -162,8 +165,10 @@ def upgrade() -> None:
     )
 
     # Vector similarity search index (HNSW for approximate nearest neighbor)
+    # Ensure we replace any existing index with the desired implementation
+    op.execute("DROP INDEX IF EXISTS idx_scoped_memories_embedding")
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_scoped_memories_embedding "
+        "CREATE INDEX idx_scoped_memories_embedding "
         "ON scoped_memories USING hnsw (embedding vector_cosine_ops)"
     )
 

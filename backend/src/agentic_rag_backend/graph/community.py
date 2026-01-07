@@ -1055,13 +1055,13 @@ KEYWORDS: keyword1, keyword2, keyword3
                 """
                 MATCH (c:Community {id: $id, tenant_id: $tenant_id})
                 DETACH DELETE c
-                RETURN count(c) as deleted
+                RETURN true as deleted
                 """,
                 id=community_id,
                 tenant_id=tenant_id,
             )
             record = await result.single()
-            deleted = record["deleted"] > 0 if record else False
+            deleted = record["deleted"] if record else False
 
             if deleted:
                 logger.info(

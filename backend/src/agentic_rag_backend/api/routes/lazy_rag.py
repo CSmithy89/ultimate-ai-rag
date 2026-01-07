@@ -225,7 +225,7 @@ async def query_lazy_rag(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"LazyRAG query failed: {str(e)}",
+            detail="LazyRAG query failed due to an internal server error.",
         ) from e
 
 
@@ -317,7 +317,7 @@ async def expand_lazy_rag(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"LazyRAG expansion failed: {str(e)}",
+            detail="LazyRAG expansion failed due to an internal server error.",
         ) from e
 
 

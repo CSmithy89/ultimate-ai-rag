@@ -132,8 +132,17 @@ def chunk_document(
         chunks = []
         chunk_index = 0
         token_start = 0
+        
+        # Track cumulative character position to avoid O(n^2) decoding
+        current_char_pos = 0
+        last_token_idx = 0
 
         while token_start < total_tokens:
+            # Update current character position incrementally
+            if token_start > last_token_idx:
+                current_char_pos += len(ENCODING.decode(tokens[last_token_idx:token_start]))
+                last_token_idx = token_start
+
             # Calculate end position
             token_end = min(token_start + chunk_size, total_tokens)
 
@@ -144,8 +153,7 @@ def chunk_document(
             chunk_text = ENCODING.decode(chunk_tokens)
 
             # Find character positions
-            # Decode all tokens up to start to get start character
-            start_char = len(ENCODING.decode(tokens[:token_start]))
+            start_char = current_char_pos
             end_char = start_char + len(chunk_text)
 
             # Try to adjust to natural boundaries if not at the end
