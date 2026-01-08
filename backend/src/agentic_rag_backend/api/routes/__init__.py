@@ -14,6 +14,7 @@ from .communities import router as communities_router
 from .lazy_rag import router as lazy_rag_router
 from .query_router import router as query_router
 from .dual_level import router as dual_level_router
+from .telemetry import router as telemetry_router
 
 __all__ = [
     "ingest_router",
@@ -30,4 +31,5 @@ __all__ = [
     "lazy_rag_router",
     "query_router",
     "dual_level_router",
+    "telemetry_router",
 ]

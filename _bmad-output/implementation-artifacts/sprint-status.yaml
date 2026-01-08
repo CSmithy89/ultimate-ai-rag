@@ -405,7 +405,7 @@ development_status:
   20-H5-implement-colbert-reranking: done
   20-H6-implement-visual-workflow-editor: done
 
-  epic-20-retrospective: optional
+  epic-20-retrospective: done
 
   # ==========================================
   # Epic 21: CopilotKit Full Integration
@@ -414,7 +414,7 @@ development_status:
   # GAPS FOUND: A2UI, MCP Client, Modern Hooks, Observability
   # See: epic-21-tech-spec.md
   # ==========================================
-  epic-21: backlog
+  epic-21: in-progress
 
   # --- Group A: Modern Hook Migration (Tech Debt) ---
   21-A1-migrate-to-usefrontendtool-pattern: backlog

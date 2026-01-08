@@ -46,6 +46,7 @@ from .api.routes import (
     lazy_rag_router,
     query_router,
     dual_level_router,
+    telemetry_router,
 )
 from .mcp_server.routes import router as mcp_server_router
 from .api.routes.ingest import limiter as slowapi_limiter
@@ -810,6 +811,7 @@ def create_app() -> FastAPI:
     app.include_router(lazy_rag_router, prefix="/api/v1")  # Epic 20: LazyRAG Pattern
     app.include_router(query_router, prefix="/api/v1")  # Epic 20: Query Routing
     app.include_router(dual_level_router, prefix="/api/v1")  # Epic 20: Dual-Level Retrieval
+    app.include_router(telemetry_router, prefix="/api/v1")  # Epic 21: Telemetry
     app.include_router(mcp_server_router)  # Epic 14: MCP Server (protocol endpoints)
 
     # Story 19-C5: Mount Prometheus metrics endpoint
