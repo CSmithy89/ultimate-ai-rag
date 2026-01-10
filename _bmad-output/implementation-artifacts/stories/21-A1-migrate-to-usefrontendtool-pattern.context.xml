@@ -1,0 +1,461 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Context file for Story 21-A1: Migrate to useFrontendTool Pattern
+  Generated: 2026-01-10
+  Epic: 21 - CopilotKit Full Integration
+-->
+<story-context>
+
+  <story-summary>
+    <title>Migrate to useFrontendTool Pattern</title>
+    <priority>P0 - HIGH</priority>
+    <story-points>5</story-points>
+    <owner>Frontend</owner>
+
+    <objective>
+      Replace 5 deprecated `useCopilotAction` calls with `handler` prop in
+      `frontend/hooks/use-copilot-actions.ts` with modern `useFrontendTool` hooks
+      from @copilotkit/react-core. Add Zod schemas with .describe() annotations
+      for improved type safety and agent parameter hints.
+    </objective>
+
+    <actions-to-migrate>
+      <action name="save_to_workspace" params="content_id, content_text, title?, query?"/>
+      <action name="export_content" params="content_id, content_text, format (enum), title?"/>
+      <action name="share_content" params="content_id, content_text, title?"/>
+      <action name="bookmark_content" params="content_id, content_text, title?"/>
+      <action name="suggest_follow_up" params="suggested_query, context?"/>
+    </actions-to-migrate>
+
+    <key-benefits>
+      <benefit>Better type safety via Zod schema inference</benefit>
+      <benefit>Clearer intent with dedicated useFrontendTool hook</benefit>
+      <benefit>Future-proofing against eventual deprecation removal</benefit>
+      <benefit>Improved DX with .describe() annotations for agent context</benefit>
+    </key-benefits>
+  </story-summary>
+
+  <files-to-modify>
+    <file path="frontend/hooks/use-copilot-actions.ts" action="modify">
+      <description>
+        Main file containing 5 useCopilotAction calls to migrate.
+        Replace imports and action registrations with useFrontendTool pattern.
+      </description>
+      <line-count>756</line-count>
+    </file>
+
+    <file path="frontend/lib/schemas/tools.ts" action="create">
+      <description>
+        New shared Zod schemas file for frontend tools. Contains all 5 tool
+        parameter schemas with .describe() annotations. Schemas should be
+        exportable for reuse across the codebase.
+      </description>
+      <schemas-to-define>
+        <schema name="SaveToWorkspaceSchema"/>
+        <schema name="ExportContentSchema"/>
+        <schema name="ShareContentSchema"/>
+        <schema name="BookmarkContentSchema"/>
+        <schema name="SuggestFollowUpSchema"/>
+      </schemas-to-define>
+    </file>
+
+    <file path="frontend/__tests__/hooks/use-copilot-actions.test.ts" action="modify">
+      <description>
+        Update tests to mock useFrontendTool instead of useCopilotAction.
+        Add new schema validation tests.
+      </description>
+      <line-count>490</line-count>
+    </file>
+  </files-to-modify>
+
+  <reference-files>
+    <file path="frontend/types/copilot.ts" purpose="existing-types">
+      <description>
+        Contains existing Zod schemas and TypeScript types for CopilotKit.
+        Reference for schema patterns already in use.
+      </description>
+      <relevant-exports>
+        ActionType, ActionState, ExportFormat, ActionableContent,
+        ActionTypeSchema, ActionStateSchema, ExportFormatSchema,
+        ActionableContentSchema
+      </relevant-exports>
+    </file>
+
+    <file path="frontend/components/copilot/CopilotProvider.tsx" purpose="provider-config">
+      <description>
+        CopilotKit provider configuration. Minimal setup with runtimeUrl only.
+        No changes needed for this story.
+      </description>
+    </file>
+
+    <file path="frontend/package.json" purpose="dependencies">
+      <description>
+        Confirms @copilotkit/react-core@^1.50.1 and zod@^4.2.1 are installed.
+      </description>
+    </file>
+
+    <file path="frontend/hooks/use-generative-ui.tsx" purpose="pattern-reference">
+      <description>
+        Example of Zod validation within render actions.
+        Note: This file uses render prop pattern (different migration - Story 21-A2/21-A3).
+      </description>
+    </file>
+
+    <file path="CLAUDE.md" purpose="conventions">
+      <description>
+        Project conventions: camelCase functions, PascalCase components,
+        use-hook-name.ts file naming. Zod for frontend validation.
+      </description>
+    </file>
+  </reference-files>
+
+  <technical-context>
+    <current-implementation>
+      <description>Current useCopilotAction pattern in use-copilot-actions.ts</description>
+      <code-snippet language="typescript" location="lines 555-594">
+<![CDATA[
+// Current pattern (deprecated) - save_to_workspace example
+useCopilotAction({
+  name: "save_to_workspace",
+  description: "Save the AI response to the user's workspace for later reference",
+  parameters: [
+    {
+      name: "content_id",
+      type: "string",
+      description: "Unique ID of the content to save",
+      required: true,
+    },
+    {
+      name: "content_text",
+      type: "string",
+      description: "The actual content/response text to save",
+      required: true,
+    },
+    {
+      name: "title",
+      type: "string",
+      description: "Optional title for the saved content",
+      required: false,
+    },
+    {
+      name: "query",
+      type: "string",
+      description: "Original query that generated this response",
+      required: false,
+    },
+  ],
+  handler: async ({ content_id, content_text, title, query }) => {
+    const content: ActionableContent = {
+      id: content_id as string,
+      content: content_text as string,
+      title: title as string | undefined,
+      query: query as string | undefined,
+    };
+    await saveToWorkspace(content);
+    return { success: true, action: "save_to_workspace" };
+  },
+});
+]]>
+      </code-snippet>
+    </current-implementation>
+
+    <target-implementation>
+      <description>Target useFrontendTool pattern from Epic 21 tech spec</description>
+      <code-snippet language="typescript">
+<![CDATA[
+// Target pattern (modern) with Zod schema
+import { useFrontendTool } from "@copilotkit/react-core";
+import { SaveToWorkspaceSchema } from "@/lib/schemas/tools";
+
+useFrontendTool({
+  name: "save_to_workspace",
+  description: "Save the AI response to the user's workspace for later reference",
+  parameters: SaveToWorkspaceSchema,
+  handler: async ({ content_id, content_text, title, query }) => {
+    // Parameters are already typed from Zod inference - no casting needed
+    const content: ActionableContent = {
+      id: content_id,
+      content: content_text,
+      title,
+      query,
+    };
+    await saveToWorkspace(content);
+    return { success: true, action: "save_to_workspace" };
+  },
+});
+]]>
+      </code-snippet>
+    </target-implementation>
+
+    <schema-file-template>
+      <description>Template for frontend/lib/schemas/tools.ts</description>
+      <code-snippet language="typescript">
+<![CDATA[
+/**
+ * Shared Zod schemas for frontend tools.
+ * Story 21-A1: Migrate to useFrontendTool Pattern
+ *
+ * These schemas define parameters for useFrontendTool hooks.
+ * The .describe() annotations provide context for the AI agent.
+ */
+import { z } from "zod";
+
+/**
+ * Schema for save_to_workspace tool parameters.
+ */
+export const SaveToWorkspaceSchema = z.object({
+  content_id: z.string().describe("Unique ID of the content to save"),
+  content_text: z.string().describe("The actual content/response text to save"),
+  title: z.string().optional().describe("Optional title for the saved content"),
+  query: z.string().optional().describe("Original query that generated this response"),
+});
+
+/** Inferred TypeScript type for save_to_workspace parameters */
+export type SaveToWorkspaceParams = z.infer<typeof SaveToWorkspaceSchema>;
+
+/**
+ * Schema for export_content tool parameters.
+ */
+export const ExportContentSchema = z.object({
+  content_id: z.string().describe("Unique ID of the content to export"),
+  content_text: z.string().describe("The actual content/response text to export"),
+  format: z.enum(["markdown", "pdf", "json"]).describe("Export format: markdown, pdf, or json"),
+  title: z.string().optional().describe("Optional title for the export"),
+});
+
+export type ExportContentParams = z.infer<typeof ExportContentSchema>;
+
+/**
+ * Schema for share_content tool parameters.
+ */
+export const ShareContentSchema = z.object({
+  content_id: z.string().describe("Unique ID of the content to share"),
+  content_text: z.string().describe("The actual content/response text to share"),
+  title: z.string().optional().describe("Optional title for the shared content"),
+});
+
+export type ShareContentParams = z.infer<typeof ShareContentSchema>;
+
+/**
+ * Schema for bookmark_content tool parameters.
+ */
+export const BookmarkContentSchema = z.object({
+  content_id: z.string().describe("Unique ID of the content to bookmark"),
+  content_text: z.string().describe("The actual content/response text to bookmark"),
+  title: z.string().optional().describe("Optional title for the bookmark"),
+});
+
+export type BookmarkContentParams = z.infer<typeof BookmarkContentSchema>;
+
+/**
+ * Schema for suggest_follow_up tool parameters.
+ */
+export const SuggestFollowUpSchema = z.object({
+  suggested_query: z.string().describe("The suggested follow-up query"),
+  context: z.string().optional().describe("Context from the current response"),
+});
+
+export type SuggestFollowUpParams = z.infer<typeof SuggestFollowUpSchema>;
+]]>
+      </code-snippet>
+    </schema-file-template>
+
+    <existing-types-reference>
+      <description>Existing types from frontend/types/copilot.ts that can be reused</description>
+      <code-snippet language="typescript" location="lines 267-305">
+<![CDATA[
+// These types already exist and should be imported, not redefined
+export type ActionType = "save" | "export" | "share" | "bookmark" | "followUp";
+export type ActionState = "idle" | "loading" | "success" | "error";
+export type ExportFormat = "markdown" | "pdf" | "json";
+
+export interface ActionableContent {
+  id: string;
+  content: string;
+  title?: string;
+  query?: string;
+  sources?: Array<{ id: string; title: string; url?: string }>;
+  timestamp?: string;
+  sessionId?: string;
+  trajectoryId?: string;
+}
+
+// Existing Zod schemas for export format
+export const ExportFormatSchema = z.enum(["markdown", "pdf", "json"]);
+]]>
+      </code-snippet>
+    </existing-types-reference>
+
+    <key-differences>
+      <difference aspect="parameter-definition">
+        <before>Array of { name, type, description, required } objects</before>
+        <after>Zod schema object with .describe() annotations</after>
+      </difference>
+      <difference aspect="type-safety">
+        <before>Manual casting needed (e.g., content_id as string)</before>
+        <after>Automatic type inference from Zod schema</after>
+      </difference>
+      <difference aspect="validation">
+        <before>Runtime only</before>
+        <after>Compile-time + runtime validation</after>
+      </difference>
+      <difference aspect="import">
+        <before>useCopilotAction from @copilotkit/react-core</before>
+        <after>useFrontendTool from @copilotkit/react-core</after>
+      </difference>
+    </key-differences>
+  </technical-context>
+
+  <dependencies>
+    <external-packages>
+      <package name="@copilotkit/react-core" version="^1.50.1">
+        <imports>useFrontendTool (new), useCopilotAction (to remove)</imports>
+      </package>
+      <package name="zod" version="^4.2.1">
+        <imports>z (for schema definition)</imports>
+      </package>
+    </external-packages>
+
+    <internal-imports>
+      <import from="@/hooks/use-toast">useToast</import>
+      <import from="@/types/copilot">ActionableContent, ExportFormat</import>
+      <import from="@/lib/schemas/tools" note="to be created">
+        SaveToWorkspaceSchema, ExportContentSchema, ShareContentSchema,
+        BookmarkContentSchema, SuggestFollowUpSchema
+      </import>
+    </internal-imports>
+  </dependencies>
+
+  <testing-context>
+    <existing-test-structure>
+      <description>Current test file mocks useCopilotAction and verifies 5 actions are registered</description>
+      <code-snippet language="typescript" location="lines 1-25">
+<![CDATA[
+// Current mock setup
+jest.mock("@copilotkit/react-core", () => ({
+  useCopilotAction: jest.fn(),
+}));
+
+// Verify 5 actions registered
+it("registers 5 CopilotKit actions", () => {
+  renderHook(() => useCopilotActions());
+  expect(mockUseCopilotAction).toHaveBeenCalledTimes(5);
+});
+]]>
+      </code-snippet>
+    </existing-test-structure>
+
+    <updated-test-structure>
+      <description>Updated test should mock useFrontendTool instead</description>
+      <code-snippet language="typescript">
+<![CDATA[
+// Updated mock setup
+jest.mock("@copilotkit/react-core", () => ({
+  useFrontendTool: jest.fn(),
+}));
+
+// Verify 5 tools registered
+it("registers 5 frontend tools", () => {
+  renderHook(() => useCopilotActions());
+  expect(mockUseFrontendTool).toHaveBeenCalledTimes(5);
+});
+
+// NEW: Schema validation tests
+describe("Zod Schema Validation", () => {
+  it("SaveToWorkspaceSchema accepts valid params", () => {
+    const valid = { content_id: "abc", content_text: "test" };
+    expect(SaveToWorkspaceSchema.parse(valid)).toEqual(valid);
+  });
+
+  it("SaveToWorkspaceSchema rejects missing required fields", () => {
+    const invalid = { content_id: "abc" }; // missing content_text
+    expect(() => SaveToWorkspaceSchema.parse(invalid)).toThrow();
+  });
+
+  it("ExportContentSchema validates format enum", () => {
+    const valid = { content_id: "abc", content_text: "test", format: "pdf" };
+    expect(ExportContentSchema.parse(valid)).toEqual(valid);
+
+    const invalid = { content_id: "abc", content_text: "test", format: "invalid" };
+    expect(() => ExportContentSchema.parse(invalid)).toThrow();
+  });
+});
+]]>
+      </code-snippet>
+    </updated-test-structure>
+
+    <test-commands>
+      <command>cd frontend && pnpm test -- --testPathPattern=use-copilot-actions</command>
+      <command>cd frontend && pnpm type-check</command>
+    </test-commands>
+  </testing-context>
+
+  <acceptance-criteria-checklist>
+    <criterion id="AC1">
+      All 5 useCopilotAction with handler migrated to useFrontendTool
+    </criterion>
+    <criterion id="AC2">
+      Zod schemas with .describe() replace inline parameter definitions
+    </criterion>
+    <criterion id="AC3">
+      Shared schemas created in frontend/lib/schemas/tools.ts
+    </criterion>
+    <criterion id="AC4">
+      All existing tests pass without behavior changes
+    </criterion>
+    <criterion id="AC5">
+      Agent can call all 5 tools with proper Zod validation
+    </criterion>
+    <criterion id="AC6">
+      Invalid parameters rejected before handler execution
+    </criterion>
+    <criterion id="AC7">
+      No useCopilotAction with handler prop remains in file
+    </criterion>
+  </acceptance-criteria-checklist>
+
+  <implementation-notes>
+    <note priority="high">
+      The useCopilotAction import should remain if other parts of the codebase
+      use it with render prop (Story 21-A2 handles that migration). Only remove
+      if no other usages exist.
+    </note>
+    <note priority="high">
+      Ensure handlers no longer use type casting (e.g., `content_id as string`).
+      Zod inference provides correct types automatically.
+    </note>
+    <note priority="medium">
+      Create frontend/lib/schemas/ directory if it doesn't exist.
+    </note>
+    <note priority="medium">
+      The ExportFormat enum ("markdown", "pdf", "json") should use the existing
+      ExportFormatSchema from types/copilot.ts or be consistent with it.
+    </note>
+    <note priority="low">
+      Consider adding JSDoc comments to the new schema file for IDE hints.
+    </note>
+  </implementation-notes>
+
+  <directory-structure>
+    <tree>
+      <![CDATA[
+frontend/
+├── hooks/
+│   ├── use-copilot-actions.ts    # MODIFY: Replace useCopilotAction with useFrontendTool
+│   └── ...
+├── lib/
+│   ├── api.ts
+│   ├── utils.ts
+│   └── schemas/
+│       └── tools.ts              # CREATE: Shared Zod schemas
+├── types/
+│   └── copilot.ts                # REFERENCE: Existing types and schemas
+├── __tests__/
+│   └── hooks/
+│       └── use-copilot-actions.test.ts  # MODIFY: Update mocks and add schema tests
+└── package.json                  # REFERENCE: Dependencies confirmed
+      ]]>
+    </tree>
+  </directory-structure>
+
+</story-context>

@@ -1,16 +1,29 @@
 /**
  * Tests for use-copilot-actions hook
  * Story 6-5: Frontend Actions
+ * Story 21-A1: Migrated to useFrontendTool pattern
  */
 
 import { renderHook, act } from "@testing-library/react";
-import { useCopilotAction } from "@copilotkit/react-core";
+import { useFrontendTool } from "@copilotkit/react-core";
 import { useCopilotActions } from "@/hooks/use-copilot-actions";
 import { useToast } from "@/hooks/use-toast";
+import {
+  SaveToWorkspaceSchema,
+  ExportContentSchema,
+  ShareContentSchema,
+  BookmarkContentSchema,
+  SuggestFollowUpSchema,
+  saveToWorkspaceToolParams,
+  exportContentToolParams,
+  shareContentToolParams,
+  bookmarkContentToolParams,
+  suggestFollowUpToolParams,
+} from "@/lib/schemas/tools";
 
 // Mock dependencies
 jest.mock("@copilotkit/react-core", () => ({
-  useCopilotAction: jest.fn(),
+  useFrontendTool: jest.fn(),
 }));
 
 jest.mock("@/hooks/use-toast", () => ({
@@ -20,7 +33,9 @@ jest.mock("@/hooks/use-toast", () => ({
 // Mock fetch
 global.fetch = jest.fn();
 
-const mockUseCopilotAction = useCopilotAction as jest.MockedFunction<typeof useCopilotAction>;
+const mockUseFrontendTool = useFrontendTool as jest.MockedFunction<
+  typeof useFrontendTool
+>;
 const mockUseToast = useToast as jest.MockedFunction<typeof useToast>;
 const mockFetch = global.fetch as jest.MockedFunction<typeof fetch>;
 
@@ -425,65 +440,191 @@ describe("useCopilotActions", () => {
   });
 
   describe("CopilotKit Integration", () => {
-    it("registers 5 CopilotKit actions", () => {
+    it("registers 5 frontend tools", () => {
       renderHook(() => useCopilotActions());
 
-      expect(mockUseCopilotAction).toHaveBeenCalledTimes(5);
+      expect(mockUseFrontendTool).toHaveBeenCalledTimes(5);
     });
 
-    it("registers save_to_workspace action", () => {
+    it("registers save_to_workspace tool with parameters", () => {
       renderHook(() => useCopilotActions());
 
-      expect(mockUseCopilotAction).toHaveBeenCalledWith(
+      expect(mockUseFrontendTool).toHaveBeenCalledWith(
         expect.objectContaining({
           name: "save_to_workspace",
           description: expect.stringContaining("Save"),
+          parameters: saveToWorkspaceToolParams,
         })
       );
     });
 
-    it("registers export_content action", () => {
+    it("registers export_content tool with parameters", () => {
       renderHook(() => useCopilotActions());
 
-      expect(mockUseCopilotAction).toHaveBeenCalledWith(
+      expect(mockUseFrontendTool).toHaveBeenCalledWith(
         expect.objectContaining({
           name: "export_content",
           description: expect.stringContaining("Export"),
+          parameters: exportContentToolParams,
         })
       );
     });
 
-    it("registers share_content action", () => {
+    it("registers share_content tool with parameters", () => {
       renderHook(() => useCopilotActions());
 
-      expect(mockUseCopilotAction).toHaveBeenCalledWith(
+      expect(mockUseFrontendTool).toHaveBeenCalledWith(
         expect.objectContaining({
           name: "share_content",
           description: expect.stringContaining("share"),
+          parameters: shareContentToolParams,
         })
       );
     });
 
-    it("registers bookmark_content action", () => {
+    it("registers bookmark_content tool with parameters", () => {
       renderHook(() => useCopilotActions());
 
-      expect(mockUseCopilotAction).toHaveBeenCalledWith(
+      expect(mockUseFrontendTool).toHaveBeenCalledWith(
         expect.objectContaining({
           name: "bookmark_content",
           description: expect.stringContaining("Bookmark"),
+          parameters: bookmarkContentToolParams,
         })
       );
     });
 
-    it("registers suggest_follow_up action", () => {
+    it("registers suggest_follow_up tool with parameters", () => {
       renderHook(() => useCopilotActions());
 
-      expect(mockUseCopilotAction).toHaveBeenCalledWith(
+      expect(mockUseFrontendTool).toHaveBeenCalledWith(
         expect.objectContaining({
           name: "suggest_follow_up",
           description: expect.stringContaining("follow-up"),
+          parameters: suggestFollowUpToolParams,
         })
       );
+    });
+  });
+
+  // Story 21-A1: Zod Schema Validation Tests
+  describe("Zod Schema Validation", () => {
+    describe("SaveToWorkspaceSchema", () => {
+      it("accepts valid params with required fields", () => {
+        const valid = { content_id: "abc", content_text: "test content" };
+        expect(SaveToWorkspaceSchema.parse(valid)).toEqual(valid);
+      });
+
+      it("accepts valid params with all fields", () => {
+        const valid = {
+          content_id: "abc",
+          content_text: "test content",
+          title: "Test Title",
+          query: "Original query",
+        };
+        expect(SaveToWorkspaceSchema.parse(valid)).toEqual(valid);
+      });
+
+      it("rejects missing required content_id", () => {
+        const invalid = { content_text: "test" };
+        expect(() => SaveToWorkspaceSchema.parse(invalid)).toThrow();
+      });
+
+      it("rejects missing required content_text", () => {
+        const invalid = { content_id: "abc" };
+        expect(() => SaveToWorkspaceSchema.parse(invalid)).toThrow();
+      });
+    });
+
+    describe("ExportContentSchema", () => {
+      it("accepts valid params with markdown format", () => {
+        const valid = {
+          content_id: "abc",
+          content_text: "test",
+          format: "markdown",
+        };
+        expect(ExportContentSchema.parse(valid)).toEqual(valid);
+      });
+
+      it("accepts valid params with pdf format", () => {
+        const valid = { content_id: "abc", content_text: "test", format: "pdf" };
+        expect(ExportContentSchema.parse(valid)).toEqual(valid);
+      });
+
+      it("accepts valid params with json format", () => {
+        const valid = {
+          content_id: "abc",
+          content_text: "test",
+          format: "json",
+        };
+        expect(ExportContentSchema.parse(valid)).toEqual(valid);
+      });
+
+      it("rejects invalid format enum value", () => {
+        const invalid = {
+          content_id: "abc",
+          content_text: "test",
+          format: "docx",
+        };
+        expect(() => ExportContentSchema.parse(invalid)).toThrow();
+      });
+
+      it("rejects missing format", () => {
+        const invalid = { content_id: "abc", content_text: "test" };
+        expect(() => ExportContentSchema.parse(invalid)).toThrow();
+      });
+    });
+
+    describe("ShareContentSchema", () => {
+      it("accepts valid params", () => {
+        const valid = { content_id: "abc", content_text: "test" };
+        expect(ShareContentSchema.parse(valid)).toEqual(valid);
+      });
+
+      it("accepts optional title", () => {
+        const valid = {
+          content_id: "abc",
+          content_text: "test",
+          title: "Share Title",
+        };
+        expect(ShareContentSchema.parse(valid)).toEqual(valid);
+      });
+    });
+
+    describe("BookmarkContentSchema", () => {
+      it("accepts valid params", () => {
+        const valid = { content_id: "abc", content_text: "test" };
+        expect(BookmarkContentSchema.parse(valid)).toEqual(valid);
+      });
+
+      it("accepts optional title", () => {
+        const valid = {
+          content_id: "abc",
+          content_text: "test",
+          title: "Bookmark Title",
+        };
+        expect(BookmarkContentSchema.parse(valid)).toEqual(valid);
+      });
+    });
+
+    describe("SuggestFollowUpSchema", () => {
+      it("accepts valid params with required field", () => {
+        const valid = { suggested_query: "What else can you tell me?" };
+        expect(SuggestFollowUpSchema.parse(valid)).toEqual(valid);
+      });
+
+      it("accepts optional context", () => {
+        const valid = {
+          suggested_query: "What else?",
+          context: "Previous response context",
+        };
+        expect(SuggestFollowUpSchema.parse(valid)).toEqual(valid);
+      });
+
+      it("rejects missing suggested_query", () => {
+        const invalid = { context: "some context" };
+        expect(() => SuggestFollowUpSchema.parse(invalid)).toThrow();
+      });
     });
   });
 });

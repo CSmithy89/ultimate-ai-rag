@@ -417,7 +417,7 @@ development_status:
   epic-21: in-progress
 
   # --- Group A: Modern Hook Migration (Tech Debt) ---
-  21-A1-migrate-to-usefrontendtool-pattern: backlog
+  21-A1-migrate-to-usefrontendtool-pattern: done
   # Replace deprecated useCopilotAction with handler to useFrontendTool
   21-A2-migrate-to-usehumanintheloop-pattern: backlog
   # Replace deprecated useCopilotAction with render to useHumanInTheLoop
