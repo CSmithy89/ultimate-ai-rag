@@ -6,9 +6,16 @@ from pydantic import BaseModel, Field
 
 from ..utils import rate_limit_exceeded
 from ...rate_limit import RateLimiter
-from ...main import get_rate_limiter
 
 router = APIRouter()
+
+
+def get_rate_limiter(request: Request) -> RateLimiter:
+    """Get rate limiter from app state.
+
+    Defined locally to avoid circular import with main.py.
+    """
+    return request.app.state.rate_limiter
 
 class TelemetryEvent(BaseModel):
     event: str = Field(..., description="Name of the event")
