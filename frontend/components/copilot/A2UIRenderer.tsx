@@ -73,6 +73,16 @@ interface FormField {
   required?: boolean;
   options?: Array<{ value: string; label: string }>;
   defaultValue?: unknown;
+  /** Minimum length for text inputs */
+  minLength?: number;
+  /** Maximum length for text inputs */
+  maxLength?: number;
+  /** Minimum value for number inputs */
+  min?: number;
+  /** Maximum value for number inputs */
+  max?: number;
+  /** Custom regex pattern for validation */
+  pattern?: string;
 }
 
 interface FormProperties {
@@ -342,7 +352,9 @@ function A2UIForm({
                 placeholder={field.placeholder}
                 required={field.required}
                 defaultValue={String(field.defaultValue || "")}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                minLength={field.minLength}
+                maxLength={field.maxLength}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 invalid:border-red-500 invalid:focus:ring-red-500"
                 rows={3}
               />
             ) : field.type === "select" ? (
@@ -376,7 +388,27 @@ function A2UIForm({
                 placeholder={field.placeholder}
                 required={field.required}
                 defaultValue={String(field.defaultValue || "")}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                // Validation attributes based on field type
+                minLength={field.minLength}
+                maxLength={field.maxLength}
+                min={field.type === "number" ? field.min : undefined}
+                max={field.type === "number" ? field.max : undefined}
+                // Use custom pattern if provided, otherwise use defaults for email
+                pattern={
+                  field.pattern ||
+                  (field.type === "email"
+                    ? "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+                    : undefined)
+                }
+                // Improve mobile experience with inputMode
+                inputMode={
+                  field.type === "number"
+                    ? "numeric"
+                    : field.type === "email"
+                      ? "email"
+                      : undefined
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 invalid:border-red-500 invalid:focus:ring-red-500"
               />
             )}
           </div>

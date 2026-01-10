@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 import structlog
 
 from ...agents.orchestrator import OrchestratorAgent
-from ...api.utils import rate_limit_exceeded
+from ...api.utils import rate_limit_exceeded, rfc7807_error
 from ...mcp_client import (
     MCPClientFactory,
     discover_all_tools,
@@ -150,6 +150,8 @@ class ToolCallResponse(BaseModel):
 async def list_tools(
     request: Request,
     mcp_factory: Optional[MCPClientFactory] = Depends(get_mcp_factory),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+    tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
 ) -> ToolsResponse:
     """
     List all available tools from internal agents and external MCP servers.
@@ -159,6 +161,11 @@ async def list_tools(
     Returns:
         ToolsResponse with unified tool list
     """
+    # Rate limit by tenant or anonymous
+    rate_key = f"tools:{tenant_id or 'anon'}"
+    if not await limiter.allow(rate_key):
+        raise rate_limit_exceeded()
+
     # Discover all tools (internal + external MCP)
     # Note: Internal tools from the orchestrator would be added here
     # For now, we only discover external MCP tools
@@ -187,6 +194,7 @@ async def call_external_tool(
     request_body: ToolCallRequest,
     request: Request,
     mcp_factory: Optional[MCPClientFactory] = Depends(get_mcp_factory),
+    limiter: RateLimiter = Depends(get_rate_limiter),
     tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
 ) -> ToolCallResponse:
     """
@@ -200,26 +208,46 @@ async def call_external_tool(
     Returns:
         ToolCallResponse with execution result
     """
+    # Multi-tenancy: Require tenant_id for external tool calls (security)
+    if not tenant_id:
+        raise rfc7807_error(
+            status=400,
+            title="Missing Tenant ID",
+            detail="X-Tenant-ID header required for external tool calls",
+            error_type="urn:error:missing-tenant-id",
+        )
+
+    # Rate limit by tenant
+    rate_key = f"tools_call:{tenant_id}"
+    if not await limiter.allow(rate_key):
+        raise rate_limit_exceeded()
+
     if not mcp_factory or not mcp_factory.is_enabled:
-        raise HTTPException(
-            status_code=503,
-            detail="MCP client is not enabled"
+        raise rfc7807_error(
+            status=503,
+            title="Service Unavailable",
+            detail="MCP client is not enabled",
+            error_type="urn:error:mcp-disabled",
         )
 
     # Parse the namespaced tool name
     server_name, original_name = parse_namespaced_tool(request_body.tool_name)
 
     if not server_name:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Tool '{request_body.tool_name}' is not an external tool (missing server namespace)"
+        raise rfc7807_error(
+            status=400,
+            title="Invalid Tool Name",
+            detail=f"Tool '{request_body.tool_name}' is not an external tool (missing server namespace)",
+            error_type="urn:error:invalid-tool-name",
         )
 
     # Security fix: Validate server exists before attempting call (return 404 not 500)
     if server_name not in mcp_factory.server_names:
-        raise HTTPException(
-            status_code=404,
-            detail=f"MCP server '{server_name}' is not configured"
+        raise rfc7807_error(
+            status=404,
+            title="Server Not Found",
+            detail=f"MCP server '{server_name}' is not configured",
+            error_type="urn:error:server-not-found",
         )
 
     logger.info(
@@ -238,17 +266,22 @@ async def call_external_tool(
         )
         return ToolCallResponse(result=result, serverName=server_name)
     except Exception as e:
-        # Log full error for debugging but don't expose to client
-        logger.exception(
+        # Log error for debugging but don't expose to client
+        # Use logger.error instead of logger.exception to avoid leaking stack traces
+        # Redact arguments to prevent logging sensitive data
+        logger.error(
             "external_tool_call_failed",
             tool_name=request_body.tool_name,
             server_name=server_name,
-            error=str(e),
+            error_type=type(e).__name__,
+            # Don't log arguments - may contain sensitive data like API keys
         )
         # Security fix: Don't leak internal error details to client
-        raise HTTPException(
-            status_code=500,
-            detail="An error occurred during external tool execution"
+        raise rfc7807_error(
+            status=500,
+            title="Tool Execution Failed",
+            detail="An error occurred during external tool execution",
+            error_type="urn:error:tool-execution-failed",
         )
 
 

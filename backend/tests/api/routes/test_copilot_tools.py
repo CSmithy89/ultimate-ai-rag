@@ -13,11 +13,20 @@ from agentic_rag_backend.api.routes.copilot import router
 from agentic_rag_backend.mcp_client import MCPClientFactory
 
 
+class MockRateLimiter:
+    """Mock rate limiter that always allows requests."""
+
+    async def allow(self, key: str) -> bool:
+        return True
+
+
 @pytest.fixture
 def app() -> FastAPI:
     """Create test FastAPI app."""
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
+    # Add mock rate limiter for rate-limited endpoints
+    app.state.rate_limiter = MockRateLimiter()
     return app
 
 
@@ -95,10 +104,26 @@ class TestCallToolEndpoint:
         response = client.post(
             "/api/v1/copilot/tools/call",
             json={"toolName": "github:create_issue", "arguments": {}},
+            headers={"X-Tenant-ID": "tenant-123"},
         )
 
         assert response.status_code == 503
-        assert "not enabled" in response.json()["detail"]
+        # RFC 7807 format: detail is now a dict
+        detail = response.json()["detail"]
+        assert detail["status"] == 503
+        assert "not enabled" in detail["detail"]
+
+    def test_call_tool_missing_tenant_id(self, client: TestClient) -> None:
+        """Test calling tool without tenant ID returns 400."""
+        response = client.post(
+            "/api/v1/copilot/tools/call",
+            json={"toolName": "github:create_issue", "arguments": {}},
+        )
+
+        assert response.status_code == 400
+        # RFC 7807 format: detail is now a dict
+        detail = response.json()["detail"]
+        assert "X-Tenant-ID" in detail["detail"]
 
     def test_call_tool_factory_disabled(self, app: FastAPI, client: TestClient) -> None:
         """Test calling tool when factory is disabled."""
@@ -109,6 +134,7 @@ class TestCallToolEndpoint:
         response = client.post(
             "/api/v1/copilot/tools/call",
             json={"toolName": "github:create_issue", "arguments": {}},
+            headers={"X-Tenant-ID": "tenant-123"},
         )
 
         assert response.status_code == 503
@@ -127,6 +153,7 @@ class TestCallToolEndpoint:
                 response = test_client.post(
                     "/api/v1/copilot/tools/call",
                     json={"toolName": "search", "arguments": {}},
+                    headers={"X-Tenant-ID": "tenant-123"},
                 )
 
         # Validation rejects non-namespaced tool names (must be server_name:tool_name)
@@ -155,6 +182,7 @@ class TestCallToolEndpoint:
                         "toolName": "github:create_issue",
                         "arguments": {"title": "Test", "body": "Test body"},
                     },
+                    headers={"X-Tenant-ID": "tenant-123"},
                 )
 
         assert response.status_code == 200
@@ -186,11 +214,15 @@ class TestCallToolEndpoint:
                 response = test_client.post(
                     "/api/v1/copilot/tools/call",
                     json={"toolName": "github:create_issue", "arguments": {}},
+                    headers={"X-Tenant-ID": "tenant-123"},
                 )
 
         assert response.status_code == 500
         # Security: Generic error message returned (no internal details leaked)
-        assert response.json()["detail"] == "An error occurred during external tool execution"
+        # RFC 7807 format: detail is now a dict
+        detail = response.json()["detail"]
+        assert detail["detail"] == "An error occurred during external tool execution"
+        assert detail["status"] == 500
 
     def test_call_tool_with_tenant_header(self, app: FastAPI) -> None:
         """Test calling tool with tenant ID header."""

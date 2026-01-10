@@ -72,6 +72,8 @@ class MCPClient:
             follow_redirects=True,
         )
         self._closed = False
+        # Lock to protect _closed flag from race conditions
+        self._close_lock = asyncio.Lock()
 
     def _build_headers(self) -> dict[str, str]:
         """Build HTTP headers for requests."""
@@ -274,11 +276,15 @@ class MCPClient:
         await asyncio.sleep(delay)
 
     async def close(self) -> None:
-        """Close the HTTP client and release resources."""
-        if not self._closed:
-            self._closed = True
-            await self._http_client.aclose()
-            logger.debug("mcp_client_closed", server=self.name)
+        """Close the HTTP client and release resources.
+
+        Thread-safe: Uses lock to prevent double-close race conditions.
+        """
+        async with self._close_lock:
+            if not self._closed:
+                self._closed = True
+                await self._http_client.aclose()
+                logger.debug("mcp_client_closed", server=self.name)
 
     @property
     def is_closed(self) -> bool:
