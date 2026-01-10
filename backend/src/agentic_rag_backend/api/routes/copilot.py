@@ -4,7 +4,6 @@ Story 21-E1: Voice Input (Speech-to-Text)
 Story 21-E2: Voice Output (Text-to-Speech)
 """
 
-import io
 import re
 from typing import Any, List, Optional
 
@@ -277,6 +276,9 @@ ALLOWED_AUDIO_TYPES = frozenset({
     "audio/mp4",
 })
 
+# Maximum audio file size (25MB) - prevents memory exhaustion DoS
+MAX_AUDIO_SIZE = 25 * 1024 * 1024
+
 
 class TranscriptionResponse(BaseModel):
     """Response for audio transcription.
@@ -316,7 +318,6 @@ class TTSRequest(BaseModel):
 async def transcribe_audio(
     audio: UploadFile = File(..., description="Audio file to transcribe"),
     language: str = Query(default="en", description="ISO 639-1 language code hint"),
-    request: Request = None,
     voice_adapter: Optional[VoiceAdapter] = Depends(get_voice_adapter),
     limiter: RateLimiter = Depends(get_rate_limiter),
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
@@ -337,6 +338,7 @@ async def transcribe_audio(
 
     Raises:
         403: Voice I/O is disabled
+        413: File too large
         415: Unsupported media type
         429: Rate limit exceeded
         503: Voice adapter not configured
@@ -361,8 +363,14 @@ async def transcribe_audio(
         )
 
     try:
-        # Read audio data from upload
+        # Read audio data from upload with size validation
         audio_data = await audio.read()
+
+        if len(audio_data) > MAX_AUDIO_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Audio file too large. Maximum size: {MAX_AUDIO_SIZE // (1024 * 1024)}MB",
+            )
 
         logger.info(
             "transcribe_audio_request",
@@ -398,7 +406,6 @@ async def transcribe_audio(
 @router.post("/tts")
 async def text_to_speech(
     tts_request: TTSRequest,
-    request: Request,
     voice_adapter: Optional[VoiceAdapter] = Depends(get_voice_adapter),
     limiter: RateLimiter = Depends(get_rate_limiter),
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
@@ -454,12 +461,17 @@ async def text_to_speech(
             duration_seconds=result.duration_seconds,
         )
 
-        # Return audio as response
+        # Return audio as response with dynamic Content-Type based on actual format
+        # Determine file extension from format
+        format_to_ext = {"mp3": "mp3", "opus": "opus", "aac": "aac", "flac": "flac", "wav": "wav"}
+        ext = format_to_ext.get(result.format, "mp3")
+        media_type = f"audio/{result.format}" if result.format else "audio/mpeg"
+
         return Response(
             content=result.audio_data,
-            media_type="audio/mpeg",
+            media_type=media_type,
             headers={
-                "Content-Disposition": "inline; filename=response.mp3",
+                "Content-Disposition": f"inline; filename=response.{ext}",
                 "X-Audio-Duration": str(result.duration_seconds) if result.duration_seconds else "0",
             },
         )

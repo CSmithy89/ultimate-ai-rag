@@ -25,8 +25,6 @@ export type PopupPosition = "bottom-right" | "bottom-left" | "top-right" | "top-
 export interface PopupChatProps {
   /** Position of the popup button and chat window */
   position?: PopupPosition;
-  /** Button label text */
-  buttonLabel?: string;
   /** Chat title */
   title?: string;
   /** Initial message displayed */
@@ -85,15 +83,12 @@ const RESPONSIVE_CLASSES = [
  */
 export function PopupChat({
   position = "bottom-right",
-  buttonLabel: _buttonLabel = "AI Assistant", // Reserved for future customization
   title = "RAG Assistant",
   initialMessage = "How can I help you today?",
   defaultOpen = false,
   clickOutsideToClose = true,
   className,
 }: PopupChatProps) {
-  // Note: buttonLabel is reserved for potential CopilotPopup button customization
-  void _buttonLabel;
   return (
     <CopilotErrorBoundary>
       <CopilotPopup

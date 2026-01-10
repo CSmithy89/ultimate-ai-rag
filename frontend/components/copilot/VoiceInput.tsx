@@ -231,7 +231,9 @@ export const VoiceInput = memo(function VoiceInput({
     [isRecording, cancelRecording]
   );
 
-  const isDisabled = disabled || isTranscribing;
+  // Allow stopping recording even when disabled prop is true
+  // Only block starting new recordings when disabled
+  const isDisabled = (disabled && !isRecording) || isTranscribing;
 
   return (
     <div className={cn("relative inline-flex", className)}>
