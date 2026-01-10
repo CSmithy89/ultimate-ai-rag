@@ -23,6 +23,28 @@ def _validate_workspace_content(content: str) -> None:
         )
 
 
+import math
+
+def _validate_embedding(embedding: list[float], expected_dim: int = 1536) -> None:
+    """Validate embedding dimension and values.
+    
+    Args:
+        embedding: Vector to validate
+        expected_dim: Expected number of dimensions (default 1536)
+        
+    Raises:
+        ValueError: If dimension mismatch or contains non-finite values (NaN/Inf)
+    """
+    if len(embedding) != expected_dim:
+        raise ValueError(
+            f"Embedding dimension mismatch: expected {expected_dim}, got {len(embedding)}"
+        )
+    
+    for i, val in enumerate(embedding):
+        if not math.isfinite(val):
+            raise ValueError(f"Invalid embedding value at index {i}: {val}")
+
+
 class PostgresClient:
     """
     Async PostgreSQL client for managing documents, ingestion jobs, and chunks.
@@ -175,6 +197,56 @@ class PostgresClient:
                 # Will be created when sufficient data is available
                 logger.warning("ivfflat_index_skipped", reason="may require data to exist first")
 
+            # Epic 20: Hierarchical chunk storage for small-to-big retrieval
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS hierarchical_chunks (
+                    id TEXT PRIMARY KEY,
+                    tenant_id UUID NOT NULL,
+                    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                    level INTEGER NOT NULL,
+                    parent_id TEXT,
+                    child_ids TEXT[],
+                    content TEXT NOT NULL,
+                    chunk_index INTEGER NOT NULL,
+                    token_count INTEGER NOT NULL,
+                    start_char INTEGER NOT NULL,
+                    end_char INTEGER NOT NULL,
+                    embedding vector(1536),
+                    metadata JSONB,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+
+            # Create indexes for hierarchical chunks table
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_hierarchical_chunks_tenant_id
+                ON hierarchical_chunks(tenant_id)
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_hierarchical_chunks_document_id
+                ON hierarchical_chunks(document_id)
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_hierarchical_chunks_level
+                ON hierarchical_chunks(level)
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_hierarchical_chunks_parent_id
+                ON hierarchical_chunks(parent_id)
+            """)
+
+            try:
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_hierarchical_chunks_embedding
+                    ON hierarchical_chunks USING ivfflat (embedding vector_cosine_ops)
+                    WITH (lists = 100)
+                """)
+            except asyncpg.PostgresError:
+                logger.warning(
+                    "ivfflat_index_skipped",
+                    reason="hierarchical chunks may require data to exist first",
+                )
+
             # Epic 8: LLM cost monitoring tables
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS llm_usage_events (
@@ -300,6 +372,59 @@ class PostgresClient:
                 CREATE INDEX IF NOT EXISTS idx_workspace_bookmarks_tenant_id
                 ON workspace_bookmarks(tenant_id)
             """)
+
+            # Epic 20: Scoped memories table (Story 20-A1)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS scoped_memories (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    tenant_id UUID NOT NULL,
+                    scope VARCHAR(20) NOT NULL,
+                    user_id UUID,
+                    session_id UUID,
+                    agent_id VARCHAR(100),
+                    content TEXT NOT NULL,
+                    importance NUMERIC(3,2) NOT NULL DEFAULT 1.0,
+                    metadata JSONB DEFAULT '{}',
+                    embedding vector(1536),
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    accessed_at TIMESTAMPTZ DEFAULT NOW(),
+                    access_count INTEGER DEFAULT 0
+                )
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_scoped_memories_tenant_id
+                ON scoped_memories(tenant_id)
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_scoped_memories_scope
+                ON scoped_memories(scope)
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_scoped_memories_user_id
+                ON scoped_memories(user_id) WHERE user_id IS NOT NULL
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_scoped_memories_session_id
+                ON scoped_memories(session_id) WHERE session_id IS NOT NULL
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_scoped_memories_agent_id
+                ON scoped_memories(agent_id) WHERE agent_id IS NOT NULL
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_scoped_memories_tenant_scope
+                ON scoped_memories(tenant_id, scope)
+            """)
+            # Vector similarity index for memory search
+            try:
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_scoped_memories_embedding
+                    ON scoped_memories USING ivfflat (embedding vector_cosine_ops)
+                    WITH (lists = 100)
+                """)
+            except asyncpg.PostgresError:
+                # IVFFlat index creation may fail if no data exists yet
+                logger.warning("scoped_memories_ivfflat_index_skipped", reason="may require data to exist first")
 
             logger.info("tables_created")
 
@@ -777,6 +902,7 @@ class PostgresClient:
                 # Convert embedding list to string format for pgvector
                 embedding_str = None
                 if embedding is not None:
+                    _validate_embedding(embedding)
                     embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
 
                 row = await conn.fetchrow(
@@ -873,18 +999,11 @@ class PostgresClient:
         similarity_threshold: float = 0.7,
     ) -> list[dict[str, Any]]:
         """
-        Search for similar chunks using cosine similarity.
-
-        Args:
-            tenant_id: Tenant identifier for filtering
-            embedding: Query embedding vector (1536 dimensions)
-            limit: Maximum number of results
-            similarity_threshold: Minimum similarity score (0.0-1.0)
-
         Returns:
             List of chunk records with similarity scores
         """
         try:
+            _validate_embedding(embedding)
             async with self.pool.acquire() as conn:
                 # Convert embedding to string format
                 embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
@@ -945,6 +1064,269 @@ class PostgresClient:
                 return count
         except asyncpg.PostgresError as e:
             raise DatabaseError("delete_chunks_by_document", str(e)) from e
+
+    # Epic 20: Hierarchical chunk storage methods
+
+    async def create_hierarchical_chunk(
+        self,
+        tenant_id: UUID,
+        document_id: UUID,
+        chunk_id: str,
+        level: int,
+        content: str,
+        chunk_index: int,
+        token_count: int,
+        start_char: int,
+        end_char: int,
+        parent_id: Optional[str] = None,
+        child_ids: Optional[list[str]] = None,
+        embedding: Optional[list[float]] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> str:
+        """
+        Create or update a hierarchical chunk.
+
+        Args:
+            tenant_id: Tenant identifier
+            document_id: Parent document ID
+            chunk_id: Deterministic chunk identifier
+            level: Hierarchy level (0 = smallest)
+            content: Chunk text content
+            chunk_index: Position within the level
+            token_count: Number of tokens in chunk
+            start_char: Starting character offset
+            end_char: Ending character offset
+            parent_id: Optional parent chunk ID
+            child_ids: Optional list of child chunk IDs
+            embedding: Optional embedding vector
+            metadata: Optional metadata payload
+
+        Returns:
+            Chunk ID that was stored
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                embedding_str = None
+                if embedding is not None:
+                    _validate_embedding(embedding)
+                    embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
+                await conn.execute(
+                    """
+                    INSERT INTO hierarchical_chunks (
+                        id, tenant_id, document_id, level, parent_id, child_ids,
+                        content, chunk_index, token_count, start_char, end_char,
+                        embedding, metadata
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::vector, $13)
+                    ON CONFLICT (id) DO UPDATE SET
+                        tenant_id = EXCLUDED.tenant_id,
+                        document_id = EXCLUDED.document_id,
+                        level = EXCLUDED.level,
+                        parent_id = EXCLUDED.parent_id,
+                        child_ids = EXCLUDED.child_ids,
+                        content = EXCLUDED.content,
+                        chunk_index = EXCLUDED.chunk_index,
+                        token_count = EXCLUDED.token_count,
+                        start_char = EXCLUDED.start_char,
+                        end_char = EXCLUDED.end_char,
+                        embedding = EXCLUDED.embedding,
+                        metadata = EXCLUDED.metadata
+                    """,
+                    chunk_id,
+                    tenant_id,
+                    document_id,
+                    level,
+                    parent_id,
+                    child_ids,
+                    content,
+                    chunk_index,
+                    token_count,
+                    start_char,
+                    end_char,
+                    embedding_str,
+                    metadata,
+                )
+                logger.debug(
+                    "hierarchical_chunk_created",
+                    chunk_id=chunk_id,
+                    document_id=str(document_id),
+                    level=level,
+                )
+                return chunk_id
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("create_hierarchical_chunk", str(e)) from e
+
+    async def get_hierarchical_chunk(
+        self,
+        chunk_id: str,
+        tenant_id: UUID,
+    ) -> Optional[dict[str, Any]]:
+        """
+        Get a hierarchical chunk by ID.
+
+        Args:
+            chunk_id: Chunk identifier
+            tenant_id: Tenant identifier for access control
+
+        Returns:
+            Chunk record as dictionary, or None if not found
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT
+                        id, tenant_id, document_id, level, parent_id, child_ids,
+                        content, chunk_index, token_count, start_char, end_char,
+                        metadata, created_at
+                    FROM hierarchical_chunks
+                    WHERE id = $1 AND tenant_id = $2
+                    """,
+                    chunk_id,
+                    tenant_id,
+                )
+                return dict(row) if row else None
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("get_hierarchical_chunk", str(e)) from e
+
+    async def get_hierarchical_chunks_by_document(
+        self,
+        document_id: UUID,
+        tenant_id: UUID,
+        level: Optional[int] = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Get hierarchical chunks for a document.
+
+        Args:
+            document_id: Document UUID
+            tenant_id: Tenant identifier for access control
+            level: Optional hierarchy level filter
+
+        Returns:
+            List of hierarchical chunk records ordered by level, chunk_index
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                if level is None:
+                    rows = await conn.fetch(
+                        """
+                        SELECT
+                            id, tenant_id, document_id, level, parent_id, child_ids,
+                            content, chunk_index, token_count, start_char, end_char,
+                            metadata, created_at
+                        FROM hierarchical_chunks
+                        WHERE document_id = $1 AND tenant_id = $2
+                        ORDER BY level, chunk_index
+                        """,
+                        document_id,
+                        tenant_id,
+                    )
+                else:
+                    rows = await conn.fetch(
+                        """
+                        SELECT
+                            id, tenant_id, document_id, level, parent_id, child_ids,
+                            content, chunk_index, token_count, start_char, end_char,
+                            metadata, created_at
+                        FROM hierarchical_chunks
+                        WHERE document_id = $1 AND tenant_id = $2 AND level = $3
+                        ORDER BY chunk_index
+                        """,
+                        document_id,
+                        tenant_id,
+                        level,
+                    )
+                return [dict(row) for row in rows]
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("get_hierarchical_chunks_by_document", str(e)) from e
+
+    async def search_similar_hierarchical_chunks(
+        self,
+        tenant_id: UUID,
+        embedding: list[float],
+        level: int,
+        limit: int = 10,
+        similarity_threshold: float = 0.7,
+    ) -> list[dict[str, Any]]:
+        """
+        Search for similar hierarchical chunks using cosine similarity.
+
+        Args:
+            tenant_id: Tenant identifier for filtering
+            embedding: Query embedding vector (1536 dimensions)
+            level: Hierarchy level to search
+            limit: Maximum number of results
+            similarity_threshold: Minimum similarity score (0.0-1.0)
+
+        Returns:
+            List of chunk records with similarity scores
+        """
+        try:
+            _validate_embedding(embedding)
+            async with self.pool.acquire() as conn:
+                embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
+                rows = await conn.fetch(
+                    """
+                    SELECT
+                        id, tenant_id, document_id, level, parent_id, child_ids,
+                        content, chunk_index, token_count, start_char, end_char,
+                        metadata, created_at,
+                        1 - (embedding <=> $2::vector) as similarity
+                    FROM hierarchical_chunks
+                    WHERE tenant_id = $1
+                        AND level = $3
+                        AND embedding IS NOT NULL
+                        AND 1 - (embedding <=> $2::vector) >= $4
+                    ORDER BY embedding <=> $2::vector
+                    LIMIT $5
+                    """,
+                    tenant_id,
+                    embedding_str,
+                    level,
+                    similarity_threshold,
+                    limit,
+                )
+                return [dict(row) for row in rows]
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("search_similar_hierarchical_chunks", str(e)) from e
+
+    async def delete_hierarchical_chunks_by_document(
+        self,
+        document_id: UUID,
+        tenant_id: UUID,
+    ) -> int:
+        """
+        Delete all hierarchical chunks for a document.
+
+        Args:
+            document_id: Document UUID
+            tenant_id: Tenant identifier
+
+        Returns:
+            Number of chunks deleted
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                result = await conn.execute(
+                    """
+                    DELETE FROM hierarchical_chunks
+                    WHERE document_id = $1 AND tenant_id = $2
+                    """,
+                    document_id,
+                    tenant_id,
+                )
+                count = int(result.split(" ")[1]) if result else 0
+                logger.info(
+                    "hierarchical_chunks_deleted",
+                    document_id=str(document_id),
+                    count=count,
+                )
+                return count
+        except asyncpg.PostgresError as e:
+            raise DatabaseError("delete_hierarchical_chunks_by_document", str(e)) from e
 
     async def get_chunk_count(
         self,

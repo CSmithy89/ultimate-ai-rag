@@ -31,12 +31,19 @@ from .a2a_messages import (
 logger = structlog.get_logger(__name__)
 
 
+import re
+
 # Constants for TTL and cleanup multipliers (documented rationale)
 # Registration TTL: 2x heartbeat timeout provides buffer for network delays
 REGISTRATION_TTL_MULTIPLIER = 2
 # Cleanup threshold: 3x heartbeat timeout ensures we don't prematurely remove agents
 # that are slow to respond but still functioning
 CLEANUP_THRESHOLD_MULTIPLIER = 3
+
+# Agent ID validation (prevents Redis key injection)
+# Must be alphanumeric with hyphens, underscores, or dots, max 128 chars
+MAX_AGENT_ID_LENGTH = 128
+AGENT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_.-]+$")
 
 
 @dataclass
@@ -269,6 +276,15 @@ class A2AAgentRegistry:
         """
         if not agent_id or not agent_type or not endpoint_url or not tenant_id:
             raise ValueError("agent_id, agent_type, endpoint_url, and tenant_id are required")
+
+        # Validate agent_id format to prevent Redis key injection
+        # Must be alphanumeric with hyphens, underscores, or dots
+        if len(agent_id) > MAX_AGENT_ID_LENGTH:
+            raise ValueError(f"agent_id exceeds maximum length of {MAX_AGENT_ID_LENGTH}")
+        if not AGENT_ID_PATTERN.match(agent_id):
+            raise ValueError(
+                "agent_id must contain only alphanumeric characters, hyphens, underscores, or dots"
+            )
 
         async with self._lock:
             now = datetime.now(timezone.utc)

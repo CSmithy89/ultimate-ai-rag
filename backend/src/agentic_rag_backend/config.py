@@ -65,16 +65,22 @@ def get_int_env(key: str, default: int, min_val: Optional[int] = None) -> int:
         return default
 
 
-def get_float_env(key: str, default: float, min_val: Optional[float] = None) -> float:
-    """Parse a float environment variable with optional minimum validation.
+def get_float_env(
+    key: str,
+    default: float,
+    min_val: Optional[float] = None,
+    max_val: Optional[float] = None,
+) -> float:
+    """Parse a float environment variable with optional min/max validation.
 
     Args:
         key: Environment variable name
         default: Default value if not set or invalid
         min_val: Optional minimum value; if current value < min_val, returns default
+        max_val: Optional maximum value; if current value > max_val, returns default
 
     Returns:
-        Parsed float value, or default if parsing fails or value < min_val
+        Parsed float value, or default if parsing fails or value out of range
     """
     raw_value = os.getenv(key)
     if raw_value is None:
@@ -87,6 +93,15 @@ def get_float_env(key: str, default: float, min_val: Optional[float] = None) -> 
                 key=key,
                 value=value,
                 min_val=min_val,
+                using_default=default,
+            )
+            return default
+        if max_val is not None and value > max_val:
+            _config_logger.warning(
+                "config_value_above_maximum",
+                key=key,
+                value=value,
+                max_val=max_val,
                 using_default=default,
             )
             return default
@@ -109,6 +124,17 @@ LLM_PROVIDERS = {"openai", "openrouter", "ollama", "anthropic", "gemini"}
 EMBEDDING_PROVIDERS = {"openai", "openrouter", "ollama", "gemini", "voyage"}
 RERANKER_PROVIDERS = {"cohere", "flashrank"}
 FALLBACK_STRATEGIES = {"web_search", "expanded_query", "alternate_index"}
+
+PRODUCTION_ENVS = {"production", "prod"}
+DEVELOPMENT_ENVS = {"development", "dev", "test", "local"}
+
+
+def is_production_env(app_env: str) -> bool:
+    return app_env in PRODUCTION_ENVS
+
+
+def is_development_env(app_env: str) -> bool:
+    return app_env in DEVELOPMENT_ENVS
 DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 
@@ -136,6 +162,7 @@ class Settings:
     embedding_provider: str
     embedding_api_key: Optional[str]
     embedding_base_url: Optional[str]
+    embedding_dimension: int
     database_url: str
     db_pool_min: int
     db_pool_max: int
@@ -152,6 +179,7 @@ class Settings:
     neo4j_pool_acquire_timeout_seconds: float
     neo4j_connection_timeout_seconds: float
     neo4j_max_connection_lifetime_seconds: int
+    neo4j_transaction_timeout_seconds: float  # Query timeout for expensive operations
     redis_url: str
     backend_host: str
     backend_port: int
@@ -273,6 +301,106 @@ class Settings:
     reranker_preload_model: bool
     # Story 19-G4 - Score Normalization settings
     grader_normalization_strategy: str
+    # Epic 20 - Memory Platform settings (Story 20-A1)
+    memory_scopes_enabled: bool
+    memory_default_scope: str
+    memory_include_parent_scopes: bool
+    memory_cache_ttl_seconds: int
+    memory_max_per_scope: int
+    # Story 20-A2 - Memory Consolidation
+    memory_consolidation_enabled: bool
+    memory_consolidation_schedule: str
+    memory_similarity_threshold: float
+    memory_decay_half_life_days: int
+    memory_min_importance: float
+    memory_consolidation_batch_size: int
+    # Story 20-B1 - Community Detection (Graph Intelligence)
+    community_detection_enabled: bool
+    community_algorithm: str
+    community_min_size: int
+    community_max_levels: int
+    community_summary_model: str
+    community_refresh_schedule: str
+    # Story 20-B2 - LazyRAG Pattern (Query-Time Summarization)
+    lazy_rag_enabled: bool
+    lazy_rag_max_entities: int
+    lazy_rag_max_hops: int
+    lazy_rag_summary_model: str
+    lazy_rag_use_communities: bool
+    # Story 20-B3 - Query Routing (Global/Local)
+    query_routing_enabled: bool
+    query_routing_use_llm: bool
+    query_routing_llm_model: str
+    query_routing_confidence_threshold: float
+    # Story 20-C1 - Graph-Based Rerankers
+    graph_reranker_enabled: bool
+    graph_reranker_type: str
+    graph_reranker_episode_weight: float
+    graph_reranker_distance_weight: float
+    graph_reranker_original_weight: float
+    graph_reranker_episode_window_days: int
+    graph_reranker_max_distance: int
+    # Story 20-C2 - Dual-Level Retrieval
+    dual_level_retrieval_enabled: bool
+    dual_level_low_weight: float
+    dual_level_high_weight: float
+    dual_level_low_limit: int
+    dual_level_high_limit: int
+    dual_level_synthesis_model: str
+    dual_level_synthesis_temperature: float
+    # Story 20-C3 - Parent-Child Chunk Hierarchy
+    hierarchical_chunks_enabled: bool
+    hierarchical_chunk_levels: list[int]
+    hierarchical_overlap_ratio: float
+    small_to_big_return_level: int
+    hierarchical_embedding_level: int
+    # Story 20-D1 - Enhanced Table/Layout Extraction
+    enhanced_docling_enabled: bool
+    docling_table_extraction: bool
+    docling_preserve_layout: bool
+    docling_table_as_markdown: bool
+    # Story 20-D2 - Multimodal Ingestion
+    multimodal_ingestion_enabled: bool
+    office_docs_enabled: bool
+    # Story 20-E1 - Ontology Support
+    ontology_support_enabled: bool
+    ontology_path: Optional[str]
+    ontology_auto_type: bool
+    # Story 20-E2 - Self-Improving Feedback Loop
+    feedback_loop_enabled: bool
+    feedback_min_samples: int
+    feedback_decay_days: int
+    feedback_boost_max: float
+    feedback_boost_min: float
+    # Story 20-H1 - Sparse Vector Search (BM42)
+    sparse_vectors_enabled: bool
+    sparse_model: str
+    hybrid_dense_weight: float
+    hybrid_sparse_weight: float
+    # Story 20-H2 - Cross-Language Query
+    cross_language_enabled: bool
+    cross_language_embedding: str
+    cross_language_translation: bool
+    # Story 20-H3 - External Data Source Sync
+    external_sync_enabled: bool
+    sync_sources: str
+    s3_sync_bucket: str
+    s3_sync_prefix: str
+    confluence_url: str
+    confluence_api_token: str
+    confluence_spaces: str
+    notion_api_key: str
+    notion_database_ids: str
+    # Story 20-H4 - Voice I/O
+    voice_io_enabled: bool
+    whisper_model: str
+    tts_provider: str
+    tts_voice: str
+    tts_speed: float
+    # Story 20-H5 - ColBERT Reranking
+    colbert_enabled: bool
+    colbert_model: str
+    colbert_max_length: int
 
 
 def load_settings() -> Settings:
@@ -345,6 +473,10 @@ def load_settings() -> Settings:
         neo4j_max_connection_lifetime_seconds = int(
             os.getenv("NEO4J_MAX_CONNECTION_LIFETIME_SECONDS", "3600")
         )
+        # Transaction timeout for expensive queries (default 300s for LazyRAG traversals)
+        neo4j_transaction_timeout_seconds = float(
+            os.getenv("NEO4J_TRANSACTION_TIMEOUT_SECONDS", "300")
+        )
     except ValueError as exc:
         raise ValueError(
             "NEO4J_POOL_MIN, NEO4J_POOL_MAX, and Neo4j timeout settings must be numeric."
@@ -361,6 +493,8 @@ def load_settings() -> Settings:
         raise ValueError("NEO4J_CONNECTION_TIMEOUT_SECONDS must be > 0.")
     if neo4j_max_connection_lifetime_seconds <= 0:
         raise ValueError("NEO4J_MAX_CONNECTION_LIFETIME_SECONDS must be > 0.")
+    if neo4j_transaction_timeout_seconds <= 0:
+        raise ValueError("NEO4J_TRANSACTION_TIMEOUT_SECONDS must be > 0.")
     if rate_limit_per_minute < 1:
         raise ValueError("RATE_LIMIT_PER_MINUTE must be >= 1.")
     if rate_limit_retry_after_seconds < 1:
@@ -382,7 +516,7 @@ def load_settings() -> Settings:
     crawl4ai_page_timeout_ms = get_int_env("CRAWL4AI_PAGE_TIMEOUT_MS", 60000, min_val=1000)
 
     # Story 13.4 - Crawl Configuration Profiles
-    strict_default = "true" if app_env in {"production", "prod"} else "false"
+    strict_default = "true" if is_production_env(app_env) else "false"
     crawler_strict_validation = get_bool_env(
         "CRAWLER_STRICT_VALIDATION",
         strict_default,
@@ -604,6 +738,8 @@ def load_settings() -> Settings:
                 f"{key_name} is required when EMBEDDING_PROVIDER={embedding_provider}."
             )
 
+    embedding_dimension = get_int_env("EMBEDDING_DIMENSION", 1536, min_val=1)
+
     database_url = cast(str, values["DATABASE_URL"])
     neo4j_uri = cast(str, values["NEO4J_URI"])
     neo4j_user = cast(str, values["NEO4J_USER"])
@@ -684,7 +820,7 @@ def load_settings() -> Settings:
                 "TRACE_ENCRYPTION_KEY must be 64 hex chars (32 bytes)."
             )
         trace_encryption_key = trace_key
-    elif app_env in {"development", "dev", "test", "local"}:
+    elif is_development_env(app_env):
         logger.warning("trace_encryption_key_autogenerated", env=app_env)
         trace_encryption_key = secrets.token_hex(32)
     else:
@@ -892,6 +1028,314 @@ def load_settings() -> Settings:
         )
         grader_normalization_strategy = "min_max"
 
+    # Epic 20 - Memory Platform settings (Story 20-A1)
+    memory_scopes_enabled = get_bool_env("MEMORY_SCOPES_ENABLED", "false")
+    memory_default_scope = os.getenv("MEMORY_DEFAULT_SCOPE", "session").strip().lower()
+    valid_memory_scopes = {"user", "session", "agent", "global"}
+    if memory_default_scope not in valid_memory_scopes:
+        logger.warning(
+            "invalid_memory_scope",
+            scope=memory_default_scope,
+            valid_scopes=list(valid_memory_scopes),
+            fallback="session",
+        )
+        memory_default_scope = "session"
+    memory_include_parent_scopes = get_bool_env("MEMORY_INCLUDE_PARENT_SCOPES", "true")
+    memory_cache_ttl_seconds = get_int_env("MEMORY_CACHE_TTL_SECONDS", 3600, min_val=60)
+    memory_max_per_scope = get_int_env("MEMORY_MAX_PER_SCOPE", 10000, min_val=100)
+
+    # Story 20-A2 - Memory Consolidation settings
+    memory_consolidation_enabled = get_bool_env("MEMORY_CONSOLIDATION_ENABLED", "false")
+    memory_consolidation_schedule = os.getenv("MEMORY_CONSOLIDATION_SCHEDULE", "0 2 * * *")
+    memory_similarity_threshold = get_float_env("MEMORY_SIMILARITY_THRESHOLD", 0.9, min_val=0.0)
+    # Clamp similarity threshold to valid range
+    memory_similarity_threshold = max(0.0, min(1.0, memory_similarity_threshold))
+    memory_decay_half_life_days = get_int_env("MEMORY_DECAY_HALF_LIFE_DAYS", 30, min_val=1)
+    memory_min_importance = get_float_env("MEMORY_MIN_IMPORTANCE", 0.1, min_val=0.0)
+    # Clamp min importance to valid range
+    memory_min_importance = max(0.0, min(1.0, memory_min_importance))
+    memory_consolidation_batch_size = get_int_env("MEMORY_CONSOLIDATION_BATCH_SIZE", 100, min_val=10)
+
+    # Story 20-B1 - Community Detection settings
+    community_detection_enabled = get_bool_env("COMMUNITY_DETECTION_ENABLED", "false")
+    community_algorithm = os.getenv("COMMUNITY_ALGORITHM", "louvain").strip().lower()
+    valid_community_algorithms = {"louvain", "leiden"}
+    if community_algorithm not in valid_community_algorithms:
+        logger.warning(
+            "invalid_community_algorithm",
+            algorithm=community_algorithm,
+            valid_algorithms=list(valid_community_algorithms),
+            fallback="louvain",
+        )
+        community_algorithm = "louvain"
+    community_min_size = get_int_env("COMMUNITY_MIN_SIZE", 3, min_val=2)
+    community_max_levels = get_int_env("COMMUNITY_MAX_LEVELS", 3, min_val=1)
+    community_summary_model = os.getenv("COMMUNITY_SUMMARY_MODEL", "gpt-4o-mini")
+    community_refresh_schedule = os.getenv("COMMUNITY_REFRESH_SCHEDULE", "0 3 * * 0")
+
+    # Story 20-B2 - LazyRAG Pattern (Query-Time Summarization)
+    lazy_rag_enabled = get_bool_env("LAZY_RAG_ENABLED", "false")
+    lazy_rag_max_entities = get_int_env("LAZY_RAG_MAX_ENTITIES", 50, min_val=1)
+    lazy_rag_max_hops = get_int_env("LAZY_RAG_MAX_HOPS", 2, min_val=1)
+    lazy_rag_summary_model = os.getenv("LAZY_RAG_SUMMARY_MODEL", "gpt-4o-mini")
+    lazy_rag_use_communities = get_bool_env("LAZY_RAG_USE_COMMUNITIES", "true")
+
+    # Story 20-B3 - Query Routing (Global/Local)
+    query_routing_enabled = get_bool_env("QUERY_ROUTING_ENABLED", "false")
+    query_routing_use_llm = get_bool_env("QUERY_ROUTING_USE_LLM", "false")
+    query_routing_llm_model = os.getenv("QUERY_ROUTING_LLM_MODEL", "gpt-4o-mini")
+    query_routing_confidence_threshold = get_float_env(
+        "QUERY_ROUTING_CONFIDENCE_THRESHOLD", 0.7, min_val=0.0
+    )
+    # Clamp threshold to valid range
+    query_routing_confidence_threshold = max(0.0, min(1.0, query_routing_confidence_threshold))
+
+    # Story 20-C1 - Graph-Based Rerankers
+    graph_reranker_enabled = get_bool_env("GRAPH_RERANKER_ENABLED", "false")
+    graph_reranker_type = os.getenv("GRAPH_RERANKER_TYPE", "hybrid").strip().lower()
+    valid_graph_reranker_types = {"episode", "distance", "hybrid"}
+    if graph_reranker_type not in valid_graph_reranker_types:
+        logger.warning(
+            "invalid_graph_reranker_type",
+            type=graph_reranker_type,
+            valid_types=list(valid_graph_reranker_types),
+            fallback="hybrid",
+        )
+        graph_reranker_type = "hybrid"
+
+    # Weight configuration with validation
+    graph_reranker_episode_weight = get_float_env(
+        "GRAPH_RERANKER_EPISODE_WEIGHT", 0.3, min_val=0.0
+    )
+    graph_reranker_distance_weight = get_float_env(
+        "GRAPH_RERANKER_DISTANCE_WEIGHT", 0.3, min_val=0.0
+    )
+    graph_reranker_original_weight = get_float_env(
+        "GRAPH_RERANKER_ORIGINAL_WEIGHT", 0.4, min_val=0.0
+    )
+
+    # Clamp weights to 0-1 range
+    graph_reranker_episode_weight = max(0.0, min(1.0, graph_reranker_episode_weight))
+    graph_reranker_distance_weight = max(0.0, min(1.0, graph_reranker_distance_weight))
+    graph_reranker_original_weight = max(0.0, min(1.0, graph_reranker_original_weight))
+
+    # Validate weights sum to 1.0 (with tolerance)
+    weight_sum = (
+        graph_reranker_episode_weight
+        + graph_reranker_distance_weight
+        + graph_reranker_original_weight
+    )
+    if abs(weight_sum - 1.0) > 0.01:
+        logger.warning(
+            "graph_reranker_weights_not_normalized",
+            sum=weight_sum,
+            episode=graph_reranker_episode_weight,
+            distance=graph_reranker_distance_weight,
+            original=graph_reranker_original_weight,
+            hint="Weights will be normalized to sum to 1.0",
+        )
+        # Normalize weights or fall back to safe defaults when sum is non-positive
+        if weight_sum > 0:
+            graph_reranker_episode_weight /= weight_sum
+            graph_reranker_distance_weight /= weight_sum
+            graph_reranker_original_weight /= weight_sum
+        else:
+            graph_reranker_episode_weight = 0.3
+            graph_reranker_distance_weight = 0.3
+            graph_reranker_original_weight = 0.4
+
+    graph_reranker_episode_window_days = get_int_env(
+        "GRAPH_RERANKER_EPISODE_WINDOW_DAYS", 30, min_val=1
+    )
+    graph_reranker_max_distance = get_int_env(
+        "GRAPH_RERANKER_MAX_DISTANCE", 3, min_val=1
+    )
+
+    # Story 20-C2 - Dual-Level Retrieval settings
+    dual_level_retrieval_enabled = get_bool_env("DUAL_LEVEL_RETRIEVAL_ENABLED", "false")
+    dual_level_low_weight = get_float_env("DUAL_LEVEL_LOW_WEIGHT", 0.6, min_val=0.0)
+    dual_level_high_weight = get_float_env("DUAL_LEVEL_HIGH_WEIGHT", 0.4, min_val=0.0)
+    # Clamp weights to 0-1 range
+    dual_level_low_weight = max(0.0, min(1.0, dual_level_low_weight))
+    dual_level_high_weight = max(0.0, min(1.0, dual_level_high_weight))
+    # Validate weights sum to 1.0 (with tolerance)
+    dual_weight_sum = dual_level_low_weight + dual_level_high_weight
+    if abs(dual_weight_sum - 1.0) > 0.01:
+        logger.warning(
+            "dual_level_weights_not_normalized",
+            sum=dual_weight_sum,
+            low_weight=dual_level_low_weight,
+            high_weight=dual_level_high_weight,
+            hint="Weights will be normalized to sum to 1.0",
+        )
+        # Normalize weights or fall back to safe defaults when sum is non-positive
+        if dual_weight_sum > 0:
+            dual_level_low_weight /= dual_weight_sum
+            dual_level_high_weight /= dual_weight_sum
+        else:
+            dual_level_low_weight = 0.6
+            dual_level_high_weight = 0.4
+    dual_level_low_limit = get_int_env("DUAL_LEVEL_LOW_LIMIT", 10, min_val=1)
+    dual_level_high_limit = get_int_env("DUAL_LEVEL_HIGH_LIMIT", 5, min_val=1)
+    dual_level_synthesis_model = os.getenv("DUAL_LEVEL_SYNTHESIS_MODEL", "gpt-4o-mini")
+    dual_level_synthesis_temperature = get_float_env(
+        "DUAL_LEVEL_SYNTHESIS_TEMPERATURE",
+        0.3,
+        min_val=0.0,
+    )
+    dual_level_synthesis_temperature = max(0.0, min(2.0, dual_level_synthesis_temperature))
+
+    # Story 20-C3 - Parent-Child Chunk Hierarchy settings
+    hierarchical_chunks_enabled = get_bool_env("HIERARCHICAL_CHUNKS_ENABLED", "false")
+
+    # Parse chunk levels from comma-separated string
+    hierarchical_chunk_levels_raw = os.getenv("HIERARCHICAL_CHUNK_LEVELS", "256,512,1024,2048")
+    try:
+        hierarchical_chunk_levels = [
+            int(level.strip())
+            for level in hierarchical_chunk_levels_raw.split(",")
+            if level.strip()
+        ]
+        # Validate minimum of 2 levels required for hierarchical chunking
+        if not hierarchical_chunk_levels or len(hierarchical_chunk_levels) < 2:
+            logger.warning(
+                "invalid_hierarchical_chunk_levels",
+                levels=hierarchical_chunk_levels,
+                hint="At least 2 chunk levels required, using defaults",
+            )
+            hierarchical_chunk_levels = [256, 512, 1024, 2048]
+        else:
+            # Validate levels are strictly increasing
+            for i in range(1, len(hierarchical_chunk_levels)):
+                if hierarchical_chunk_levels[i] <= hierarchical_chunk_levels[i - 1]:
+                    logger.warning(
+                        "invalid_hierarchical_chunk_levels",
+                        levels=hierarchical_chunk_levels,
+                        hint="Levels must be strictly increasing, using defaults",
+                    )
+                    hierarchical_chunk_levels = [256, 512, 1024, 2048]
+                    break
+    except (ValueError, AttributeError):
+        hierarchical_chunk_levels = [256, 512, 1024, 2048]
+
+    hierarchical_overlap_ratio = get_float_env("HIERARCHICAL_OVERLAP_RATIO", 0.1, min_val=0.0)
+    # Clamp overlap ratio to valid range (0.0-0.5)
+    hierarchical_overlap_ratio = max(0.0, min(0.5, hierarchical_overlap_ratio))
+
+    small_to_big_return_level = get_int_env("SMALL_TO_BIG_RETURN_LEVEL", 2, min_val=0)
+    # Validate return level is within chunk levels
+    if small_to_big_return_level >= len(hierarchical_chunk_levels):
+        logger.warning(
+            "invalid_small_to_big_return_level",
+            return_level=small_to_big_return_level,
+            max_level=len(hierarchical_chunk_levels) - 1,
+            fallback=len(hierarchical_chunk_levels) - 1,
+        )
+        small_to_big_return_level = len(hierarchical_chunk_levels) - 1
+
+    hierarchical_embedding_level = get_int_env("HIERARCHICAL_EMBEDDING_LEVEL", 0, min_val=0)
+    # Validate embedding level is within chunk levels
+    if hierarchical_embedding_level >= len(hierarchical_chunk_levels):
+        logger.warning(
+            "invalid_hierarchical_embedding_level",
+            embedding_level=hierarchical_embedding_level,
+            max_level=len(hierarchical_chunk_levels) - 1,
+            fallback=0,
+        )
+        hierarchical_embedding_level = 0
+
+    # Story 20-D1 - Enhanced Table/Layout Extraction settings
+    enhanced_docling_enabled = get_bool_env("ENHANCED_DOCLING_ENABLED", "true")
+    docling_table_extraction = get_bool_env("DOCLING_TABLE_EXTRACTION", "true")
+    docling_preserve_layout = get_bool_env("DOCLING_PRESERVE_LAYOUT", "true")
+    docling_table_as_markdown = get_bool_env("DOCLING_TABLE_AS_MARKDOWN", "true")
+
+    # Story 20-D2 - Multimodal Ingestion settings
+    multimodal_ingestion_enabled = get_bool_env("MULTIMODAL_INGESTION_ENABLED", "false")
+    office_docs_enabled = get_bool_env("OFFICE_DOCS_ENABLED", "true")
+
+    # Story 20-E1 - Ontology Support settings
+    ontology_support_enabled = get_bool_env("ONTOLOGY_SUPPORT_ENABLED", "false")
+    ontology_path = os.getenv("ONTOLOGY_PATH") or None
+    ontology_auto_type = get_bool_env("ONTOLOGY_AUTO_TYPE", "false")
+
+    # Story 20-E2 - Self-Improving Feedback Loop settings
+    feedback_loop_enabled = get_bool_env("FEEDBACK_LOOP_ENABLED", "false")
+    feedback_min_samples = get_int_env("FEEDBACK_MIN_SAMPLES", 10, min_val=1)
+    feedback_decay_days = get_int_env("FEEDBACK_DECAY_DAYS", 90, min_val=1)
+    feedback_boost_max = get_float_env("FEEDBACK_BOOST_MAX", 1.5, min_val=1.0)
+    feedback_boost_min = get_float_env("FEEDBACK_BOOST_MIN", 0.5, min_val=0.0)
+    # Validate boost range
+    if feedback_boost_min >= feedback_boost_max:
+        logger.warning(
+            "invalid_feedback_boost_range",
+            min=feedback_boost_min,
+            max=feedback_boost_max,
+            hint="FEEDBACK_BOOST_MIN must be less than FEEDBACK_BOOST_MAX, using defaults",
+        )
+        feedback_boost_min = 0.5
+        feedback_boost_max = 1.5
+    # Clamp boost values to model's valid range (0.5 to 1.5)
+    # This ensures config values match QueryBoost model constraints
+    feedback_boost_max = max(1.0, min(1.5, feedback_boost_max))
+    feedback_boost_min = max(0.5, min(1.0, feedback_boost_min))
+
+    # Story 20-H1 - Sparse Vector Search (BM42) settings
+    sparse_vectors_enabled = get_bool_env("SPARSE_VECTORS_ENABLED", "false")
+    sparse_model = os.getenv(
+        "SPARSE_MODEL", "Qdrant/bm42-all-minilm-l6-v2-attentions"
+    )
+    hybrid_dense_weight = get_float_env("HYBRID_DENSE_WEIGHT", 0.7, min_val=0.0)
+    hybrid_sparse_weight = get_float_env("HYBRID_SPARSE_WEIGHT", 0.3, min_val=0.0)
+    # Validate that weights sum to 1.0 (with tolerance for floating point)
+    weight_sum = hybrid_dense_weight + hybrid_sparse_weight
+    if abs(weight_sum - 1.0) > 0.01:
+        logger.warning(
+            "hybrid_weights_not_normalized",
+            dense_weight=hybrid_dense_weight,
+            sparse_weight=hybrid_sparse_weight,
+            sum=weight_sum,
+            hint="Weights will be normalized to sum to 1.0 for balanced hybrid search",
+        )
+        # Normalize weights to keep hybrid search well behaved,
+        # or fall back to defaults when sum is non-positive
+        if weight_sum > 0:
+            hybrid_dense_weight /= weight_sum
+            hybrid_sparse_weight /= weight_sum
+        else:
+            hybrid_dense_weight = 0.7
+            hybrid_sparse_weight = 0.3
+
+    # Story 20-H2 - Cross-Language Query settings
+    cross_language_enabled = get_bool_env("CROSS_LANGUAGE_ENABLED", "false")
+    cross_language_embedding = os.getenv(
+        "CROSS_LANGUAGE_EMBEDDING", "intfloat/multilingual-e5-base"
+    )
+    cross_language_translation = get_bool_env("CROSS_LANGUAGE_TRANSLATION", "false")
+
+    # Story 20-H3 - External Data Source Sync settings
+    external_sync_enabled = get_bool_env("EXTERNAL_SYNC_ENABLED", "false")
+    sync_sources = os.getenv("SYNC_SOURCES", "")
+    s3_sync_bucket = os.getenv("S3_SYNC_BUCKET", "")
+    s3_sync_prefix = os.getenv("S3_SYNC_PREFIX", "")
+    confluence_url = os.getenv("CONFLUENCE_URL", "")
+    confluence_api_token = os.getenv("CONFLUENCE_API_TOKEN", "")
+    confluence_spaces = os.getenv("CONFLUENCE_SPACES", "")
+    notion_api_key = os.getenv("NOTION_API_KEY", "")
+    notion_database_ids = os.getenv("NOTION_DATABASE_IDS", "")
+
+    # Story 20-H4 - Voice I/O settings
+    voice_io_enabled = get_bool_env("VOICE_IO_ENABLED", "false")
+    whisper_model = os.getenv("WHISPER_MODEL", "base")
+    tts_provider = os.getenv("TTS_PROVIDER", "openai")
+    tts_voice = os.getenv("TTS_VOICE", "alloy")
+    tts_speed = get_float_env("TTS_SPEED", 1.0, min_val=0.25, max_val=4.0)
+
+    # Story 20-H5 - ColBERT Reranking settings
+    colbert_enabled = get_bool_env("COLBERT_ENABLED", "false")
+    colbert_model = os.getenv("COLBERT_MODEL", "colbert-ir/colbertv2.0")
+    colbert_max_length = get_int_env("COLBERT_MAX_LENGTH", 512, min_val=64)
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -910,6 +1354,7 @@ def load_settings() -> Settings:
         embedding_provider=embedding_provider,
         embedding_api_key=embedding_api_key,
         embedding_base_url=embedding_base_url,
+        embedding_dimension=embedding_dimension,
         database_url=database_url,
         db_pool_min=db_pool_min,
         db_pool_max=db_pool_max,
@@ -926,6 +1371,7 @@ def load_settings() -> Settings:
         neo4j_pool_acquire_timeout_seconds=neo4j_pool_acquire_timeout_seconds,
         neo4j_connection_timeout_seconds=neo4j_connection_timeout_seconds,
         neo4j_max_connection_lifetime_seconds=neo4j_max_connection_lifetime_seconds,
+        neo4j_transaction_timeout_seconds=neo4j_transaction_timeout_seconds,
         redis_url=redis_url,
         backend_host=os.getenv("BACKEND_HOST", "0.0.0.0"),
         backend_port=backend_port,
@@ -1048,6 +1494,106 @@ def load_settings() -> Settings:
         reranker_preload_model=reranker_preload_model,
         # Story 19-G4 - Score Normalization settings
         grader_normalization_strategy=grader_normalization_strategy,
+        # Epic 20 - Memory Platform settings (Story 20-A1)
+        memory_scopes_enabled=memory_scopes_enabled,
+        memory_default_scope=memory_default_scope,
+        memory_include_parent_scopes=memory_include_parent_scopes,
+        memory_cache_ttl_seconds=memory_cache_ttl_seconds,
+        memory_max_per_scope=memory_max_per_scope,
+        # Story 20-A2 - Memory Consolidation
+        memory_consolidation_enabled=memory_consolidation_enabled,
+        memory_consolidation_schedule=memory_consolidation_schedule,
+        memory_similarity_threshold=memory_similarity_threshold,
+        memory_decay_half_life_days=memory_decay_half_life_days,
+        memory_min_importance=memory_min_importance,
+        memory_consolidation_batch_size=memory_consolidation_batch_size,
+        # Story 20-B1 - Community Detection
+        community_detection_enabled=community_detection_enabled,
+        community_algorithm=community_algorithm,
+        community_min_size=community_min_size,
+        community_max_levels=community_max_levels,
+        community_summary_model=community_summary_model,
+        community_refresh_schedule=community_refresh_schedule,
+        # Story 20-B2 - LazyRAG Pattern
+        lazy_rag_enabled=lazy_rag_enabled,
+        lazy_rag_max_entities=lazy_rag_max_entities,
+        lazy_rag_max_hops=lazy_rag_max_hops,
+        lazy_rag_summary_model=lazy_rag_summary_model,
+        lazy_rag_use_communities=lazy_rag_use_communities,
+        # Story 20-B3 - Query Routing
+        query_routing_enabled=query_routing_enabled,
+        query_routing_use_llm=query_routing_use_llm,
+        query_routing_llm_model=query_routing_llm_model,
+        query_routing_confidence_threshold=query_routing_confidence_threshold,
+        # Story 20-C1 - Graph-Based Rerankers
+        graph_reranker_enabled=graph_reranker_enabled,
+        graph_reranker_type=graph_reranker_type,
+        graph_reranker_episode_weight=graph_reranker_episode_weight,
+        graph_reranker_distance_weight=graph_reranker_distance_weight,
+        graph_reranker_original_weight=graph_reranker_original_weight,
+        graph_reranker_episode_window_days=graph_reranker_episode_window_days,
+        graph_reranker_max_distance=graph_reranker_max_distance,
+        # Story 20-C2 - Dual-Level Retrieval
+        dual_level_retrieval_enabled=dual_level_retrieval_enabled,
+        dual_level_low_weight=dual_level_low_weight,
+        dual_level_high_weight=dual_level_high_weight,
+        dual_level_low_limit=dual_level_low_limit,
+        dual_level_high_limit=dual_level_high_limit,
+        dual_level_synthesis_model=dual_level_synthesis_model,
+        dual_level_synthesis_temperature=dual_level_synthesis_temperature,
+        # Story 20-C3 - Parent-Child Chunk Hierarchy
+        hierarchical_chunks_enabled=hierarchical_chunks_enabled,
+        hierarchical_chunk_levels=hierarchical_chunk_levels,
+        hierarchical_overlap_ratio=hierarchical_overlap_ratio,
+        small_to_big_return_level=small_to_big_return_level,
+        hierarchical_embedding_level=hierarchical_embedding_level,
+        # Story 20-D1 - Enhanced Table/Layout Extraction
+        enhanced_docling_enabled=enhanced_docling_enabled,
+        docling_table_extraction=docling_table_extraction,
+        docling_preserve_layout=docling_preserve_layout,
+        docling_table_as_markdown=docling_table_as_markdown,
+        # Story 20-D2 - Multimodal Ingestion
+        multimodal_ingestion_enabled=multimodal_ingestion_enabled,
+        office_docs_enabled=office_docs_enabled,
+        # Story 20-E1 - Ontology Support
+        ontology_support_enabled=ontology_support_enabled,
+        ontology_path=ontology_path,
+        ontology_auto_type=ontology_auto_type,
+        # Story 20-E2 - Self-Improving Feedback Loop
+        feedback_loop_enabled=feedback_loop_enabled,
+        feedback_min_samples=feedback_min_samples,
+        feedback_decay_days=feedback_decay_days,
+        feedback_boost_max=feedback_boost_max,
+        feedback_boost_min=feedback_boost_min,
+        # Story 20-H1 - Sparse Vector Search (BM42)
+        sparse_vectors_enabled=sparse_vectors_enabled,
+        sparse_model=sparse_model,
+        hybrid_dense_weight=hybrid_dense_weight,
+        hybrid_sparse_weight=hybrid_sparse_weight,
+        # Story 20-H2 - Cross-Language Query
+        cross_language_enabled=cross_language_enabled,
+        cross_language_embedding=cross_language_embedding,
+        cross_language_translation=cross_language_translation,
+        # Story 20-H3 - External Data Source Sync
+        external_sync_enabled=external_sync_enabled,
+        sync_sources=sync_sources,
+        s3_sync_bucket=s3_sync_bucket,
+        s3_sync_prefix=s3_sync_prefix,
+        confluence_url=confluence_url,
+        confluence_api_token=confluence_api_token,
+        confluence_spaces=confluence_spaces,
+        notion_api_key=notion_api_key,
+        notion_database_ids=notion_database_ids,
+        # Story 20-H4 - Voice I/O
+        voice_io_enabled=voice_io_enabled,
+        whisper_model=whisper_model,
+        tts_provider=tts_provider,
+        tts_voice=tts_voice,
+        tts_speed=tts_speed,
+        # Story 20-H5 - ColBERT Reranking
+        colbert_enabled=colbert_enabled,
+        colbert_model=colbert_model,
+        colbert_max_length=colbert_max_length,
     )
 
 

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story 19-F3: Make CrossEncoderGrader Model Selectable
+  Context file for implementation
+  Generated: 2026-01-05
+-->
+<story-context>
+  <metadata>
+    <story-id>19-F3</story-id>
+    <epic>19 - Quality Foundation &amp; Tech Debt Resolution</epic>
+    <title>Make CrossEncoderGrader Model Selectable</title>
+    <status>done</status>
+    <priority>Medium</priority>
+  </metadata>
+
+  <module-structure>
+    <files-to-modify>
+      <file path="backend/src/agentic_rag_backend/config.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/retrieval/__init__.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/retrieval/grader.py" change="Implemented per story requirements" />
+      <file path="backend/tests/test_grader.py" change="Implemented per story requirements" />
+      <file path="docs/guides/advanced-retrieval-configuration.md" change="Implemented per story requirements" />
+
+    </files-to-modify>
+  </module-structure>
+
+  <references>
+    <ref path="_bmad-output/implementation-artifacts/epic-19-tech-spec.md" section="Story 19-F3" />
+  </references>
+</story-context>

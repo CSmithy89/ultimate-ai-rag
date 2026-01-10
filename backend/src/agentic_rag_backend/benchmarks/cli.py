@@ -196,7 +196,7 @@ async def run_benchmarks(args: argparse.Namespace) -> int:
     )
 
     if not args.quiet:
-        print(f"\nRunning benchmarks:")
+        print("\nRunning benchmarks:")
         print(f"  K values: {config.k_values}")
         print(f"  Strategies: {[s.value for s in config.strategies]}")
 

@@ -235,7 +235,25 @@ def create_embedding_client(
 
     Returns:
         Configured EmbeddingClient instance
+
+    Raises:
+        EmbeddingError: If API key is missing for providers that require it,
+            or if the provider is unsupported.
     """
+    # Fail-fast: validate API key is provided for providers that require it
+    # Ollama is local and doesn't require an API key
+    requires_api_key = adapter.provider in (
+        EmbeddingProviderType.OPENAI,
+        EmbeddingProviderType.OPENROUTER,
+        EmbeddingProviderType.GEMINI,
+        EmbeddingProviderType.VOYAGE,
+    )
+    if requires_api_key and not adapter.api_key:
+        raise EmbeddingError(
+            f"API key required for {adapter.provider.value} embedding provider. "
+            f"Set the appropriate API key environment variable."
+        )
+
     if adapter.provider in (
         EmbeddingProviderType.OPENAI,
         EmbeddingProviderType.OPENROUTER,

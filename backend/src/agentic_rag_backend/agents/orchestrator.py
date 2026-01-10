@@ -19,7 +19,15 @@ from ..retrieval import (
     GraphTraversalService,
     VectorSearchService,
     RerankerClient,
+    RetrievalPipeline,
+    VectorSearchResult,
+    SmallToBigAdapter,
+    GraphReranker,
 )
+from ..retrieval.dual_level import DualLevelRetriever
+from ..retrieval.lazy_rag import LazyRAGRetriever
+from ..retrieval.query_router import QueryRouter
+from ..retrieval.query_router_models import QueryType
 from ..retrieval.grader import RetrievalGrader, RetrievalHit
 from ..retrieval.constants import (
     DEFAULT_ENTITY_LIMIT,
@@ -105,6 +113,7 @@ class OrchestratorAgent:
         model_router: ModelRouter | None = None,
         postgres: PostgresClient | None = None,
         neo4j: Neo4jClient | None = None,
+        graphiti_client: Any | None = None,
         embedding_model: str = DEFAULT_EMBEDDING_MODEL,
         vector_limit: int | None = None,
         vector_similarity_threshold: float | None = None,
@@ -116,6 +125,12 @@ class OrchestratorAgent:
         reranker: RerankerClient | None = None,
         reranker_top_k: int = 10,
         grader: RetrievalGrader | None = None,
+        retrieval_pipeline: RetrievalPipeline | None = None,
+        small_to_big_adapter: SmallToBigAdapter | None = None,
+        graph_reranker: GraphReranker | None = None,
+        query_router: QueryRouter | None = None,
+        lazy_rag_retriever: LazyRAGRetriever | None = None,
+        dual_level_retriever: DualLevelRetriever | None = None,
     ) -> None:
         self._api_key = api_key
         self._provider = provider
@@ -133,6 +148,10 @@ class OrchestratorAgent:
         self._reranker = reranker
         self._reranker_top_k = reranker_top_k
         self._grader = grader
+        self._retrieval_pipeline: RetrievalPipeline | None = retrieval_pipeline
+        self._query_router = query_router
+        self._lazy_rag_retriever = lazy_rag_retriever
+        self._dual_level_retriever = dual_level_retriever
         if postgres:
             # Create embedding generator using provider adapter
             embedding_adapter = EmbeddingProviderAdapter(
@@ -191,10 +210,28 @@ class OrchestratorAgent:
                 ),
             )
 
+        if self._retrieval_pipeline is None:
+            self._retrieval_pipeline = RetrievalPipeline(
+                vector_search=self._vector_search,
+                graph_traversal=self._graph_traversal,
+                graphiti_client=graphiti_client,
+                reranker=self._reranker,
+                reranker_top_k=self._reranker_top_k,
+                small_to_big=small_to_big_adapter,
+                graph_reranker=graph_reranker,
+            )
+
     @property
     def vector_search_service(self) -> "VectorSearchService | None":
         """Public access to the vector search service for A2A capabilities."""
         return self._vector_search
+
+    @property
+    def retrieval_pipeline(self) -> RetrievalPipeline:
+        """Public access to the unified retrieval pipeline."""
+        if self._retrieval_pipeline is None:
+            raise RuntimeError("Retrieval pipeline not initialized")
+        return self._retrieval_pipeline
 
     def _build_chat_model(self, model_id: str) -> Any:
         if self._provider in {"openai", "openrouter", "ollama"}:
@@ -292,13 +329,51 @@ class OrchestratorAgent:
 
         vector_hits: list[VectorHit] = []
         graph_result: GraphTraversalResult | None = None
-        if strategy == RetrievalStrategy.HYBRID:
+        routed = False
+        if self._query_router:
+            try:
+                decision = await self._query_router.route(query, tenant_id)
+                routing_note = (
+                    f"Query routing: {decision.query_type.value} "
+                    f"(confidence={decision.confidence:.2f}, "
+                    f"method={decision.classification_method})"
+                )
+                thoughts.append(routing_note)
+                events.append((EventType.ACTION, routing_note))
+
+                if decision.query_type == QueryType.LOCAL and self._lazy_rag_retriever:
+                    lazy_result = await self._lazy_rag_retriever.query(
+                        query=query,
+                        tenant_id=tenant_id,
+                        include_summary=True,
+                    )
+                    vector_hits = self._build_lazy_rag_hits(lazy_result)
+                    routed = True
+                elif (
+                    decision.query_type == QueryType.HYBRID
+                    and self._dual_level_retriever
+                ):
+                    dual_result = await self._dual_level_retriever.retrieve(
+                        query=query,
+                        tenant_id=tenant_id,
+                        include_synthesis=True,
+                    )
+                    vector_hits = self._build_dual_level_hits(dual_result)
+                    routed = True
+            except Exception as exc:
+                logger.warning("query_routing_failed", error=str(exc))
+                thoughts.append(
+                    f"Query routing failed; falling back to standard retrieval ({exc})"
+                )
+
+        if not routed and strategy == RetrievalStrategy.HYBRID:
             vector_task = self._run_vector_search(
                 query,
                 tenant_id,
                 events,
                 thoughts,
                 trajectory_id,
+                strategy=strategy.value,
             )
             graph_task = self._run_graph_traversal(
                 query,
@@ -308,7 +383,7 @@ class OrchestratorAgent:
                 trajectory_id,
             )
             vector_hits, graph_result = await asyncio.gather(vector_task, graph_task)
-        else:
+        elif not routed:
             if strategy == RetrievalStrategy.VECTOR:
                 vector_hits = await self._run_vector_search(
                     query,
@@ -316,6 +391,7 @@ class OrchestratorAgent:
                     events,
                     thoughts,
                     trajectory_id,
+                    strategy=strategy.value,
                 )
             if strategy == RetrievalStrategy.GRAPH:
                 graph_result = await self._run_graph_traversal(
@@ -367,6 +443,105 @@ class OrchestratorAgent:
             trajectory_id=trajectory_id,
             evidence=evidence,
         )
+
+    def _build_lazy_rag_hits(self, result: Any) -> list[VectorHit]:
+        hits: list[VectorHit] = []
+        summary = getattr(result, "summary", None)
+        raw_confidence = getattr(result, "confidence", None)
+        confidence = float(raw_confidence if raw_confidence is not None else 0.8)
+
+        if summary:
+            hits.append(
+                VectorHit(
+                    chunk_id="lazy-rag-summary",
+                    document_id="lazy-rag",
+                    content=summary,
+                    similarity=confidence,
+                    metadata={
+                        "source_type": "lazy_rag",
+                        "seed_entity_count": getattr(result, "seed_entity_count", 0),
+                        "expanded_entity_count": getattr(result, "expanded_entity_count", 0),
+                        "confidence": confidence,
+                    },
+                )
+            )
+
+        entities = getattr(result, "entities", []) or []
+        for entity in entities[:5]:
+            content = getattr(entity, "description", None) or getattr(entity, "summary", None)
+            if not content:
+                content = getattr(entity, "name", "")
+            hits.append(
+                VectorHit(
+                    chunk_id=f"lazy-rag-entity:{getattr(entity, 'id', '')}",
+                    document_id="lazy-rag",
+                    content=content,
+                    similarity=0.5,
+                    metadata={
+                        "source_type": "lazy_rag",
+                        "entity_id": getattr(entity, "id", ""),
+                        "entity_name": getattr(entity, "name", ""),
+                    },
+                )
+            )
+        return hits
+
+    def _build_dual_level_hits(self, result: Any) -> list[VectorHit]:
+        hits: list[VectorHit] = []
+        synthesis = getattr(result, "synthesis", None)
+        raw_confidence = getattr(result, "confidence", None)
+        confidence = float(raw_confidence if raw_confidence is not None else 0.7)
+
+        if synthesis:
+            hits.append(
+                VectorHit(
+                    chunk_id="dual-level-synthesis",
+                    document_id="dual-level",
+                    content=synthesis,
+                    similarity=confidence,
+                    metadata={
+                        "source_type": "dual_level",
+                        "confidence": confidence,
+                    },
+                )
+            )
+
+        low_level = getattr(result, "low_level_results", []) or []
+        high_level = getattr(result, "high_level_results", []) or []
+
+        for item in low_level[:5]:
+            content = getattr(item, "content", None) or getattr(item, "name", "")
+            hits.append(
+                VectorHit(
+                    chunk_id=f"dual-level-low:{getattr(item, 'id', '')}",
+                    document_id="dual-level",
+                    content=content,
+                    similarity=float(getattr(item, "score", 0.0) or 0.0),
+                    metadata={
+                        "source_type": "dual_level",
+                        "level": "low",
+                        "entity_name": getattr(item, "name", ""),
+                    },
+                )
+            )
+
+        for item in high_level[:5]:
+            content = getattr(item, "summary", None) or getattr(item, "name", "")
+            hits.append(
+                VectorHit(
+                    chunk_id=f"dual-level-high:{getattr(item, 'id', '')}",
+                    document_id="dual-level",
+                    content=content,
+                    similarity=float(getattr(item, "score", 0.0) or 0.0),
+                    metadata={
+                        "source_type": "dual_level",
+                        "level": "high",
+                        "theme_name": getattr(item, "name", ""),
+                    },
+                )
+            )
+
+        return hits
 
     def _build_plan(self, query: str) -> list[PlanStep]:
         base_steps = [
@@ -423,6 +598,7 @@ class OrchestratorAgent:
         events: list[tuple[EventType, str]],
         thoughts: list[str],
         trajectory_id: UUID | None,
+        strategy: str = "vector",
     ) -> list[VectorHit]:
         """Run vector search and log retrieval events."""
         if not self._vector_search:
@@ -445,7 +621,14 @@ class OrchestratorAgent:
         else:
             events.append((EventType.ACTION, action_note))
         try:
-            hits = await self._vector_search.search(query, tenant_id)
+            vector_result: VectorSearchResult = await self._retrieval_pipeline.vector_search(
+                query=query,
+                tenant_id=tenant_id,
+                use_reranking=True,  # Let the pipeline decide based on its internal reranker
+                top_k=self._reranker_top_k,
+                strategy=strategy,
+            )
+            hits = vector_result.hits
         except Exception as exc:
             error_note = f"Vector search failed: {exc}"
             if self._logger and trajectory_id:
@@ -462,8 +645,9 @@ class OrchestratorAgent:
             events.append((EventType.OBSERVATION, observation))
 
         # Epic 12: Apply reranking if enabled
-        if self._reranker and hits:
-            rerank_thought = f"Reranking {len(hits)} results with {self._reranker.get_model()}"
+        if vector_result.reranking_applied and vector_result.reranked:
+            model_name = vector_result.reranker_model or "unknown"
+            rerank_thought = f"Reranking {len(hits)} results with {model_name}"
             thoughts.append(rerank_thought)
             if self._logger and trajectory_id:
                 await self._logger.log_thought(tenant_id, trajectory_id, rerank_thought)
@@ -477,48 +661,31 @@ class OrchestratorAgent:
                 events.append((EventType.ACTION, rerank_action))
 
             # Log pre-rerank scores
-            pre_rerank_scores = [f"{hit.content[:50]}... ({hit.similarity:.3f})" for hit in hits[:5]]
+            pre_rerank_scores = [
+                f"{hit.content[:50]}... ({hit.similarity:.3f})"
+                for hit in vector_result.original_hits[:5]
+            ]
             pre_rerank_note = f"Pre-rerank top-5: {pre_rerank_scores}"
             if self._logger and trajectory_id:
                 await self._logger.log_observation(tenant_id, trajectory_id, pre_rerank_note)
             else:
                 events.append((EventType.OBSERVATION, pre_rerank_note))
 
-            try:
-                reranked = await self._reranker.rerank(
-                    query=query,
-                    hits=hits,
-                    top_k=self._reranker_top_k,
-                )
-                # Extract hits from reranked results
-                hits = [r.hit for r in reranked]
+            post_rerank_scores = [
+                f"{r.hit.content[:50]}... ({r.rerank_score:.3f}, was rank {r.original_rank})"
+                for r in vector_result.reranked[:5]
+            ]
+            post_rerank_note = f"Post-rerank top-5: {post_rerank_scores}"
+            if self._logger and trajectory_id:
+                await self._logger.log_observation(tenant_id, trajectory_id, post_rerank_note)
+            else:
+                events.append((EventType.OBSERVATION, post_rerank_note))
 
-                # Log post-rerank scores
-                post_rerank_scores = [
-                    f"{r.hit.content[:50]}... ({r.rerank_score:.3f}, was rank {r.original_rank})"
-                    for r in reranked[:5]
-                ]
-                post_rerank_note = f"Post-rerank top-5: {post_rerank_scores}"
-                if self._logger and trajectory_id:
-                    await self._logger.log_observation(tenant_id, trajectory_id, post_rerank_note)
-                else:
-                    events.append((EventType.OBSERVATION, post_rerank_note))
-
-                rerank_observation = f"Reranked to {len(hits)} results"
-                if self._logger and trajectory_id:
-                    await self._logger.log_observation(tenant_id, trajectory_id, rerank_observation)
-                else:
-                    events.append((EventType.OBSERVATION, rerank_observation))
-
-            except Exception as exc:
-                rerank_error = f"Reranking failed, using original order: {exc}"
-                thoughts.append(rerank_error)
-                if self._logger and trajectory_id:
-                    await self._logger.log_observation(tenant_id, trajectory_id, rerank_error)
-                else:
-                    events.append((EventType.OBSERVATION, rerank_error))
-                logger.warning("reranking_failed", error=str(exc))
-                # Continue with original hits on reranking failure
+            rerank_observation = f"Reranked to {len(hits)} results"
+            if self._logger and trajectory_id:
+                await self._logger.log_observation(tenant_id, trajectory_id, rerank_observation)
+            else:
+                events.append((EventType.OBSERVATION, rerank_observation))
 
         # Epic 12: Apply CRAG grading if enabled
         if self._grader and hits:
@@ -699,7 +866,9 @@ class OrchestratorAgent:
         else:
             events.append((EventType.ACTION, action_note))
         try:
-            result = await self._graph_traversal.traverse(query, tenant_id)
+            result = await self._retrieval_pipeline.graph_traversal(query, tenant_id)
+            if result is None:
+                return None
         except Exception as exc:
             error_note = f"Graph traversal failed: {exc}"
             if self._logger and trajectory_id:

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story 19-J2: Add Endpoint Spec Compliance Tests
+  Context file for implementation
+  Generated: 2026-01-05
+-->
+<story-context>
+  <metadata>
+    <story-id>19-J2</story-id>
+    <epic>19 - Quality Foundation &amp; Tech Debt Resolution</epic>
+    <title>Add Endpoint Spec Compliance Tests</title>
+    <status>done</status>
+    <priority>Medium</priority>
+  </metadata>
+
+  <module-structure>
+    <files-to-modify>
+      <file path="backend/pyproject.toml" change="Implemented per story requirements" />
+      <file path="backend/tests/compliance/__init__.py" change="Implemented per story requirements" />
+      <file path="backend/tests/compliance/test_endpoint_spec.py" change="Implemented per story requirements" />
+
+    </files-to-modify>
+  </module-structure>
+
+  <references>
+    <ref path="_bmad-output/implementation-artifacts/epic-19-tech-spec.md" section="Story 19-J2" />
+  </references>
+</story-context>

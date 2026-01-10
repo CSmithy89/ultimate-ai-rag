@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story 19-F5: Add Contextual Retrieval Cost Logging
+  Context file for implementation
+  Generated: 2026-01-05
+-->
+<story-context>
+  <metadata>
+    <story-id>19-F5</story-id>
+    <epic>19 - Quality Foundation &amp; Tech Debt Resolution</epic>
+    <title>Add Contextual Retrieval Cost Logging</title>
+    <status>done</status>
+    <priority>Low</priority>
+  </metadata>
+
+  <module-structure>
+    <files-to-modify>
+      <file path="backend/src/agentic_rag_backend/indexing/__init__.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/indexing/contextual.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/observability/__init__.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/observability/metrics.py" change="Implemented per story requirements" />
+      <file path="backend/tests/test_contextual.py" change="Implemented per story requirements" />
+
+    </files-to-modify>
+  </module-structure>
+
+  <references>
+    <ref path="_bmad-output/implementation-artifacts/epic-19-tech-spec.md" section="Story 19-F5" />
+  </references>
+</story-context>

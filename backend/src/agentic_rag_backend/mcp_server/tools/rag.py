@@ -21,6 +21,7 @@ from ...validation import is_valid_tenant_id
 from ...db.graphiti import GraphitiClient
 from ...retrieval.vector_search import VectorSearchService
 from ...retrieval.graphiti_retrieval import graphiti_search
+from ...retrieval.pipeline import RetrievalPipeline, HybridRetrievalResult
 from ...retrieval.reranking import (
     RerankerClient,
     RerankedHit,
@@ -201,6 +202,7 @@ def create_hybrid_retrieve_tool(
     vector_service: VectorSearchService,
     graphiti_client: GraphitiClient,
     reranker: Optional[RerankerClient] = None,
+    retrieval_pipeline: Optional[RetrievalPipeline] = None,
 ) -> MCPToolSpec:
     """Create the rag.hybrid_retrieve tool.
 
@@ -221,25 +223,41 @@ def create_hybrid_retrieve_tool(
         num_results = arguments.get("num_results", 10)
         use_reranking = arguments.get("use_reranking", True) and reranker is not None
 
-        # Execute vector and graph search in parallel
-        vector_task = vector_service.search(query=query, tenant_id=tenant_id)
-        graph_task = graphiti_search(
-            graphiti_client=graphiti_client,
-            query=query,
-            tenant_id=tenant_id,
-            num_results=num_results,
-        )
-
-        vector_hits, graph_result = await asyncio.gather(vector_task, graph_task)
-
-        # Apply reranking if enabled
-        reranked_hits: list[RerankedHit] = []
-        if use_reranking and reranker and vector_hits:
-            reranked_hits = await reranker.rerank(
+        if retrieval_pipeline:
+            hybrid_result: HybridRetrievalResult = await retrieval_pipeline.hybrid_retrieve(
                 query=query,
-                hits=vector_hits,
-                top_k=num_results,
+                tenant_id=tenant_id,
+                num_results=num_results,
+                use_reranking=use_reranking,
             )
+            vector_hits = hybrid_result.vector.hits
+            graph_result = hybrid_result.graphiti
+            reranked_hits = hybrid_result.vector.reranked or []
+            use_reranking = use_reranking and hybrid_result.vector.reranking_applied
+        else:
+            # Execute vector and graph search in parallel
+            vector_task = vector_service.search(query=query, tenant_id=tenant_id)
+            graph_task = graphiti_search(
+                graphiti_client=graphiti_client,
+                query=query,
+                tenant_id=tenant_id,
+                num_results=num_results,
+            )
+
+            vector_hits, graph_result = await asyncio.gather(vector_task, graph_task)
+
+            # Apply reranking if enabled
+            reranked_hits: list[RerankedHit] = []
+            if use_reranking and reranker and vector_hits:
+                reranked_hits = await reranker.rerank(
+                    query=query,
+                    hits=vector_hits,
+                    top_k=num_results,
+                )
+
+        reranker_model = reranker.get_model() if reranker else None
+        if retrieval_pipeline and hybrid_result.vector.reranker_model:
+            reranker_model = hybrid_result.vector.reranker_model
 
         # Build response
         result: dict[str, Any] = {
@@ -252,7 +270,7 @@ def create_hybrid_retrieve_tool(
         if use_reranking and reranked_hits:
             result["vector_hits"] = [_reranked_hit_to_dict(h) for h in reranked_hits]
             result["reranking_applied"] = True
-            result["reranker_model"] = reranker.get_model() if reranker else None
+            result["reranker_model"] = reranker_model
         else:
             result["vector_hits"] = [_vector_hit_to_dict(h) for h in vector_hits[:num_results]]
             result["reranking_applied"] = False
@@ -969,6 +987,7 @@ def register_rag_tools(
     graphiti_client: GraphitiClient,
     vector_service: Optional[VectorSearchService] = None,
     reranker: Optional[RerankerClient] = None,
+    retrieval_pipeline: Optional[RetrievalPipeline] = None,
 ) -> list[str]:
     """Register all RAG tools with the registry.
 
@@ -1006,6 +1025,7 @@ def register_rag_tools(
             vector_service=vector_service,
             graphiti_client=graphiti_client,
             reranker=reranker,
+            retrieval_pipeline=retrieval_pipeline,
         )
         registry.register(hybrid_tool)
         registered.append(hybrid_tool.name)

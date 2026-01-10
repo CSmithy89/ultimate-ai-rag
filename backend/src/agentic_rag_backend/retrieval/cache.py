@@ -22,7 +22,7 @@ from agentic_rag_backend.observability.metrics import (
 )
 
 if TYPE_CHECKING:
-    from .reranking import RerankedHit
+    pass
 
 T = TypeVar("T")
 logger = structlog.get_logger(__name__)

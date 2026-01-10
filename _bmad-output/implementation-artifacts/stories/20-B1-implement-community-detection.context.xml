@@ -1,0 +1,699 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story Context File: 20-B1-implement-community-detection
+  Generated: 2026-01-05
+  Purpose: Provide implementation context for community detection feature
+-->
+<story-context>
+  <story-id>20-B1-implement-community-detection</story-id>
+  <story-title>Implement Community Detection</story-title>
+  <epic>Epic 20: Advanced Retrieval Intelligence</epic>
+  <group>Group B: Graph Intelligence</group>
+
+  <!-- Key Files to Create -->
+  <new-files>
+    <file path="backend/src/agentic_rag_backend/graph/__init__.py" description="Graph intelligence module init"/>
+    <file path="backend/src/agentic_rag_backend/graph/models.py" description="CommunityAlgorithm enum and Community dataclass"/>
+    <file path="backend/src/agentic_rag_backend/graph/community.py" description="CommunityDetector class"/>
+    <file path="backend/src/agentic_rag_backend/api/routes/communities.py" description="Community API endpoints"/>
+    <file path="backend/tests/unit/graph/__init__.py" description="Test init"/>
+    <file path="backend/tests/unit/graph/test_community.py" description="Unit tests for CommunityDetector"/>
+    <file path="backend/tests/integration/test_community_detection.py" description="Integration tests with Neo4j"/>
+  </new-files>
+
+  <!-- Neo4j Client Reference -->
+  <reference-code id="neo4j-client">
+    <description>
+      Existing Neo4j async client that should be used for community storage.
+      Key patterns: tenant_id filtering on all queries, MERGE for idempotent operations,
+      validated relationship types, async session handling.
+    </description>
+    <file-path>backend/src/agentic_rag_backend/db/neo4j.py</file-path>
+    <key-patterns>
+      <pattern name="tenant-filtering">All queries include tenant_id parameter for multi-tenancy</pattern>
+      <pattern name="session-handling">Uses async with self.driver.session() as session pattern</pattern>
+      <pattern name="merge-operations">Uses MERGE for idempotent node/relationship creation</pattern>
+      <pattern name="relationship-validation">Validates relationship types against whitelist before query</pattern>
+      <pattern name="index-creation">Create indexes in create_indexes() method</pattern>
+      <pattern name="error-handling">Wraps Neo4jDriverError in custom Neo4jError</pattern>
+    </key-patterns>
+    <code-snippet name="entity-query-pattern"><![CDATA[
+async def get_entity(
+    self,
+    entity_id: str,
+    tenant_id: str,
+) -> Optional[dict[str, Any]]:
+    """Get an entity by ID with tenant filtering."""
+    try:
+        async with self.driver.session() as session:
+            result = await session.run(
+                """
+                MATCH (e:Entity {id: $id, tenant_id: $tenant_id})
+                RETURN e
+                """,
+                id=entity_id,
+                tenant_id=tenant_id,
+            )
+            record = await result.single()
+            if record:
+                return dict(record["e"])
+            return None
+    except Neo4jDriverError as e:
+        raise Neo4jError("get_entity", str(e)) from e
+]]></code-snippet>
+    <code-snippet name="graph-data-export"><![CDATA[
+async def get_graph_data(
+    self,
+    tenant_id: str,
+    limit: int = 100,
+    offset: int = 0,
+    entity_type: Optional[str] = None,
+    relationship_type: Optional[str] = None,
+) -> dict[str, Any]:
+    """Fetch graph data for visualization - returns nodes and edges."""
+    # Query pattern for exporting graph structure to external processing
+    try:
+        async with self.driver.session() as session:
+            # Fetch nodes
+            node_query = """
+            MATCH (n:Entity {tenant_id: $tenant_id})
+            RETURN n
+            ORDER BY n.name
+            SKIP $offset
+            LIMIT $limit
+            """
+            node_result = await session.run(node_query, tenant_id=tenant_id, offset=offset, limit=limit)
+            node_records = await node_result.data()
+            node_ids = [r["n"]["id"] for r in node_records if r.get("n")]
+
+            # Fetch edges between these nodes
+            if len(node_ids) > 1:
+                edge_query = """
+                MATCH (source:Entity)-[r]->(target:Entity)
+                WHERE source.id IN $node_ids AND target.id IN $node_ids
+                AND source.tenant_id = $tenant_id
+                RETURN source.id as source_id, target.id as target_id,
+                       type(r) as rel_type
+                """
+                edge_result = await session.run(edge_query, node_ids=node_ids, tenant_id=tenant_id)
+                edge_records = await edge_result.data()
+
+            return {"nodes": nodes, "edges": edges}
+    except Neo4jDriverError as e:
+        raise Neo4jError("get_graph_data", str(e)) from e
+]]></code-snippet>
+  </reference-code>
+
+  <!-- Graphiti Client Reference -->
+  <reference-code id="graphiti-client">
+    <description>
+      Graphiti client wrapper for temporal knowledge graph.
+      Provides connection management and access to Neo4j driver for direct queries.
+    </description>
+    <file-path>backend/src/agentic_rag_backend/db/graphiti.py</file-path>
+    <key-patterns>
+      <pattern name="connection-state">Uses ConnectionState enum (NEW, CONNECTING, CONNECTED, DISCONNECTED)</pattern>
+      <pattern name="async-lock">Uses asyncio.Lock for thread-safe connection</pattern>
+      <pattern name="credential-clearing">Clears sensitive credentials after connection</pattern>
+      <pattern name="driver-access">Access underlying Neo4j driver via self._client.driver</pattern>
+    </key-patterns>
+    <code-snippet name="connection-pattern"><![CDATA[
+class GraphitiClient:
+    """Managed Graphiti client for temporal knowledge graph operations."""
+
+    def __init__(
+        self,
+        uri: str,
+        user: str,
+        password: str,
+        llm_provider: str,
+        llm_api_key: Optional[str],
+        # ... additional params
+    ) -> None:
+        self.uri = uri
+        self.user = user
+        self._password: Optional[str] = password
+        self._client: Any | None = None
+        self._state = ConnectionState.NEW
+        self._connect_lock = asyncio.Lock()
+
+    @property
+    def client(self) -> Any:
+        """Get the underlying Graphiti client."""
+        if self._client is None or self._state != ConnectionState.CONNECTED:
+            raise RuntimeError("Graphiti client is not connected")
+        return self._client
+
+    @property
+    def is_connected(self) -> bool:
+        """Check if client is connected."""
+        return self._state == ConnectionState.CONNECTED and self._client is not None
+]]></code-snippet>
+  </reference-code>
+
+  <!-- Graphiti Retrieval Reference -->
+  <reference-code id="graphiti-retrieval">
+    <description>
+      Graphiti-based hybrid retrieval service showing search patterns.
+    </description>
+    <file-path>backend/src/agentic_rag_backend/retrieval/graphiti_retrieval.py</file-path>
+    <key-patterns>
+      <pattern name="dataclass-results">Uses dataclasses for search results (SearchNode, SearchEdge)</pattern>
+      <pattern name="timing-tracking">Tracks processing_time_ms using time.perf_counter()</pattern>
+      <pattern name="multi-tenancy">Uses group_ids=[tenant_id] for tenant filtering</pattern>
+    </key-patterns>
+    <code-snippet name="search-dataclasses"><![CDATA[
+@dataclass
+class SearchNode:
+    """A node returned from Graphiti search."""
+    uuid: str
+    name: str
+    summary: str
+    labels: list[str]
+
+    @classmethod
+    def from_graphiti_node(cls, node: Any) -> "SearchNode":
+        """Create SearchNode from Graphiti node object."""
+        return cls(
+            uuid=str(getattr(node, "uuid", "")),
+            name=getattr(node, "name", ""),
+            summary=getattr(node, "summary", ""),
+            labels=list(getattr(node, "labels", [])),
+        )
+
+@dataclass
+class GraphitiSearchResult:
+    """Result of Graphiti hybrid search."""
+    query: str
+    tenant_id: str
+    nodes: list[SearchNode]
+    edges: list[SearchEdge]
+    processing_time_ms: int
+]]></code-snippet>
+  </reference-code>
+
+  <!-- Memory Module Reference (Similar Module Pattern) -->
+  <reference-code id="memory-module-pattern">
+    <description>
+      Story 20-A1/A2 Memory Platform module demonstrating module structure pattern.
+      Follow this pattern for the graph module.
+    </description>
+    <file-path>backend/src/agentic_rag_backend/memory/__init__.py</file-path>
+    <module-structure>
+      <file name="__init__.py">Public exports</file>
+      <file name="models.py">Pydantic models and enums</file>
+      <file name="errors.py">Custom exception classes</file>
+      <file name="store.py">Main storage class</file>
+      <file name="scopes.py">Helper functions</file>
+      <file name="consolidation.py">Processing logic</file>
+      <file name="scheduler.py">Background task scheduling</file>
+    </module-structure>
+    <code-snippet name="init-exports"><![CDATA[
+"""Memory Platform module for hierarchical scoped memories."""
+
+from .errors import (
+    MemoryLimitExceededError,
+    MemoryNotFoundError,
+    MemoryScopeError,
+)
+from .models import (
+    MemoryScope,
+    ScopedMemory,
+    ScopedMemoryCreate,
+)
+from .store import ScopedMemoryStore
+
+__all__ = [
+    # Errors
+    "MemoryLimitExceededError",
+    "MemoryNotFoundError",
+    "MemoryScopeError",
+    # Models
+    "MemoryScope",
+    "ScopedMemory",
+    # Store
+    "ScopedMemoryStore",
+]
+]]></code-snippet>
+  </reference-code>
+
+  <!-- Configuration Pattern -->
+  <reference-code id="config-pattern">
+    <description>
+      Configuration loading pattern from Settings dataclass.
+      Add community detection settings following this pattern.
+    </description>
+    <file-path>backend/src/agentic_rag_backend/config.py</file-path>
+    <existing-settings>
+      <!-- Memory Platform settings show the pattern for Epic 20 features -->
+      <setting name="memory_scopes_enabled" type="bool" default="false"/>
+      <setting name="memory_default_scope" type="str" default="session"/>
+      <setting name="memory_consolidation_enabled" type="bool" default="false"/>
+      <setting name="memory_consolidation_schedule" type="str" default="0 2 * * *"/>
+    </existing-settings>
+    <code-snippet name="boolean-env-helper"><![CDATA[
+def get_bool_env(key: str, default: str = "false") -> bool:
+    """Parse a boolean environment variable."""
+    return os.getenv(key, default).strip().lower() in {"true", "1", "yes"}
+
+def get_int_env(key: str, default: int, min_val: Optional[int] = None) -> int:
+    """Parse an integer environment variable with optional minimum validation."""
+    raw_value = os.getenv(key)
+    if raw_value is None:
+        return default
+    try:
+        value = int(raw_value)
+        if min_val is not None and value < min_val:
+            return default
+        return value
+    except ValueError:
+        return default
+]]></code-snippet>
+    <new-settings-to-add>
+      <!-- Add these to Settings dataclass -->
+      <setting name="community_detection_enabled" env="COMMUNITY_DETECTION_ENABLED" type="bool" default="false"/>
+      <setting name="community_algorithm" env="COMMUNITY_ALGORITHM" type="str" default="louvain" valid="louvain|leiden"/>
+      <setting name="community_min_size" env="COMMUNITY_MIN_SIZE" type="int" default="3" min="2"/>
+      <setting name="community_max_levels" env="COMMUNITY_MAX_LEVELS" type="int" default="3" min="1"/>
+      <setting name="community_summary_model" env="COMMUNITY_SUMMARY_MODEL" type="str" default="gpt-4o-mini"/>
+      <setting name="community_refresh_schedule" env="COMMUNITY_REFRESH_SCHEDULE" type="str" default="0 3 * * 0"/>
+    </new-settings-to-add>
+  </reference-code>
+
+  <!-- API Route Pattern -->
+  <reference-code id="api-route-pattern">
+    <description>
+      API route pattern from memories.py for Epic 20 features.
+      Follow this pattern for communities.py routes.
+    </description>
+    <file-path>backend/src/agentic_rag_backend/api/routes/memories.py</file-path>
+    <key-patterns>
+      <pattern name="router-prefix">APIRouter(prefix="/memories", tags=["memories"])</pattern>
+      <pattern name="feature-flag-check">check_feature_enabled(settings) raises 404 if disabled</pattern>
+      <pattern name="success-response">success_response(data) wraps with requestId and timestamp</pattern>
+      <pattern name="dependency-injection">get_settings, get_postgres from request.app.state</pattern>
+    </key-patterns>
+    <code-snippet name="route-structure"><![CDATA[
+"""Community API endpoints for Epic 20 Graph Intelligence."""
+
+from datetime import datetime, timezone
+from typing import Any, Optional
+from uuid import UUID, uuid4
+
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
+
+from agentic_rag_backend.config import Settings
+
+logger = structlog.get_logger(__name__)
+
+router = APIRouter(prefix="/communities", tags=["communities"])
+
+
+# Response wrapper models
+class Meta(BaseModel):
+    """Response metadata."""
+    requestId: str
+    timestamp: str
+
+
+class SuccessResponse(BaseModel):
+    """Standard success response wrapper."""
+    data: Any
+    meta: Meta
+
+
+def success_response(data: Any) -> dict[str, Any]:
+    """Wrap data in standard success response format."""
+    return {
+        "data": data,
+        "meta": {
+            "requestId": str(uuid4()),
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        },
+    }
+
+
+# Dependency injection
+async def get_settings(request: Request) -> Settings:
+    """Get settings from app.state."""
+    return request.app.state.settings
+
+
+def check_feature_enabled(settings: Settings) -> None:
+    """Check if community detection feature is enabled."""
+    if not settings.community_detection_enabled:
+        raise HTTPException(
+            status_code=404,
+            detail="Community detection feature is not enabled. Set COMMUNITY_DETECTION_ENABLED=true to enable.",
+        )
+
+
+@router.post(
+    "/detect",
+    response_model=SuccessResponse,
+    summary="Trigger community detection",
+    description="Trigger community detection for tenant's knowledge graph.",
+)
+async def detect_communities(
+    # ... implementation
+):
+    check_feature_enabled(settings)
+    # ... implementation
+]]></code-snippet>
+  </reference-code>
+
+  <!-- Test Patterns -->
+  <reference-code id="test-patterns">
+    <description>
+      Test patterns from existing test files.
+    </description>
+    <file-path>backend/tests/conftest.py</file-path>
+    <key-fixtures>
+      <fixture name="sample_tenant_id">Returns uuid4() for tenant isolation tests</fixture>
+      <fixture name="mock_neo4j_client">Mocked Neo4jClient with AsyncMock methods</fixture>
+      <fixture name="mock_graphiti_node">Factory for creating mock Graphiti nodes</fixture>
+    </key-fixtures>
+    <code-snippet name="neo4j-test-pattern"><![CDATA[
+# From backend/tests/db/test_neo4j.py
+class TestNeo4jClient:
+    """Tests for Neo4jClient class."""
+
+    @pytest.fixture
+    def mock_driver(self):
+        """Create a mock Neo4j driver."""
+        driver = MagicMock()
+        session = MagicMock()
+        session.__aenter__ = AsyncMock(return_value=session)
+        session.__aexit__ = AsyncMock(return_value=None)
+        session.run = AsyncMock()
+        driver.session.return_value = session
+        return driver
+
+    @pytest.fixture
+    def client(self, mock_driver):
+        """Create a Neo4jClient with mocked driver."""
+        client = Neo4jClient(
+            uri="bolt://localhost:7687",
+            user="neo4j",
+            password="test",
+        )
+        client._driver = mock_driver
+        return client
+
+    @pytest.mark.asyncio
+    async def test_create_entity(self, client, mock_driver):
+        """Test creating an entity."""
+        session = mock_driver.session.return_value
+        mock_result = MagicMock()
+        mock_record = MagicMock()
+        mock_record.__getitem__ = MagicMock(return_value={"id": "test-id"})
+        mock_result.single = AsyncMock(return_value=mock_record)
+        session.run = AsyncMock(return_value=mock_result)
+
+        result = await client.create_entity(
+            entity_id="test-id",
+            tenant_id="11111111-1111-1111-1111-111111111111",
+            name="TestEntity",
+            entity_type="Concept",
+        )
+
+        assert result is not None
+        session.run.assert_called_once()
+]]></code-snippet>
+    <code-snippet name="conftest-fixtures"><![CDATA[
+# From backend/tests/conftest.py
+@pytest.fixture
+def sample_tenant_id():
+    """Provide a sample tenant ID."""
+    return uuid4()
+
+
+@pytest.fixture
+def mock_neo4j_client():
+    """Mock Neo4jClient wrapper."""
+    from agentic_rag_backend.db.neo4j import Neo4jClient
+
+    client = MagicMock(spec=Neo4jClient)
+    client.find_similar_entity = AsyncMock(return_value=None)
+    client.create_entity = AsyncMock(return_value={"id": "test-id"})
+    client.get_graph_stats = AsyncMock(return_value={
+        "entity_count": 0,
+        "document_count": 0,
+        "chunk_count": 0,
+        "relationship_count": 0,
+    })
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock()
+    return client
+]]></code-snippet>
+  </reference-code>
+
+  <!-- NetworkX Integration Notes -->
+  <reference-code id="networkx-integration">
+    <description>
+      NetworkX is NOT currently used in the codebase. This story introduces it.
+      Add networkx>=3.0 to pyproject.toml dependencies.
+    </description>
+    <file-path>backend/pyproject.toml</file-path>
+    <dependency-to-add>
+      <dep name="networkx" version=">=3.0" purpose="Community detection algorithms (Louvain)"/>
+      <optional-dep name="leidenalg" purpose="Leiden algorithm (optional, falls back to Louvain)"/>
+      <optional-dep name="igraph" purpose="Required for leidenalg"/>
+    </dependency-to-add>
+    <code-snippet name="networkx-louvain-usage"><![CDATA[
+# Community detection with NetworkX
+import networkx as nx
+from networkx.algorithms.community import louvain_communities
+
+# Create graph from Neo4j data
+G = nx.Graph()
+
+# Add nodes
+for node in nodes:
+    G.add_node(node["id"], **node)
+
+# Add edges
+for edge in edges:
+    G.add_edge(edge["source"], edge["target"], **edge)
+
+# Run Louvain community detection
+communities = louvain_communities(G, resolution=1.0)
+
+# Convert to partition dict: {node_id: community_id}
+partition = {}
+for i, community in enumerate(communities):
+    for node in community:
+        partition[node] = i
+]]></code-snippet>
+    <code-snippet name="leiden-with-fallback"><![CDATA[
+def _run_leiden(self, G: nx.Graph) -> dict:
+    """Run Leiden community detection (if available)."""
+    try:
+        import leidenalg
+        import igraph as ig
+
+        # Convert NetworkX to igraph
+        ig_graph = ig.Graph.from_networkx(G)
+
+        # Run Leiden
+        partition = leidenalg.find_partition(
+            ig_graph,
+            leidenalg.ModularityVertexPartition,
+        )
+
+        return {node: membership for node, membership
+                in zip(G.nodes(), partition.membership)}
+    except ImportError:
+        logger.warning("leiden_not_available_falling_back_to_louvain")
+        return self._run_louvain(G)
+]]></code-snippet>
+  </reference-code>
+
+  <!-- Neo4j Schema for Communities -->
+  <neo4j-schema>
+    <description>
+      Neo4j schema additions for Community nodes and relationships.
+      Add these indexes to Neo4jClient.create_indexes() method.
+    </description>
+    <nodes>
+      <node label="Community">
+        <property name="id" type="String" description="Community UUID"/>
+        <property name="name" type="String" description="Generated community name"/>
+        <property name="level" type="Integer" description="Hierarchy level (0 = most granular)"/>
+        <property name="tenant_id" type="String" description="Tenant identifier"/>
+        <property name="summary" type="String" description="LLM-generated summary"/>
+        <property name="keywords" type="List[String]" description="Key topics"/>
+        <property name="entity_count" type="Integer" description="Number of entities"/>
+        <property name="created_at" type="DateTime" description="Creation timestamp"/>
+      </node>
+    </nodes>
+    <relationships>
+      <relationship type="BELONGS_TO" from="Entity" to="Community" description="Entity membership"/>
+      <relationship type="PARENT_OF" from="Community" to="Community" description="Hierarchy parent"/>
+      <relationship type="CHILD_OF" from="Community" to="Community" description="Hierarchy child"/>
+    </relationships>
+    <indexes>
+      <index name="community_id" property="id" label="Community"/>
+      <index name="community_tenant" property="tenant_id" label="Community"/>
+      <index name="community_level" properties="tenant_id,level" label="Community"/>
+    </indexes>
+    <cypher-examples>
+      <example name="create-community"><![CDATA[
+MERGE (c:Community {id: $id, tenant_id: $tenant_id})
+SET c.name = $name,
+    c.level = $level,
+    c.summary = $summary,
+    c.keywords = $keywords,
+    c.entity_count = $entity_count,
+    c.created_at = datetime()
+RETURN c
+]]></example>
+      <example name="link-entity-to-community"><![CDATA[
+MATCH (e:Entity {id: $entity_id, tenant_id: $tenant_id})
+MATCH (c:Community {id: $community_id, tenant_id: $tenant_id})
+MERGE (e)-[:BELONGS_TO]->(c)
+]]></example>
+      <example name="get-communities-at-level"><![CDATA[
+MATCH (c:Community {tenant_id: $tenant_id, level: $level})
+RETURN c
+ORDER BY c.entity_count DESC
+LIMIT $limit
+]]></example>
+      <example name="export-graph-for-detection"><![CDATA[
+// Export entities and relationships for NetworkX processing
+MATCH (e:Entity {tenant_id: $tenant_id})
+WITH e
+MATCH (e)-[r]-(other:Entity {tenant_id: $tenant_id})
+RETURN DISTINCT e.id as source_id, other.id as target_id, type(r) as rel_type
+]]></example>
+    </cypher-examples>
+  </neo4j-schema>
+
+  <!-- API Endpoints Specification -->
+  <api-endpoints>
+    <endpoint method="POST" path="/api/v1/communities/detect">
+      <description>Trigger community detection for tenant</description>
+      <request-body>
+        <field name="tenant_id" type="UUID" required="true"/>
+        <field name="generate_summaries" type="bool" default="true"/>
+        <field name="algorithm" type="str" default="louvain"/>
+      </request-body>
+      <response>Community detection result with count and timing</response>
+    </endpoint>
+    <endpoint method="GET" path="/api/v1/communities">
+      <description>List communities (with level filter)</description>
+      <query-params>
+        <param name="tenant_id" type="UUID" required="true"/>
+        <param name="level" type="int" required="false"/>
+        <param name="limit" type="int" default="50"/>
+        <param name="offset" type="int" default="0"/>
+      </query-params>
+    </endpoint>
+    <endpoint method="POST" path="/api/v1/communities/search">
+      <description>Search communities by query</description>
+      <request-body>
+        <field name="query" type="str" required="true"/>
+        <field name="tenant_id" type="UUID" required="true"/>
+        <field name="level" type="int" default="1"/>
+        <field name="limit" type="int" default="10"/>
+      </request-body>
+    </endpoint>
+    <endpoint method="GET" path="/api/v1/communities/{id}">
+      <description>Get community details with entities</description>
+    </endpoint>
+    <endpoint method="DELETE" path="/api/v1/communities/{id}">
+      <description>Delete community and relationships</description>
+    </endpoint>
+  </api-endpoints>
+
+  <!-- Tech Spec Reference -->
+  <tech-spec-reference>
+    <file-path>_bmad-output/epics/epic-20-tech-spec.md</file-path>
+    <section>Group B: Graph Intelligence - Story 20-B1: Implement Community Detection</section>
+    <key-design-decisions>
+      <decision>Use NetworkX for community detection algorithms (Louvain default)</decision>
+      <decision>Store communities as Neo4j nodes with BELONGS_TO relationships</decision>
+      <decision>Generate LLM summaries for each community using COMMUNITY_SUMMARY_MODEL</decision>
+      <decision>Support hierarchical communities up to COMMUNITY_MAX_LEVELS deep</decision>
+      <decision>Feature is opt-in via COMMUNITY_DETECTION_ENABLED flag (default: false)</decision>
+      <decision>Tenant isolation enforced on all Neo4j queries</decision>
+    </key-design-decisions>
+    <performance-requirements>
+      <requirement>Detection completes in &lt;30 seconds for graphs with &lt;10K entities (target)</requirement>
+      <requirement>Detection completes in &lt;5 minutes for graphs with &lt;10K entities (hard limit)</requirement>
+    </performance-requirements>
+  </tech-spec-reference>
+
+  <!-- Dependencies -->
+  <dependencies>
+    <internal>
+      <dep>Epic 19 (Quality Foundation) - COMPLETED</dep>
+      <dep>Epic 5 (Graphiti) - Temporal graph storage for entities</dep>
+      <dep>Neo4jClient - backend/src/agentic_rag_backend/db/neo4j.py</dep>
+      <dep>GraphitiClient - backend/src/agentic_rag_backend/db/graphiti.py</dep>
+    </internal>
+    <external>
+      <dep name="networkx" version=">=3.0">Community detection algorithms</dep>
+      <dep name="leidenalg" version="optional">Leiden algorithm (optional)</dep>
+      <dep name="igraph" version="optional">Required for leidenalg</dep>
+    </external>
+    <enables>
+      <story>20-B2 (LazyRAG Pattern) - Uses communities for context</story>
+      <story>20-B3 (Global/Local Query Routing) - Routes to communities</story>
+      <story>20-C2 (Dual-Level Retrieval) - Requires communities for high-level themes</story>
+    </enables>
+  </dependencies>
+
+  <!-- Implementation Checklist -->
+  <implementation-checklist>
+    <phase name="1. Configuration">
+      <task>Add community settings to Settings dataclass in config.py</task>
+      <task>Add COMMUNITY_* environment variable parsing in load_settings()</task>
+      <task>Update .env.example with new configuration variables</task>
+    </phase>
+    <phase name="2. Core Module">
+      <task>Create backend/src/agentic_rag_backend/graph/ directory</task>
+      <task>Implement CommunityAlgorithm enum in models.py</task>
+      <task>Implement Community dataclass in models.py</task>
+      <task>Implement CommunityDetector class in community.py</task>
+      <task>Implement _export_to_networkx() method</task>
+      <task>Implement _run_louvain() method</task>
+      <task>Implement _run_leiden() with fallback</task>
+      <task>Implement _build_communities() method</task>
+      <task>Implement _build_hierarchy() method</task>
+      <task>Implement _generate_community_summaries() method</task>
+      <task>Implement _store_communities() method</task>
+      <task>Implement get_community_for_query() method</task>
+    </phase>
+    <phase name="3. Neo4j Integration">
+      <task>Add Community node indexes to Neo4jClient.create_indexes()</task>
+      <task>Add BELONGS_TO, PARENT_OF, CHILD_OF to valid relationship types</task>
+    </phase>
+    <phase name="4. API Routes">
+      <task>Create backend/src/agentic_rag_backend/api/routes/communities.py</task>
+      <task>Implement POST /detect endpoint</task>
+      <task>Implement GET / list endpoint</task>
+      <task>Implement POST /search endpoint</task>
+      <task>Implement GET /{id} endpoint</task>
+      <task>Implement DELETE /{id} endpoint</task>
+      <task>Register router in main.py</task>
+    </phase>
+    <phase name="5. Dependencies">
+      <task>Add networkx>=3.0 to pyproject.toml</task>
+      <task>Add optional leidenalg and igraph dependencies</task>
+    </phase>
+    <phase name="6. Testing">
+      <task>Write unit tests for CommunityAlgorithm enum</task>
+      <task>Write unit tests for Community dataclass</task>
+      <task>Write unit tests for Louvain partition building</task>
+      <task>Write unit tests for Leiden fallback behavior</task>
+      <task>Write unit tests for hierarchy building</task>
+      <task>Write unit tests for graph too small handling</task>
+      <task>Write integration tests with Neo4j</task>
+      <task>Write API endpoint tests</task>
+      <task>Write tenant isolation tests</task>
+    </phase>
+  </implementation-checklist>
+</story-context>

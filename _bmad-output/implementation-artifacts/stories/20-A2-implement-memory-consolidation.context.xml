@@ -1,0 +1,885 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story Context File for 20-A2: Implement Memory Consolidation
+  Generated: 2026-01-05
+
+  This file provides implementation context for the Memory Consolidation feature,
+  building on Story 20-A1's Memory Scopes foundation.
+-->
+<story-context>
+  <story-id>20-A2-implement-memory-consolidation</story-id>
+  <story-title>Implement Memory Consolidation</story-title>
+  <epic>Epic 20: Advanced Retrieval Intelligence</epic>
+  <group>Group A: Memory Platform (Compete with Mem0)</group>
+
+  <dependencies>
+    <dependency status="completed">20-A1-implement-memory-scopes</dependency>
+  </dependencies>
+
+  <!-- ============================================================
+       SECTION 1: STORY 20-A1 MEMORY MODULE CODE (Foundation)
+       ============================================================ -->
+  <section name="memory-module-foundation">
+    <description>
+      Story 20-A1 implementation provides the foundation for consolidation.
+      Key classes: ScopedMemory, ScopedMemoryStore, MemoryScope
+    </description>
+
+    <file path="backend/src/agentic_rag_backend/memory/__init__.py">
+      <![CDATA[
+"""Memory Platform module for hierarchical scoped memories.
+
+This module implements memory scopes similar to Mem0's approach:
+- USER scope: Persists across all sessions for a user
+- SESSION scope: Persists within a single conversation session
+- AGENT scope: Persists across agent invocations (operational memory)
+- GLOBAL scope: Tenant-wide shared memory
+
+The scope hierarchy is:
+- SESSION includes USER and GLOBAL memories when searching
+- USER includes GLOBAL memories when searching
+- AGENT includes GLOBAL memories when searching
+
+Configuration:
+- MEMORY_SCOPES_ENABLED: Enable/disable the feature (default: false)
+- MEMORY_DEFAULT_SCOPE: Default scope for new memories (default: session)
+- MEMORY_INCLUDE_PARENT_SCOPES: Include parent scopes in search (default: true)
+- MEMORY_CACHE_TTL_SECONDS: Redis cache TTL (default: 3600)
+- MEMORY_MAX_PER_SCOPE: Maximum memories per scope (default: 10000)
+"""
+
+from .errors import (
+    MemoryLimitExceededError,
+    MemoryNotFoundError,
+    MemoryScopeError,
+)
+from .models import (
+    MemoryScope,
+    MemorySearchRequest,
+    MemorySearchResponse,
+    ScopedMemory,
+    ScopedMemoryCreate,
+    ScopedMemoryUpdate,
+)
+from .scopes import get_parent_scopes, validate_scope_context
+from .store import ScopedMemoryStore
+
+__all__ = [
+    "MemoryLimitExceededError",
+    "MemoryNotFoundError",
+    "MemoryScopeError",
+    "MemoryScope",
+    "MemorySearchRequest",
+    "MemorySearchResponse",
+    "ScopedMemory",
+    "ScopedMemoryCreate",
+    "ScopedMemoryUpdate",
+    "ScopedMemoryStore",
+    "get_parent_scopes",
+    "validate_scope_context",
+]
+]]>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/memory/models.py">
+      <![CDATA[
+"""Pydantic models for Epic 20 Memory Platform."""
+
+from datetime import datetime
+from enum import Enum
+from typing import Any, Optional
+from uuid import UUID
+
+from pydantic import BaseModel, Field
+
+
+class MemoryScope(str, Enum):
+    """Hierarchical memory scopes.
+
+    Scope hierarchy for search:
+    - SESSION includes USER and GLOBAL memories
+    - USER includes GLOBAL memories
+    - AGENT includes GLOBAL memories
+    - GLOBAL is the root scope
+    """
+
+    USER = "user"  # Persists across all sessions for a user
+    SESSION = "session"  # Persists within a single conversation session
+    AGENT = "agent"  # Persists across agent invocations (operational memory)
+    GLOBAL = "global"  # Tenant-wide shared memory
+
+
+class ScopedMemoryCreate(BaseModel):
+    """Request model for creating a scoped memory."""
+
+    content: str = Field(
+        ...,
+        min_length=1,
+        max_length=10000,
+        description="Memory content",
+    )
+    scope: MemoryScope = Field(..., description="Memory scope level")
+    tenant_id: UUID = Field(..., description="Tenant identifier (always required)")
+    user_id: Optional[UUID] = Field(
+        default=None, description="User ID (required for USER and SESSION scope)"
+    )
+    session_id: Optional[UUID] = Field(
+        default=None, description="Session ID (required for SESSION scope)"
+    )
+    agent_id: Optional[str] = Field(
+        default=None,
+        max_length=100,
+        description="Agent ID (required for AGENT scope)",
+    )
+    importance: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Importance score for consolidation (0.0-1.0)",
+    )
+    metadata: Optional[dict[str, Any]] = Field(
+        default=None, description="Additional metadata"
+    )
+
+
+class ScopedMemoryUpdate(BaseModel):
+    """Request model for updating a scoped memory."""
+
+    content: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=10000,
+        description="Updated memory content",
+    )
+    importance: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Updated importance score",
+    )
+    metadata: Optional[dict[str, Any]] = Field(
+        default=None, description="Updated metadata (replaces existing)"
+    )
+
+
+class ScopedMemory(BaseModel):
+    """A memory entry with scope context."""
+
+    id: UUID = Field(..., description="Memory unique identifier")
+    content: str = Field(..., description="Memory content")
+    scope: MemoryScope = Field(..., description="Memory scope level")
+    tenant_id: UUID = Field(..., description="Tenant identifier")
+    user_id: Optional[UUID] = Field(default=None, description="User identifier")
+    session_id: Optional[UUID] = Field(default=None, description="Session identifier")
+    agent_id: Optional[str] = Field(default=None, description="Agent identifier")
+    importance: float = Field(default=1.0, description="Importance score 0.0-1.0")
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Additional metadata"
+    )
+    created_at: datetime = Field(..., description="Creation timestamp")
+    accessed_at: datetime = Field(..., description="Last access timestamp")
+    access_count: int = Field(default=0, ge=0, description="Number of times accessed")
+    embedding: Optional[list[float]] = Field(
+        default=None, description="Embedding vector (1536 dimensions)"
+    )
+
+
+class MemorySearchRequest(BaseModel):
+    """Request model for searching memories."""
+
+    query: str = Field(
+        ..., min_length=1, max_length=1000, description="Search query"
+    )
+    scope: MemoryScope = Field(..., description="Search starting scope")
+    tenant_id: UUID = Field(..., description="Tenant identifier")
+    user_id: Optional[UUID] = Field(
+        default=None, description="User ID for USER/SESSION scope"
+    )
+    session_id: Optional[UUID] = Field(
+        default=None, description="Session ID for SESSION scope"
+    )
+    agent_id: Optional[str] = Field(
+        default=None, description="Agent ID for AGENT scope"
+    )
+    limit: int = Field(default=10, ge=1, le=100, description="Maximum results to return")
+    include_parent_scopes: bool = Field(
+        default=True, description="Include memories from parent scopes in hierarchy"
+    )
+
+
+class MemorySearchResponse(BaseModel):
+    """Response model for memory search."""
+
+    memories: list[ScopedMemory] = Field(..., description="List of matching memories")
+    total: int = Field(..., ge=0, description="Total number of matches")
+    query: str = Field(..., description="Original search query")
+    scopes_searched: list[MemoryScope] = Field(
+        ..., description="Scopes that were searched"
+    )
+
+
+class MemoryListResponse(BaseModel):
+    """Response model for listing memories."""
+
+    memories: list[ScopedMemory] = Field(..., description="List of memories")
+    total: int = Field(..., ge=0, description="Total number of memories matching filters")
+    limit: int = Field(..., description="Maximum results returned")
+    offset: int = Field(..., description="Offset used for pagination")
+
+
+class DeleteByScopeResponse(BaseModel):
+    """Response model for deleting memories by scope."""
+
+    deleted_count: int = Field(..., ge=0, description="Number of memories deleted")
+    scope: MemoryScope = Field(..., description="Scope that was cleared")
+]]>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/memory/scopes.py">
+      <![CDATA[
+"""Scope hierarchy and validation logic for Epic 20 Memory Platform."""
+
+from typing import Optional
+
+from .models import MemoryScope
+
+
+# Scope hierarchy: maps each scope to its parent scopes for inclusive search
+# SESSION includes USER and GLOBAL (user's memories + shared knowledge)
+# USER includes GLOBAL (user's memories + shared knowledge)
+# AGENT includes GLOBAL (agent's memories + shared knowledge)
+# GLOBAL has no parents
+SCOPE_HIERARCHY: dict[MemoryScope, list[MemoryScope]] = {
+    MemoryScope.SESSION: [MemoryScope.USER, MemoryScope.GLOBAL],
+    MemoryScope.USER: [MemoryScope.GLOBAL],
+    MemoryScope.AGENT: [MemoryScope.GLOBAL],
+    MemoryScope.GLOBAL: [],
+}
+
+
+def get_parent_scopes(scope: MemoryScope) -> list[MemoryScope]:
+    """Get parent scopes for a given scope level."""
+    return SCOPE_HIERARCHY.get(scope, [])
+
+
+def get_scopes_to_search(
+    scope: MemoryScope, include_parent_scopes: bool = True
+) -> list[MemoryScope]:
+    """Get all scopes to search for a query."""
+    scopes = [scope]
+    if include_parent_scopes:
+        scopes.extend(get_parent_scopes(scope))
+    return scopes
+
+
+def validate_scope_context(
+    scope: MemoryScope,
+    user_id: Optional[str],
+    session_id: Optional[str],
+    agent_id: Optional[str],
+) -> tuple[bool, Optional[str]]:
+    """Validate that required context is provided for the given scope."""
+    if scope == MemoryScope.USER:
+        if not user_id:
+            return False, "user_id is required for USER scope"
+    elif scope == MemoryScope.SESSION:
+        if not session_id:
+            return False, "session_id is required for SESSION scope"
+    elif scope == MemoryScope.AGENT:
+        if not agent_id:
+            return False, "agent_id is required for AGENT scope"
+    # GLOBAL scope has no additional requirements
+
+    return True, None
+]]>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/memory/errors.py">
+      <![CDATA[
+"""Memory-specific exceptions for Epic 20 Memory Platform."""
+
+
+from agentic_rag_backend.core.errors import AppError, ErrorCode
+
+
+class MemoryNotFoundError(AppError):
+    """Error when a memory is not found."""
+
+    def __init__(self, memory_id: str) -> None:
+        super().__init__(
+            code=ErrorCode.MEMORY_NOT_FOUND,
+            message=f"Memory with ID '{memory_id}' not found",
+            status=404,
+            details={"memory_id": memory_id},
+        )
+
+
+class MemoryScopeError(AppError):
+    """Error for invalid memory scope context."""
+
+    def __init__(self, scope: str, reason: str) -> None:
+        super().__init__(
+            code=ErrorCode.MEMORY_SCOPE_INVALID,
+            message=f"Invalid scope context for '{scope}': {reason}",
+            status=400,
+            details={"scope": scope, "reason": reason},
+        )
+
+
+class MemoryLimitExceededError(AppError):
+    """Error when memory limit per scope is exceeded."""
+
+    def __init__(self, scope: str, limit: int, current: int) -> None:
+        super().__init__(
+            code=ErrorCode.MEMORY_LIMIT_EXCEEDED,
+            message=f"Memory limit exceeded for scope '{scope}': {current}/{limit}",
+            status=429,
+            details={"scope": scope, "limit": limit, "current_count": current},
+        )
+]]>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/memory/store.py" summary="true">
+      <![CDATA[
+"""ScopedMemoryStore for Epic 20 Memory Platform.
+
+Key methods for Story 20-A2 consolidation:
+- add_memory() - Creates memory with embedding
+- get_memory() - Retrieves memory by ID
+- list_memories() - Lists memories with filtering
+- search_memories() - Searches with embedding similarity
+- update_memory() - Updates content, importance, metadata, embedding
+- delete_memory() - Deletes single memory
+- delete_memories_by_scope() - Bulk delete by scope
+
+The store uses:
+- PostgreSQL + pgvector for persistent storage and similarity search
+- Redis for hot cache optimization
+- Optional Graphiti integration for graph-based relationships
+
+IMPORTANT FOR CONSOLIDATION:
+- update_memory() method already exists and can update importance
+- _search_in_postgres() uses cosine similarity (1 - embedding <=> query)
+- Embeddings stored as pgvector format
+- Access stats tracked via _update_access_stats()
+
+See full implementation at:
+backend/src/agentic_rag_backend/memory/store.py
+]]>
+    </file>
+  </section>
+
+  <!-- ============================================================
+       SECTION 2: CONFIGURATION PATTERNS
+       ============================================================ -->
+  <section name="configuration-patterns">
+    <description>
+      Configuration follows the existing Settings dataclass pattern.
+      Story 20-A2 adds consolidation-specific settings.
+    </description>
+
+    <file path="backend/src/agentic_rag_backend/config.py" summary="true">
+      <![CDATA[
+# Existing Memory Platform settings (Story 20-A1):
+# Epic 20 - Memory Platform settings (Story 20-A1)
+memory_scopes_enabled: bool
+memory_default_scope: str
+memory_include_parent_scopes: bool
+memory_cache_ttl_seconds: int
+memory_max_per_scope: int
+
+# Loading pattern example:
+memory_scopes_enabled = get_bool_env("MEMORY_SCOPES_ENABLED", "false")
+memory_default_scope = os.getenv("MEMORY_DEFAULT_SCOPE", "session").strip().lower()
+valid_memory_scopes = {"user", "session", "agent", "global"}
+if memory_default_scope not in valid_memory_scopes:
+    logger.warning(
+        "invalid_memory_scope",
+        scope=memory_default_scope,
+        valid_scopes=list(valid_memory_scopes),
+        fallback="session",
+    )
+    memory_default_scope = "session"
+memory_include_parent_scopes = get_bool_env("MEMORY_INCLUDE_PARENT_SCOPES", "true")
+memory_cache_ttl_seconds = get_int_env("MEMORY_CACHE_TTL_SECONDS", 3600, min_val=60)
+memory_max_per_scope = get_int_env("MEMORY_MAX_PER_SCOPE", 10000, min_val=100)
+
+# Helper functions available:
+# get_bool_env(key: str, default: str = "false") -> bool
+# get_int_env(key: str, default: int, min_val: Optional[int] = None) -> int
+# get_float_env(key: str, default: float, min_val: Optional[float] = None) -> float
+
+# STORY 20-A2 NEW SETTINGS TO ADD:
+# memory_consolidation_enabled: bool          # Default: true (if scopes enabled)
+# memory_similarity_threshold: float          # Default: 0.9
+# memory_decay_half_life_days: int            # Default: 30
+# memory_min_importance: float                # Default: 0.1
+# memory_consolidation_batch_size: int        # Default: 100
+# memory_consolidation_schedule: str          # Default: "0 2 * * *" (2 AM daily)
+]]>
+    </file>
+  </section>
+
+  <!-- ============================================================
+       SECTION 3: API ROUTE PATTERNS
+       ============================================================ -->
+  <section name="api-route-patterns">
+    <description>
+      API endpoints follow FastAPI router pattern with dependency injection.
+      Story 20-A2 adds consolidation trigger endpoints.
+    </description>
+
+    <file path="backend/src/agentic_rag_backend/api/routes/memories.py" summary="true">
+      <![CDATA[
+"""Memory API endpoints for Epic 20 Memory Platform.
+
+Existing endpoints:
+- POST /api/v1/memories - Create a memory
+- GET /api/v1/memories - List memories
+- POST /api/v1/memories/search - Search memories
+- GET /api/v1/memories/{memory_id} - Get a memory
+- PUT /api/v1/memories/{memory_id} - Update a memory
+- DELETE /api/v1/memories/{memory_id} - Delete a memory
+- DELETE /api/v1/memories/scope/{scope} - Delete by scope
+
+STORY 20-A2 NEW ENDPOINTS TO ADD:
+- POST /api/v1/memories/consolidate - Trigger manual consolidation (all scopes)
+- POST /api/v1/memories/consolidate/{scope} - Consolidate specific scope
+
+Response pattern:
+def success_response(data: Any) -> dict[str, Any]:
+    return {
+        "data": data,
+        "meta": {
+            "requestId": str(uuid4()),
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        },
+    }
+
+Feature gate check:
+def check_feature_enabled(settings: Settings) -> None:
+    if not settings.memory_scopes_enabled:
+        raise HTTPException(
+            status_code=404,
+            detail="Memory scopes feature is not enabled. Set MEMORY_SCOPES_ENABLED=true to enable.",
+        )
+]]>
+    </file>
+  </section>
+
+  <!-- ============================================================
+       SECTION 4: SCHEDULER PATTERNS (APScheduler)
+       ============================================================ -->
+  <section name="scheduler-patterns">
+    <description>
+      No existing APScheduler integration found in codebase.
+      This is a new pattern for Story 20-A2.
+      Reference APScheduler documentation for best practices.
+    </description>
+
+    <reference name="apscheduler-pattern">
+      <![CDATA[
+# APScheduler integration pattern for async FastAPI:
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+# Global scheduler instance
+_scheduler: Optional[AsyncIOScheduler] = None
+
+
+def parse_cron_schedule(schedule: str) -> CronTrigger:
+    """Parse cron schedule string to CronTrigger.
+
+    Format: "minute hour day month day_of_week"
+    Example: "0 2 * * *" = 2:00 AM daily
+    """
+    parts = schedule.split()
+    if len(parts) != 5:
+        raise ValueError(f"Invalid cron schedule: {schedule}")
+
+    return CronTrigger(
+        minute=parts[0],
+        hour=parts[1],
+        day=parts[2],
+        month=parts[3],
+        day_of_week=parts[4],
+    )
+
+
+async def start_consolidation_scheduler(
+    consolidator: "MemoryConsolidator",
+    schedule: str = "0 2 * * *",
+) -> None:
+    """Start the consolidation scheduler.
+
+    Args:
+        consolidator: MemoryConsolidator instance
+        schedule: Cron schedule string (default: 2 AM daily)
+    """
+    global _scheduler
+
+    if _scheduler is not None:
+        logger.warning("scheduler_already_running")
+        return
+
+    _scheduler = AsyncIOScheduler()
+
+    trigger = parse_cron_schedule(schedule)
+
+    _scheduler.add_job(
+        consolidator.consolidate_all_tenants,
+        trigger,
+        id="memory_consolidation",
+        name="Memory Consolidation Job",
+        replace_existing=True,
+    )
+
+    _scheduler.start()
+    logger.info("consolidation_scheduler_started", schedule=schedule)
+
+
+async def stop_consolidation_scheduler() -> None:
+    """Stop the consolidation scheduler."""
+    global _scheduler
+
+    if _scheduler is not None:
+        _scheduler.shutdown(wait=True)
+        _scheduler = None
+        logger.info("consolidation_scheduler_stopped")
+]]>
+    </reference>
+  </section>
+
+  <!-- ============================================================
+       SECTION 5: APPLICATION LIFESPAN INTEGRATION
+       ============================================================ -->
+  <section name="lifespan-integration">
+    <description>
+      Scheduler should be started/stopped in FastAPI lifespan manager.
+      Pattern from backend/src/agentic_rag_backend/main.py
+    </description>
+
+    <file path="backend/src/agentic_rag_backend/main.py" summary="true">
+      <![CDATA[
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Application lifespan manager."""
+    settings = load_settings()
+    app.state.settings = settings
+
+    # ... existing initialization ...
+
+    # STORY 20-A2: Add consolidation scheduler startup here
+    # if settings.memory_scopes_enabled and settings.memory_consolidation_enabled:
+    #     from agentic_rag_backend.memory.scheduler import start_consolidation_scheduler
+    #     from agentic_rag_backend.memory.consolidation import MemoryConsolidator
+    #
+    #     consolidator = MemoryConsolidator(
+    #         store=app.state.memory_store,
+    #         similarity_threshold=settings.memory_similarity_threshold,
+    #         decay_half_life_days=settings.memory_decay_half_life_days,
+    #         min_importance=settings.memory_min_importance,
+    #         consolidation_batch_size=settings.memory_consolidation_batch_size,
+    #     )
+    #     app.state.memory_consolidator = consolidator
+    #     await start_consolidation_scheduler(
+    #         consolidator,
+    #         settings.memory_consolidation_schedule,
+    #     )
+
+    yield
+
+    # STORY 20-A2: Add scheduler shutdown here
+    # if hasattr(app.state, "memory_consolidator"):
+    #     from agentic_rag_backend.memory.scheduler import stop_consolidation_scheduler
+    #     await stop_consolidation_scheduler()
+]]>
+    </file>
+  </section>
+
+  <!-- ============================================================
+       SECTION 6: TEST PATTERNS
+       ============================================================ -->
+  <section name="test-patterns">
+    <description>
+      Test patterns from existing codebase for unit and integration tests.
+    </description>
+
+    <file path="backend/tests/conftest.py" summary="true">
+      <![CDATA[
+"""pytest fixtures for Agentic RAG Backend tests."""
+
+# Key fixtures available:
+# - sample_tenant_id: UUID fixture for tenant isolation testing
+# - mock_redis_client: AsyncMock for Redis operations
+# - mock_postgres_client: MagicMock for PostgreSQL operations
+# - client: FastAPI TestClient with mocked dependencies
+
+# Pattern for mocking clients:
+@pytest.fixture
+def mock_redis():
+    """Mock Redis client for testing."""
+    redis_mock = AsyncMock()
+    redis_mock.xadd.return_value = b"1234567890-0"
+    return redis_mock
+
+@pytest.fixture
+def mock_postgres_client(sample_job_id, sample_tenant_id):
+    """Mock PostgresClient wrapper."""
+    from agentic_rag_backend.db.postgres import PostgresClient
+    client = MagicMock(spec=PostgresClient)
+    client.create_job = AsyncMock(return_value=sample_job_id)
+    # ... more mocks
+    return client
+]]>
+    </file>
+
+    <file path="backend/tests/retrieval/test_cache.py">
+      <![CDATA[
+"""Tests for retrieval cache behavior."""
+
+from agentic_rag_backend.retrieval.cache import TTLCache
+
+
+def test_cache_eviction_by_size() -> None:
+    cache = TTLCache[int](max_size=2, ttl_seconds=10)
+    cache.set("a", 1)
+    cache.set("b", 2)
+    cache.set("c", 3)
+
+    assert cache.get("a") is None
+    assert cache.get("b") == 2
+    assert cache.get("c") == 3
+
+
+def test_cache_expiration(monkeypatch) -> None:
+    now = {"value": 100.0}
+
+    def fake_monotonic() -> float:
+        return now["value"]
+
+    monkeypatch.setattr("agentic_rag_backend.retrieval.cache.monotonic", fake_monotonic)
+
+    cache = TTLCache[str](max_size=2, ttl_seconds=5)
+    cache.set("key", "value")
+    assert cache.get("key") == "value"
+
+    now["value"] = 106.0
+    assert cache.get("key") is None
+]]>
+    </file>
+  </section>
+
+  <!-- ============================================================
+       SECTION 7: CONSOLIDATION ALGORITHM REFERENCE
+       ============================================================ -->
+  <section name="consolidation-algorithm">
+    <description>
+      Algorithm specifications from Story 20-A2 and tech spec.
+    </description>
+
+    <algorithm name="importance-decay">
+      <![CDATA[
+# Importance Decay Formula:
+# decay_factor = 2 ** (-days_since_access / half_life_days)
+# access_boost = min(1.0, 0.5 + (access_count * 0.1))
+# new_importance = importance * decay_factor * access_boost
+
+def apply_importance_decay(
+    memory: ScopedMemory,
+    half_life_days: int = 30,
+    now: datetime = None,
+) -> float:
+    """Calculate new importance after decay.
+
+    Args:
+        memory: Memory to decay
+        half_life_days: Days for importance to halve
+        now: Current time (default: utcnow)
+
+    Returns:
+        New importance value (0.0-1.0)
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    days_since_access = (now - memory.accessed_at).total_seconds() / 86400
+
+    # Exponential decay
+    decay_factor = 2 ** (-days_since_access / half_life_days)
+
+    # Access boost: more accesses = slower decay
+    access_boost = min(1.0, 0.5 + (memory.access_count * 0.1))
+
+    new_importance = memory.importance * decay_factor * access_boost
+
+    return max(0.0, min(1.0, new_importance))
+]]>
+    </algorithm>
+
+    <algorithm name="similarity-detection">
+      <![CDATA[
+# Similarity Detection:
+# - Cosine similarity between memory embeddings
+# - Threshold: 0.9 (configurable via MEMORY_SIMILARITY_THRESHOLD)
+# - Merge strategy: Keep primary content, combine importance (max), sum access counts
+
+import numpy as np
+
+def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
+    """Calculate cosine similarity between two vectors.
+
+    Args:
+        vec_a: First embedding vector
+        vec_b: Second embedding vector
+
+    Returns:
+        Similarity score 0.0-1.0
+    """
+    a = np.array(vec_a)
+    b = np.array(vec_b)
+
+    dot_product = np.dot(a, b)
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
+
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+
+    return float(dot_product / (norm_a * norm_b))
+
+
+def merge_memories(
+    primary: ScopedMemory,
+    secondary: ScopedMemory,
+) -> ScopedMemoryUpdate:
+    """Create update to merge secondary into primary.
+
+    Merge strategy:
+    - Keep primary content
+    - Use max importance
+    - Sum access counts
+    - Merge metadata (primary takes precedence)
+    """
+    merged_metadata = {**secondary.metadata, **primary.metadata}
+    merged_metadata["merged_from"] = str(secondary.id)
+    merged_metadata["merged_at"] = datetime.now(timezone.utc).isoformat()
+
+    return ScopedMemoryUpdate(
+        importance=max(primary.importance, secondary.importance),
+        metadata=merged_metadata,
+        # Note: access_count needs to be updated separately
+    )
+]]>
+    </algorithm>
+  </section>
+
+  <!-- ============================================================
+       SECTION 8: DATACLASS MODELS TO ADD
+       ============================================================ -->
+  <section name="new-models">
+    <description>
+      New models to add to memory/models.py for Story 20-A2.
+    </description>
+
+    <model name="ConsolidationResult">
+      <![CDATA[
+class ConsolidationResult(BaseModel):
+    """Result summary from memory consolidation."""
+
+    memories_processed: int = Field(
+        ..., ge=0, description="Total memories in scope"
+    )
+    duplicates_merged: int = Field(
+        ..., ge=0, description="Number of memories merged"
+    )
+    memories_decayed: int = Field(
+        ..., ge=0, description="Number of memories with updated importance"
+    )
+    memories_removed: int = Field(
+        ..., ge=0, description="Number of memories removed (below threshold)"
+    )
+    processing_time_ms: float = Field(
+        ..., ge=0, description="Consolidation duration in milliseconds"
+    )
+    scope: Optional[MemoryScope] = Field(
+        default=None, description="Scope that was consolidated (None if all)"
+    )
+    tenant_id: Optional[str] = Field(
+        default=None, description="Tenant that was consolidated (None if all)"
+    )
+]]>
+    </model>
+
+    <model name="ConsolidationRequest">
+      <![CDATA[
+class ConsolidationRequest(BaseModel):
+    """Request model for manual consolidation trigger."""
+
+    tenant_id: UUID = Field(..., description="Tenant identifier")
+    scope: Optional[MemoryScope] = Field(
+        default=None, description="Specific scope to consolidate (None for all)"
+    )
+    user_id: Optional[UUID] = Field(
+        default=None, description="User ID for USER/SESSION scope"
+    )
+    session_id: Optional[UUID] = Field(
+        default=None, description="Session ID for SESSION scope"
+    )
+    agent_id: Optional[str] = Field(
+        default=None, description="Agent ID for AGENT scope"
+    )
+]]>
+    </model>
+  </section>
+
+  <!-- ============================================================
+       SECTION 9: ENV EXAMPLE ADDITIONS
+       ============================================================ -->
+  <section name="env-example">
+    <description>
+      Environment variables to add to .env.example
+    </description>
+
+    <content>
+      <![CDATA[
+# Epic 20 - Memory Consolidation (Story 20-A2)
+# NOTE: Requires MEMORY_SCOPES_ENABLED=true from Story 20-A1
+MEMORY_CONSOLIDATION_ENABLED=true              # Enable/disable consolidation
+MEMORY_SIMILARITY_THRESHOLD=0.9                # Duplicate detection threshold (0.0-1.0)
+MEMORY_DECAY_HALF_LIFE_DAYS=30                 # Days for importance to halve
+MEMORY_MIN_IMPORTANCE=0.1                      # Below this, memory is removed
+MEMORY_CONSOLIDATION_BATCH_SIZE=100            # Process memories in batches
+MEMORY_CONSOLIDATION_SCHEDULE=0 2 * * *        # Cron schedule (default: 2 AM daily)
+]]>
+    </content>
+  </section>
+
+  <!-- ============================================================
+       SECTION 10: IMPLEMENTATION CHECKLIST
+       ============================================================ -->
+  <section name="implementation-checklist">
+    <description>
+      Quick reference checklist for implementation tasks.
+    </description>
+
+    <tasks>
+      <task id="1">Add ConsolidationResult and ConsolidationRequest to memory/models.py</task>
+      <task id="2">Create memory/consolidation.py with MemoryConsolidator class</task>
+      <task id="3">Create memory/scheduler.py with APScheduler integration</task>
+      <task id="4">Add consolidation config settings to config.py Settings dataclass</task>
+      <task id="5">Add consolidation config parsing to load_settings()</task>
+      <task id="6">Add consolidation endpoints to api/routes/memories.py</task>
+      <task id="7">Integrate scheduler startup/shutdown in main.py lifespan</task>
+      <task id="8">Update memory/__init__.py exports</task>
+      <task id="9">Add unit tests for MemoryConsolidator</task>
+      <task id="10">Add unit tests for scheduler</task>
+      <task id="11">Add integration tests for consolidation workflow</task>
+      <task id="12">Update .env.example with consolidation variables</task>
+    </tasks>
+  </section>
+</story-context>

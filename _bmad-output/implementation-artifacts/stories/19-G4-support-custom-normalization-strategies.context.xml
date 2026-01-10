@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story 19-G4: Support Custom Normalization Strategies
+  Context file for implementation
+  Generated: 2026-01-05
+-->
+<story-context>
+  <metadata>
+    <story-id>19-G4</story-id>
+    <epic>19 - Quality Foundation &amp; Tech Debt Resolution</epic>
+    <title>Support Custom Normalization Strategies</title>
+    <status>done</status>
+    <priority>Medium</priority>
+  </metadata>
+
+  <module-structure>
+    <files-to-modify>
+      <file path="backend/prompts/contextual_retrieval_example.txt" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/config.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/indexing/contextual.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/main.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/observability/metrics.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/retrieval/cache.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/retrieval/grader.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/retrieval/normalization.py" change="Implemented per story requirements" />
+      <file path="backend/src/agentic_rag_backend/retrieval/reranking.py" change="Implemented per story requirements" />
+      <file path="backend/tests/test_group_g_caching_tuning.py" change="Implemented per story requirements" />
+      <file path="docs/guides/advanced-retrieval-configuration.md" change="Implemented per story requirements" />
+
+    </files-to-modify>
+  </module-structure>
+
+  <references>
+    <ref path="_bmad-output/implementation-artifacts/epic-19-tech-spec.md" section="Story 19-G4" />
+  </references>
+</story-context>

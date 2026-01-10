@@ -1,0 +1,973 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story Context: 20-C1 Implement Graph-Based Rerankers
+  Generated: 2026-01-06
+  Purpose: Provide implementation context for Zep-style graph-based rerankers
+-->
+<story-context>
+  <metadata>
+    <story-id>20-C1</story-id>
+    <story-name>Implement Graph-Based Rerankers</story-name>
+    <epic>Epic 20: Advanced Retrieval Intelligence</epic>
+    <group>C: Retrieval Excellence Features</group>
+    <dependencies>
+      <dependency status="completed">Epic 12: Cross-Encoder Reranking (existing reranker patterns)</dependency>
+      <dependency status="completed">20-B1: Community Detection (graph infrastructure)</dependency>
+      <dependency status="completed">Epic 5: Graphiti Integration (Graphiti client)</dependency>
+    </dependencies>
+  </metadata>
+
+  <existing-reranker-patterns>
+    <description>
+      The existing reranking module in Epic 12 provides patterns for implementing
+      graph-based rerankers. Follow these established conventions.
+    </description>
+
+    <file path="backend/src/agentic_rag_backend/retrieval/reranking.py">
+      <key-classes>
+        <class name="RerankerClient">
+          <description>Abstract base class for reranker clients</description>
+          <methods>
+            <method signature="async def rerank(query: str, hits: list[VectorHit], top_k: int = 10, tenant_id: Optional[str] = None, strategy: str = 'hybrid') -> list[RerankedHit]"/>
+            <method signature="def get_model() -> str"/>
+          </methods>
+        </class>
+        <class name="RerankedHit">
+          <description>Dataclass for reranked results</description>
+          <fields>hit: VectorHit, rerank_score: float, original_rank: int</fields>
+        </class>
+        <class name="RerankerProviderAdapter">
+          <description>Adapter pattern for reranker providers</description>
+          <fields>provider, api_key, model, top_k, preload</fields>
+        </class>
+      </key-classes>
+
+      <factory-pattern>
+        <![CDATA[
+def create_reranker_client(adapter: RerankerProviderAdapter) -> RerankerClient:
+    """Factory function to create the appropriate reranker client."""
+    if adapter.provider == RerankerProviderType.COHERE:
+        if not adapter.api_key:
+            raise ValueError("COHERE_API_KEY is required for Cohere reranking.")
+        client: RerankerClient = CohereRerankerClient(
+            api_key=adapter.api_key,
+            model=adapter.model,
+        )
+    elif adapter.provider == RerankerProviderType.FLASHRANK:
+        client = FlashRankRerankerClient(
+            model=adapter.model,
+            preload=adapter.preload,
+        )
+    else:
+        raise ValueError(f"Unsupported reranker provider: {adapter.provider}")
+
+    cache = get_reranker_cache()
+    if cache and cache.enabled:
+        return CachedRerankerClient(client, cache)
+    return client
+        ]]>
+      </factory-pattern>
+
+      <metrics-pattern>
+        <![CDATA[
+# Record metrics after reranking
+if tenant_id is not None:
+    record_retrieval_latency(
+        strategy=strategy,
+        phase="rerank",
+        tenant_id=tenant_id,
+        duration_seconds=elapsed_seconds,
+    )
+    # Record improvement ratio if we have results
+    if reranked and hits:
+        pre_score = hits[0].similarity  # Best original score
+        post_score = reranked[0].rerank_score  # Best reranked score
+        record_reranking_improvement(
+            tenant_id=tenant_id,
+            pre_score=pre_score,
+            post_score=post_score,
+        )
+        ]]>
+      </metrics-pattern>
+
+      <adapter-from-settings>
+        <![CDATA[
+def get_reranker_adapter(settings: Settings) -> RerankerProviderAdapter:
+    """Create reranker adapter from settings."""
+    try:
+        provider = RerankerProviderType(settings.reranker_provider)
+    except ValueError:
+        raise ValueError(
+            f"RERANKER_PROVIDER must be cohere or flashrank. "
+            f"Got {settings.reranker_provider!r}."
+        )
+
+    return RerankerProviderAdapter(
+        provider=provider,
+        api_key=settings.cohere_api_key if provider == RerankerProviderType.COHERE else None,
+        model=settings.reranker_model,
+        top_k=settings.reranker_top_k,
+        preload=settings.reranker_preload_model,
+    )
+        ]]>
+      </adapter-from-settings>
+    </file>
+
+    <new-graph-reranker-design>
+      <description>
+        Follow the existing pattern but create a parallel hierarchy for graph-based rerankers.
+        The GraphRerankedResult should include graph_context for debugging/observability.
+      </description>
+      <![CDATA[
+# backend/src/agentic_rag_backend/retrieval/graph_rerankers.py
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any, Optional
+
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+
+class GraphRerankerType(str, Enum):
+    """Graph reranker type enumeration."""
+    EPISODE = "episode"
+    DISTANCE = "distance"
+    HYBRID = "hybrid"
+
+
+@dataclass
+class GraphRerankedResult:
+    """A result with graph-based reranking score."""
+    original_result: dict
+    original_score: float
+    graph_score: float
+    combined_score: float
+    graph_context: dict  # Node distances, episode counts, etc.
+
+
+class GraphReranker(ABC):
+    """Base class for graph-aware rerankers."""
+
+    @abstractmethod
+    async def rerank(
+        self,
+        query: str,
+        results: list[dict],
+        tenant_id: str,
+    ) -> list[GraphRerankedResult]:
+        """Rerank results using graph signals."""
+        pass
+      ]]>
+    </new-graph-reranker-design>
+  </existing-reranker-patterns>
+
+  <neo4j-query-patterns>
+    <description>
+      Neo4j query patterns from community.py for graph operations.
+      These patterns should be adapted for episode-mentions and node-distance queries.
+    </description>
+
+    <file path="backend/src/agentic_rag_backend/db/neo4j.py">
+      <session-pattern>
+        <![CDATA[
+# Use async session with tenant_id filtering
+async with self._neo4j.driver.session() as session:
+    result = await session.run(
+        """
+        MATCH (e:Entity {tenant_id: $tenant_id})
+        WHERE e.id IN $entity_ids
+        RETURN e.id as id, e.name as name
+        """,
+        tenant_id=tenant_id,
+        entity_ids=entity_ids,
+    )
+    records = await result.data()
+        ]]>
+      </session-pattern>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/graph/community.py">
+      <entity-query-pattern>
+        <![CDATA[
+# Fetch all entities for the tenant
+node_result = await session.run(
+    """
+    MATCH (e:Entity {tenant_id: $tenant_id})
+    RETURN e.id as id, e.name as name, e.type as type,
+           e.description as description
+    """,
+    tenant_id=tenant_id,
+)
+node_records = await node_result.data()
+        ]]>
+      </entity-query-pattern>
+
+      <relationship-query-pattern>
+        <![CDATA[
+# Fetch all relationships between entities
+edge_result = await session.run(
+    """
+    MATCH (source:Entity {tenant_id: $tenant_id})-[r]-(target:Entity {tenant_id: $tenant_id})
+    WHERE source.id < target.id
+    RETURN source.id as source_id, target.id as target_id,
+           type(r) as rel_type, r.confidence as confidence
+    """,
+    tenant_id=tenant_id,
+)
+edge_records = await edge_result.data()
+        ]]>
+      </relationship-query-pattern>
+    </file>
+
+    <shortest-path-query>
+      <description>
+        Use Neo4j's native shortest path for node-distance reranking.
+        This is essential for the NodeDistanceReranker implementation.
+      </description>
+      <![CDATA[
+# Shortest path query for distance calculation
+async def _get_graph_distance(
+    self,
+    entity_id_1: str,
+    entity_id_2: str,
+    tenant_id: str,
+) -> int:
+    """Get shortest path length between two entities."""
+    async with self._neo4j.driver.session() as session:
+        result = await session.run(
+            """
+            MATCH (a:Entity {id: $id1, tenant_id: $tenant_id}),
+                  (b:Entity {id: $id2, tenant_id: $tenant_id})
+            MATCH path = shortestPath((a)-[*..10]-(b))
+            RETURN length(path) as distance
+            """,
+            id1=entity_id_1,
+            id2=entity_id_2,
+            tenant_id=tenant_id,
+        )
+        record = await result.single()
+        if record:
+            return record["distance"]
+        return float("inf")  # No path found
+      ]]>
+    </shortest-path-query>
+
+    <episode-count-query>
+      <description>
+        Query for counting episode mentions within a time window.
+        Uses Graphiti's Episode nodes linked to entities.
+      </description>
+      <![CDATA[
+# Episode mentions count query
+async def _count_episode_mentions(
+    self,
+    entity_id: str,
+    tenant_id: str,
+    window_days: int = 30,
+) -> int:
+    """Count how many episodes mention this entity in the time window."""
+    from datetime import datetime, timedelta, timezone
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+
+    async with self._neo4j.driver.session() as session:
+        result = await session.run(
+            """
+            MATCH (e:Entity {id: $entity_id, tenant_id: $tenant_id})<-[:MENTIONS]-(ep:Episode)
+            WHERE ep.created_at >= datetime($cutoff)
+            RETURN count(DISTINCT ep) as mention_count
+            """,
+            entity_id=entity_id,
+            tenant_id=tenant_id,
+            cutoff=cutoff.isoformat(),
+        )
+        record = await result.single()
+        return record["mention_count"] if record else 0
+      ]]>
+    </episode-count-query>
+  </neo4j-query-patterns>
+
+  <graphiti-search-patterns>
+    <description>
+      Graphiti search patterns from graphiti_retrieval.py for entity extraction.
+    </description>
+
+    <file path="backend/src/agentic_rag_backend/retrieval/graphiti_retrieval.py">
+      <search-usage>
+        <![CDATA[
+# Execute Graphiti hybrid search
+search_result = await graphiti_client.client.search(
+    query=query,
+    group_ids=[tenant_id],  # Multi-tenancy via group_ids
+    num_results=num_results,
+    center_node_uuid=center_node_uuid,
+)
+
+# Extract nodes
+nodes = [
+    SearchNode.from_graphiti_node(node)
+    for node in getattr(search_result, "nodes", [])
+]
+
+# Extract edges
+edges = [
+    SearchEdge.from_graphiti_edge(edge)
+    for edge in getattr(search_result, "edges", [])
+]
+        ]]>
+      </search-usage>
+
+      <dataclass-patterns>
+        <![CDATA[
+@dataclass
+class SearchNode:
+    """A node returned from Graphiti search."""
+    uuid: str
+    name: str
+    summary: str
+    labels: list[str]
+
+    @classmethod
+    def from_graphiti_node(cls, node: Any) -> "SearchNode":
+        """Create SearchNode from Graphiti node object."""
+        return cls(
+            uuid=str(getattr(node, "uuid", "")),
+            name=getattr(node, "name", ""),
+            summary=getattr(node, "summary", ""),
+            labels=list(getattr(node, "labels", [])),
+        )
+        ]]>
+      </dataclass-patterns>
+    </file>
+
+    <entity-extraction-from-query>
+      <description>
+        Extract entities from query text for NodeDistanceReranker.
+        Use Graphiti search to find matching entities.
+      </description>
+      <![CDATA[
+async def _extract_query_entities(
+    self,
+    query: str,
+    tenant_id: str,
+    limit: int = 10,
+) -> list[str]:
+    """Extract entity IDs from query using Graphiti search."""
+    try:
+        search_result = await self._graphiti.client.search(
+            query=query,
+            group_ids=[tenant_id],
+            num_results=limit,
+        )
+        return [
+            str(node.uuid)
+            for node in getattr(search_result, "nodes", [])
+        ]
+    except Exception as e:
+        logger.warning(
+            "query_entity_extraction_failed",
+            query=query[:100],
+            error=str(e),
+        )
+        return []
+      ]]>
+    </entity-extraction-from-query>
+
+    <entity-extraction-from-result>
+      <description>
+        Extract entity IDs from retrieval results for scoring.
+      </description>
+      <![CDATA[
+def _extract_entities(self, result: dict) -> list[str]:
+    """Extract entity IDs from a retrieval result.
+
+    Results may contain entities in different formats:
+    - Direct 'entity_ids' field
+    - 'entities' list with id/uuid fields
+    - 'metadata.entity_refs' from vector search
+    """
+    entities = []
+
+    # Check for direct entity_ids
+    if "entity_ids" in result:
+        entities.extend(result["entity_ids"])
+
+    # Check for entities list
+    if "entities" in result:
+        for entity in result["entities"]:
+            if isinstance(entity, dict):
+                entities.append(entity.get("id") or entity.get("uuid", ""))
+            elif isinstance(entity, str):
+                entities.append(entity)
+
+    # Check metadata
+    if "metadata" in result and "entity_refs" in result["metadata"]:
+        entities.extend(result["metadata"]["entity_refs"])
+
+    return [e for e in entities if e]  # Filter empty strings
+      ]]>
+    </entity-extraction-from-result>
+  </graphiti-search-patterns>
+
+  <configuration-integration>
+    <description>
+      Add configuration variables to Settings class following existing patterns.
+    </description>
+
+    <file path="backend/src/agentic_rag_backend/config.py">
+      <existing-patterns>
+        <pattern name="feature-flag">get_bool_env("FEATURE_ENABLED", "false")</pattern>
+        <pattern name="enum-validation">os.getenv("TYPE", "default").strip().lower() with validation</pattern>
+        <pattern name="float-weight">get_float_env("WEIGHT", 0.3, min_val=0.0)</pattern>
+        <pattern name="int-config">get_int_env("MAX_VALUE", 3, min_val=1)</pattern>
+      </existing-patterns>
+
+      <new-settings>
+        <![CDATA[
+# Add to Settings dataclass (after line ~317):
+# Story 20-C1 - Graph-Based Rerankers
+graph_reranker_enabled: bool
+graph_reranker_type: str
+graph_reranker_episode_weight: float
+graph_reranker_distance_weight: float
+graph_reranker_original_weight: float
+graph_reranker_episode_window_days: int
+graph_reranker_max_distance: int
+
+# Add to load_settings() function (after query_routing settings ~line 997):
+
+# Story 20-C1 - Graph-Based Rerankers
+graph_reranker_enabled = get_bool_env("GRAPH_RERANKER_ENABLED", "false")
+graph_reranker_type = os.getenv("GRAPH_RERANKER_TYPE", "hybrid").strip().lower()
+valid_graph_reranker_types = {"episode", "distance", "hybrid"}
+if graph_reranker_type not in valid_graph_reranker_types:
+    logger.warning(
+        "invalid_graph_reranker_type",
+        type=graph_reranker_type,
+        valid_types=list(valid_graph_reranker_types),
+        fallback="hybrid",
+    )
+    graph_reranker_type = "hybrid"
+
+# Weight configuration with validation
+graph_reranker_episode_weight = get_float_env("GRAPH_RERANKER_EPISODE_WEIGHT", 0.3, min_val=0.0)
+graph_reranker_distance_weight = get_float_env("GRAPH_RERANKER_DISTANCE_WEIGHT", 0.3, min_val=0.0)
+graph_reranker_original_weight = get_float_env("GRAPH_RERANKER_ORIGINAL_WEIGHT", 0.4, min_val=0.0)
+
+# Clamp weights to 0-1 range
+graph_reranker_episode_weight = max(0.0, min(1.0, graph_reranker_episode_weight))
+graph_reranker_distance_weight = max(0.0, min(1.0, graph_reranker_distance_weight))
+graph_reranker_original_weight = max(0.0, min(1.0, graph_reranker_original_weight))
+
+# Validate weights sum to 1.0 (with tolerance)
+weight_sum = graph_reranker_episode_weight + graph_reranker_distance_weight + graph_reranker_original_weight
+if abs(weight_sum - 1.0) > 0.01:
+    logger.warning(
+        "graph_reranker_weights_not_normalized",
+        sum=weight_sum,
+        episode=graph_reranker_episode_weight,
+        distance=graph_reranker_distance_weight,
+        original=graph_reranker_original_weight,
+        hint="Weights will be normalized to sum to 1.0",
+    )
+    # Normalize weights
+    if weight_sum > 0:
+        graph_reranker_episode_weight /= weight_sum
+        graph_reranker_distance_weight /= weight_sum
+        graph_reranker_original_weight /= weight_sum
+
+graph_reranker_episode_window_days = get_int_env("GRAPH_RERANKER_EPISODE_WINDOW_DAYS", 30, min_val=1)
+graph_reranker_max_distance = get_int_env("GRAPH_RERANKER_MAX_DISTANCE", 3, min_val=1)
+        ]]>
+      </new-settings>
+
+      <settings-return-additions>
+        <![CDATA[
+# Add to Settings return statement:
+graph_reranker_enabled=graph_reranker_enabled,
+graph_reranker_type=graph_reranker_type,
+graph_reranker_episode_weight=graph_reranker_episode_weight,
+graph_reranker_distance_weight=graph_reranker_distance_weight,
+graph_reranker_original_weight=graph_reranker_original_weight,
+graph_reranker_episode_window_days=graph_reranker_episode_window_days,
+graph_reranker_max_distance=graph_reranker_max_distance,
+        ]]>
+      </settings-return-additions>
+    </file>
+
+    <env-example-additions>
+      <![CDATA[
+# Epic 20 - Story 20-C1: Graph-Based Rerankers
+GRAPH_RERANKER_ENABLED=false               # Enable graph-based reranking (default: false)
+GRAPH_RERANKER_TYPE=hybrid                 # Type: episode|distance|hybrid (default: hybrid)
+GRAPH_RERANKER_EPISODE_WEIGHT=0.3          # Weight for episode-mentions signal
+GRAPH_RERANKER_DISTANCE_WEIGHT=0.3         # Weight for node-distance signal
+GRAPH_RERANKER_ORIGINAL_WEIGHT=0.4         # Weight for original semantic score
+GRAPH_RERANKER_EPISODE_WINDOW_DAYS=30      # Look-back window for episode counts
+GRAPH_RERANKER_MAX_DISTANCE=3              # Max graph distance for scoring
+      ]]>
+    </env-example-additions>
+  </configuration-integration>
+
+  <test-patterns>
+    <description>
+      Follow test patterns from test_reranking.py for graph reranker tests.
+    </description>
+
+    <file path="backend/tests/test_reranking.py">
+      <patterns>
+        <pattern name="sample-hits-fixture">Create sample VectorHit fixtures</pattern>
+        <pattern name="mock-api-client">Use MagicMock and AsyncMock for external clients</pattern>
+        <pattern name="dataclass-tests">Test dataclass creation and field access</pattern>
+        <pattern name="factory-tests">Test factory function with different adapters</pattern>
+        <pattern name="empty-hits-test">Test reranking with empty hits list</pattern>
+      </patterns>
+
+      <sample-hits-fixture>
+        <![CDATA[
+@pytest.fixture
+def sample_hits() -> list[VectorHit]:
+    """Create sample vector hits for testing."""
+    return [
+        VectorHit(
+            chunk_id="chunk-1",
+            document_id="doc-1",
+            content="Python is a programming language.",
+            similarity=0.85,
+            metadata={"source": "wikipedia"},
+        ),
+        VectorHit(
+            chunk_id="chunk-2",
+            document_id="doc-1",
+            content="Python is great for data science.",
+            similarity=0.80,
+            metadata={"source": "blog"},
+        ),
+        VectorHit(
+            chunk_id="chunk-3",
+            document_id="doc-2",
+            content="JavaScript runs in the browser.",
+            similarity=0.75,
+            metadata={"source": "docs"},
+        ),
+    ]
+        ]]>
+      </sample-hits-fixture>
+
+      <async-mock-pattern>
+        <![CDATA[
+@pytest.mark.asyncio
+async def test_rerank_success(self, sample_hits: list[VectorHit]) -> None:
+    """Test successful reranking with mocked API."""
+    with patch("cohere.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.rerank = AsyncMock(return_value=mock_result)
+        mock_client_cls.return_value = mock_client
+
+        client = CohereRerankerClient(api_key="test-key", model="rerank-v3.5")
+        reranked = await client.rerank(
+            query="Python data science",
+            hits=sample_hits,
+            top_k=2,
+        )
+
+        assert len(reranked) == 2
+        assert reranked[0].hit.chunk_id == "chunk-2"
+        ]]>
+      </async-mock-pattern>
+    </file>
+
+    <file path="backend/tests/conftest.py">
+      <neo4j-mock-pattern>
+        <![CDATA[
+@pytest.fixture
+def mock_neo4j_client():
+    """Mock Neo4jClient wrapper."""
+    from agentic_rag_backend.db.neo4j import Neo4jClient
+
+    client = MagicMock(spec=Neo4jClient)
+    client.find_similar_entity = AsyncMock(return_value=None)
+    client.create_entity = AsyncMock(return_value={"id": "test-id"})
+    client.create_relationship = AsyncMock(return_value=True)
+    client.create_document_node = AsyncMock(return_value={})
+    client.create_chunk_node = AsyncMock(return_value={})
+    client.link_chunk_to_entity = AsyncMock(return_value=True)
+    client.get_graph_stats = AsyncMock(return_value={
+        "entity_count": 0,
+        "document_count": 0,
+        "chunk_count": 0,
+        "relationship_count": 0,
+    })
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock()
+    client.create_indexes = AsyncMock()
+    return client
+        ]]>
+      </neo4j-mock-pattern>
+
+      <graphiti-mock-helpers>
+        <![CDATA[
+def make_mock_graphiti_node(
+    uuid: str = "node-1",
+    name: str = "Test Node",
+    summary: str = "A test node",
+    labels: list | None = None,
+):
+    """Create a mock Graphiti node with proper name attribute."""
+    if labels is None:
+        labels = ["Entity"]
+    node = MagicMock()
+    node.uuid = uuid
+    node.configure_mock(name=name)  # Handle reserved attribute
+    node.summary = summary
+    node.labels = labels
+    return node
+        ]]>
+      </graphiti-mock-helpers>
+    </file>
+
+    <new-test-file path="backend/tests/retrieval/test_graph_rerankers.py">
+      <test-classes>
+        <class name="TestGraphRerankedResult">
+          <tests>
+            <test>test_dataclass_creation</test>
+            <test>test_graph_context_fields</test>
+          </tests>
+        </class>
+        <class name="TestEpisodeMentionsReranker">
+          <tests>
+            <test>test_entity_extraction_from_result</test>
+            <test>test_episode_counting_within_window</test>
+            <test>test_score_normalization</test>
+            <test>test_rerank_with_mocked_graphiti</test>
+            <test>test_empty_results_returns_empty</test>
+            <test>test_no_entities_in_result_graceful_fallback</test>
+          </tests>
+        </class>
+        <class name="TestNodeDistanceReranker">
+          <tests>
+            <test>test_query_entity_extraction</test>
+            <test>test_distance_calculation</test>
+            <test>test_distance_to_score_conversion</test>
+            <test>test_disconnected_entities_return_inf</test>
+            <test>test_no_query_entities_preserves_original_order</test>
+            <test>test_rerank_with_mocked_neo4j</test>
+          </tests>
+        </class>
+        <class name="TestHybridGraphReranker">
+          <tests>
+            <test>test_combines_episode_and_distance_signals</test>
+            <test>test_configurable_weights</test>
+            <test>test_weight_normalization</test>
+            <test>test_parallel_execution_performance</test>
+          </tests>
+        </class>
+        <class name="TestGraphRerankerFactory">
+          <tests>
+            <test>test_create_episode_reranker</test>
+            <test>test_create_distance_reranker</test>
+            <test>test_create_hybrid_reranker</test>
+            <test>test_invalid_type_raises_error</test>
+          </tests>
+        </class>
+        <class name="TestGraphRerankerIntegration">
+          <tests>
+            <test>test_reranking_latency_under_200ms</test>
+            <test>test_tenant_isolation</test>
+            <test>test_integration_with_existing_reranker_pipeline</test>
+          </tests>
+        </class>
+      </test-classes>
+
+      <mock-settings-factory>
+        <![CDATA[
+def _make_mock_settings(
+    graph_reranker_enabled: bool = True,
+    graph_reranker_type: str = "hybrid",
+    graph_reranker_episode_weight: float = 0.3,
+    graph_reranker_distance_weight: float = 0.3,
+    graph_reranker_original_weight: float = 0.4,
+    graph_reranker_episode_window_days: int = 30,
+    graph_reranker_max_distance: int = 3,
+):
+    """Create mock settings for graph reranker tests."""
+    settings = MagicMock()
+    settings.graph_reranker_enabled = graph_reranker_enabled
+    settings.graph_reranker_type = graph_reranker_type
+    settings.graph_reranker_episode_weight = graph_reranker_episode_weight
+    settings.graph_reranker_distance_weight = graph_reranker_distance_weight
+    settings.graph_reranker_original_weight = graph_reranker_original_weight
+    settings.graph_reranker_episode_window_days = graph_reranker_episode_window_days
+    settings.graph_reranker_max_distance = graph_reranker_max_distance
+    return settings
+        ]]>
+      </mock-settings-factory>
+
+      <sample-results-fixture>
+        <![CDATA[
+@pytest.fixture
+def sample_results() -> list[dict]:
+    """Create sample retrieval results for testing."""
+    return [
+        {
+            "id": "result-1",
+            "content": "Python is used for machine learning",
+            "score": 0.85,
+            "entity_ids": ["entity-python", "entity-ml"],
+            "metadata": {"source": "docs"},
+        },
+        {
+            "id": "result-2",
+            "content": "JavaScript powers modern web apps",
+            "score": 0.80,
+            "entity_ids": ["entity-js", "entity-web"],
+            "metadata": {"source": "blog"},
+        },
+        {
+            "id": "result-3",
+            "content": "TensorFlow is a deep learning framework",
+            "score": 0.75,
+            "entity_ids": ["entity-tf", "entity-ml", "entity-dl"],
+            "metadata": {"source": "tutorial"},
+        },
+    ]
+        ]]>
+      </sample-results-fixture>
+
+      <episode-reranker-test>
+        <![CDATA[
+class TestEpisodeMentionsReranker:
+    """Tests for EpisodeMentionsReranker."""
+
+    @pytest.fixture
+    def mock_graphiti(self):
+        """Create mock Graphiti client."""
+        client = MagicMock()
+        client.driver = MagicMock()
+        return client
+
+    @pytest.fixture
+    def reranker(self, mock_graphiti):
+        """Create reranker with mocked dependencies."""
+        return EpisodeMentionsReranker(
+            graphiti_client=mock_graphiti,
+            episode_window_days=30,
+        )
+
+    @pytest.mark.asyncio
+    async def test_rerank_with_high_episode_counts(
+        self, reranker, sample_results, mock_graphiti
+    ):
+        """Results with more episode mentions should score higher."""
+        # Mock episode counts: result-3 has more mentions
+        async def mock_count(entity_id, tenant_id, window_days):
+            counts = {
+                "entity-python": 3,
+                "entity-ml": 10,  # High count
+                "entity-js": 1,
+                "entity-web": 1,
+                "entity-tf": 5,
+                "entity-dl": 8,  # High count
+            }
+            return counts.get(entity_id, 0)
+
+        reranker._count_episode_mentions = mock_count
+
+        reranked = await reranker.rerank(
+            query="machine learning frameworks",
+            results=sample_results,
+            tenant_id="test-tenant",
+        )
+
+        assert len(reranked) == 3
+        # Result-3 should be ranked higher due to entity-ml and entity-dl counts
+        assert reranked[0].original_result["id"] == "result-3"
+        assert reranked[0].graph_context["episode_mentions"] > 0
+        ]]>
+      </episode-reranker-test>
+
+      <performance-test>
+        <![CDATA[
+class TestGraphRerankerIntegration:
+    """Integration tests for graph rerankers."""
+
+    @pytest.mark.asyncio
+    async def test_reranking_latency_under_200ms(self, mock_graphiti):
+        """Graph reranking should complete in <200ms."""
+        import time
+
+        reranker = HybridGraphReranker(
+            graphiti_client=mock_graphiti,
+            episode_weight=0.3,
+            distance_weight=0.3,
+            original_weight=0.4,
+        )
+
+        # Mock fast responses
+        reranker._episode_reranker._count_episode_mentions = AsyncMock(return_value=5)
+        reranker._distance_reranker._get_graph_distance = AsyncMock(return_value=2)
+        reranker._distance_reranker._extract_query_entities = AsyncMock(
+            return_value=["query-entity-1"]
+        )
+
+        results = [{"id": f"r{i}", "score": 0.8 - i * 0.05, "entity_ids": [f"e{i}"]}
+                   for i in range(100)]
+
+        start = time.perf_counter()
+        reranked = await reranker.rerank(
+            query="test query",
+            results=results,
+            tenant_id="test-tenant",
+        )
+        elapsed_ms = (time.perf_counter() - start) * 1000
+
+        assert elapsed_ms < 200, f"Reranking took {elapsed_ms:.1f}ms, expected <200ms"
+        assert len(reranked) == 100
+        ]]>
+      </performance-test>
+    </new-test-file>
+  </test-patterns>
+
+  <module-structure>
+    <description>
+      Files to create and modify for Story 20-C1.
+    </description>
+
+    <new-files>
+      <file path="backend/src/agentic_rag_backend/retrieval/graph_rerankers.py">
+        <purpose>Main graph reranker implementations</purpose>
+        <classes>
+          GraphRerankerType, GraphRerankedResult, GraphReranker (ABC),
+          EpisodeMentionsReranker, NodeDistanceReranker, HybridGraphReranker,
+          create_graph_reranker, get_graph_reranker_adapter
+        </classes>
+      </file>
+      <file path="backend/tests/retrieval/test_graph_rerankers.py">
+        <purpose>Unit and integration tests for graph rerankers</purpose>
+      </file>
+    </new-files>
+
+    <modified-files>
+      <file path="backend/src/agentic_rag_backend/config.py">
+        <changes>
+          Add graph_reranker_* settings to Settings dataclass and load_settings()
+        </changes>
+      </file>
+      <file path="backend/src/agentic_rag_backend/retrieval/__init__.py">
+        <changes>
+          Export GraphReranker, GraphRerankedResult, EpisodeMentionsReranker,
+          NodeDistanceReranker, HybridGraphReranker, create_graph_reranker
+        </changes>
+      </file>
+      <file path="backend/.env.example">
+        <changes>Add GRAPH_RERANKER_* environment variables</changes>
+      </file>
+    </modified-files>
+  </module-structure>
+
+  <implementation-notes>
+    <parallel-execution>
+      <description>
+        Episode and distance calculations should run in parallel for performance.
+      </description>
+      <![CDATA[
+import asyncio
+
+async def rerank(self, query, results, tenant_id):
+    # Run episode and distance reranking in parallel
+    episode_task = self._episode_reranker.rerank(query, results, tenant_id)
+    distance_task = self._distance_reranker.rerank(query, results, tenant_id)
+
+    episode_results, distance_results = await asyncio.gather(
+        episode_task, distance_task
+    )
+
+    # Combine results...
+      ]]>
+    </parallel-execution>
+
+    <graceful-fallback>
+      <description>
+        When no graph context is available, preserve original scores.
+      </description>
+      <![CDATA[
+if not query_entities:
+    # No graph context, return original order with neutral graph scores
+    return [
+        GraphRerankedResult(
+            original_result=r,
+            original_score=r["score"],
+            graph_score=0.5,  # Neutral score
+            combined_score=r["score"],  # Keep original
+            graph_context={},
+        )
+        for r in results
+    ]
+      ]]>
+    </graceful-fallback>
+
+    <tenant-isolation>
+      <description>
+        ALL Neo4j and Graphiti queries MUST include tenant_id filtering.
+      </description>
+      <![CDATA[
+# CORRECT: Always filter by tenant_id
+MATCH (e:Entity {id: $entity_id, tenant_id: $tenant_id})
+
+# WRONG: Missing tenant_id filter - security vulnerability!
+MATCH (e:Entity {id: $entity_id})
+      ]]>
+    </tenant-isolation>
+
+    <score-normalization>
+      <description>
+        Graph scores should be normalized to 0-1 range for consistent combination.
+      </description>
+      <![CDATA[
+# Episode score normalization
+# Normalize episode mentions to 0-1 (cap at 10 mentions = 1.0)
+graph_score = min(1.0, total_mentions / 10.0)
+
+# Distance score normalization
+# Convert distance to inverse score (closer = higher)
+# distance=0 -> 1.0, distance=max_distance -> 0.0
+if min_distance == float("inf"):
+    graph_score = 0.0
+else:
+    graph_score = max(0, 1 - (min_distance / self.max_distance))
+      ]]>
+    </score-normalization>
+  </implementation-notes>
+
+  <performance-considerations>
+    <requirements>
+      <requirement>Total graph reranking latency: &lt;200ms for 100 results</requirement>
+      <requirement>Episode counting: Use batch queries where possible</requirement>
+      <requirement>Distance calculation: Cache frequently-queried entity pairs</requirement>
+    </requirements>
+
+    <optimizations>
+      <optimization>Run episode and distance queries in parallel via asyncio.gather</optimization>
+      <optimization>Batch entity lookups instead of per-result queries</optimization>
+      <optimization>Use Neo4j's native shortestPath algorithm for distance</optimization>
+      <optimization>Consider LRU cache for entity-pair distances within a session</optimization>
+    </optimizations>
+  </performance-considerations>
+
+  <security-considerations>
+    <requirements>
+      <requirement>All Neo4j/Graphiti queries MUST include tenant_id filtering</requirement>
+      <requirement>Weight values must be validated (0-1 range, sum to 1)</requirement>
+      <requirement>Input validation for query parameters</requirement>
+    </requirements>
+
+    <patterns>
+      <pattern name="tenant-isolation">Always include tenant_id in WHERE clauses</pattern>
+      <pattern name="weight-validation">Validate and normalize weights at configuration load</pattern>
+      <pattern name="input-length">Limit query length to prevent abuse</pattern>
+    </patterns>
+  </security-considerations>
+</story-context>
