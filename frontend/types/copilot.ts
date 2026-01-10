@@ -369,3 +369,107 @@ export const ActionHistoryItemSchema = z.object({
     .passthrough()
     .optional(),
 });
+
+// ============================================
+// COPILOT CONTEXT TYPES - Story 21-A4
+// ============================================
+
+/**
+ * Page context information exposed to the AI.
+ * Story 21-A4: Implement useCopilotReadable for App Context
+ */
+export interface PageContext {
+  /** Current route path (e.g., "/knowledge", "/ops") */
+  route: string;
+  /** Human-readable page name */
+  pageName: string;
+  /** Optional page-specific metadata */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Session context information exposed to the AI.
+ * Only non-sensitive session data is included.
+ * Story 21-A4: Implement useCopilotReadable for App Context
+ */
+export interface SessionContext {
+  /** Tenant ID for multi-tenant context */
+  tenantId: string | null;
+  /** ISO timestamp when session started */
+  sessionStart: string;
+  /** Whether user is authenticated (not credentials) */
+  isAuthenticated: boolean;
+}
+
+/**
+ * User preferences for AI response formatting.
+ * Story 21-A4: Implement useCopilotReadable for App Context
+ */
+export interface UserPreferences {
+  /** Preferred response length: "brief", "medium", "detailed" */
+  responseLength: "brief" | "medium" | "detailed";
+  /** Whether to include source citations in responses */
+  includeCitations: boolean;
+  /** User's preferred language code (e.g., "en", "es") */
+  language: string;
+  /** User's expertise level for response complexity */
+  expertiseLevel: "beginner" | "intermediate" | "expert";
+}
+
+/**
+ * Query history item for tracking recent queries.
+ * Story 21-A4: Implement useCopilotReadable for App Context
+ */
+export interface QueryHistoryItem {
+  /** The query text */
+  query: string;
+  /** ISO timestamp when query was made */
+  timestamp: string;
+}
+
+/**
+ * Combined application context exposed to AI.
+ * Story 21-A4: Implement useCopilotReadable for App Context
+ */
+export interface AppContext {
+  /** Current page context */
+  page: PageContext;
+  /** Session context (non-sensitive) */
+  session: SessionContext;
+  /** User preferences */
+  preferences: UserPreferences;
+  /** Recent query history */
+  recentQueries: QueryHistoryItem[];
+}
+
+// Zod schemas for context validation
+export const PageContextSchema = z.object({
+  route: z.string(),
+  pageName: z.string(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const SessionContextSchema = z.object({
+  tenantId: z.string().nullable(),
+  sessionStart: z.string(),
+  isAuthenticated: z.boolean(),
+});
+
+export const UserPreferencesSchema = z.object({
+  responseLength: z.enum(["brief", "medium", "detailed"]),
+  includeCitations: z.boolean(),
+  language: z.string(),
+  expertiseLevel: z.enum(["beginner", "intermediate", "expert"]),
+});
+
+export const QueryHistoryItemSchema = z.object({
+  query: z.string(),
+  timestamp: z.string(),
+});
+
+export const AppContextSchema = z.object({
+  page: PageContextSchema,
+  session: SessionContextSchema,
+  preferences: UserPreferencesSchema,
+  recentQueries: z.array(QueryHistoryItemSchema),
+});
