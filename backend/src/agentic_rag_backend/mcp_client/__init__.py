@@ -38,6 +38,12 @@ from agentic_rag_backend.mcp_client.errors import (
     MCPServerNotFoundError,
     MCPToolNotFoundError,
 )
+from agentic_rag_backend.mcp_client.registry import (
+    ToolInfo,
+    discover_all_tools,
+    merge_tool_registries,
+    parse_namespaced_tool,
+)
 
 __all__ = [
     # Client classes
@@ -58,4 +64,9 @@ __all__ = [
     "MCPProtocolError",
     "MCPServerNotFoundError",
     "MCPToolNotFoundError",
+    # Registry
+    "ToolInfo",
+    "discover_all_tools",
+    "merge_tool_registries",
+    "parse_namespaced_tool",
 ]

@@ -1,4 +1,7 @@
-"""CopilotKit AG-UI protocol endpoint."""
+"""CopilotKit AG-UI protocol endpoint.
+
+Story 21-C3: Wire MCP Client to CopilotRuntime
+"""
 
 import re
 from typing import Any, List, Optional
@@ -11,6 +14,12 @@ import structlog
 
 from ...agents.orchestrator import OrchestratorAgent
 from ...api.utils import rate_limit_exceeded
+from ...mcp_client import (
+    MCPClientFactory,
+    discover_all_tools,
+    get_mcp_factory,
+    parse_namespaced_tool,
+)
 from ...models.copilot import CopilotRequest
 from ...protocols.ag_ui_bridge import AGUIBridge
 from ...rate_limit import RateLimiter
@@ -69,6 +78,154 @@ async def copilot_handler(
             "Connection": "keep-alive",
         },
     )
+
+
+# ============================================
+# MCP TOOLS ENDPOINTS - Story 21-C3
+# ============================================
+
+
+class ToolDefinition(BaseModel):
+    """Tool definition returned by discovery endpoint."""
+
+    name: str = Field(..., description="Tool name (namespaced for external tools)")
+    description: str = Field(default="", description="Tool description")
+    input_schema: dict[str, Any] = Field(
+        default_factory=dict, alias="inputSchema", description="JSON Schema for inputs"
+    )
+    source: str = Field(default="internal", description="Tool source: internal or external")
+    server_name: Optional[str] = Field(
+        default=None, alias="serverName", description="MCP server name for external tools"
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class ToolsResponse(BaseModel):
+    """Response from tools discovery endpoint."""
+
+    tools: List[ToolDefinition] = Field(default_factory=list, description="Available tools")
+    mcp_enabled: bool = Field(default=False, alias="mcpEnabled", description="Whether MCP is enabled")
+    server_count: int = Field(default=0, alias="serverCount", description="Number of MCP servers")
+
+    model_config = {"populate_by_name": True}
+
+
+class ToolCallRequest(BaseModel):
+    """Request to call an external MCP tool."""
+
+    tool_name: str = Field(..., alias="toolName", description="Tool name (namespaced)")
+    arguments: dict[str, Any] = Field(default_factory=dict, description="Tool arguments")
+
+    model_config = {"populate_by_name": True}
+
+
+class ToolCallResponse(BaseModel):
+    """Response from external tool call."""
+
+    result: Any = Field(..., description="Tool execution result")
+    server_name: Optional[str] = Field(
+        default=None, alias="serverName", description="MCP server that handled the call"
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+@router.get("/tools", response_model=ToolsResponse)
+async def list_tools(
+    request: Request,
+    mcp_factory: Optional[MCPClientFactory] = Depends(get_mcp_factory),
+) -> ToolsResponse:
+    """
+    List all available tools from internal agents and external MCP servers.
+
+    Story 21-C3: Wire MCP Client to CopilotRuntime
+
+    Returns:
+        ToolsResponse with unified tool list
+    """
+    # Discover all tools (internal + external MCP)
+    # Note: Internal tools from the orchestrator would be added here
+    # For now, we only discover external MCP tools
+    all_tools = await discover_all_tools(factory=mcp_factory, internal_tools=[])
+
+    tools = [
+        ToolDefinition(
+            name=tool.get("name", ""),
+            description=tool.get("description", ""),
+            inputSchema=tool.get("inputSchema", {}),
+            source=tool.get("source", "internal"),
+            serverName=tool.get("serverName"),
+        )
+        for tool in all_tools.values()
+    ]
+
+    return ToolsResponse(
+        tools=tools,
+        mcpEnabled=mcp_factory is not None and mcp_factory.is_enabled,
+        serverCount=len(mcp_factory.server_names) if mcp_factory else 0,
+    )
+
+
+@router.post("/tools/call", response_model=ToolCallResponse)
+async def call_external_tool(
+    request_body: ToolCallRequest,
+    request: Request,
+    mcp_factory: Optional[MCPClientFactory] = Depends(get_mcp_factory),
+    tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
+) -> ToolCallResponse:
+    """
+    Call an external MCP tool by namespaced name.
+
+    Story 21-C3: Wire MCP Client to CopilotRuntime
+
+    Args:
+        request_body: Tool name and arguments
+
+    Returns:
+        ToolCallResponse with execution result
+    """
+    if not mcp_factory or not mcp_factory.is_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="MCP client is not enabled"
+        )
+
+    # Parse the namespaced tool name
+    server_name, original_name = parse_namespaced_tool(request_body.tool_name)
+
+    if not server_name:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tool '{request_body.tool_name}' is not an external tool (missing server namespace)"
+        )
+
+    logger.info(
+        "calling_external_tool",
+        tool_name=request_body.tool_name,
+        server_name=server_name,
+        original_name=original_name,
+        tenant_id=tenant_id,
+    )
+
+    try:
+        result = await mcp_factory.call_tool(
+            server_name=server_name,
+            tool_name=original_name,
+            arguments=request_body.arguments,
+        )
+        return ToolCallResponse(result=result, serverName=server_name)
+    except Exception as e:
+        logger.exception(
+            "external_tool_call_failed",
+            tool_name=request_body.tool_name,
+            server_name=server_name,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Tool execution failed: {str(e)}"
+        )
 
 
 # ============================================
