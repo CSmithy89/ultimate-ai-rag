@@ -67,6 +67,7 @@ from .schemas import QueryEnvelope, QueryRequest, QueryResponse, ResponseMeta
 from .trajectory import TrajectoryLogger, close_pool, create_pool
 from .ops import CostTracker, ModelRouter, TraceCrypto
 from .observability import create_metrics_endpoint, MetricsConfig
+from .voice import create_voice_adapter
 
 logger = logging.getLogger(__name__)
 struct_logger = structlog.get_logger(__name__)
@@ -657,6 +658,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         struct_logger.warning("mcp_server_init_failed", error=str(e))
 
+    # Story 21-E1, 21-E2: Initialize Voice Adapter
+    app.state.voice_adapter = None
+    if settings.voice_io_enabled:
+        try:
+            app.state.voice_adapter = create_voice_adapter(
+                enabled=True,
+                whisper_model=settings.whisper_model,
+                tts_provider=settings.tts_provider,
+                tts_voice=settings.tts_voice,
+                tts_speed=settings.tts_speed,
+                openai_api_key=settings.openai_api_key,
+            )
+            struct_logger.info(
+                "voice_adapter_initialized",
+                whisper_model=settings.whisper_model,
+                tts_provider=settings.tts_provider,
+            )
+        except Exception as e:
+            struct_logger.warning("voice_adapter_init_failed", error=str(e))
+
     # Story 20-A2: Initialize memory consolidation
     app.state.memory_consolidator = None
     app.state.memory_consolidation_scheduler = None
@@ -750,6 +771,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Epic 5: Graphiti connection
     if hasattr(app.state, "graphiti") and app.state.graphiti:
         await app.state.graphiti.disconnect()
+
+    # Story 21-E1, 21-E2: Close voice adapter
+    if hasattr(app.state, "voice_adapter") and app.state.voice_adapter:
+        await app.state.voice_adapter.close()
+        struct_logger.info("voice_adapter_closed")
 
     # Epic 4 connections
     if hasattr(app.state, "neo4j") and app.state.neo4j:

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@copilotkit/react-core": "^1.50.1",
+    "@copilotkit/react-textarea": "^1.50.1",
     "@copilotkit/react-ui": "^1.50.1",
     "@copilotkit/runtime": "^1.50.1",
     "@copilotkit/runtime-client-gql": "^1.50.1",
