@@ -1,8 +1,20 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { useCopilotAction } from "@copilotkit/react-core";
+import { useFrontendTool } from "@copilotkit/react-core";
 import { useToast } from "@/hooks/use-toast";
+import {
+  saveToWorkspaceToolParams,
+  exportContentToolParams,
+  shareContentToolParams,
+  bookmarkContentToolParams,
+  suggestFollowUpToolParams,
+  type SaveToWorkspaceParams,
+  type ExportContentParams,
+  type ShareContentParams,
+  type BookmarkContentParams,
+  type SuggestFollowUpParams,
+} from "@/lib/schemas/tools";
 
 /**
  * Clipboard write with fallback for older browsers.
@@ -550,184 +562,99 @@ export function useCopilotActions(
     setActionStates(initialActionStates);
   }, []);
 
-  // Register CopilotKit actions for agent-triggered operations
-  // Save to Workspace Action
-  useCopilotAction({
+  // Register CopilotKit frontend tools for agent-triggered operations
+  // Story 21-A1: Migrated from useCopilotAction to useFrontendTool
+  // NOTE: Using Parameter[] format for CopilotKit 1.x compatibility.
+  // Typed parameters are available via imported types for handler inference.
+
+  // Save to Workspace Tool
+  useFrontendTool<typeof saveToWorkspaceToolParams>({
     name: "save_to_workspace",
-    description: "Save the AI response to the user's workspace for later reference",
-    parameters: [
-      {
-        name: "content_id",
-        type: "string",
-        description: "Unique ID of the content to save",
-        required: true,
-      },
-      {
-        name: "content_text",
-        type: "string",
-        description: "The actual content/response text to save",
-        required: true,
-      },
-      {
-        name: "title",
-        type: "string",
-        description: "Optional title for the saved content",
-        required: false,
-      },
-      {
-        name: "query",
-        type: "string",
-        description: "Original query that generated this response",
-        required: false,
-      },
-    ],
-    handler: async ({ content_id, content_text, title, query }) => {
+    description:
+      "Save the AI response to the user's workspace for later reference",
+    parameters: saveToWorkspaceToolParams,
+    handler: async (params) => {
+      const { content_id, content_text, title, query } =
+        params as unknown as SaveToWorkspaceParams;
       const content: ActionableContent = {
-        id: content_id as string,
-        content: content_text as string,
-        title: title as string | undefined,
-        query: query as string | undefined,
+        id: content_id,
+        content: content_text,
+        title,
+        query,
       };
       await saveToWorkspace(content);
       return { success: true, action: "save_to_workspace" };
     },
   });
 
-  // Export Content Action
-  useCopilotAction({
+  // Export Content Tool
+  useFrontendTool<typeof exportContentToolParams>({
     name: "export_content",
-    description: "Export the AI response in a specified format (markdown, pdf, json)",
-    parameters: [
-      {
-        name: "content_id",
-        type: "string",
-        description: "Unique ID of the content to export",
-        required: true,
-      },
-      {
-        name: "content_text",
-        type: "string",
-        description: "The actual content/response text to export",
-        required: true,
-      },
-      {
-        name: "format",
-        type: "string",
-        description: "Export format: markdown, pdf, or json",
-        required: true,
-      },
-      {
-        name: "title",
-        type: "string",
-        description: "Optional title for the export",
-        required: false,
-      },
-    ],
-    handler: async ({ content_id, content_text, format, title }) => {
+    description:
+      "Export the AI response in a specified format (markdown, pdf, json)",
+    parameters: exportContentToolParams,
+    handler: async (params) => {
+      const { content_id, content_text, format, title } =
+        params as unknown as ExportContentParams;
       const content: ActionableContent = {
-        id: content_id as string,
-        content: content_text as string,
-        title: title as string | undefined,
+        id: content_id,
+        content: content_text,
+        title,
       };
-      await exportContent(content, format as ExportFormat);
+      await exportContent(content, format);
       return { success: true, action: "export_content", format };
     },
   });
 
-  // Share Content Action
-  useCopilotAction({
+  // Share Content Tool
+  useFrontendTool<typeof shareContentToolParams>({
     name: "share_content",
     description: "Generate a shareable link for the AI response",
-    parameters: [
-      {
-        name: "content_id",
-        type: "string",
-        description: "Unique ID of the content to share",
-        required: true,
-      },
-      {
-        name: "content_text",
-        type: "string",
-        description: "The actual content/response text to share",
-        required: true,
-      },
-      {
-        name: "title",
-        type: "string",
-        description: "Optional title for the shared content",
-        required: false,
-      },
-    ],
-    handler: async ({ content_id, content_text, title }) => {
+    parameters: shareContentToolParams,
+    handler: async (params) => {
+      const { content_id, content_text, title } =
+        params as unknown as ShareContentParams;
       const content: ActionableContent = {
-        id: content_id as string,
-        content: content_text as string,
-        title: title as string | undefined,
+        id: content_id,
+        content: content_text,
+        title,
       };
       const shareUrl = await shareContent(content);
       return { success: true, action: "share_content", shareUrl };
     },
   });
 
-  // Bookmark Content Action
-  useCopilotAction({
+  // Bookmark Content Tool
+  useFrontendTool<typeof bookmarkContentToolParams>({
     name: "bookmark_content",
     description: "Bookmark the AI response for quick access later",
-    parameters: [
-      {
-        name: "content_id",
-        type: "string",
-        description: "Unique ID of the content to bookmark",
-        required: true,
-      },
-      {
-        name: "content_text",
-        type: "string",
-        description: "The actual content/response text to bookmark",
-        required: true,
-      },
-      {
-        name: "title",
-        type: "string",
-        description: "Optional title for the bookmark",
-        required: false,
-      },
-    ],
-    handler: async ({ content_id, content_text, title }) => {
+    parameters: bookmarkContentToolParams,
+    handler: async (params) => {
+      const { content_id, content_text, title } =
+        params as unknown as BookmarkContentParams;
       const content: ActionableContent = {
-        id: content_id as string,
-        content: content_text as string,
-        title: title as string | undefined,
+        id: content_id,
+        content: content_text,
+        title,
       };
       await bookmarkContent(content);
       return { success: true, action: "bookmark_content" };
     },
   });
 
-  // Follow-up Query Action
-  useCopilotAction({
+  // Follow-up Query Tool
+  useFrontendTool<typeof suggestFollowUpToolParams>({
     name: "suggest_follow_up",
     description: "Suggest a follow-up query based on the current response",
-    parameters: [
-      {
-        name: "suggested_query",
-        type: "string",
-        description: "The suggested follow-up query",
-        required: true,
-      },
-      {
-        name: "context",
-        type: "string",
-        description: "Context from the current response",
-        required: false,
-      },
-    ],
-    handler: async ({ suggested_query, context }) => {
+    parameters: suggestFollowUpToolParams,
+    handler: async (params) => {
+      const { suggested_query, context } =
+        params as unknown as SuggestFollowUpParams;
       document.dispatchEvent(
         new CustomEvent("copilot:follow-up", {
           detail: {
             suggestedQuery: suggested_query,
-            context: { id: "suggested", content: (context as string) || "" },
+            context: { id: "suggested", content: context || "" },
           },
         })
       );
