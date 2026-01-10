@@ -22,7 +22,7 @@ class TestMCPServerConfig:
         assert str(config.url) == "https://mcp.example.com/sse"
         assert config.api_key is None
         assert config.transport == "sse"
-        assert config.timeout_ms == 30000
+        assert config.timeout_ms is None  # None = use factory default
 
     def test_full_config(self) -> None:
         """Test config with all fields."""

@@ -65,14 +65,17 @@ class MCPClient:
         self._retry_delay_ms = retry_delay_ms
 
         # Build HTTP client with configured timeout
-        timeout_seconds = config.timeout_ms / 1000.0
+        # Default to 30s if timeout_ms not set (defensive - factory should always set it)
+        timeout_ms = config.timeout_ms if config.timeout_ms is not None else 30000
+        timeout_seconds = timeout_ms / 1000.0
         self._http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(timeout_seconds),
             headers=self._build_headers(),
             follow_redirects=True,
         )
-        self._closed = False
-        # Lock to protect _closed flag from race conditions
+        # Use Event for thread-safe closed state (is_set() is atomic)
+        self._closed_event = asyncio.Event()
+        # Lock to protect close operation from concurrent calls
         self._close_lock = asyncio.Lock()
 
     def _build_headers(self) -> dict[str, str]:
@@ -146,7 +149,7 @@ class MCPClient:
             MCPClientConnectionError: If unable to connect to server
             MCPProtocolError: If server returns an error response
         """
-        if self._closed:
+        if self._closed_event.is_set():
             raise MCPClientError(f"MCP client '{self.name}' is closed")
 
         request_id = str(uuid.uuid4())
@@ -281,15 +284,18 @@ class MCPClient:
         Thread-safe: Uses lock to prevent double-close race conditions.
         """
         async with self._close_lock:
-            if not self._closed:
-                self._closed = True
+            if not self._closed_event.is_set():
+                self._closed_event.set()
                 await self._http_client.aclose()
                 logger.debug("mcp_client_closed", server=self.name)
 
     @property
     def is_closed(self) -> bool:
-        """Check if client is closed."""
-        return self._closed
+        """Check if client is closed.
+
+        Thread-safe: Uses asyncio.Event.is_set() which is atomic.
+        """
+        return self._closed_event.is_set()
 
 
 class MCPClientFactory:
@@ -372,9 +378,9 @@ class MCPClientFactory:
         """
         for server in self.settings.servers:
             if server.name == name:
-                # Bug fix: Apply global default_timeout_ms to server config
-                # If server config uses the default timeout (30000), apply global setting
-                if server.timeout_ms == 30000 and self.settings.default_timeout_ms != 30000:
+                # Apply global default_timeout_ms if server timeout not explicitly set
+                # None means "use factory default", any explicit value is preserved
+                if server.timeout_ms is None:
                     return MCPServerConfig(
                         name=server.name,
                         url=server.url,

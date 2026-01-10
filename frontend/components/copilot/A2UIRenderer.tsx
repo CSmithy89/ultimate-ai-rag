@@ -23,8 +23,63 @@ import {
   ExternalLink,
   Check,
 } from "lucide-react";
+import React, { Component, ErrorInfo, ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+// ============================================
+// ERROR BOUNDARY FOR WIDGET ISOLATION
+// ============================================
+
+interface WidgetErrorBoundaryProps {
+  children: ReactNode;
+  widgetId?: string;
+}
+
+interface WidgetErrorBoundaryState {
+  hasError: boolean;
+  error?: Error;
+}
+
+/**
+ * Error boundary that catches errors in individual widgets.
+ * Prevents one malformed widget from crashing the entire widget list.
+ */
+class WidgetErrorBoundary extends Component<
+  WidgetErrorBoundaryProps,
+  WidgetErrorBoundaryState
+> {
+  constructor(props: WidgetErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error): WidgetErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("[A2UIRenderer] Widget rendering error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+          <div className="flex items-center gap-2 text-red-700">
+            <AlertCircle className="w-4 h-4" />
+            <span className="text-sm font-medium">Widget rendering failed</span>
+          </div>
+          <p className="mt-1 text-xs text-red-600">
+            {this.props.widgetId && `Widget ID: ${this.props.widgetId}`}
+          </p>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 // ============================================
 // TYPES
@@ -179,12 +234,13 @@ export function A2UIRenderer({ onAction, onFormSubmit }: A2UIRendererProps) {
       return (
         <div className="space-y-3 my-3">
           {state.a2ui_widgets.map((widget, idx) => (
-            <A2UIWidgetComponent
-              key={widget.id || idx}
-              widget={widget}
-              onAction={onAction}
-              onFormSubmit={onFormSubmit}
-            />
+            <WidgetErrorBoundary key={widget.id || idx} widgetId={widget.id}>
+              <A2UIWidgetComponent
+                widget={widget}
+                onAction={onAction}
+                onFormSubmit={onFormSubmit}
+              />
+            </WidgetErrorBoundary>
           ))}
         </div>
       );

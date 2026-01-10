@@ -18,7 +18,7 @@ class MCPServerConfig(BaseModel):
         url: MCP server endpoint URL
         api_key: Optional API key for authentication
         transport: Transport type ("sse" or "http")
-        timeout_ms: Request timeout in milliseconds
+        timeout_ms: Request timeout in milliseconds (None = use factory default)
     """
 
     model_config = ConfigDict(populate_by_name=True)
@@ -27,7 +27,7 @@ class MCPServerConfig(BaseModel):
     url: HttpUrl = Field(..., description="MCP server endpoint URL")
     api_key: Optional[str] = Field(default=None, alias="apiKey", description="Optional API key")
     transport: str = Field(default="sse", description="Transport type: sse or http")
-    timeout_ms: int = Field(default=30000, alias="timeout", ge=1000, description="Timeout in ms")
+    timeout_ms: Optional[int] = Field(default=None, alias="timeout", ge=1000, description="Timeout in ms (None = use factory default)")
 
 
 class MCPClientSettings(BaseModel):

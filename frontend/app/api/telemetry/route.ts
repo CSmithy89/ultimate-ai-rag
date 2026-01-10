@@ -26,16 +26,21 @@ export async function POST(req: NextRequest) {
 
     // Forward to backend telemetry endpoint
     // Fire-and-forget: don't wait for backend response
+    // Use 2-second timeout to prevent hanging connections
+    const tenantId = req.headers.get("x-tenant-id");
     fetch(`${BACKEND_URL}/api/v1/telemetry`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         // Forward origin for CORS validation
         Origin: req.headers.get("origin") ?? "",
+        // Forward tenant ID for multi-tenancy (required per CLAUDE.md)
+        ...(tenantId && { "X-Tenant-ID": tenantId }),
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(2000), // 2 second timeout
     }).catch((error) => {
-      // Log but don't fail the request
+      // Log but don't fail the request (includes timeout errors)
       console.error("[Telemetry] Backend forward failed:", error);
     });
 
