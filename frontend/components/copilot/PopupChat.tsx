@@ -41,20 +41,32 @@ export interface PopupChatProps {
 
 /**
  * Get CSS class for popup position.
+ * Includes mobile-responsive adjustments.
  */
 function getPositionClass(position: PopupPosition): string {
-  switch (position) {
-    case "bottom-left":
-      return "!left-4 !right-auto";
-    case "top-right":
-      return "!bottom-auto !top-4";
-    case "top-left":
-      return "!left-4 !right-auto !bottom-auto !top-4";
-    case "bottom-right":
-    default:
-      return "";
-  }
+  // Base position classes
+  const positionClasses: Record<PopupPosition, string> = {
+    "bottom-right": "",
+    "bottom-left": "!left-4 !right-auto",
+    "top-right": "!bottom-auto !top-4",
+    "top-left": "!left-4 !right-auto !bottom-auto !top-4",
+  };
+
+  return positionClasses[position] || "";
 }
+
+/**
+ * Mobile-responsive CSS that gets applied to the popup.
+ * On small screens, the popup expands to full width with minimal margins.
+ */
+const RESPONSIVE_CLASSES = [
+  // Mobile: full-width with small margins
+  "max-sm:!left-2 max-sm:!right-2 max-sm:!bottom-2",
+  "max-sm:!w-[calc(100%-1rem)]",
+  "max-sm:!max-h-[80vh]",
+  // Tablet: slightly smaller margins
+  "sm:max-md:!max-w-[90vw]",
+].join(" ");
 
 /**
  * PopupChat provides a floating chat popup as an alternative to sidebar.
@@ -91,7 +103,7 @@ export function PopupChat({
         }}
         defaultOpen={defaultOpen}
         clickOutsideToClose={clickOutsideToClose}
-        className={cn("copilot-popup", getPositionClass(position), className)}
+        className={cn("copilot-popup", getPositionClass(position), RESPONSIVE_CLASSES, className)}
       >
         <ThoughtTraceStepper />
         <GenerativeUIRenderer />
