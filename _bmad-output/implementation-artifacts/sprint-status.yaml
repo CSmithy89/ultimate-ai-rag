@@ -425,9 +425,9 @@ development_status:
   # Add useRenderToolCall for MCP tool call visibility
   21-A4-implement-usecopilotreadable-context: done
   # Expose app state to AI via useCopilotReadable
-  21-A5-implement-usecopilotchatsuggestions: backlog
+  21-A5-implement-usecopilotchatsuggestions: done
   # Generate contextual chat suggestions
-  21-A6-implement-usecopilotchat-headless: backlog
+  21-A6-implement-usecopilotchat-headless: done
   # Enable programmatic chat control for testing and automation
   21-A7-implement-usecopilotadditionalinstructions: backlog
   # Dynamic system prompt modifications based on context

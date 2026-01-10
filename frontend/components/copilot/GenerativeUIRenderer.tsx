@@ -4,6 +4,7 @@ import { useGenerativeUI, type GraphPreviewNode } from "@/hooks/use-generative-u
 import { useSourceValidation } from "@/hooks/use-source-validation";
 import { useCopilotActions } from "@/hooks/use-copilot-actions";
 import { useCopilotContext } from "@/hooks/use-copilot-context";
+import { useChatSuggestions } from "@/hooks/use-chat-suggestions";
 import { useToolCallRenderers } from "./tool-renderers";
 import type { Source, ActionableContent } from "@/types/copilot";
 
@@ -54,6 +55,7 @@ interface GenerativeUIRendererProps {
  * Story 21-A2: Migrate to useHumanInTheLoop Pattern
  * Story 21-A3: Implement Tool Call Visualization
  * Story 21-A4: Implement useCopilotReadable for App Context
+ * Story 21-A5: Implement useCopilotChatSuggestions for Smart Follow-ups
  *
  * Migration Notes (21-A2):
  * - The validation dialog is now rendered INSIDE useHumanInTheLoop's render function.
@@ -102,6 +104,10 @@ export function GenerativeUIRenderer({
   // Initialize copilot context (Story 21-A4)
   // Exposes app state to AI: page, session, query history, preferences
   useCopilotContext();
+
+  // Initialize chat suggestions (Story 21-A5)
+  // Generates contextual follow-up suggestions based on current page
+  useChatSuggestions();
 
   // Initialize source validation hooks (Story 6-4, 21-A2)
   // Dialog is now rendered inside useHumanInTheLoop's render function

@@ -473,3 +473,70 @@ export const AppContextSchema = z.object({
   preferences: UserPreferencesSchema,
   recentQueries: z.array(QueryHistoryItemSchema),
 });
+
+// ============================================
+// PROGRAMMATIC CHAT TYPES - Story 21-A6
+// ============================================
+
+/**
+ * A chat message in the programmatic chat interface.
+ * Story 21-A6: Implement useCopilotChat for Headless Control
+ */
+export interface ChatMessage {
+  /** Unique message ID */
+  id: string;
+  /** Role of the message sender */
+  role: "user" | "assistant" | "system";
+  /** Message content text */
+  content: string;
+}
+
+/**
+ * Configuration for a quick action button.
+ * Story 21-A6: Implement useCopilotChat for Headless Control
+ */
+export interface QuickActionConfig {
+  /** Display label for the button */
+  label: string;
+  /** Message to send when clicked */
+  message: string;
+  /** Optional icon name (for future use) */
+  icon?: string;
+  /** Optional description for tooltip */
+  description?: string;
+}
+
+/**
+ * Return type for the useProgrammaticChat hook.
+ * Story 21-A6: Implement useCopilotChat for Headless Control
+ */
+export interface ProgrammaticChatReturn {
+  /** Array of visible messages in the conversation */
+  messages: ChatMessage[];
+  /** Number of messages in the conversation */
+  messageCount: number;
+  /** Whether the chat is currently generating a response */
+  isLoading: boolean;
+  /** Send a user message programmatically */
+  sendMessage: (content: string) => Promise<void>;
+  /** Regenerate the last assistant response */
+  regenerateLastResponse: () => Promise<void>;
+  /** Stop the current generation */
+  stopGeneration: () => void;
+  /** Clear all messages and reset the chat */
+  clearHistory: () => void;
+}
+
+// Zod schemas for programmatic chat validation
+export const ChatMessageSchema = z.object({
+  id: z.string(),
+  role: z.enum(["user", "assistant", "system"]),
+  content: z.string(),
+});
+
+export const QuickActionConfigSchema = z.object({
+  label: z.string(),
+  message: z.string(),
+  icon: z.string().optional(),
+  description: z.string().optional(),
+});
