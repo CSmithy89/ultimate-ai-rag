@@ -218,7 +218,9 @@ Generate suggestions that match this style but vary based on the conversation co
  * ```
  */
 export function useChatSuggestions(): void {
-  const pathname = usePathname();
+  // Handle null pathname (Issue 2.1)
+  const rawPathname = usePathname();
+  const pathname = rawPathname ?? "/";
 
   // Get page-specific context
   const suggestionContext = useMemo(

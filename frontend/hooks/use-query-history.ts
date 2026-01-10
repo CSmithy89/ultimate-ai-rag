@@ -117,10 +117,20 @@ export function useQueryHistory(): UseQueryHistoryReturn {
     setIsLoaded(true);
   }, []);
 
+  // Persist to localStorage when queries change (Issue 2.9)
+  // Moving saveQueryHistory out of setQueries callback prevents race conditions
+  // when React batches multiple state updates
+  useEffect(() => {
+    if (isLoaded && queries.length > 0) {
+      saveQueryHistory(queries);
+    }
+  }, [queries, isLoaded]);
+
   /**
    * Add a new query to history.
    * Deduplicates if same as most recent query.
    * Trims to MAX_QUERY_HISTORY items.
+   * (Issue 2.9: Race Condition in useQueryHistory - Fixed by moving save to useEffect)
    */
   const addQuery = useCallback((query: string) => {
     if (!query.trim()) {
@@ -139,12 +149,8 @@ export function useQueryHistory(): UseQueryHistoryReturn {
       };
 
       // Add to front, limit to max
-      const updated = [newItem, ...prev].slice(0, MAX_QUERY_HISTORY);
-
-      // Persist to localStorage
-      saveQueryHistory(updated);
-
-      return updated;
+      // Note: saveQueryHistory is called in useEffect, not here (Issue 2.9)
+      return [newItem, ...prev].slice(0, MAX_QUERY_HISTORY);
     });
   }, []);
 

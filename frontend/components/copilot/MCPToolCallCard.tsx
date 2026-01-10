@@ -1,10 +1,10 @@
 "use client";
 
-import { memo, useState, useCallback } from "react";
+import { memo, useState, useCallback, useMemo } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StatusBadge, type ToolStatus, isComplete } from "./StatusBadge";
-import { redactSensitiveKeys } from "@/lib/utils/redact";
+import { redactSensitiveKeys, safeStringify } from "@/lib/utils/redact";
 
 /** Maximum characters for result display before truncation */
 const MAX_RESULT_LENGTH = 500;
@@ -34,6 +34,10 @@ export interface MCPToolCallCardProps {
  * - Expand/collapse animation with ChevronDown rotation
  * - Keyboard accessible (Enter/Space to toggle)
  *
+ * Code Review Fixes:
+ * - Issue 1.2: Use safeStringify to handle circular references
+ * - Issue 4.1: Memoize JSON stringify operations
+ *
  * Design follows project patterns from SourceCard.tsx and AnswerPanel.tsx:
  * - Uses cn() for class merging
  * - Consistent slate color palette for neutral UI
@@ -48,22 +52,32 @@ export const MCPToolCallCard = memo(function MCPToolCallCard({
 }: MCPToolCallCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // Redact sensitive keys from args and result
-  const redactedArgs = redactSensitiveKeys(args);
-  const redactedResult =
-    result && typeof result === "object"
-      ? redactSensitiveKeys(result as Record<string, unknown>)
-      : result;
+  // Memoize redaction and stringify to avoid recalculating on every render (Issue 4.1)
+  // Use safeStringify to handle circular references (Issue 1.2)
+  const redactedArgsString = useMemo(() => {
+    const redacted = redactSensitiveKeys(args);
+    return safeStringify(redacted, 2);
+  }, [args]);
 
-  // Truncate result for display
-  const resultString = redactedResult
-    ? JSON.stringify(redactedResult, null, 2)
-    : null;
-  const truncatedResult = resultString
-    ? resultString.slice(0, MAX_RESULT_LENGTH)
-    : null;
-  const isResultTruncated =
-    resultString && resultString.length > MAX_RESULT_LENGTH;
+  // Memoize result processing (Issue 4.1)
+  const { truncatedResult, isResultTruncated } = useMemo(() => {
+    if (!result) {
+      return { truncatedResult: null, isResultTruncated: false };
+    }
+
+    // Redact sensitive keys from result
+    const redactedResult =
+      typeof result === "object"
+        ? redactSensitiveKeys(result as Record<string, unknown>)
+        : result;
+
+    // Use safeStringify to handle circular references (Issue 1.2)
+    const resultString = safeStringify(redactedResult, 2);
+    const truncated = resultString.slice(0, MAX_RESULT_LENGTH);
+    const isTruncated = resultString.length > MAX_RESULT_LENGTH;
+
+    return { truncatedResult: truncated, isResultTruncated: isTruncated };
+  }, [result]);
 
   const handleToggle = useCallback(() => {
     setIsExpanded((prev) => !prev);
@@ -129,7 +143,7 @@ export const MCPToolCallCard = memo(function MCPToolCallCard({
               className="mt-1 text-xs bg-slate-50 p-2 rounded overflow-auto max-h-40 text-slate-700"
               data-testid="tool-args"
             >
-              {JSON.stringify(redactedArgs, null, 2)}
+              {redactedArgsString}
             </pre>
           </div>
 

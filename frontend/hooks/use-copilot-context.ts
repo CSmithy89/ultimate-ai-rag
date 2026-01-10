@@ -1,15 +1,28 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { useCopilotReadable } from "@copilotkit/react-core";
 import { usePathname } from "next/navigation";
 import { useQueryHistory } from "./use-query-history";
 import type { PageContext, SessionContext, UserPreferences } from "@/types/copilot";
+import { UserPreferencesSchema } from "@/types/copilot";
 
 /**
  * localStorage key for user preferences persistence.
+ *
+ * WARNING: Preferences are stored unencrypted in localStorage.
+ * Do not add sensitive data to UserPreferences without implementing encryption.
+ * (Issue 2.12: User Preferences Stored Unencrypted)
  */
 const USER_PREFERENCES_KEY = "rag-copilot-user-preferences";
+
+/**
+ * sessionStorage key for session start time.
+ * Note: This persists across page refreshes within the same tab.
+ * A new tab or browser restart will create a new session.
+ * (Issue 3.9: Session Start Never Updates)
+ */
+const SESSION_START_KEY = "rag-copilot-session-start";
 
 /**
  * Default user preferences when none are stored.
@@ -69,7 +82,8 @@ export function getPageName(pathname: string): string {
 }
 
 /**
- * Load user preferences from localStorage.
+ * Load user preferences from localStorage with Zod validation.
+ * (Issue 2.7: localStorage Parsing Lacks Zod Validation)
  */
 function loadPreferences(): UserPreferences {
   if (typeof window === "undefined") {
@@ -83,19 +97,26 @@ function loadPreferences(): UserPreferences {
     }
 
     const parsed = JSON.parse(stored);
-    return {
-      responseLength: parsed.responseLength ?? DEFAULT_PREFERENCES.responseLength,
-      includeCitations: parsed.includeCitations ?? DEFAULT_PREFERENCES.includeCitations,
-      language: parsed.language ?? DEFAULT_PREFERENCES.language,
-      expertiseLevel: parsed.expertiseLevel ?? DEFAULT_PREFERENCES.expertiseLevel,
-    };
-  } catch {
+
+    // Validate with Zod schema (Issue 2.7)
+    const result = UserPreferencesSchema.safeParse(parsed);
+    if (!result.success) {
+      console.warn("Invalid preferences in localStorage:", result.error.flatten());
+      return DEFAULT_PREFERENCES;
+    }
+
+    return result.data;
+  } catch (error) {
+    console.warn("Failed to load preferences from localStorage:", error);
     return DEFAULT_PREFERENCES;
   }
 }
 
 /**
  * Save user preferences to localStorage.
+ *
+ * WARNING: Preferences are stored unencrypted. Do not add sensitive data.
+ * (Issue 2.12: User Preferences Stored Unencrypted)
  */
 export function savePreferences(preferences: UserPreferences): void {
   if (typeof window === "undefined") {
@@ -111,26 +132,32 @@ export function savePreferences(preferences: UserPreferences): void {
 
 /**
  * Get session start time.
- * Uses a stable timestamp for the session.
+ * Uses a stable timestamp for the session, stored in sessionStorage.
+ *
+ * Note: Session persists across page refreshes in the same tab but resets
+ * when the tab is closed or a new tab is opened.
+ * (Issue 2.8: Wrap both getItem and setItem in try/catch)
+ * (Issue 3.9: Session Start Never Updates - documented behavior)
  */
 function getSessionStart(): string {
   if (typeof window === "undefined") {
     return new Date().toISOString();
   }
 
-  const key = "rag-copilot-session-start";
-  let sessionStart = sessionStorage.getItem(key);
+  // Wrap all sessionStorage operations in try/catch (Issue 2.8)
+  try {
+    let sessionStart = sessionStorage.getItem(SESSION_START_KEY);
 
-  if (!sessionStart) {
-    sessionStart = new Date().toISOString();
-    try {
-      sessionStorage.setItem(key, sessionStart);
-    } catch {
-      // sessionStorage might be disabled
+    if (!sessionStart) {
+      sessionStart = new Date().toISOString();
+      sessionStorage.setItem(SESSION_START_KEY, sessionStart);
     }
-  }
 
-  return sessionStart;
+    return sessionStart;
+  } catch {
+    // sessionStorage might be disabled or throw in private browsing
+    return new Date().toISOString();
+  }
 }
 
 /**
@@ -163,6 +190,14 @@ export interface UseCopilotContextReturn {
  * Security: Only non-sensitive data is exposed. Passwords, tokens, and
  * API keys are NEVER included in readable context.
  *
+ * Code Review Fixes:
+ * - Issue 2.1: Handle null pathname from usePathname()
+ * - Issue 2.7: Zod validation for localStorage
+ * - Issue 2.8: Wrap sessionStorage in try/catch
+ * - Issue 2.12: Document unencrypted storage warning
+ * - Issue 3.9: Document session lifetime behavior
+ * - Issue 3.10: useCopilotReadable calls are intentional per CopilotKit design
+ *
  * @example
  * ```tsx
  * // In a component within CopilotKit context
@@ -191,7 +226,10 @@ export interface UseCopilotContextReturn {
  * ```
  */
 export function useCopilotContext(): UseCopilotContextReturn {
-  const pathname = usePathname();
+  // Handle null pathname (Issue 2.1)
+  const rawPathname = usePathname();
+  const pathname = rawPathname ?? "/";
+
   const { queries: recentQueries, addQuery: addQueryToHistory } = useQueryHistory();
   const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
   const [isPreferencesLoaded, setIsPreferencesLoaded] = useState(false);
@@ -228,6 +266,7 @@ export function useCopilotContext(): UseCopilotContextReturn {
   );
 
   // Register page context with CopilotKit
+  // Note: useCopilotReadable is designed to be called every render (Issue 3.10)
   useCopilotReadable({
     description: "Current page the user is viewing in the RAG application. Use this to understand what the user is looking at and tailor responses accordingly.",
     value: pageContext,
@@ -255,14 +294,14 @@ export function useCopilotContext(): UseCopilotContextReturn {
     available: isPreferencesLoaded ? "enabled" : "disabled",
   });
 
-  // Update preferences handler
-  const updatePreferences = (updates: Partial<UserPreferences>) => {
+  // Update preferences handler with useCallback for stable reference
+  const updatePreferences = useCallback((updates: Partial<UserPreferences>) => {
     setPreferences((prev) => {
       const updated = { ...prev, ...updates };
       savePreferences(updated);
       return updated;
     });
-  };
+  }, []);
 
   return {
     pageContext,

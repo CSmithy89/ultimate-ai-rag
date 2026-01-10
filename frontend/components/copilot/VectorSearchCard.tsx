@@ -6,6 +6,19 @@ import { cn } from "@/lib/utils";
 import { StatusBadge, type ToolStatus, isComplete } from "./StatusBadge";
 
 /**
+ * Maximum length for result preview text before truncation.
+ * (Issue 4.5: Magic Numbers Without Constants)
+ */
+const MAX_PREVIEW_LENGTH = 100;
+
+/**
+ * Maximum number of results to display in the expanded view.
+ * Additional results are shown as "+ N more results".
+ * (Issue 4.5: Magic Numbers Without Constants)
+ */
+const MAX_VISIBLE_RESULTS = 5;
+
+/**
  * Search result item from vector_search tool
  */
 interface SearchResultItem {
@@ -73,11 +86,17 @@ function extractResults(
 }
 
 /**
- * Get display text for a result item
+ * Get display text for a result item.
+ * Truncates to MAX_PREVIEW_LENGTH characters.
+ *
+ * Note: React automatically escapes text content, preventing XSS.
+ * (Issue 3.8: XSS Vulnerability - React handles escaping)
  */
 function getResultPreview(item: SearchResultItem): string {
   const text = item.preview || item.content || item.title || "No preview";
-  return text.length > 100 ? text.slice(0, 100) + "..." : text;
+  return text.length > MAX_PREVIEW_LENGTH
+    ? text.slice(0, MAX_PREVIEW_LENGTH) + "..."
+    : text;
 }
 
 /**
@@ -200,7 +219,7 @@ export const VectorSearchCard = memo(function VectorSearchCard({
                 Results
               </span>
               <div className="mt-1 space-y-2" data-testid="search-results">
-                {searchResults.slice(0, 5).map((item, idx) => (
+                {searchResults.slice(0, MAX_VISIBLE_RESULTS).map((item, idx) => (
                   <div
                     key={idx}
                     className="flex items-start gap-2 p-2 bg-slate-50 rounded text-sm"
@@ -224,10 +243,10 @@ export const VectorSearchCard = memo(function VectorSearchCard({
                     </span>
                   </div>
                 ))}
-                {searchResults.length > 5 && (
+                {searchResults.length > MAX_VISIBLE_RESULTS && (
                   <div className="text-xs text-slate-500 text-center py-1">
-                    + {searchResults.length - 5} more result
-                    {searchResults.length - 5 !== 1 ? "s" : ""}
+                    + {searchResults.length - MAX_VISIBLE_RESULTS} more result
+                    {searchResults.length - MAX_VISIBLE_RESULTS !== 1 ? "s" : ""}
                   </div>
                 )}
               </div>

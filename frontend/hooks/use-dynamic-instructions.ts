@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useCopilotAdditionalInstructions } from "@copilotkit/react-core";
 import { usePathname } from "next/navigation";
 import { useCopilotContext } from "./use-copilot-context";
@@ -239,18 +240,29 @@ export function getFeatureInstructions(): {
  * ```
  */
 export function useDynamicInstructions(): void {
-  const pathname = usePathname();
+  // Handle null pathname (Issue 2.1)
+  const rawPathname = usePathname();
+  const pathname = rawPathname ?? "/";
+
   const { preferences } = useCopilotContext();
 
-  // Page-specific instructions
-  const pageInstructions = getPageInstructions(pathname);
+  // Memoize page-specific instructions (Issue 3.11)
+  const pageInstructions = useMemo(
+    () => getPageInstructions(pathname),
+    [pathname]
+  );
+
   useCopilotAdditionalInstructions({
     instructions: pageInstructions,
     available: pageInstructions ? "enabled" : "disabled",
   });
 
-  // User preference instructions
-  const preferenceInstructions = getPreferenceInstructions(preferences);
+  // Memoize user preference instructions (Issue 3.11)
+  const preferenceInstructions = useMemo(
+    () => getPreferenceInstructions(preferences),
+    [preferences]
+  );
+
   useCopilotAdditionalInstructions({
     instructions: preferenceInstructions,
     available: preferenceInstructions ? "enabled" : "disabled",
@@ -262,8 +274,10 @@ export function useDynamicInstructions(): void {
     available: "enabled",
   });
 
-  // Feature flag instructions
-  const features = getFeatureInstructions();
+  // Memoize feature flag instructions to avoid recalculating on every render
+  // (Issue 3.11: Excessive Re-renders in useDynamicInstructions)
+  // (Issue 4.4: Environment Variable Access Pattern - centralized in getFeatureInstructions)
+  const features = useMemo(() => getFeatureInstructions(), []);
 
   useCopilotAdditionalInstructions({
     instructions: features.voiceInput.instructions,

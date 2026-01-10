@@ -3,12 +3,25 @@
 import { useCallback, useRef } from "react";
 import { useDefaultTool } from "@copilotkit/react-core";
 import { useToast } from "@/hooks/use-toast";
-import { redactSensitiveKeys } from "@/lib/utils/redact";
+import { redactSensitiveKeys, safeStringify } from "@/lib/utils/redact";
 import type {
   DefaultToolRenderProps,
   DefaultToolStatus,
   DefaultToolHandlerUtilities,
 } from "@/types/copilot";
+
+/**
+ * Maximum number of completed tool IDs to track before pruning.
+ * Prevents unbounded memory growth in long sessions.
+ * (Issue 2.10: Unbounded Memory in completedToolsRef)
+ */
+const MAX_COMPLETED_TOOLS = 500;
+
+/**
+ * Number of entries to remove when pruning the completed tools set.
+ * Removes oldest half when limit is reached.
+ */
+const PRUNE_COUNT = 250;
 
 /**
  * Check if the tool status indicates the tool is currently running.
@@ -70,6 +83,23 @@ export function getDefaultToolUtilities(): DefaultToolHandlerUtilities {
 }
 
 /**
+ * Generate a unique tool call ID that avoids collisions.
+ * Uses timestamp + safe JSON stringification to handle circular refs.
+ * (Issue 1.2: JSON.stringify can crash on circular structures)
+ * (Issue 2.11: Tool ID Collision Risk)
+ *
+ * @param name - Tool name
+ * @param args - Tool arguments
+ * @returns Unique tool call ID
+ */
+function generateToolCallId(name: string, args: Record<string, unknown>): string {
+  const timestamp = Date.now();
+  // Use safeStringify to handle circular references (Issue 1.2)
+  const argsHash = safeStringify(args).slice(0, 50);
+  return `${name}-${timestamp}-${argsHash}`;
+}
+
+/**
  * useDefaultToolHandler provides a catch-all handler for unregistered backend tools.
  *
  * Story 21-A8: Implement useDefaultTool Catch-All
@@ -77,7 +107,7 @@ export function getDefaultToolUtilities(): DefaultToolHandlerUtilities {
  * This hook catches tool calls that don't have a specific handler registered via
  * `useFrontendTool`, `useHumanInTheLoop`, or `useRenderToolCall`. It provides:
  *
- * - Console logging for debugging (with sensitive data redaction)
+ * - Console logging for debugging (with sensitive data redaction, dev only)
  * - Toast notifications when tools complete
  * - Generic loading indicator during tool execution
  * - Graceful error handling that won't crash the UI
@@ -87,6 +117,12 @@ export function getDefaultToolUtilities(): DefaultToolHandlerUtilities {
  * - Third-party MCP tools (when MCP client is enabled) auto-support
  * - Debugging tool execution during development
  * - User feedback for background tool operations
+ *
+ * Code Review Fixes:
+ * - Issue 1.2: Use safeStringify to handle circular references
+ * - Issue 2.10: Bounded memory for completedToolsRef
+ * - Issue 2.11: Include timestamp in tool ID to avoid collisions
+ * - Issue 3.1: Gate console.log for development only
  *
  * Relationship to Story 21-A3 (Tool Call Visualization):
  * - 21-A3's `useRenderToolCall` with "*" wildcard renders ALL tool calls visually
@@ -116,7 +152,11 @@ export function useDefaultToolHandler(): void {
 
   // Track which tools we've shown completion toast for to avoid duplicates
   // when render is called multiple times during status transitions
+  // (Issue 2.10: Bounded memory - prune when limit reached)
   const completedToolsRef = useRef<Set<string>>(new Set());
+
+  // Map to track tool call IDs across renders (needed for stable IDs during status transitions)
+  const toolIdMapRef = useRef<Map<string, string>>(new Map());
 
   // Stable callback for toast to avoid recreating render function
   const showCompletionToast = useCallback(
@@ -125,6 +165,15 @@ export function useDefaultToolHandler(): void {
       if (completedToolsRef.current.has(toolCallId)) {
         return;
       }
+
+      // Bounded memory: Prune oldest entries when limit reached (Issue 2.10)
+      if (completedToolsRef.current.size >= MAX_COMPLETED_TOOLS) {
+        const entries = Array.from(completedToolsRef.current);
+        entries.slice(0, PRUNE_COUNT).forEach((id) => {
+          completedToolsRef.current.delete(id);
+        });
+      }
+
       completedToolsRef.current.add(toolCallId);
 
       const displayName = formatToolName(toolName);
@@ -142,15 +191,31 @@ export function useDefaultToolHandler(): void {
       const { name, args, status } = props as DefaultToolRenderProps;
 
       try {
-        // Generate a unique ID for this tool call to track completion
-        const toolCallId = `${name}-${JSON.stringify(args).slice(0, 50)}`;
+        // Generate a stable unique ID for this tool call across renders
+        // Use args fingerprint as key to get consistent ID across status changes
+        const argsFingerprint = `${name}-${safeStringify(args).slice(0, 100)}`;
+        let toolCallId = toolIdMapRef.current.get(argsFingerprint);
+        if (!toolCallId) {
+          toolCallId = generateToolCallId(name, args ?? {});
+          toolIdMapRef.current.set(argsFingerprint, toolCallId);
 
-        // Log for debugging (with sensitive data redaction)
-        const redactedArgs = redactSensitiveKeys(args ?? {});
-        console.log(`[DefaultTool] ${name}`, {
-          status,
-          args: redactedArgs,
-        });
+          // Prune old fingerprints to prevent memory leak
+          if (toolIdMapRef.current.size > MAX_COMPLETED_TOOLS) {
+            const keys = Array.from(toolIdMapRef.current.keys());
+            keys.slice(0, PRUNE_COUNT).forEach((key) => {
+              toolIdMapRef.current.delete(key);
+            });
+          }
+        }
+
+        // Log for debugging - only in development (Issue 3.1)
+        if (process.env.NODE_ENV !== "production") {
+          const redactedArgs = redactSensitiveKeys(args ?? {});
+          console.log(`[DefaultTool] ${name}`, {
+            status,
+            args: redactedArgs,
+          });
+        }
 
         // Show toast on completion
         if (isComplete(status)) {

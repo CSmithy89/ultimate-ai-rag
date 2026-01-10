@@ -276,11 +276,20 @@ export type ValidateSourcesParams = z.infer<typeof ValidateSourcesSchema>;
  * Parameter definitions for validate_sources tool.
  * Compatible with CopilotKit 1.x useHumanInTheLoop.
  */
+/**
+ * NOTE: CopilotKit 1.x does not support "object[]" type directly.
+ * We use "object" here, but the Zod schema (ValidateSourcesSchema) provides
+ * proper array validation. This is documented as a known limitation.
+ * (Issue 3.13: Parameter Type Inconsistency)
+ *
+ * When upgrading to CopilotKit 2.x, use the Zod schema directly which
+ * properly types sources as z.array(SourceSchema).
+ */
 export const validateSourcesToolParams: ToolParameter[] = [
   {
     name: "sources",
-    type: "object",
-    description: "Array of sources requiring human validation",
+    type: "object", // CopilotKit 1.x limitation - see Zod schema for proper array type
+    description: "Array of sources requiring human validation (validated as array by handler)",
     required: true,
   },
   {

@@ -16,7 +16,16 @@ export function isValidMessageContent(content: string): boolean {
 }
 
 /**
+ * Valid message roles for ChatMessage.
+ * Used for runtime validation of message role.
+ * (Issue 4.2: Missing Return Type Validation in toChatMessage)
+ */
+const VALID_MESSAGE_ROLES = new Set(["user", "assistant", "system"]);
+
+/**
  * Converts CopilotKit message to simplified ChatMessage type.
+ * Validates role before casting to prevent runtime issues.
+ * (Issue 4.2: Missing Return Type Validation in toChatMessage)
  *
  * @param msg - CopilotKit message object
  * @returns Simplified ChatMessage object
@@ -26,9 +35,15 @@ export function toChatMessage(msg: {
   role?: string;
   content?: string;
 }): ChatMessage {
+  // Validate role before casting (Issue 4.2)
+  const validatedRole: ChatMessage["role"] =
+    msg.role && VALID_MESSAGE_ROLES.has(msg.role)
+      ? (msg.role as ChatMessage["role"])
+      : "assistant";
+
   return {
     id: msg.id,
-    role: (msg.role as ChatMessage["role"]) || "assistant",
+    role: validatedRole,
     content: msg.content || "",
   };
 }
@@ -134,7 +149,8 @@ export function useProgrammaticChat(): ProgrammaticChatReturn {
 
   /**
    * Regenerate the last assistant response.
-   * Finds the last message and requests regeneration.
+   * Finds the last *assistant* message and requests regeneration.
+   * (Issue 2.3: regenerateLastResponse Uses Wrong Message)
    *
    * @throws Logs error to console if regeneration fails
    */
@@ -144,16 +160,22 @@ export function useProgrammaticChat(): ProgrammaticChatReturn {
       return;
     }
 
-    // Find the last message with an ID
-    const lastMessage = visibleMessages[visibleMessages.length - 1];
+    // Search backwards for the last assistant message (Issue 2.3)
+    // CopilotKit's reloadMessages expects an assistant message ID to regenerate
+    const lastAssistantMessage = [...visibleMessages]
+      .reverse()
+      .find((msg) => {
+        const role = (msg as { role?: string }).role;
+        return role === MessageRole.Assistant || role === "assistant";
+      });
 
-    if (!lastMessage?.id) {
-      console.warn("useProgrammaticChat: Last message has no ID");
+    if (!lastAssistantMessage?.id) {
+      console.warn("useProgrammaticChat: No assistant message to regenerate");
       return;
     }
 
     try {
-      await reloadMessages(lastMessage.id);
+      await reloadMessages(lastAssistantMessage.id);
     } catch (error) {
       console.error(
         "useProgrammaticChat: Failed to regenerate response:",

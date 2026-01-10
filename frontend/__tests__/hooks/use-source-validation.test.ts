@@ -5,7 +5,7 @@
  */
 
 import React from "react";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, waitFor } from "@testing-library/react";
 import { useHumanInTheLoop } from "@copilotkit/react-core";
 import { useSourceValidation } from "@/hooks/use-source-validation";
 import type { Source } from "@/types/copilot";
@@ -435,7 +435,7 @@ describe("useSourceValidation", () => {
       expect(onCancelled).toHaveBeenCalled();
     });
 
-    it("auto-responds when all sources are auto-approved", () => {
+    it("auto-responds when all sources are auto-approved", async () => {
       const onComplete = jest.fn();
       renderHook(() =>
         useSourceValidation({
@@ -448,17 +448,23 @@ describe("useSourceValidation", () => {
       const mockRespond = jest.fn();
 
       // All sources should be auto-approved (all have similarity > 0.3)
-      const renderResult = hookConfig.render({
-        status: "executing",
-        args: { sources: mockSources },
-        respond: mockRespond,
-        result: undefined,
+      let renderResult: React.ReactElement;
+      act(() => {
+        renderResult = hookConfig.render({
+          status: "executing",
+          args: { sources: mockSources },
+          respond: mockRespond,
+          result: undefined,
+        });
       });
 
       // Should auto-respond and return empty fragment
-      expect(renderResult.type).toBe(React.Fragment);
-      expect(mockRespond).toHaveBeenCalledWith({
-        approved: ["source-1", "source-2", "source-3"],
+      // Auto-respond now happens in useEffect (Issue 1.1), so we need to wait
+      expect(renderResult!.type).toBe(React.Fragment);
+      await waitFor(() => {
+        expect(mockRespond).toHaveBeenCalledWith({
+          approved: ["source-1", "source-2", "source-3"],
+        });
       });
       expect(onComplete).toHaveBeenCalledWith([
         "source-1",
@@ -467,7 +473,7 @@ describe("useSourceValidation", () => {
       ]);
     });
 
-    it("auto-responds when all sources are auto-rejected", () => {
+    it("auto-responds when all sources are auto-rejected", async () => {
       const onComplete = jest.fn();
       renderHook(() =>
         useSourceValidation({
@@ -480,16 +486,22 @@ describe("useSourceValidation", () => {
       const mockRespond = jest.fn();
 
       // All sources should be auto-rejected (all have similarity < 1.0)
-      const renderResult = hookConfig.render({
-        status: "executing",
-        args: { sources: mockSources },
-        respond: mockRespond,
-        result: undefined,
+      let renderResult: React.ReactElement;
+      act(() => {
+        renderResult = hookConfig.render({
+          status: "executing",
+          args: { sources: mockSources },
+          respond: mockRespond,
+          result: undefined,
+        });
       });
 
       // Should auto-respond and return empty fragment
-      expect(renderResult.type).toBe(React.Fragment);
-      expect(mockRespond).toHaveBeenCalledWith({ approved: [] });
+      // Auto-respond now happens in useEffect (Issue 1.1), so we need to wait
+      expect(renderResult!.type).toBe(React.Fragment);
+      await waitFor(() => {
+        expect(mockRespond).toHaveBeenCalledWith({ approved: [] });
+      });
       expect(onComplete).toHaveBeenCalledWith([]);
     });
 
