@@ -435,7 +435,7 @@ development_status:
   # Catch-all handler for unregistered backend tools
 
   # --- Group B: Observability & Debugging ---
-  21-B1-configure-observability-hooks-dev-console: backlog
+  21-B1-configure-observability-hooks-dev-console: review
   # Wire all observabilityHooks to analytics pipeline + enable showDevConsole
   21-B2-add-run-error-event-support: backlog
   # Emit RUN_ERROR instead of embedding errors in text
