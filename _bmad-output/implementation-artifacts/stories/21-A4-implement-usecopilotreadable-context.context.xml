@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context story-id="21-A4" title="Implement useCopilotReadable for App Context">
+  <summary>
+    This story implements the useCopilotReadable hook to expose application state and context
+    to the CopilotKit AI, enabling more relevant and personalized responses. The AI will be
+    able to understand what page the user is viewing, recent query history, and user preferences.
+  </summary>
+
+  <relevant-files>
+    <file path="frontend/components/copilot/CopilotProvider.tsx" relevance="high">
+      Root CopilotKit provider. Context hooks must be called within CopilotKit context.
+    </file>
+    <file path="frontend/components/copilot/GenerativeUIRenderer.tsx" relevance="high">
+      Currently registers other CopilotKit hooks. This is where useCopilotContext should be integrated.
+    </file>
+    <file path="frontend/hooks/use-copilot-actions.ts" relevance="medium">
+      Example of existing CopilotKit hook integration pattern. Shows useFrontendTool usage.
+    </file>
+    <file path="frontend/hooks/use-source-validation.ts" relevance="medium">
+      Example of hook that uses CopilotKit patterns. Reference for hook structure.
+    </file>
+    <file path="frontend/types/copilot.ts" relevance="high">
+      Existing copilot types. New context types should be added here.
+    </file>
+    <file path="frontend/app/layout.tsx" relevance="medium">
+      Root layout showing CopilotProvider wrapping. Confirms context available app-wide.
+    </file>
+    <file path="frontend/app/page.tsx" relevance="low">
+      Home page structure. Shows ChatSidebar usage pattern.
+    </file>
+    <file path="frontend/app/knowledge/page.tsx" relevance="medium">
+      Knowledge graph page. Example of page-specific state that could be exposed.
+    </file>
+  </relevant-files>
+
+  <existing-patterns>
+    <pattern name="CopilotKit Hook Registration">
+      Hooks are registered inside GenerativeUIRenderer which renders null but registers hooks.
+      Example from tool-renderers.tsx: useToolCallRenderers() is called, returns nothing visible.
+    </pattern>
+    <pattern name="Next.js Client Components">
+      All hooks using browser APIs or CopilotKit must be in "use client" components.
+      Pathname accessed via usePathname() from next/navigation.
+    </pattern>
+    <pattern name="Type Safety">
+      All data structures have TypeScript interfaces defined in types/copilot.ts.
+      Zod schemas used for runtime validation where needed.
+    </pattern>
+    <pattern name="localStorage Usage">
+      Session data stored in localStorage with JSON serialization.
+      Keys should be prefixed to avoid conflicts.
+    </pattern>
+  </existing-patterns>
+
+  <api-reference>
+    <hook name="useCopilotReadable" package="@copilotkit/react-core">
+      <description>
+        Exposes application state/data to the CopilotKit AI as readable context.
+        The AI can reference this data when generating responses.
+      </description>
+      <parameters>
+        <param name="description" type="string" required="true">
+          Human-readable description of what this context represents.
+          AI uses this to understand when/how to use the data.
+        </param>
+        <param name="value" type="any" required="true">
+          The actual data to expose. Must be JSON-serializable.
+          Can be primitive, object, or array.
+        </param>
+        <param name="available" type="'enabled' | 'disabled'" required="false">
+          Conditionally enable/disable this context.
+          Use to hide context when not relevant.
+        </param>
+        <param name="parentId" type="string" required="false">
+          ID returned from another useCopilotReadable call.
+          Creates hierarchical context relationships.
+        </param>
+        <param name="categories" type="string[]" required="false">
+          Category tags for filtering contexts.
+          Useful for organizing related contexts.
+        </param>
+        <param name="convert" type="(description, value) => string" required="false">
+          Custom serialization function.
+          Override default JSON.stringify behavior.
+        </param>
+      </parameters>
+      <returns>string - Unique context ID for use as parentId</returns>
+      <example>
+        useCopilotReadable({
+          description: "Current page the user is viewing",
+          value: { route: "/knowledge", pageName: "Knowledge Graph" },
+        });
+      </example>
+    </hook>
+  </api-reference>
+
+  <implementation-guidance>
+    <step order="1" task="Add Types">
+      Add to frontend/types/copilot.ts:
+      - AppContext interface (page, session, preferences)
+      - SessionContext type (tenantId, sessionStart)
+      - UserPreferences type (responseLength, includeCitations)
+      - QueryHistoryItem type (query, timestamp)
+    </step>
+    <step order="2" task="Create useQueryHistory Hook">
+      Create frontend/hooks/use-query-history.ts:
+      - Use localStorage for persistence
+      - Key: "rag-copilot-query-history"
+      - Store last 5 queries with timestamps
+      - Export: useQueryHistory() hook, addQuery(), clearHistory()
+    </step>
+    <step order="3" task="Create useCopilotContext Hook">
+      Create frontend/hooks/use-copilot-context.ts:
+      - Import useCopilotReadable from @copilotkit/react-core
+      - Import usePathname from next/navigation
+      - Register page context (route, page name mapping)
+      - Register session context (tenant ID from env)
+      - Register query history context (from useQueryHistory)
+      - Register user preferences (from localStorage or defaults)
+    </step>
+    <step order="4" task="Integrate in GenerativeUIRenderer">
+      Modify frontend/components/copilot/GenerativeUIRenderer.tsx:
+      - Import useCopilotContext
+      - Call useCopilotContext() after other hook registrations
+      - Hook order doesn't matter for context, just be consistent
+    </step>
+    <step order="5" task="Add Unit Tests">
+      Create frontend/__tests__/hooks/use-copilot-context.test.ts:
+      - Test that context values are set correctly
+      - Test page name mapping
+      - Test query history storage and retrieval
+      - Test preferences fallback to defaults
+    </step>
+  </implementation-guidance>
+
+  <security-considerations>
+    <item severity="high">
+      NEVER expose API keys, tokens, or credentials via useCopilotReadable.
+      Context is sent to the AI model which could leak in responses.
+    </item>
+    <item severity="medium">
+      Only expose tenant ID, not internal database IDs or user IDs.
+      Prevents potential cross-tenant information disclosure.
+    </item>
+    <item severity="low">
+      Query history should only store query text, not full response data.
+      Minimizes context size and avoids sensitive data in history.
+    </item>
+  </security-considerations>
+
+  <test-strategy>
+    <unit-tests>
+      - useCopilotContext hook with mocked useCopilotReadable
+      - useQueryHistory localStorage operations
+      - Page name mapping function
+      - Preferences defaults and overrides
+    </unit-tests>
+    <integration-notes>
+      Context registration is verified by the AI being able to reference
+      the exposed data in responses. Manual testing recommended.
+    </integration-notes>
+  </test-strategy>
+
+  <dependencies>
+    <dependency name="@copilotkit/react-core" usage="useCopilotReadable hook" />
+    <dependency name="next/navigation" usage="usePathname for route detection" />
+    <dependency name="localStorage" usage="Query history and preferences persistence" />
+  </dependencies>
+</story-context>

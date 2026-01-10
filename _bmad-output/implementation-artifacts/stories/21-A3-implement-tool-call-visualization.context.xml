@@ -1,0 +1,645 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story Context File: 21-A3 Implement Tool Call Visualization
+  Generated: 2026-01-10
+  Epic: 21 - CopilotKit Full Integration
+  Priority: P0 - HIGH
+  Story Points: 5
+-->
+<story-context>
+  <story-summary>
+    <title>Implement Tool Call Visualization with useRenderToolCall/renderToolCalls</title>
+    <description>
+      Add visual feedback for MCP tool calls in the CopilotSidebar chat interface.
+      When the AI agent calls tools (vector_search, ingest_url, graph_search, etc.),
+      users currently see no visual indication. This story implements tool call
+      visualization using CopilotKit's renderToolCalls prop on CopilotKitProvider.
+    </description>
+    <key-objectives>
+      1. Create redaction utility for sensitive tool arguments (password, token, key, etc.)
+      2. Create StatusBadge component showing InProgress/Executing/Complete states
+      3. Create MCPToolCallCard component for collapsible tool call visualization
+      4. Create VectorSearchCard component for RAG-specific tool visualization
+      5. Configure CopilotKitProvider with renderToolCalls prop
+      6. Add wildcard renderer for unregistered tools
+    </key-objectives>
+    <caveats>
+      - Status values differ between CopilotKit versions: 1.x uses lowercase, 2.x uses PascalCase
+      - Current project uses CopilotKit 1.50.1 (check for actual status values)
+      - Since CopilotSidebar is used, configure renderToolCalls prop on CopilotKitProvider
+      - No shadcn/ui Card components exist - create inline styled cards matching existing patterns
+    </caveats>
+  </story-summary>
+
+  <files-to-create>
+    <file priority="1">
+      <path>frontend/lib/utils/redact.ts</path>
+      <purpose>Sensitive key redaction utility for tool arguments and results</purpose>
+      <exports>
+        - redactSensitiveKeys(obj: Record&lt;string, unknown&gt;): Record&lt;string, unknown&gt;
+        - SENSITIVE_PATTERNS: RegExp constant
+      </exports>
+    </file>
+    <file priority="2">
+      <path>frontend/components/copilot/StatusBadge.tsx</path>
+      <purpose>Status indicator component for tool call states</purpose>
+      <exports>
+        - StatusBadge component (React.FC)
+        - ToolStatus type
+        - isInProgress(), isExecuting(), isComplete() helper functions
+      </exports>
+    </file>
+    <file priority="3">
+      <path>frontend/components/copilot/MCPToolCallCard.tsx</path>
+      <purpose>Generic collapsible tool call visualization card</purpose>
+      <exports>
+        - MCPToolCallCard component (React.FC)
+        - MCPToolCallCardProps interface
+      </exports>
+    </file>
+    <file priority="4">
+      <path>frontend/components/copilot/VectorSearchCard.tsx</path>
+      <purpose>RAG-specific tool call visualization for vector_search</purpose>
+      <exports>
+        - VectorSearchCard component (React.FC)
+        - VectorSearchCardProps interface
+      </exports>
+    </file>
+    <file priority="5">
+      <path>frontend/components/copilot/tool-renderers.tsx</path>
+      <purpose>Tool renderer definitions for CopilotKitProvider.renderToolCalls</purpose>
+      <exports>
+        - toolRenderers array (for renderToolCalls prop)
+        - Individual renderer definitions: vectorSearchRenderer, wildcardRenderer
+      </exports>
+    </file>
+    <file priority="6">
+      <path>frontend/__tests__/lib/utils/redact.test.ts</path>
+      <purpose>Unit tests for redaction utility</purpose>
+    </file>
+    <file priority="7">
+      <path>frontend/__tests__/components/copilot/StatusBadge.test.tsx</path>
+      <purpose>Unit tests for StatusBadge component</purpose>
+    </file>
+    <file priority="8">
+      <path>frontend/__tests__/components/copilot/MCPToolCallCard.test.tsx</path>
+      <purpose>Unit tests for MCPToolCallCard component</purpose>
+    </file>
+  </files-to-create>
+
+  <files-to-modify>
+    <file priority="1">
+      <path>frontend/components/copilot/CopilotProvider.tsx</path>
+      <purpose>Add renderToolCalls prop with tool renderer configuration</purpose>
+      <current-content><![CDATA[
+"use client";
+
+import { CopilotKit } from "@copilotkit/react-core";
+import "@copilotkit/react-ui/styles.css";
+import { ReactNode } from "react";
+
+interface CopilotProviderProps {
+  children: ReactNode;
+}
+
+export function CopilotProvider({ children }: CopilotProviderProps) {
+  return (
+    <CopilotKit runtimeUrl="/api/copilotkit">
+      {children}
+    </CopilotKit>
+  );
+}
+]]></current-content>
+      <changes>
+        - Import toolRenderers from ./tool-renderers
+        - Add renderToolCalls={toolRenderers} prop to CopilotKit
+        - Use useMemo if needed to ensure renderers are stable
+      </changes>
+    </file>
+  </files-to-modify>
+
+  <reference-files>
+    <file purpose="Component pattern with cn(), lucide icons, and design system colors">
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/frontend/components/copilot/components/SourceCard.tsx</path>
+      <key-patterns>
+        - Uses cn() from @/lib/utils for class merging
+        - Uses lucide-react icons with consistent sizing (h-4 w-4)
+        - Design system colors: indigo-600 (primary), emerald-500 (success), slate-* (neutral)
+        - Confidence badge pattern with color-coded severity
+        - Keyboard accessible with role="button" and tabIndex
+        - Uses memo() for performance
+      </key-patterns>
+    </file>
+    <file purpose="Collapsible pattern with expand/collapse state">
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/frontend/components/copilot/components/AnswerPanel.tsx</path>
+      <key-patterns>
+        - useState for isExpanded state
+        - ChevronDown/ChevronUp icons for expand indicator
+        - transition-colors for hover states
+        - aria-expanded and aria-controls for accessibility
+        - JSON display with pre and overflow handling
+      </key-patterns>
+    </file>
+    <file purpose="CopilotKit hook pattern with render callback">
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/frontend/hooks/use-source-validation.ts</path>
+      <key-patterns>
+        - useHumanInTheLoop hook pattern with render function
+        - Status value handling (lowercase in CopilotKit 1.x)
+        - React.createElement for dynamic rendering in render callbacks
+        - Empty fragment pattern: React.createElement(React.Fragment)
+      </key-patterns>
+    </file>
+    <file purpose="Types and Zod schemas pattern">
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/frontend/types/copilot.ts</path>
+      <key-patterns>
+        - Interface definitions with JSDoc comments
+        - Zod schemas with .describe() for documentation
+        - Export both interface and schema
+      </key-patterns>
+    </file>
+    <file purpose="Test patterns for React components">
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/frontend/__tests__/components/copilot/components/SourceCard.test.tsx</path>
+      <key-patterns>
+        - Jest mock for lucide-react icons
+        - Mock objects with proper typing
+        - describe/it structure with clear naming
+        - Testing-library render, screen, fireEvent
+        - Test accessibility with role and aria attributes
+        - Test keyboard navigation
+      </key-patterns>
+    </file>
+    <file purpose="Utility test patterns">
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/frontend/__tests__/lib/utils.test.ts</path>
+      <key-patterns>
+        - Simple describe/it structure
+        - Input-output assertions
+        - Edge case testing (empty inputs, null values)
+      </key-patterns>
+    </file>
+    <file purpose="GenerativeUIRenderer integration pattern">
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/frontend/components/copilot/GenerativeUIRenderer.tsx</path>
+      <key-patterns>
+        - Multiple hooks initialized in single component
+        - Props forwarding to hooks
+        - Returns null (renderer is for side effects)
+        - Story reference comments
+      </key-patterns>
+    </file>
+    <file purpose="Tool parameter definitions pattern">
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/frontend/lib/schemas/tools.ts</path>
+      <key-patterns>
+        - ToolParameter interface for CopilotKit 1.x
+        - Dual format: Zod schema + Parameter[] array
+        - JSDoc comments for each schema
+      </key-patterns>
+    </file>
+  </reference-files>
+
+  <technical-context>
+    <copilotkit-version>
+      <package-version>1.50.1</package-version>
+      <notes>
+        CopilotKit 1.x uses lowercase status values: "inProgress", "executing", "complete"
+        CopilotKit 2.x uses PascalCase: "InProgress", "Executing", "Complete"
+        Code should handle BOTH for forward compatibility.
+      </notes>
+    </copilotkit-version>
+
+    <render-tool-calls-pattern><![CDATA[
+// CopilotKit Provider with renderToolCalls
+// NOTE: defineToolCallRenderer may not exist in 1.x - use object literal instead
+
+import { CopilotKit } from "@copilotkit/react-core";
+
+const vectorSearchRenderer = {
+  name: "vector_search",
+  render: ({ args, status, result }) => (
+    <VectorSearchCard query={args.query} status={status} results={result} />
+  ),
+};
+
+const wildcardRenderer = {
+  name: "*",
+  render: ({ name, args, status, result }) => (
+    <MCPToolCallCard name={name} args={args} status={status} result={result} />
+  ),
+};
+
+<CopilotKit
+  runtimeUrl="/api/copilotkit"
+  renderToolCalls={[vectorSearchRenderer, wildcardRenderer]}
+>
+  {children}
+</CopilotKit>
+]]></render-tool-calls-pattern>
+
+    <status-helpers><![CDATA[
+/**
+ * Tool call status type supporting both CopilotKit 1.x and 2.x
+ */
+export type ToolStatus =
+  | "inProgress" | "executing" | "complete"  // 1.x lowercase
+  | "InProgress" | "Executing" | "Complete"; // 2.x PascalCase
+
+export function isInProgress(status: ToolStatus): boolean {
+  return status === "inProgress" || status === "InProgress";
+}
+
+export function isExecuting(status: ToolStatus): boolean {
+  return status === "executing" || status === "Executing";
+}
+
+export function isComplete(status: ToolStatus): boolean {
+  return status === "complete" || status === "Complete";
+}
+]]></status-helpers>
+
+    <redaction-utility><![CDATA[
+// frontend/lib/utils/redact.ts
+
+/**
+ * Pattern matching sensitive keys that should be redacted in UI.
+ * Matches: password, secret, token, key, auth, credential, api_key, api-key,
+ * private_key, private-key, access_token, access-token
+ */
+export const SENSITIVE_PATTERNS = /password|secret|token|key|auth|credential|api[-_]?key|private[-_]?key|access[-_]?token/i;
+
+/**
+ * Recursively redact sensitive keys from an object.
+ * Values of keys matching SENSITIVE_PATTERNS are replaced with "[REDACTED]".
+ *
+ * @param obj - Object to redact
+ * @returns New object with sensitive values redacted
+ */
+export function redactSensitiveKeys(
+  obj: Record<string, unknown>
+): Record<string, unknown> {
+  if (typeof obj !== "object" || obj === null) {
+    return obj;
+  }
+
+  // Handle arrays
+  if (Array.isArray(obj)) {
+    return obj.map((item) =>
+      typeof item === "object" && item !== null
+        ? redactSensitiveKeys(item as Record<string, unknown>)
+        : item
+    ) as unknown as Record<string, unknown>;
+  }
+
+  return Object.fromEntries(
+    Object.entries(obj).map(([key, value]) => [
+      key,
+      SENSITIVE_PATTERNS.test(key)
+        ? "[REDACTED]"
+        : typeof value === "object" && value !== null
+          ? redactSensitiveKeys(value as Record<string, unknown>)
+          : value,
+    ])
+  );
+}
+]]></redaction-utility>
+
+    <status-badge-component><![CDATA[
+// frontend/components/copilot/StatusBadge.tsx
+"use client";
+
+import { memo } from "react";
+import { Loader2, Play, CheckCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { type ToolStatus, isInProgress, isExecuting, isComplete } from "./tool-status";
+
+interface StatusBadgeProps {
+  status: ToolStatus;
+  className?: string;
+}
+
+/**
+ * StatusBadge displays the current state of a tool call.
+ *
+ * Story 21-A3: Implement Tool Call Visualization
+ *
+ * States:
+ * - inProgress/InProgress: Blue, Loader2 spinning icon
+ * - executing/Executing: Yellow, Play icon
+ * - complete/Complete: Green, CheckCircle icon
+ */
+export const StatusBadge = memo(function StatusBadge({
+  status,
+  className,
+}: StatusBadgeProps) {
+  if (isInProgress(status)) {
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium",
+          "bg-blue-100 text-blue-800 border border-blue-200",
+          className
+        )}
+      >
+        <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+        Preparing
+      </span>
+    );
+  }
+
+  if (isExecuting(status)) {
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium",
+          "bg-yellow-100 text-yellow-800 border border-yellow-200",
+          className
+        )}
+      >
+        <Play className="h-3 w-3" aria-hidden="true" />
+        Running
+      </span>
+    );
+  }
+
+  if (isComplete(status)) {
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium",
+          "bg-emerald-100 text-emerald-800 border border-emerald-200",
+          className
+        )}
+      >
+        <CheckCircle className="h-3 w-3" aria-hidden="true" />
+        Complete
+      </span>
+    );
+  }
+
+  // Fallback for unknown status
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
+        "bg-slate-100 text-slate-600 border border-slate-200",
+        className
+      )}
+    >
+      {status}
+    </span>
+  );
+});
+]]></status-badge-component>
+
+    <mcp-tool-call-card><![CDATA[
+// frontend/components/copilot/MCPToolCallCard.tsx
+"use client";
+
+import { memo, useState } from "react";
+import { ChevronDown } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { StatusBadge, type ToolStatus, isComplete } from "./StatusBadge";
+import { redactSensitiveKeys } from "@/lib/utils/redact";
+
+interface MCPToolCallCardProps {
+  /** Tool name */
+  name: string;
+  /** Tool arguments */
+  args: Record<string, unknown>;
+  /** Current execution status */
+  status: ToolStatus;
+  /** Tool result (when complete) */
+  result?: unknown;
+  /** Additional CSS classes */
+  className?: string;
+}
+
+/** Maximum characters for result display before truncation */
+const MAX_RESULT_LENGTH = 500;
+
+/**
+ * MCPToolCallCard displays a collapsible card for MCP tool calls.
+ *
+ * Story 21-A3: Implement Tool Call Visualization
+ *
+ * Features:
+ * - Collapsible header with tool name and status badge
+ * - Redacted display of tool arguments
+ * - Truncated display of results (max 500 chars)
+ * - Expand/collapse animation
+ */
+export const MCPToolCallCard = memo(function MCPToolCallCard({
+  name,
+  args,
+  status,
+  result,
+  className,
+}: MCPToolCallCardProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  // Redact sensitive keys from args and result
+  const redactedArgs = redactSensitiveKeys(args);
+  const redactedResult = result && typeof result === "object"
+    ? redactSensitiveKeys(result as Record<string, unknown>)
+    : result;
+
+  // Truncate result for display
+  const resultString = redactedResult
+    ? JSON.stringify(redactedResult, null, 2)
+    : null;
+  const truncatedResult = resultString
+    ? resultString.slice(0, MAX_RESULT_LENGTH)
+    : null;
+  const isResultTruncated = resultString && resultString.length > MAX_RESULT_LENGTH;
+
+  return (
+    <div
+      className={cn(
+        "my-2 border border-slate-200 rounded-lg bg-white overflow-hidden",
+        className
+      )}
+    >
+      {/* Header */}
+      <button
+        type="button"
+        onClick={() => setIsExpanded(!isExpanded)}
+        className={cn(
+          "w-full p-3 flex items-center justify-between",
+          "hover:bg-slate-50 transition-colors cursor-pointer",
+          "focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+        )}
+        aria-expanded={isExpanded}
+      >
+        <div className="flex items-center gap-2">
+          <StatusBadge status={status} />
+          <span className="font-mono text-sm text-slate-700">{name}</span>
+        </div>
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 text-slate-500 transition-transform duration-200",
+            isExpanded && "rotate-180"
+          )}
+          aria-hidden="true"
+        />
+      </button>
+
+      {/* Expandable content */}
+      {isExpanded && (
+        <div className="p-3 pt-0 space-y-3 border-t border-slate-100">
+          {/* Arguments */}
+          <div>
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+              Arguments
+            </span>
+            <pre className="mt-1 text-xs bg-slate-50 p-2 rounded overflow-auto max-h-40 text-slate-700">
+              {JSON.stringify(redactedArgs, null, 2)}
+            </pre>
+          </div>
+
+          {/* Result (when complete) */}
+          {isComplete(status) && truncatedResult && (
+            <div>
+              <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                Result
+              </span>
+              <pre className="mt-1 text-xs bg-slate-50 p-2 rounded overflow-auto max-h-40 text-slate-700">
+                {truncatedResult}
+                {isResultTruncated && (
+                  <span className="text-slate-400">...</span>
+                )}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
+
+export default MCPToolCallCard;
+]]></mcp-tool-call-card>
+
+    <cn-utility><![CDATA[
+// Already exists at frontend/lib/utils.ts
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export function cn(...inputs: ClassValue[]): string {
+  return twMerge(clsx(inputs));
+}
+]]></cn-utility>
+
+    <design-system-colors>
+      Primary: indigo-600 (#4F46E5)
+      Success: emerald-500 (#10B981)
+      Warning: yellow-500/amber-500
+      Info: blue-500
+      Neutral: slate-* series
+
+      Badge patterns:
+      - bg-{color}-100 text-{color}-800 border border-{color}-200
+    </design-system-colors>
+  </technical-context>
+
+  <dependencies>
+    <external-packages>
+      <package name="@copilotkit/react-core" version="^1.50.1">
+        - CopilotKit component (accepts renderToolCalls prop)
+        - Note: defineToolCallRenderer may not exist in 1.x
+      </package>
+      <package name="lucide-react" version="^0.562.0">
+        - Icons: Loader2, Play, CheckCircle, ChevronDown
+      </package>
+      <package name="clsx" version="^2.1.1">
+        Used by cn() utility
+      </package>
+      <package name="tailwind-merge" version="^3.4.0">
+        Used by cn() utility
+      </package>
+    </external-packages>
+
+    <internal-imports>
+      <import from="@/lib/utils">cn</import>
+      <import from="@/lib/utils/redact">redactSensitiveKeys, SENSITIVE_PATTERNS</import>
+      <import from="@/components/copilot/StatusBadge">StatusBadge, ToolStatus, isComplete</import>
+      <import from="@/components/copilot/MCPToolCallCard">MCPToolCallCard</import>
+      <import from="@/components/copilot/VectorSearchCard">VectorSearchCard</import>
+      <import from="@/components/copilot/tool-renderers">toolRenderers</import>
+    </internal-imports>
+  </dependencies>
+
+  <testing-context>
+    <test-framework>Jest + @testing-library/react</test-framework>
+    <test-location>frontend/__tests__/</test-location>
+    <mock-patterns><![CDATA[
+// Mock lucide-react icons
+jest.mock("lucide-react", () => ({
+  Loader2: () => <span data-testid="icon-loader">Loader2</span>,
+  Play: () => <span data-testid="icon-play">Play</span>,
+  CheckCircle: () => <span data-testid="icon-check">CheckCircle</span>,
+  ChevronDown: () => <span data-testid="icon-chevron">ChevronDown</span>,
+}));
+]]></mock-patterns>
+    <test-cases>
+      <category name="redact.ts">
+        - redacts password key
+        - redacts api_key and api-key variants
+        - redacts token and access_token
+        - preserves non-sensitive keys
+        - handles nested objects recursively
+        - handles arrays with objects
+        - handles null/undefined gracefully
+        - handles non-object input
+      </category>
+      <category name="StatusBadge.tsx">
+        - renders Loader2 icon for inProgress/InProgress
+        - renders Play icon for executing/Executing
+        - renders CheckCircle icon for complete/Complete
+        - applies correct colors for each state
+        - handles unknown status with fallback
+        - accepts className prop
+      </category>
+      <category name="MCPToolCallCard.tsx">
+        - renders tool name in header
+        - renders StatusBadge with correct status
+        - starts collapsed by default
+        - expands when header clicked
+        - shows arguments when expanded
+        - shows result only when complete
+        - redacts sensitive args values
+        - truncates long results
+        - keyboard accessible (Enter/Space to toggle)
+      </category>
+    </test-cases>
+  </testing-context>
+
+  <acceptance-criteria-mapping>
+    <criterion id="AC1" description="Visual cards appear showing tool name and status">
+      MCPToolCallCard component with StatusBadge
+    </criterion>
+    <criterion id="AC2" description="Loading indicator for inProgress status">
+      StatusBadge with Loader2 spinning icon, blue colors
+    </criterion>
+    <criterion id="AC3" description="Running indicator for executing status with visible args">
+      StatusBadge with Play icon, yellow colors; args in collapsible section
+    </criterion>
+    <criterion id="AC4" description="Success indicator for complete status with result">
+      StatusBadge with CheckCircle icon, green colors; result in collapsible section
+    </criterion>
+    <criterion id="AC5" description="Specific renderer for vector_search">
+      VectorSearchCard component registered in toolRenderers
+    </criterion>
+    <criterion id="AC6" description="Wildcard renderer for unregistered tools">
+      MCPToolCallCard with name="*" in toolRenderers
+    </criterion>
+    <criterion id="AC7" description="Sensitive keys redacted">
+      redactSensitiveKeys() applied to args and result before display
+    </criterion>
+    <criterion id="AC8" description="Expand/collapse for args and results">
+      useState isExpanded, ChevronDown rotation animation
+    </criterion>
+    <criterion id="AC9" description="All tests pass with status transition coverage">
+      Unit tests for each component covering all status values
+    </criterion>
+    <criterion id="AC10" description="CopilotKitProvider configured with renderToolCalls">
+      Modify CopilotProvider.tsx to add renderToolCalls={toolRenderers}
+    </criterion>
+  </acceptance-criteria-mapping>
+</story-context>

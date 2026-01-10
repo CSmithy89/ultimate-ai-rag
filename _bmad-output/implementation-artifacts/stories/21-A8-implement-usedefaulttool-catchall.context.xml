@@ -1,0 +1,313 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story Context File: 21-A8-implement-usedefaulttool-catchall
+  Epic: 21 - CopilotKit Full Integration
+  Generated: 2026-01-10
+
+  This context file provides essential information for implementing
+  the useDefaultTool catch-all handler hook.
+-->
+<story-context>
+  <story-metadata>
+    <id>21-A8</id>
+    <title>Implement useDefaultTool for Catch-All Tool Handling</title>
+    <epic>21</epic>
+    <group>A - Modern Hook Migration</group>
+    <status>in-progress</status>
+    <priority>P2 - LOW</priority>
+    <story-points>2</story-points>
+  </story-metadata>
+
+  <objective>
+    Implement a catch-all handler for unregistered backend tools using CopilotKit's
+    useDefaultTool hook. This provides automatic support for new MCP tools, debugging
+    logs, and user feedback without requiring frontend changes.
+  </objective>
+
+  <key-deliverables>
+    <deliverable>useDefaultToolHandler hook with catch-all rendering</deliverable>
+    <deliverable>Console logging for debugging (with redaction)</deliverable>
+    <deliverable>Toast notifications for tool completion</deliverable>
+    <deliverable>Integration into CopilotProvider</deliverable>
+    <deliverable>Unit tests for hook functionality</deliverable>
+  </key-deliverables>
+
+  <technical-context>
+    <copilotkit-api>
+      <hook-name>useDefaultTool</hook-name>
+      <import-source>@copilotkit/react-core</import-source>
+
+      <usage-pattern>
+        <![CDATA[
+import { useDefaultTool } from "@copilotkit/react-core";
+
+useDefaultTool({
+  render: ({ name, args, status, result }) => {
+    // name: string - Tool name being called
+    // args: Record<string, unknown> - Tool arguments
+    // status: "inProgress" | "executing" | "complete" - Execution status
+    // result: unknown - Tool result when complete
+    return <div>...</div>;
+  },
+});
+        ]]>
+      </usage-pattern>
+
+      <status-values>
+        <value name="inProgress" description="Tool call initiated"/>
+        <value name="executing" description="Tool currently executing"/>
+        <value name="complete" description="Tool finished executing"/>
+      </status-values>
+
+      <key-differences-from-useRenderToolCall>
+        <note>useRenderToolCall targets specific tools by name (or "*" for all)</note>
+        <note>useDefaultTool catches tools WITHOUT specific handlers</note>
+        <note>Both can coexist - they serve different purposes</note>
+      </key-differences-from-useRenderToolCall>
+    </copilotkit-api>
+
+    <existing-utilities>
+      <utility name="redactSensitiveKeys" location="frontend/lib/utils/redact.ts">
+        Used to mask sensitive data in logs. Redacts keys matching:
+        password|secret|token|key|auth|credential|api[-_]?key|private[-_]?key|access[-_]?token
+      </utility>
+      <utility name="useToast" location="frontend/hooks/use-toast.ts">
+        Toast notification hook with variants: default, destructive, success, warning, info
+      </utility>
+    </existing-utilities>
+
+    <existing-patterns>
+      <pattern name="hook-structure">
+        See: frontend/hooks/use-copilot-context.ts, frontend/hooks/use-programmatic-chat.ts
+        - "use client" directive
+        - JSDoc documentation
+        - TypeScript interfaces
+        - Error handling with try/catch
+      </pattern>
+      <pattern name="provider-integration">
+        See: frontend/components/copilot/CopilotProvider.tsx
+        - Inner CopilotContextProvider component
+        - Hooks called within CopilotKit context
+        - Returns null (registration only)
+      </pattern>
+      <pattern name="test-structure">
+        See: frontend/__tests__/hooks/use-copilot-context.test.ts
+        - Mock CopilotKit before imports
+        - Test utility functions directly
+        - Avoid testing hook integration (ESM issues)
+      </pattern>
+    </existing-patterns>
+
+    <file-locations>
+      <create path="frontend/hooks/use-default-tool.ts" purpose="Main hook"/>
+      <create path="frontend/__tests__/hooks/use-default-tool.test.ts" purpose="Unit tests"/>
+      <modify path="frontend/types/copilot.ts" purpose="Add types"/>
+      <modify path="frontend/components/copilot/CopilotProvider.tsx" purpose="Integrate hook"/>
+    </file-locations>
+  </technical-context>
+
+  <implementation-requirements>
+    <requirement priority="high">
+      Create useDefaultToolHandler hook that:
+      - Uses useDefaultTool from @copilotkit/react-core
+      - Logs tool calls with redacted args to console
+      - Shows toast notification on completion
+      - Renders generic status indicator during execution
+    </requirement>
+
+    <requirement priority="high">
+      Integrate into CopilotProvider:
+      - Add/update CopilotContextProvider inner component
+      - Call useDefaultToolHandler within CopilotKit context
+      - Ensure hook runs after existing hooks if any
+    </requirement>
+
+    <requirement priority="medium">
+      Add types to copilot.ts:
+      - DefaultToolRenderProps interface
+      - DefaultToolStatus type
+    </requirement>
+
+    <requirement priority="medium">
+      Error handling:
+      - Wrap render logic in try/catch
+      - Log errors to console
+      - Return null on error (graceful degradation)
+    </requirement>
+  </implementation-requirements>
+
+  <acceptance-criteria>
+    <criterion id="1">Hook registered and processes unregistered tool calls</criterion>
+    <criterion id="2">Generic "Running [tool_name]..." displayed during execution</criterion>
+    <criterion id="3">Toast notification confirms completion</criterion>
+    <criterion id="4">Tool name and redacted args logged to console</criterion>
+    <criterion id="5">Catches tools not registered elsewhere</criterion>
+    <criterion id="6">Works with MCP client tools (future 21-C1)</criterion>
+    <criterion id="7">Errors logged but don't crash UI</criterion>
+  </acceptance-criteria>
+
+  <testing-guidance>
+    <note>
+      Due to CopilotKit ESM dependencies, tests should:
+      1. Mock @copilotkit/react-core before any imports
+      2. Test utility functions directly (not hook integration)
+      3. Mock toast hook for notification testing
+    </note>
+
+    <test-cases>
+      <case name="render returns loading indicator for inProgress status"/>
+      <case name="render returns loading indicator for executing status"/>
+      <case name="render returns null for complete status"/>
+      <case name="console.log called with tool name"/>
+      <case name="args are redacted before logging"/>
+      <case name="toast called on completion"/>
+      <case name="errors are caught and logged"/>
+    </test-cases>
+  </testing-guidance>
+
+  <related-stories>
+    <story id="21-A3" status="done">Tool Call Visualization - provides redactSensitiveKeys utility</story>
+    <story id="21-A4" status="done">useCopilotReadable - CopilotContextProvider pattern</story>
+    <story id="21-C1" status="backlog">MCP Client - will use default tool handler</story>
+    <story id="6-5" status="done">Frontend Actions - toast hook</story>
+  </related-stories>
+
+  <conventions>
+    <naming>
+      <hook>useDefaultToolHandler</hook>
+      <types>PascalCase for interfaces (DefaultToolRenderProps)</types>
+      <files>kebab-case for file names (use-default-tool.ts)</files>
+    </naming>
+    <imports>
+      <note>Use @/ alias for frontend imports</note>
+      <note>Import types with 'type' keyword</note>
+    </imports>
+    <documentation>
+      <note>JSDoc on all exported functions</note>
+      <note>Story reference in file header comments</note>
+    </documentation>
+  </conventions>
+
+  <code-snippets>
+    <snippet name="hook-implementation">
+      <![CDATA[
+"use client";
+
+import { useDefaultTool } from "@copilotkit/react-core";
+import { useToast } from "@/hooks/use-toast";
+import { redactSensitiveKeys } from "@/lib/utils/redact";
+import type { DefaultToolRenderProps } from "@/types/copilot";
+
+/**
+ * useDefaultToolHandler provides a catch-all handler for unregistered backend tools.
+ *
+ * Story 21-A8: Implement useDefaultTool Catch-All
+ *
+ * Features:
+ * - Catches tool calls without specific handlers
+ * - Logs tool execution to console (with redaction)
+ * - Shows toast notification on completion
+ * - Displays generic loading indicator during execution
+ *
+ * @example
+ * ```tsx
+ * function CopilotContextProvider() {
+ *   useDefaultToolHandler();
+ *   return null;
+ * }
+ * ```
+ */
+export function useDefaultToolHandler(): void {
+  const { toast } = useToast();
+
+  useDefaultTool({
+    render: ({ name, args, status, result }: DefaultToolRenderProps) => {
+      try {
+        // Log for debugging (with sensitive data redaction)
+        console.log(`[DefaultTool] ${name}`, {
+          status,
+          args: redactSensitiveKeys(args as Record<string, unknown>),
+        });
+
+        // Show toast on completion
+        if (status === "complete") {
+          toast({
+            variant: "default",
+            title: "Tool Executed",
+            description: `${name} completed successfully`,
+          });
+          return null;
+        }
+
+        // Show loading indicator during execution
+        if (status === "inProgress" || status === "executing") {
+          return (
+            <div className="text-sm text-muted-foreground flex items-center gap-2 my-2">
+              <span className="inline-block w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+              <span>Running {name}...</span>
+            </div>
+          );
+        }
+
+        return null;
+      } catch (error) {
+        console.error("[DefaultTool] Render error:", error);
+        return null;
+      }
+    },
+  });
+}
+      ]]>
+    </snippet>
+
+    <snippet name="types">
+      <![CDATA[
+// ============================================
+// DEFAULT TOOL TYPES - Story 21-A8
+// ============================================
+
+/**
+ * Status values for default tool execution.
+ * Story 21-A8: Implement useDefaultTool Catch-All
+ */
+export type DefaultToolStatus = "inProgress" | "executing" | "complete";
+
+/**
+ * Props passed to the useDefaultTool render function.
+ * Story 21-A8: Implement useDefaultTool Catch-All
+ */
+export interface DefaultToolRenderProps {
+  /** Name of the tool being executed */
+  name: string;
+  /** Arguments passed to the tool */
+  args: Record<string, unknown>;
+  /** Current execution status */
+  status: DefaultToolStatus;
+  /** Tool result (when status is "complete") */
+  result?: unknown;
+}
+      ]]>
+    </snippet>
+
+    <snippet name="provider-integration">
+      <![CDATA[
+import { useDefaultToolHandler } from "@/hooks/use-default-tool";
+
+export function CopilotProvider({ children }: CopilotProviderProps) {
+  return (
+    <CopilotKit runtimeUrl="/api/copilotkit">
+      <CopilotContextProvider />
+      {children}
+    </CopilotKit>
+  );
+}
+
+function CopilotContextProvider() {
+  // Register default tool handler for catch-all support
+  useDefaultToolHandler();
+  return null;
+}
+      ]]>
+    </snippet>
+  </code-snippets>
+</story-context>

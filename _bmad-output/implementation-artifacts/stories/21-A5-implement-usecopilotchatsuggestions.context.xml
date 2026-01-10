@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>21-A5</story-id>
+    <story-title>Implement useCopilotChatSuggestions for Smart Follow-ups</story-title>
+    <epic>21 - CopilotKit Full Integration</epic>
+    <group>A - Modern Hook Migration</group>
+    <priority>P1 - MEDIUM</priority>
+    <story-points>3</story-points>
+    <generated>2026-01-10</generated>
+  </metadata>
+
+  <objective>
+    Generate contextual chat suggestions that appear as clickable chips below the chat input,
+    reducing friction for common follow-up actions and improving discoverability of AI capabilities.
+  </objective>
+
+  <copilotkit-api>
+    <hook name="useCopilotChatSuggestions">
+      <description>
+        Registers instructions for AI-powered suggestion generation. Works with CopilotSidebar's
+        suggestions="auto" mode to generate suggestions on chat open and after each message.
+      </description>
+      <parameters>
+        <param name="instructions" type="string" required="true">
+          Natural language instructions describing what suggestions to generate
+        </param>
+        <param name="minSuggestions" type="number" required="false" default="1">
+          Minimum number of suggestions to generate
+        </param>
+        <param name="maxSuggestions" type="number" required="false" default="3">
+          Maximum number of suggestions to generate
+        </param>
+      </parameters>
+      <import>import { useCopilotChatSuggestions } from "@copilotkit/react-core";</import>
+    </hook>
+    <suggestion-mode>
+      <auto>Suggestions generated automatically on chat open and after each response</auto>
+      <manual>Use generateSuggestions() to trigger generation</manual>
+      <static>Provide SuggestionItem[] array for fixed suggestions</static>
+    </suggestion-mode>
+  </copilotkit-api>
+
+  <existing-patterns>
+    <file path="frontend/hooks/use-copilot-context.ts">
+      <pattern>
+        - Uses usePathname() from next/navigation for route detection
+        - getPageName() utility for human-readable page names
+        - Conditional context based on current page
+        - useMemo for derived state
+        - localStorage for persistence
+      </pattern>
+    </file>
+    <file path="frontend/components/copilot/GenerativeUIRenderer.tsx">
+      <pattern>
+        - Component renders null but registers hooks
+        - Hook calls in consistent order: useGenerativeUI, useToolCallRenderers, useCopilotContext, useSourceValidation, useCopilotActions
+        - New hook should be added after useCopilotContext
+      </pattern>
+    </file>
+    <file path="frontend/__tests__/hooks/use-copilot-context.test.ts">
+      <pattern>
+        - Mocks CopilotKit before imports
+        - Mocks next/navigation
+        - Tests pure utility functions separately
+        - Uses localStorage mock
+        - Tests security considerations
+      </pattern>
+    </file>
+  </existing-patterns>
+
+  <page-contexts>
+    <page route="/" name="Home">
+      <suggestions>
+        - Search for a topic in the knowledge base
+        - Import a new document
+        - View your recent queries
+        - Explore the knowledge graph
+      </suggestions>
+    </page>
+    <page route="/knowledge" name="Knowledge Graph">
+      <suggestions>
+        - Show related entities
+        - Explore connections between nodes
+        - Find paths between concepts
+        - View entity details
+      </suggestions>
+    </page>
+    <page route="/ops" name="Operations Dashboard">
+      <suggestions>
+        - Show recent trajectories
+        - View system metrics
+        - Check agent performance
+        - Analyze query patterns
+      </suggestions>
+    </page>
+    <page route="/ops/trajectories" name="Trajectory Debugging">
+      <suggestions>
+        - Filter by status
+        - Show failed trajectories
+        - View trajectory details
+        - Compare execution times
+      </suggestions>
+    </page>
+    <page route="/workflow" name="Visual Workflow Editor">
+      <suggestions>
+        - Add a new node
+        - Connect workflow steps
+        - Test the workflow
+        - Save configuration
+      </suggestions>
+    </page>
+  </page-contexts>
+
+  <implementation-spec>
+    <file action="create" path="frontend/hooks/use-chat-suggestions.ts">
+      <purpose>
+        Main hook that registers useCopilotChatSuggestions with context-aware instructions
+      </purpose>
+      <exports>
+        - useChatSuggestions(): void - Main hook to call in GenerativeUIRenderer
+        - getPageSuggestionContext(pathname: string): PageSuggestionContext - Utility for tests
+      </exports>
+      <structure>
+        1. Import useCopilotChatSuggestions from @copilotkit/react-core
+        2. Import usePathname from next/navigation
+        3. Define page-specific instruction map
+        4. Create getPageSuggestionContext utility
+        5. Create useChatSuggestions hook that:
+           - Gets current pathname
+           - Derives page-specific context
+           - Calls useCopilotChatSuggestions with dynamic instructions
+      </structure>
+    </file>
+    <file action="modify" path="frontend/components/copilot/GenerativeUIRenderer.tsx">
+      <changes>
+        - Import useChatSuggestions
+        - Call useChatSuggestions() after useCopilotContext()
+        - Add story reference in component JSDoc
+      </changes>
+    </file>
+    <file action="create" path="frontend/__tests__/hooks/use-chat-suggestions.test.ts">
+      <tests>
+        - Test getPageSuggestionContext for known routes
+        - Test getPageSuggestionContext for unknown routes
+        - Test instruction generation includes page name
+        - Test suggestion constraints (min/max)
+      </tests>
+    </file>
+  </implementation-spec>
+
+  <suggestion-guidelines>
+    <rule>Keep suggestions under 50 characters</rule>
+    <rule>Start with an action verb (Show, Explore, Find, View, etc.)</rule>
+    <rule>Make suggestions contextually relevant to current page</rule>
+    <rule>Include 2-4 suggestions per context</rule>
+    <rule>Avoid generic suggestions that work on any page</rule>
+  </suggestion-guidelines>
+
+  <integration-notes>
+    <note>CopilotSidebar uses suggestions="auto" by default - no config change needed</note>
+    <note>Hook registration is sufficient - CopilotKit handles display</note>
+    <note>Suggestions auto-refresh after each AI response</note>
+    <note>No backend changes required</note>
+  </integration-notes>
+
+  <dependencies>
+    <dependency>Story 6-2: CopilotSidebar with suggestions support</dependency>
+    <dependency>Story 21-A4: useCopilotContext pattern</dependency>
+    <dependency>@copilotkit/react-core: useCopilotChatSuggestions hook</dependency>
+    <dependency>next/navigation: usePathname hook</dependency>
+  </dependencies>
+
+  <acceptance-criteria-summary>
+    <criterion id="1">2-4 suggestions appear on initial chat open</criterion>
+    <criterion id="2">Suggestions regenerate after each response</criterion>
+    <criterion id="3">Knowledge Graph page has graph-specific suggestions</criterion>
+    <criterion id="4">Operations page has ops-specific suggestions</criterion>
+    <criterion id="5">Clicking suggestion sends it as user message</criterion>
+    <criterion id="6">Suggestions are concise and actionable</criterion>
+    <criterion id="7">Suggestions update on page navigation</criterion>
+    <criterion id="8">Follows useCopilotContext pattern</criterion>
+  </acceptance-criteria-summary>
+</story-context>

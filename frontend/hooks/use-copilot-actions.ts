@@ -9,11 +9,12 @@ import {
   shareContentToolParams,
   bookmarkContentToolParams,
   suggestFollowUpToolParams,
-  type SaveToWorkspaceParams,
-  type ExportContentParams,
-  type ShareContentParams,
-  type BookmarkContentParams,
-  type SuggestFollowUpParams,
+  // Zod schemas for validation (Issue 2.6)
+  SaveToWorkspaceSchema,
+  ExportContentSchema,
+  ShareContentSchema,
+  BookmarkContentSchema,
+  SuggestFollowUpSchema,
 } from "@/lib/schemas/tools";
 
 /**
@@ -41,6 +42,12 @@ async function writeToClipboard(text: string): Promise<void> {
 
 /**
  * Action types supported by the system.
+ *
+ * NOTE: Similar types exist in types/copilot.ts.
+ * These are kept separate intentionally as this hook may have different
+ * action requirements than the global types. Consider consolidating
+ * if they diverge or cause maintenance issues.
+ * (Issue 4.3: Duplicate Type Definitions - Documented)
  */
 export type ActionType = "save" | "export" | "share" | "bookmark" | "followUp";
 
@@ -568,14 +575,20 @@ export function useCopilotActions(
   // Typed parameters are available via imported types for handler inference.
 
   // Save to Workspace Tool
+  // Issue 2.6: Type Casting Bypasses Validation - Fixed with Zod safeParse
   useFrontendTool<typeof saveToWorkspaceToolParams>({
     name: "save_to_workspace",
     description:
       "Save the AI response to the user's workspace for later reference",
     parameters: saveToWorkspaceToolParams,
     handler: async (params) => {
-      const { content_id, content_text, title, query } =
-        params as unknown as SaveToWorkspaceParams;
+      // Validate params with Zod (Issue 2.6)
+      const parsed = SaveToWorkspaceSchema.safeParse(params);
+      if (!parsed.success) {
+        console.error("save_to_workspace: Invalid params:", parsed.error.flatten());
+        return { success: false, error: "Invalid parameters", action: "save_to_workspace" };
+      }
+      const { content_id, content_text, title, query } = parsed.data;
       const content: ActionableContent = {
         id: content_id,
         content: content_text,
@@ -588,14 +601,20 @@ export function useCopilotActions(
   });
 
   // Export Content Tool
+  // Issue 2.6: Type Casting Bypasses Validation - Fixed with Zod safeParse
   useFrontendTool<typeof exportContentToolParams>({
     name: "export_content",
     description:
       "Export the AI response in a specified format (markdown, pdf, json)",
     parameters: exportContentToolParams,
     handler: async (params) => {
-      const { content_id, content_text, format, title } =
-        params as unknown as ExportContentParams;
+      // Validate params with Zod (Issue 2.6)
+      const parsed = ExportContentSchema.safeParse(params);
+      if (!parsed.success) {
+        console.error("export_content: Invalid params:", parsed.error.flatten());
+        return { success: false, error: "Invalid parameters", action: "export_content" };
+      }
+      const { content_id, content_text, format, title } = parsed.data;
       const content: ActionableContent = {
         id: content_id,
         content: content_text,
@@ -607,13 +626,19 @@ export function useCopilotActions(
   });
 
   // Share Content Tool
+  // Issue 2.6: Type Casting Bypasses Validation - Fixed with Zod safeParse
   useFrontendTool<typeof shareContentToolParams>({
     name: "share_content",
     description: "Generate a shareable link for the AI response",
     parameters: shareContentToolParams,
     handler: async (params) => {
-      const { content_id, content_text, title } =
-        params as unknown as ShareContentParams;
+      // Validate params with Zod (Issue 2.6)
+      const parsed = ShareContentSchema.safeParse(params);
+      if (!parsed.success) {
+        console.error("share_content: Invalid params:", parsed.error.flatten());
+        return { success: false, error: "Invalid parameters", action: "share_content" };
+      }
+      const { content_id, content_text, title } = parsed.data;
       const content: ActionableContent = {
         id: content_id,
         content: content_text,
@@ -625,13 +650,19 @@ export function useCopilotActions(
   });
 
   // Bookmark Content Tool
+  // Issue 2.6: Type Casting Bypasses Validation - Fixed with Zod safeParse
   useFrontendTool<typeof bookmarkContentToolParams>({
     name: "bookmark_content",
     description: "Bookmark the AI response for quick access later",
     parameters: bookmarkContentToolParams,
     handler: async (params) => {
-      const { content_id, content_text, title } =
-        params as unknown as BookmarkContentParams;
+      // Validate params with Zod (Issue 2.6)
+      const parsed = BookmarkContentSchema.safeParse(params);
+      if (!parsed.success) {
+        console.error("bookmark_content: Invalid params:", parsed.error.flatten());
+        return { success: false, error: "Invalid parameters", action: "bookmark_content" };
+      }
+      const { content_id, content_text, title } = parsed.data;
       const content: ActionableContent = {
         id: content_id,
         content: content_text,
@@ -643,13 +674,19 @@ export function useCopilotActions(
   });
 
   // Follow-up Query Tool
+  // Issue 2.6: Type Casting Bypasses Validation - Fixed with Zod safeParse
   useFrontendTool<typeof suggestFollowUpToolParams>({
     name: "suggest_follow_up",
     description: "Suggest a follow-up query based on the current response",
     parameters: suggestFollowUpToolParams,
     handler: async (params) => {
-      const { suggested_query, context } =
-        params as unknown as SuggestFollowUpParams;
+      // Validate params with Zod (Issue 2.6)
+      const parsed = SuggestFollowUpSchema.safeParse(params);
+      if (!parsed.success) {
+        console.error("suggest_follow_up: Invalid params:", parsed.error.flatten());
+        return { success: false, error: "Invalid parameters", action: "suggest_follow_up" };
+      }
+      const { suggested_query, context } = parsed.data;
       document.dispatchEvent(
         new CustomEvent("copilot:follow-up", {
           detail: {

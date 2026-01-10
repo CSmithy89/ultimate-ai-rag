@@ -369,3 +369,269 @@ export const ActionHistoryItemSchema = z.object({
     .passthrough()
     .optional(),
 });
+
+// ============================================
+// COPILOT CONTEXT TYPES - Story 21-A4
+// ============================================
+
+/**
+ * Page context information exposed to the AI.
+ * Story 21-A4: Implement useCopilotReadable for App Context
+ */
+export interface PageContext {
+  /** Current route path (e.g., "/knowledge", "/ops") */
+  route: string;
+  /** Human-readable page name */
+  pageName: string;
+  /** Optional page-specific metadata */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Session context information exposed to the AI.
+ * Only non-sensitive session data is included.
+ * Story 21-A4: Implement useCopilotReadable for App Context
+ */
+export interface SessionContext {
+  /** Tenant ID for multi-tenant context */
+  tenantId: string | null;
+  /** ISO timestamp when session started */
+  sessionStart: string;
+  /** Whether user is authenticated (not credentials) */
+  isAuthenticated: boolean;
+}
+
+/**
+ * User preferences for AI response formatting.
+ * Story 21-A4: Implement useCopilotReadable for App Context
+ */
+export interface UserPreferences {
+  /** Preferred response length: "brief", "medium", "detailed" */
+  responseLength: "brief" | "medium" | "detailed";
+  /** Whether to include source citations in responses */
+  includeCitations: boolean;
+  /** User's preferred language code (e.g., "en", "es") */
+  language: string;
+  /** User's expertise level for response complexity */
+  expertiseLevel: "beginner" | "intermediate" | "expert";
+}
+
+/**
+ * Query history item for tracking recent queries.
+ * Story 21-A4: Implement useCopilotReadable for App Context
+ */
+export interface QueryHistoryItem {
+  /** The query text */
+  query: string;
+  /** ISO timestamp when query was made */
+  timestamp: string;
+}
+
+/**
+ * Combined application context exposed to AI.
+ * Story 21-A4: Implement useCopilotReadable for App Context
+ */
+export interface AppContext {
+  /** Current page context */
+  page: PageContext;
+  /** Session context (non-sensitive) */
+  session: SessionContext;
+  /** User preferences */
+  preferences: UserPreferences;
+  /** Recent query history */
+  recentQueries: QueryHistoryItem[];
+}
+
+// Zod schemas for context validation
+export const PageContextSchema = z.object({
+  route: z.string(),
+  pageName: z.string(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const SessionContextSchema = z.object({
+  tenantId: z.string().nullable(),
+  sessionStart: z.string(),
+  isAuthenticated: z.boolean(),
+});
+
+export const UserPreferencesSchema = z.object({
+  responseLength: z.enum(["brief", "medium", "detailed"]),
+  includeCitations: z.boolean(),
+  language: z.string(),
+  expertiseLevel: z.enum(["beginner", "intermediate", "expert"]),
+});
+
+export const QueryHistoryItemSchema = z.object({
+  query: z.string(),
+  timestamp: z.string(),
+});
+
+export const AppContextSchema = z.object({
+  page: PageContextSchema,
+  session: SessionContextSchema,
+  preferences: UserPreferencesSchema,
+  recentQueries: z.array(QueryHistoryItemSchema),
+});
+
+// ============================================
+// PROGRAMMATIC CHAT TYPES - Story 21-A6
+// ============================================
+
+/**
+ * A chat message in the programmatic chat interface.
+ * Story 21-A6: Implement useCopilotChat for Headless Control
+ */
+export interface ChatMessage {
+  /** Unique message ID */
+  id: string;
+  /** Role of the message sender */
+  role: "user" | "assistant" | "system";
+  /** Message content text */
+  content: string;
+}
+
+/**
+ * Configuration for a quick action button.
+ * Story 21-A6: Implement useCopilotChat for Headless Control
+ */
+export interface QuickActionConfig {
+  /** Display label for the button */
+  label: string;
+  /** Message to send when clicked */
+  message: string;
+  /** Optional icon name (for future use) */
+  icon?: string;
+  /** Optional description for tooltip */
+  description?: string;
+}
+
+/**
+ * Return type for the useProgrammaticChat hook.
+ * Story 21-A6: Implement useCopilotChat for Headless Control
+ */
+export interface ProgrammaticChatReturn {
+  /** Array of visible messages in the conversation */
+  messages: ChatMessage[];
+  /** Number of messages in the conversation */
+  messageCount: number;
+  /** Whether the chat is currently generating a response */
+  isLoading: boolean;
+  /** Send a user message programmatically */
+  sendMessage: (content: string) => Promise<void>;
+  /** Regenerate the last assistant response */
+  regenerateLastResponse: () => Promise<void>;
+  /** Stop the current generation */
+  stopGeneration: () => void;
+  /** Clear all messages and reset the chat */
+  clearHistory: () => void;
+}
+
+// Zod schemas for programmatic chat validation
+export const ChatMessageSchema = z.object({
+  id: z.string(),
+  role: z.enum(["user", "assistant", "system"]),
+  content: z.string(),
+});
+
+export const QuickActionConfigSchema = z.object({
+  label: z.string(),
+  message: z.string(),
+  icon: z.string().optional(),
+  description: z.string().optional(),
+});
+
+// ============================================
+// DEFAULT TOOL TYPES - Story 21-A8
+// ============================================
+
+/**
+ * Status values for default tool execution.
+ * Story 21-A8: Implement useDefaultTool Catch-All
+ *
+ * These values match CopilotKit's internal status enum:
+ * - "inProgress" - Tool call initiated
+ * - "executing" - Tool currently executing
+ * - "complete" - Tool finished executing
+ */
+export type DefaultToolStatus = "inProgress" | "executing" | "complete";
+
+/**
+ * Props passed to the useDefaultTool render function.
+ * Story 21-A8: Implement useDefaultTool Catch-All
+ */
+export interface DefaultToolRenderProps {
+  /** Name of the tool being executed */
+  name: string;
+  /** Arguments passed to the tool */
+  args: Record<string, unknown>;
+  /** Current execution status */
+  status: DefaultToolStatus;
+  /** Tool result (when status is "complete") */
+  result?: unknown;
+}
+
+/**
+ * Return type for useDefaultToolHandler hook utilities.
+ * Story 21-A8: Implement useDefaultTool Catch-All
+ */
+export interface DefaultToolHandlerUtilities {
+  /** Check if status indicates tool is running */
+  isRunning: (status: DefaultToolStatus) => boolean;
+  /** Check if status indicates tool is complete */
+  isComplete: (status: DefaultToolStatus) => boolean;
+  /** Format tool name for display (removes prefixes) */
+  formatToolName: (name: string) => string;
+}
+
+// ============================================
+// DYNAMIC INSTRUCTIONS TYPES - Story 21-A7
+// ============================================
+
+/**
+ * Categories of dynamic instructions that can be applied.
+ * Story 21-A7: Implement useCopilotAdditionalInstructions for Dynamic Prompts
+ */
+export type InstructionCategory =
+  | "page"
+  | "preferences"
+  | "security"
+  | "feature"
+  | "custom";
+
+/**
+ * Configuration for a single instruction registration.
+ * Story 21-A7: Implement useCopilotAdditionalInstructions for Dynamic Prompts
+ */
+export interface InstructionConfig {
+  /** Category of this instruction */
+  category: InstructionCategory;
+  /** The instruction text to add to the system prompt */
+  instructions: string;
+  /** Whether this instruction is currently active */
+  available: "enabled" | "disabled";
+}
+
+/**
+ * Feature flag instruction configuration.
+ * Story 21-A7: Implement useCopilotAdditionalInstructions for Dynamic Prompts
+ */
+export interface FeatureInstructionConfig {
+  /** The instruction to add when feature is enabled */
+  instructions: string;
+  /** Whether the feature is currently available */
+  available: boolean;
+}
+
+/**
+ * All feature flag instructions.
+ * Story 21-A7: Implement useCopilotAdditionalInstructions for Dynamic Prompts
+ */
+export interface FeatureInstructions {
+  /** Voice input feature instructions */
+  voiceInput: FeatureInstructionConfig;
+  /** Experimental features instructions */
+  experimentalFeatures: FeatureInstructionConfig;
+  /** A2UI rendering instructions */
+  a2ui: FeatureInstructionConfig;
+}

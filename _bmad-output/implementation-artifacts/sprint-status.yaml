@@ -419,19 +419,19 @@ development_status:
   # --- Group A: Modern Hook Migration (Tech Debt) ---
   21-A1-migrate-to-usefrontendtool-pattern: done
   # Replace deprecated useCopilotAction with handler to useFrontendTool
-  21-A2-migrate-to-usehumanintheloop-pattern: backlog
+  21-A2-migrate-to-usehumanintheloop-pattern: done
   # Replace deprecated useCopilotAction with render to useHumanInTheLoop
-  21-A3-implement-tool-call-visualization: backlog
+  21-A3-implement-tool-call-visualization: done
   # Add useRenderToolCall for MCP tool call visibility
-  21-A4-implement-usecopilotreadable-context: backlog
+  21-A4-implement-usecopilotreadable-context: done
   # Expose app state to AI via useCopilotReadable
-  21-A5-implement-usecopilotchatsuggestions: backlog
+  21-A5-implement-usecopilotchatsuggestions: done
   # Generate contextual chat suggestions
-  21-A6-implement-usecopilotchat-headless: backlog
+  21-A6-implement-usecopilotchat-headless: done
   # Enable programmatic chat control for testing and automation
-  21-A7-implement-usecopilotadditionalinstructions: backlog
+  21-A7-implement-usecopilotadditionalinstructions: done
   # Dynamic system prompt modifications based on context
-  21-A8-implement-usedefaulttool-catchall: backlog
+  21-A8-implement-usedefaulttool-catchall: done
   # Catch-all handler for unregistered backend tools
 
   # --- Group B: Observability & Debugging ---
