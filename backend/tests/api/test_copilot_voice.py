@@ -195,7 +195,8 @@ class TestTTSEndpoint:
         )
 
         assert response.status_code == 200
-        assert response.headers["content-type"] == "audio/mpeg"
+        # Content-Type matches the format returned by synthesize (mp3)
+        assert response.headers["content-type"] == "audio/mp3"
         assert response.content == b"mock audio data"
 
     def test_tts_with_voice_option(self, client, mock_voice_adapter):
