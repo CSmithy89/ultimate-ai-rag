@@ -16,7 +16,7 @@
 import { z } from "zod";
 
 // Re-export ExportFormat from types/copilot for consistency
-import { ExportFormatSchema, SourceSchema } from "@/types/copilot";
+import { ExportFormatSchema } from "@/types/copilot";
 
 /**
  * CopilotKit Parameter type for tool definitions.
@@ -248,54 +248,6 @@ export const suggestFollowUpToolParams: ToolParameter[] = [
     name: "context",
     type: "string",
     description: "Context from the current response",
-    required: false,
-  },
-];
-
-// ============================================
-// Human-in-the-Loop (HITL) Schemas
-// Story 21-A2: Migrate to useHumanInTheLoop Pattern
-// ============================================
-
-/**
- * Schema for validate_sources tool parameters.
- *
- * Used by useHumanInTheLoop for Human-in-the-Loop source validation.
- * The agent triggers this tool to request human approval of retrieved sources
- * before generating an answer.
- */
-export const ValidateSourcesSchema = z.object({
-  sources: z.array(SourceSchema).describe("Array of sources requiring human validation"),
-  query: z.string().optional().describe("The original user query for context"),
-});
-
-/** Inferred TypeScript type for validate_sources parameters */
-export type ValidateSourcesParams = z.infer<typeof ValidateSourcesSchema>;
-
-/**
- * Parameter definitions for validate_sources tool.
- * Compatible with CopilotKit 1.x useHumanInTheLoop.
- */
-/**
- * NOTE: CopilotKit 1.x does not support "object[]" type directly.
- * We use "object" here, but the Zod schema (ValidateSourcesSchema) provides
- * proper array validation. This is documented as a known limitation.
- * (Issue 3.13: Parameter Type Inconsistency)
- *
- * When upgrading to CopilotKit 2.x, use the Zod schema directly which
- * properly types sources as z.array(SourceSchema).
- */
-export const validateSourcesToolParams: ToolParameter[] = [
-  {
-    name: "sources",
-    type: "object", // CopilotKit 1.x limitation - see Zod schema for proper array type
-    description: "Array of sources requiring human validation (validated as array by handler)",
-    required: true,
-  },
-  {
-    name: "query",
-    type: "string",
-    description: "The original user query for context",
     required: false,
   },
 ];

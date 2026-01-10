@@ -1,30 +1,19 @@
 /**
  * Tests for use-source-validation hook
  * Story 6-4: Human-in-the-Loop Source Validation
- * Story 21-A2: Migrate to useHumanInTheLoop Pattern
  */
 
-import React from "react";
-import { renderHook, act, waitFor } from "@testing-library/react";
-import { useHumanInTheLoop } from "@copilotkit/react-core";
+import { renderHook, act } from "@testing-library/react";
+import { useCopilotAction } from "@copilotkit/react-core";
 import { useSourceValidation } from "@/hooks/use-source-validation";
 import type { Source } from "@/types/copilot";
 
-// Mock CopilotKit - Story 21-A2: Updated to mock useHumanInTheLoop
+// Mock CopilotKit
 jest.mock("@copilotkit/react-core", () => ({
-  useHumanInTheLoop: jest.fn(),
+  useCopilotAction: jest.fn(),
 }));
 
-// Mock SourceValidationDialog - needed since it's rendered inside the hook
-jest.mock("@/components/copilot/SourceValidationDialog", () => {
-  const mock = jest.fn(() => null);
-  Object.defineProperty(mock, "name", { value: "SourceValidationDialog" });
-  return { SourceValidationDialog: mock };
-});
-
-const mockUseHumanInTheLoop = useHumanInTheLoop as jest.MockedFunction<
-  typeof useHumanInTheLoop
->;
+const mockUseCopilotAction = useCopilotAction as jest.MockedFunction<typeof useCopilotAction>;
 
 // Mock sources
 const mockSources: Source[] = [
@@ -64,12 +53,11 @@ describe("useSourceValidation", () => {
       expect(result.current.state.rejectedIds).toEqual([]);
       expect(result.current.state.isSubmitting).toBe(false);
       expect(result.current.state.error).toBeNull();
-      // Story 21-A2: isDialogOpen is now always false (dialog rendered inside hook)
       expect(result.current.isDialogOpen).toBe(false);
     });
   });
 
-  describe("startValidation (deprecated)", () => {
+  describe("startValidation", () => {
     it("starts validation with provided sources", () => {
       const { result } = renderHook(() => useSourceValidation());
 
@@ -80,6 +68,7 @@ describe("useSourceValidation", () => {
       expect(result.current.state.isValidating).toBe(true);
       expect(result.current.state.pendingSources).toEqual(mockSources);
       expect(result.current.state.decisions.size).toBe(3);
+      expect(result.current.isDialogOpen).toBe(true);
     });
 
     it("initializes all decisions as pending", () => {
@@ -150,7 +139,7 @@ describe("useSourceValidation", () => {
     });
   });
 
-  describe("submitValidation (deprecated)", () => {
+  describe("submitValidation", () => {
     it("updates state with approved IDs", () => {
       const onComplete = jest.fn();
       const { result } = renderHook(() =>
@@ -179,16 +168,17 @@ describe("useSourceValidation", () => {
         result.current.startValidation(mockSources);
       });
 
+      expect(result.current.isDialogOpen).toBe(true);
+
       act(() => {
         result.current.submitValidation(["source-1"]);
       });
 
-      // Story 21-A2: isDialogOpen is now always false
       expect(result.current.isDialogOpen).toBe(false);
     });
   });
 
-  describe("cancelValidation (deprecated)", () => {
+  describe("cancelValidation", () => {
     it("resets state and closes dialog", () => {
       const onCancelled = jest.fn();
       const { result } = renderHook(() =>
@@ -201,12 +191,15 @@ describe("useSourceValidation", () => {
         result.current.startValidation(mockSources);
       });
 
+      expect(result.current.isDialogOpen).toBe(true);
+
       act(() => {
         result.current.cancelValidation();
       });
 
       expect(result.current.state.isValidating).toBe(false);
       expect(result.current.state.pendingSources).toEqual([]);
+      expect(result.current.isDialogOpen).toBe(false);
       expect(onCancelled).toHaveBeenCalled();
     });
   });
@@ -275,20 +268,20 @@ describe("useSourceValidation", () => {
     });
   });
 
-  // Story 21-A2: Updated tests for useHumanInTheLoop integration
-  describe("CopilotKit useHumanInTheLoop Integration", () => {
-    it("registers useHumanInTheLoop with correct parameters", () => {
+  // Issue 6 Fix: Integration tests for useCopilotAction
+  describe("CopilotKit Integration", () => {
+    it("registers useCopilotAction with correct parameters", () => {
       renderHook(() => useSourceValidation());
 
-      expect(mockUseHumanInTheLoop).toHaveBeenCalledTimes(1);
-      expect(mockUseHumanInTheLoop).toHaveBeenCalledWith(
+      expect(mockUseCopilotAction).toHaveBeenCalledTimes(1);
+      expect(mockUseCopilotAction).toHaveBeenCalledWith(
         expect.objectContaining({
           name: "validate_sources",
           description: expect.stringContaining("human approval"),
           parameters: expect.arrayContaining([
             expect.objectContaining({
               name: "sources",
-              type: "object",
+              type: "object[]",
               required: true,
             }),
             expect.objectContaining({
@@ -302,269 +295,90 @@ describe("useSourceValidation", () => {
       );
     });
 
-    it("render callback returns empty fragment when status is not executing", () => {
+    it("useCopilotAction render callback returns React fragment when idle", () => {
       renderHook(() => useSourceValidation());
 
-      const hookConfig = mockUseHumanInTheLoop.mock.calls[0][0];
+      const actionConfig = mockUseCopilotAction.mock.calls[0][0];
+      const renderResult = actionConfig.render({ status: "idle", args: {} });
 
-      // Test idle status (CopilotKit 1.x doesn't have idle, but test defensive code)
-      const inProgressResult = hookConfig.render({
-        status: "inProgress",
-        args: {},
-        respond: undefined,
-        result: undefined,
-      });
-      // Should return empty fragment
-      expect(inProgressResult.type).toBe(React.Fragment);
+      // Should return a React fragment (empty element)
+      expect(renderResult).toBeDefined();
+      expect(renderResult.type).toBe(Symbol.for("react.fragment"));
     });
 
-    it("render callback shows completion message when status is complete with result", () => {
-      renderHook(() => useSourceValidation());
+    it("useCopilotAction render callback triggers validation when executing with sources", () => {
+      jest.useFakeTimers();
+      const { result } = renderHook(() => useSourceValidation());
 
-      const hookConfig = mockUseHumanInTheLoop.mock.calls[0][0];
-
-      // Test complete status with result
-      const completeResult = hookConfig.render({
-        status: "complete",
-        args: { sources: mockSources },
-        respond: undefined,
-        result: { approved: ["source-1", "source-2"] },
-      });
-
-      // Should render completion message (div element)
-      expect(completeResult).not.toBeNull();
-      expect(completeResult.type).toBe("div");
-      expect(completeResult.props.children).toContain("2 source(s)");
-    });
-
-    it("render callback shows cancellation message when result has empty approved array", () => {
-      renderHook(() => useSourceValidation());
-
-      const hookConfig = mockUseHumanInTheLoop.mock.calls[0][0];
-
-      const completeResult = hookConfig.render({
-        status: "complete",
-        args: { sources: mockSources },
-        respond: undefined,
-        result: { approved: [] },
-      });
-
-      expect(completeResult).not.toBeNull();
-      expect(completeResult.type).toBe("div");
-      expect(completeResult.props.children).toContain("cancelled");
-    });
-
-    it("render callback renders dialog when status is executing with respond", () => {
-      renderHook(() => useSourceValidation());
-
-      const hookConfig = mockUseHumanInTheLoop.mock.calls[0][0];
-      const mockRespond = jest.fn();
-
-      // Simulate executing status with sources
-      const renderResult = hookConfig.render({
+      const actionConfig = mockUseCopilotAction.mock.calls[0][0];
+      
+      // Simulate the render callback being called with executing status and sources
+      actionConfig.render({
         status: "executing",
         args: { sources: mockSources },
-        respond: mockRespond,
-        result: undefined,
       });
 
-      // Should render the SourceValidationDialog
-      expect(renderResult).not.toBeNull();
-      expect(renderResult.type.name).toBe("SourceValidationDialog");
-      expect(renderResult.props.open).toBe(true);
-      expect(renderResult.props.sources).toEqual(mockSources);
+      // The setTimeout should have been scheduled
+      act(() => {
+        jest.runAllTimers();
+      });
+
+      // After the timeout, validation should have started
+      expect(result.current.state.isValidating).toBe(true);
+      expect(result.current.state.pendingSources).toEqual(mockSources);
+
+      jest.useRealTimers();
     });
 
-    it("onSubmit callback calls respond with approved IDs", () => {
-      const onComplete = jest.fn();
-      renderHook(() =>
-        useSourceValidation({
-          onValidationComplete: onComplete,
-        })
-      );
+    it("useCopilotAction render callback does not trigger validation twice", () => {
+      jest.useFakeTimers();
+      const { result } = renderHook(() => useSourceValidation());
 
-      const hookConfig = mockUseHumanInTheLoop.mock.calls[0][0];
-      const mockRespond = jest.fn();
-
-      // Get the rendered dialog
-      const renderResult = hookConfig.render({
+      const actionConfig = mockUseCopilotAction.mock.calls[0][0];
+      
+      // Call render twice with same executing status
+      actionConfig.render({
         status: "executing",
         args: { sources: mockSources },
-        respond: mockRespond,
-        result: undefined,
       });
-
-      // Call onSubmit with approved IDs
-      act(() => {
-        renderResult.props.onSubmit(["source-1", "source-2"]);
-      });
-
-      // Verify respond was called correctly
-      expect(mockRespond).toHaveBeenCalledWith({
-        approved: ["source-1", "source-2"],
-      });
-      expect(onComplete).toHaveBeenCalledWith(["source-1", "source-2"]);
-    });
-
-    it("onCancel callback calls respond with empty array", () => {
-      const onCancelled = jest.fn();
-      renderHook(() =>
-        useSourceValidation({
-          onValidationCancelled: onCancelled,
-        })
-      );
-
-      const hookConfig = mockUseHumanInTheLoop.mock.calls[0][0];
-      const mockRespond = jest.fn();
-
-      // Get the rendered dialog
-      const renderResult = hookConfig.render({
+      
+      actionConfig.render({
         status: "executing",
         args: { sources: mockSources },
-        respond: mockRespond,
-        result: undefined,
       });
 
-      // Call onCancel
       act(() => {
-        renderResult.props.onCancel();
+        jest.runAllTimers();
       });
 
-      // Verify respond was called with empty array
-      expect(mockRespond).toHaveBeenCalledWith({ approved: [] });
-      expect(onCancelled).toHaveBeenCalled();
+      // Validation should only be triggered once
+      expect(result.current.state.isValidating).toBe(true);
+      expect(result.current.state.pendingSources).toEqual(mockSources);
+
+      jest.useRealTimers();
     });
 
-    it("auto-responds when all sources are auto-approved", async () => {
-      const onComplete = jest.fn();
-      renderHook(() =>
-        useSourceValidation({
-          onValidationComplete: onComplete,
-          autoApproveThreshold: 0.3, // All sources above this
-        })
-      );
+    it("useCopilotAction render callback ignores empty sources array", () => {
+      jest.useFakeTimers();
+      const { result } = renderHook(() => useSourceValidation());
 
-      const hookConfig = mockUseHumanInTheLoop.mock.calls[0][0];
-      const mockRespond = jest.fn();
-
-      // All sources should be auto-approved (all have similarity > 0.3)
-      let renderResult: React.ReactElement;
-      act(() => {
-        renderResult = hookConfig.render({
-          status: "executing",
-          args: { sources: mockSources },
-          respond: mockRespond,
-          result: undefined,
-        });
-      });
-
-      // Should auto-respond and return empty fragment
-      // Auto-respond now happens in useEffect (Issue 1.1), so we need to wait
-      expect(renderResult!.type).toBe(React.Fragment);
-      await waitFor(() => {
-        expect(mockRespond).toHaveBeenCalledWith({
-          approved: ["source-1", "source-2", "source-3"],
-        });
-      });
-      expect(onComplete).toHaveBeenCalledWith([
-        "source-1",
-        "source-2",
-        "source-3",
-      ]);
-    });
-
-    it("auto-responds when all sources are auto-rejected", async () => {
-      const onComplete = jest.fn();
-      renderHook(() =>
-        useSourceValidation({
-          onValidationComplete: onComplete,
-          autoRejectThreshold: 1.0, // All sources below this
-        })
-      );
-
-      const hookConfig = mockUseHumanInTheLoop.mock.calls[0][0];
-      const mockRespond = jest.fn();
-
-      // All sources should be auto-rejected (all have similarity < 1.0)
-      let renderResult: React.ReactElement;
-      act(() => {
-        renderResult = hookConfig.render({
-          status: "executing",
-          args: { sources: mockSources },
-          respond: mockRespond,
-          result: undefined,
-        });
-      });
-
-      // Should auto-respond and return empty fragment
-      // Auto-respond now happens in useEffect (Issue 1.1), so we need to wait
-      expect(renderResult!.type).toBe(React.Fragment);
-      await waitFor(() => {
-        expect(mockRespond).toHaveBeenCalledWith({ approved: [] });
-      });
-      expect(onComplete).toHaveBeenCalledWith([]);
-    });
-
-    it("shows dialog when some sources require manual review", () => {
-      renderHook(() =>
-        useSourceValidation({
-          autoApproveThreshold: 0.9, // Only source-1 auto-approved
-          autoRejectThreshold: 0.4, // Only source-3 auto-rejected
-        })
-      );
-
-      const hookConfig = mockUseHumanInTheLoop.mock.calls[0][0];
-      const mockRespond = jest.fn();
-
-      // source-2 (0.65) is pending - needs manual review
-      const renderResult = hookConfig.render({
-        status: "executing",
-        args: { sources: mockSources },
-        respond: mockRespond,
-        result: undefined,
-      });
-
-      // Should show dialog since source-2 needs manual review
-      expect(renderResult.type.name).toBe("SourceValidationDialog");
-      expect(mockRespond).not.toHaveBeenCalled();
-    });
-
-    it("handles empty sources array gracefully", () => {
-      renderHook(() => useSourceValidation());
-
-      const hookConfig = mockUseHumanInTheLoop.mock.calls[0][0];
-      const mockRespond = jest.fn();
-
-      // Empty sources array
-      const renderResult = hookConfig.render({
+      const actionConfig = mockUseCopilotAction.mock.calls[0][0];
+      
+      // Call render with empty sources
+      actionConfig.render({
         status: "executing",
         args: { sources: [] },
-        respond: mockRespond,
-        result: undefined,
       });
 
-      // Should render dialog with empty sources (not auto-respond)
-      expect(renderResult.type.name).toBe("SourceValidationDialog");
-      expect(renderResult.props.sources).toEqual([]);
-    });
-
-    it("handles missing sources in args gracefully", () => {
-      renderHook(() => useSourceValidation());
-
-      const hookConfig = mockUseHumanInTheLoop.mock.calls[0][0];
-      const mockRespond = jest.fn();
-
-      // Missing sources in args
-      const renderResult = hookConfig.render({
-        status: "executing",
-        args: {},
-        respond: mockRespond,
-        result: undefined,
+      act(() => {
+        jest.runAllTimers();
       });
 
-      // Should render dialog with empty sources
-      expect(renderResult.type.name).toBe("SourceValidationDialog");
-      expect(renderResult.props.sources).toEqual([]);
+      // Validation should not be triggered
+      expect(result.current.state.isValidating).toBe(false);
+      expect(result.current.state.pendingSources).toEqual([]);
+
+      jest.useRealTimers();
     });
   });
 });

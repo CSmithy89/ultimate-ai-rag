@@ -3,9 +3,8 @@
 import { useGenerativeUI, type GraphPreviewNode } from "@/hooks/use-generative-ui";
 import { useSourceValidation } from "@/hooks/use-source-validation";
 import { useCopilotActions } from "@/hooks/use-copilot-actions";
-import { useCopilotContext } from "@/hooks/use-copilot-context";
-import { useChatSuggestions } from "@/hooks/use-chat-suggestions";
-import { useToolCallRenderers } from "./tool-renderers";
+import { SourceValidationDialog } from "./SourceValidationDialog";
+import { SourceValidationPanel } from "./SourceValidationPanel";
 import type { Source, ActionableContent } from "@/types/copilot";
 
 interface GenerativeUIRendererProps {
@@ -15,15 +14,10 @@ interface GenerativeUIRendererProps {
   onGraphNodeClick?: (node: GraphPreviewNode) => void;
   /** Callback when the graph expand button is clicked */
   onGraphExpand?: () => void;
-  /**
-   * @deprecated No longer used - dialog is rendered inside useHumanInTheLoop hook.
-   * Kept for backward compatibility.
-   */
+  /** Use modal dialog (true) or inline panel (false) for HITL */
   useModalForValidation?: boolean;
   /** Callback when HITL validation completes */
   onValidationComplete?: (approvedIds: string[]) => void;
-  /** Callback when HITL validation is cancelled */
-  onValidationCancelled?: () => void;
   /** Auto-approve sources at or above this confidence threshold */
   autoApproveThreshold?: number;
   /** Auto-reject sources below this confidence threshold */
@@ -52,21 +46,12 @@ interface GenerativeUIRendererProps {
  * Story 6-3: Generative UI Components
  * Story 6-4: Human-in-the-Loop Source Validation
  * Story 6-5: Frontend Actions
- * Story 21-A2: Migrate to useHumanInTheLoop Pattern
- * Story 21-A3: Implement Tool Call Visualization
- * Story 21-A4: Implement useCopilotReadable for App Context
- * Story 21-A5: Implement useCopilotChatSuggestions for Smart Follow-ups
- *
- * Migration Notes (21-A2):
- * - The validation dialog is now rendered INSIDE useHumanInTheLoop's render function.
- * - The useModalForValidation prop is deprecated - all validation uses the modal.
- * - External dialog rendering (SourceValidationDialog, SourceValidationPanel) is removed.
- * - The hook still provides state for consumers that need to track validation status.
  *
  * @example
  * ```tsx
  * <CopilotSidebar>
  *   <GenerativeUIRenderer
+ *     useModalForValidation={true}
  *     onValidationComplete={(ids) => console.log("Approved:", ids)}
  *     onSaveComplete={(content) => console.log("Saved:", content)}
  *   />
@@ -77,10 +62,8 @@ export function GenerativeUIRenderer({
   onSourceClick,
   onGraphNodeClick,
   onGraphExpand,
-  // useModalForValidation is deprecated but accepted for backward compatibility
-  useModalForValidation: _,
+  useModalForValidation = true,
   onValidationComplete,
-  onValidationCancelled,
   autoApproveThreshold,
   autoRejectThreshold,
   tenantId,
@@ -97,23 +80,14 @@ export function GenerativeUIRenderer({
     onGraphExpand,
   });
 
-  // Initialize tool call renderers (Story 21-A3)
-  // Registers custom visualizations for MCP tool calls
-  useToolCallRenderers();
-
-  // Initialize copilot context (Story 21-A4)
-  // Exposes app state to AI: page, session, query history, preferences
-  useCopilotContext();
-
-  // Initialize chat suggestions (Story 21-A5)
-  // Generates contextual follow-up suggestions based on current page
-  useChatSuggestions();
-
-  // Initialize source validation hooks (Story 6-4, 21-A2)
-  // Dialog is now rendered inside useHumanInTheLoop's render function
-  useSourceValidation({
+  // Initialize source validation hooks (Story 6-4)
+  const {
+    state: validationState,
+    isDialogOpen,
+    submitValidation,
+    cancelValidation,
+  } = useSourceValidation({
     onValidationComplete,
-    onValidationCancelled,
     autoApproveThreshold,
     autoRejectThreshold,
   });
@@ -154,9 +128,29 @@ export function GenerativeUIRenderer({
     onFollowUp,
   });
 
-  // Dialog rendering is now handled by useHumanInTheLoop internally
-  // No need to render SourceValidationDialog or SourceValidationPanel externally
-  return null;
+  return (
+    <>
+      {/* Modal dialog for HITL validation */}
+      {useModalForValidation && (
+        <SourceValidationDialog
+          open={isDialogOpen}
+          sources={validationState.pendingSources}
+          onSubmit={submitValidation}
+          onCancel={cancelValidation}
+          isSubmitting={validationState.isSubmitting}
+        />
+      )}
+
+      {/* Inline panel for non-modal HITL (rendered in chat flow) */}
+      {!useModalForValidation && isDialogOpen && (
+        <SourceValidationPanel
+          sources={validationState.pendingSources}
+          onSubmit={submitValidation}
+          onSkip={() => submitValidation(validationState.pendingSources.map((s) => s.id))}
+        />
+      )}
+    </>
+  );
 }
 
 export default GenerativeUIRenderer;
