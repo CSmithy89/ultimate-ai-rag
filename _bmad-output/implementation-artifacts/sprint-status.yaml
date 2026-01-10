@@ -443,7 +443,7 @@ development_status:
   # Add STATE_DELTA for incremental updates + MESSAGES_SNAPSHOT for session sync
 
   # --- Group C: MCP Client Integration ---
-  21-C1-implement-mcp-client-configuration: backlog
+  21-C1-implement-mcp-client-configuration: review
   # Add MCP_CLIENT_SERVERS env + config models
   21-C2-implement-mcp-client-factory: backlog
   # Create MCPClient + MCPClientFactory with retry/timeout
