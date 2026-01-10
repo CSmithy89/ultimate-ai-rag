@@ -1,11 +1,15 @@
-"""CopilotKit AG-UI protocol endpoint."""
+"""CopilotKit AG-UI protocol endpoint.
+
+Story 21-E1: Voice Input (Speech-to-Text)
+Story 21-E2: Voice Output (Text-to-Speech)
+"""
 
 import re
 from typing import Any, List, Optional
 
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 import structlog
 
@@ -14,6 +18,7 @@ from ...api.utils import rate_limit_exceeded
 from ...models.copilot import CopilotRequest
 from ...protocols.ag_ui_bridge import AGUIBridge
 from ...rate_limit import RateLimiter
+from ...voice import VoiceAdapter
 
 logger = structlog.get_logger(__name__)
 
@@ -28,6 +33,14 @@ def get_orchestrator(request: Request) -> OrchestratorAgent:
 def get_rate_limiter(request: Request) -> RateLimiter:
     """Get rate limiter from app state."""
     return request.app.state.rate_limiter
+
+
+def get_voice_adapter(request: Request) -> Optional[VoiceAdapter]:
+    """Get voice adapter from app state.
+
+    Story 21-E1, 21-E2: Voice I/O endpoints.
+    """
+    return getattr(request.app.state, "voice_adapter", None)
 
 
 @router.post("")
@@ -244,3 +257,232 @@ async def list_hitl_checkpoints(
 
     records = await hitl_manager.list_checkpoints(tenant_id, limit=limit)
     return [HITLCheckpointResponse(**record) for record in records]
+
+
+# ============================================
+# VOICE I/O ENDPOINTS - Stories 21-E1, 21-E2
+# ============================================
+
+# Allowed audio content types for transcription
+ALLOWED_AUDIO_TYPES = frozenset({
+    "audio/webm",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/mp3",
+    "audio/mpeg",
+    "audio/ogg",
+    "audio/flac",
+    "audio/m4a",
+    "audio/mp4",
+})
+
+# Maximum audio file size (25MB) - prevents memory exhaustion DoS
+MAX_AUDIO_SIZE = 25 * 1024 * 1024
+
+
+class TranscriptionResponse(BaseModel):
+    """Response for audio transcription.
+
+    Story 21-E1: Implement Voice Input (STT).
+    """
+
+    text: str = Field(..., description="Transcribed text")
+    language: str = Field(..., description="Detected or specified language")
+    confidence: float = Field(..., description="Confidence score (0.0-1.0)")
+
+
+class TTSRequest(BaseModel):
+    """Request for text-to-speech synthesis.
+
+    Story 21-E2: Implement Voice Output (TTS).
+    """
+
+    text: str = Field(..., description="Text to synthesize", min_length=1, max_length=4096)
+    voice: Optional[str] = Field(None, description="Voice to use (alloy, echo, fable, onyx, nova, shimmer)")
+    speed: Optional[float] = Field(None, ge=0.25, le=4.0, description="Speech speed multiplier")
+
+    @field_validator("text")
+    @classmethod
+    def sanitize_text(cls, v: str) -> str:
+        """Sanitize text to prevent injection attacks.
+
+        Removes control characters that could be interpreted as commands.
+        Raises ValueError if text becomes empty after sanitization.
+        """
+        # Remove control characters except newlines and tabs
+        v = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", v)
+        v = v.strip()
+        if not v:
+            raise ValueError("Text must not be empty after sanitization")
+        return v
+
+
+@router.post("/transcribe", response_model=TranscriptionResponse)
+async def transcribe_audio(
+    audio: UploadFile = File(..., description="Audio file to transcribe"),
+    language: str = Query(default="en", description="ISO 639-1 language code hint"),
+    voice_adapter: Optional[VoiceAdapter] = Depends(get_voice_adapter),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
+) -> TranscriptionResponse:
+    """Transcribe audio to text using configured transcription service.
+
+    Story 21-E1: Implement Voice Input (Speech-to-Text)
+
+    Accepts audio files (webm, wav, mp3, etc.) and returns transcribed text.
+    Uses Whisper for transcription with optional language hints.
+
+    Args:
+        audio: Audio file upload
+        language: ISO 639-1 language code hint (default: "en")
+
+    Returns:
+        TranscriptionResponse with text, language, and confidence
+
+    Raises:
+        403: Voice I/O is disabled
+        413: File too large
+        415: Unsupported media type
+        429: Rate limit exceeded
+        503: Voice adapter not configured
+    """
+    # Rate limiting
+    tenant_id = x_tenant_id or "anonymous"
+    if not await limiter.allow(tenant_id):
+        raise rate_limit_exceeded()
+
+    if voice_adapter is None:
+        raise HTTPException(status_code=503, detail="Voice adapter not configured")
+
+    if not voice_adapter.enabled:
+        raise HTTPException(status_code=403, detail="Voice I/O is disabled")
+
+    # Validate audio content type
+    content_type = audio.content_type or ""
+    if content_type not in ALLOWED_AUDIO_TYPES:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported media type: {content_type}. Allowed types: {', '.join(sorted(ALLOWED_AUDIO_TYPES))}",
+        )
+
+    try:
+        # Read audio data with size limit to prevent memory exhaustion DoS
+        # Read one byte more than limit to detect oversized files
+        audio_data = await audio.read(MAX_AUDIO_SIZE + 1)
+
+        if len(audio_data) > MAX_AUDIO_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Audio file too large. Maximum size: {MAX_AUDIO_SIZE // (1024 * 1024)}MB",
+            )
+
+        logger.info(
+            "transcribe_audio_request",
+            content_type=audio.content_type,
+            size_bytes=len(audio_data),
+            language=language,
+        )
+
+        # Transcribe using voice adapter
+        result = await voice_adapter.transcribe(audio_data, language=language)
+
+        logger.info(
+            "transcribe_audio_success",
+            text_length=len(result.text),
+            language=result.language,
+            confidence=result.confidence,
+        )
+
+        return TranscriptionResponse(
+            text=result.text,
+            language=result.language or language,
+            confidence=result.confidence,
+        )
+
+    except RuntimeError as e:
+        logger.error("transcribe_audio_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error("transcribe_audio_unexpected_error", error=str(e))
+        raise HTTPException(status_code=500, detail="Transcription failed")
+
+
+@router.post("/tts")
+async def text_to_speech(
+    tts_request: TTSRequest,
+    voice_adapter: Optional[VoiceAdapter] = Depends(get_voice_adapter),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
+) -> Response:
+    """Convert text to speech audio stream.
+
+    Story 21-E2: Implement Voice Output (Text-to-Speech)
+
+    Accepts text and returns audio stream (MP3 format).
+    Uses configured TTS provider (OpenAI, ElevenLabs, pyttsx3).
+
+    Args:
+        tts_request: Text and optional voice/speed settings
+
+    Returns:
+        Audio response (audio/mpeg)
+
+    Raises:
+        403: Voice I/O is disabled
+        429: Rate limit exceeded
+        503: Voice adapter not configured
+    """
+    # Rate limiting
+    tenant_id = x_tenant_id or "anonymous"
+    if not await limiter.allow(tenant_id):
+        raise rate_limit_exceeded()
+
+    if voice_adapter is None:
+        raise HTTPException(status_code=503, detail="Voice adapter not configured")
+
+    if not voice_adapter.enabled:
+        raise HTTPException(status_code=403, detail="Voice I/O is disabled")
+
+    try:
+        logger.info(
+            "tts_request",
+            text_length=len(tts_request.text),
+            voice=tts_request.voice,
+            speed=tts_request.speed,
+        )
+
+        # Synthesize speech using voice adapter
+        result = await voice_adapter.synthesize(
+            text=tts_request.text,
+            voice=tts_request.voice,
+            speed=tts_request.speed,
+        )
+
+        logger.info(
+            "tts_success",
+            audio_size=len(result.audio_data),
+            format=result.format,
+            duration_seconds=result.duration_seconds,
+        )
+
+        # Return audio as response with dynamic Content-Type based on actual format
+        # Determine file extension from format
+        format_to_ext = {"mp3": "mp3", "opus": "opus", "aac": "aac", "flac": "flac", "wav": "wav"}
+        ext = format_to_ext.get(result.format, "mp3")
+        media_type = f"audio/{result.format}" if result.format else "audio/mpeg"
+
+        return Response(
+            content=result.audio_data,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f"inline; filename=response.{ext}",
+                "X-Audio-Duration": str(result.duration_seconds) if result.duration_seconds else "0",
+            },
+        )
+
+    except RuntimeError as e:
+        logger.error("tts_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error("tts_unexpected_error", error=str(e))
+        raise HTTPException(status_code=500, detail="Text-to-speech synthesis failed")

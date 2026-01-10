@@ -457,17 +457,17 @@ development_status:
   # Frontend A2UI components (card, table, chart, form, list, image)
 
   # --- Group E: Voice & Audio Features ---
-  21-E1-implement-voice-input-stt: backlog
+  21-E1-implement-voice-input-stt: review
   # Speech-to-text transcription via transcribeAudioUrl
-  21-E2-implement-voice-output-tts: backlog
+  21-E2-implement-voice-output-tts: review
   # Text-to-speech synthesis via textToSpeechUrl
 
   # --- Group F: Alternative UI Components ---
-  21-F1-implement-copilotpopup-component: backlog
+  21-F1-implement-copilotpopup-component: review
   # Floating popup chat option
-  21-F2-implement-copilotchat-embedded: backlog
+  21-F2-implement-copilotchat-embedded: review
   # Inline embedded chat panel
-  21-F3-implement-copilottextarea-component: backlog
+  21-F3-implement-copilottextarea-component: review
   # AI-powered textarea with autocompletion
 
   epic-21-retrospective: optional
