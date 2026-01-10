@@ -25,6 +25,11 @@ const mockAudio = {
   onerror: null as (() => void) | null,
 };
 
+// Store original globals for restoration
+const originalAudio = global.Audio;
+const originalCreateObjectURL = global.URL.createObjectURL;
+const originalRevokeObjectURL = global.URL.revokeObjectURL;
+
 beforeAll(() => {
   // @ts-expect-error - Mock Audio
   global.Audio = jest.fn().mockImplementation(() => mockAudio);
@@ -32,6 +37,13 @@ beforeAll(() => {
   // Mock URL.createObjectURL and revokeObjectURL
   global.URL.createObjectURL = jest.fn(() => "blob:mock-url");
   global.URL.revokeObjectURL = jest.fn();
+});
+
+afterAll(() => {
+  // Restore original globals
+  global.Audio = originalAudio;
+  global.URL.createObjectURL = originalCreateObjectURL;
+  global.URL.revokeObjectURL = originalRevokeObjectURL;
 });
 
 beforeEach(() => {

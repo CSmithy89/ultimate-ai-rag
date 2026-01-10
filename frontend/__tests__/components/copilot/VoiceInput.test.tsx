@@ -32,6 +32,12 @@ const mockMediaStream = {
 // Mock navigator.mediaDevices
 const mockGetUserMedia = jest.fn();
 
+// Store original globals for restoration
+const originalMediaDevices = global.navigator.mediaDevices;
+// @ts-expect-error - MediaRecorder may not exist in jsdom
+const originalMediaRecorder = global.MediaRecorder;
+const originalFetch = global.fetch;
+
 beforeAll(() => {
   Object.defineProperty(global.navigator, "mediaDevices", {
     value: {
@@ -46,10 +52,23 @@ beforeAll(() => {
   global.MediaRecorder.isTypeSupported = jest.fn(() => true);
 });
 
+afterAll(() => {
+  // Restore original globals
+  Object.defineProperty(global.navigator, "mediaDevices", {
+    value: originalMediaDevices,
+    writable: true,
+  });
+  // @ts-expect-error - Restore original MediaRecorder
+  global.MediaRecorder = originalMediaRecorder;
+  global.fetch = originalFetch;
+});
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetUserMedia.mockResolvedValue(mockMediaStream);
   mockMediaRecorder.state = "inactive";
+  // Reset fetch to original before each test
+  global.fetch = originalFetch;
 });
 
 describe("VoiceInput", () => {

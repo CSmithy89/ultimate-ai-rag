@@ -661,22 +661,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Story 21-E1, 21-E2: Initialize Voice Adapter
     app.state.voice_adapter = None
     if settings.voice_io_enabled:
-        try:
-            app.state.voice_adapter = create_voice_adapter(
-                enabled=True,
-                whisper_model=settings.whisper_model,
-                tts_provider=settings.tts_provider,
-                tts_voice=settings.tts_voice,
-                tts_speed=settings.tts_speed,
-                openai_api_key=settings.openai_api_key,
+        # Validate OpenAI API key if using OpenAI TTS provider
+        if settings.tts_provider == "openai" and not settings.openai_api_key:
+            struct_logger.warning(
+                "voice_adapter_skipped",
+                reason="OpenAI TTS provider requires OPENAI_API_KEY",
             )
-            struct_logger.info(
-                "voice_adapter_initialized",
-                whisper_model=settings.whisper_model,
-                tts_provider=settings.tts_provider,
-            )
-        except Exception as e:
-            struct_logger.warning("voice_adapter_init_failed", error=str(e))
+        else:
+            try:
+                app.state.voice_adapter = create_voice_adapter(
+                    enabled=True,
+                    whisper_model=settings.whisper_model,
+                    tts_provider=settings.tts_provider,
+                    tts_voice=settings.tts_voice,
+                    tts_speed=settings.tts_speed,
+                    openai_api_key=settings.openai_api_key,
+                )
+                struct_logger.info(
+                    "voice_adapter_initialized",
+                    whisper_model=settings.whisper_model,
+                    tts_provider=settings.tts_provider,
+                )
+            except Exception as e:
+                struct_logger.warning("voice_adapter_init_failed", error=str(e))
 
     # Story 20-A2: Initialize memory consolidation
     app.state.memory_consolidator = None

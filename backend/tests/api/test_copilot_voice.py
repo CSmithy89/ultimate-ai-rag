@@ -4,21 +4,20 @@ Story 21-E1: Voice Input (Speech-to-Text)
 Story 21-E2: Voice Output (Text-to-Speech)
 
 Tests cover:
-- /transcribe endpoint functionality
-- /tts endpoint functionality
+- /copilot/transcribe endpoint functionality
+- /copilot/tts endpoint functionality
 - Rate limiting
 - Audio type validation
 - Error handling
 - TTS text sanitization
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 import io
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from httpx import ASGITransport, AsyncClient
 
 from agentic_rag_backend.api.routes.copilot import router
 from agentic_rag_backend.voice import TranscriptionResult, TTSResult, VoiceAdapter
@@ -75,16 +74,6 @@ def app(mock_voice_adapter, mock_rate_limiter):
 def client(app):
     """Create test client."""
     return TestClient(app)
-
-
-@pytest.fixture
-async def async_client(app):
-    """Create async test client."""
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-    ) as ac:
-        yield ac
 
 
 class TestTranscribeEndpoint:

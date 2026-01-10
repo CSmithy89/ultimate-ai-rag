@@ -307,11 +307,14 @@ class TTSRequest(BaseModel):
         """Sanitize text to prevent injection attacks.
 
         Removes control characters that could be interpreted as commands.
+        Raises ValueError if text becomes empty after sanitization.
         """
-        import re
         # Remove control characters except newlines and tabs
         v = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", v)
-        return v.strip()
+        v = v.strip()
+        if not v:
+            raise ValueError("Text must not be empty after sanitization")
+        return v
 
 
 @router.post("/transcribe", response_model=TranscriptionResponse)
@@ -363,8 +366,9 @@ async def transcribe_audio(
         )
 
     try:
-        # Read audio data from upload with size validation
-        audio_data = await audio.read()
+        # Read audio data with size limit to prevent memory exhaustion DoS
+        # Read one byte more than limit to detect oversized files
+        audio_data = await audio.read(MAX_AUDIO_SIZE + 1)
 
         if len(audio_data) > MAX_AUDIO_SIZE:
             raise HTTPException(
