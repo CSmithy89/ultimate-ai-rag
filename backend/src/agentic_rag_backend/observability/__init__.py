@@ -26,6 +26,8 @@ from .metrics import (
     CONTEXTUAL_ENRICHMENT_CACHE_MISSES_TOTAL,
     CONTEXTUAL_ENRICHMENT_CHUNKS_TOTAL,
     CONTEXTUAL_ENRICHMENT_LATENCY_SECONDS,
+    # Telemetry Metrics (Story 21-B1)
+    FRONTEND_TELEMETRY_EVENTS_TOTAL,
     # Helper functions
     record_retrieval_request,
     record_retrieval_fallback,
@@ -37,6 +39,7 @@ from .metrics import (
     set_retrieval_recall,
     track_active_retrieval,
     record_contextual_enrichment,
+    record_frontend_telemetry,
     get_metrics_registry,
 )
 from .decorators import (
@@ -68,6 +71,8 @@ __all__ = [
     "CONTEXTUAL_ENRICHMENT_CACHE_MISSES_TOTAL",
     "CONTEXTUAL_ENRICHMENT_CHUNKS_TOTAL",
     "CONTEXTUAL_ENRICHMENT_LATENCY_SECONDS",
+    # Telemetry Metrics (Story 21-B1)
+    "FRONTEND_TELEMETRY_EVENTS_TOTAL",
     # Helper functions
     "record_retrieval_request",
     "record_retrieval_fallback",
@@ -79,6 +84,7 @@ __all__ = [
     "set_retrieval_recall",
     "track_active_retrieval",
     "record_contextual_enrichment",
+    "record_frontend_telemetry",
     "get_metrics_registry",
     # Decorators
     "track_retrieval_operation",

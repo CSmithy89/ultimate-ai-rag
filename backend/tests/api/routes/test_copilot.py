@@ -201,30 +201,31 @@ class TestCopilotMultiTenancy:
 
     @pytest.mark.asyncio
     async def test_copilot_missing_tenant_id_returns_error(self):
-        """Test that missing tenant_id returns error message in stream."""
+        """Test that missing tenant_id returns RUN_ERROR event (Story 21-B2)."""
         request = CopilotRequest(
             messages=[CopilotMessage(role=MessageRole.USER, content="Test query")],
             config=CopilotConfig(configurable={}),  # No tenant_id
         )
-        
+
         response = await copilot_handler(
             request=request,
-                http_request=MockRequest(),
+            http_request=MockRequest(),
             orchestrator=DummyOrchestrator(),
             limiter=AllowLimiter(),
         )
-        
+
         events = await collect_sse_events(response)
-        
-        # Should still have proper event sequence
+
+        # Should have proper event sequence with RUN_ERROR
         event_types = [e["event"] for e in events]
         assert "RUN_STARTED" in event_types
+        assert "RUN_ERROR" in event_types
         assert "RUN_FINISHED" in event_types
-        
-        # Error message about tenant_id should be in content
-        text_events = [e for e in events if e["event"] == "TEXT_MESSAGE_CONTENT"]
-        assert len(text_events) >= 1
-        assert "tenant_id" in text_events[0]["data"]["content"].lower()
+
+        # RUN_ERROR should indicate tenant is required
+        error_events = [e for e in events if e["event"] == "RUN_ERROR"]
+        assert len(error_events) == 1
+        assert error_events[0]["data"]["code"] == "TENANT_REQUIRED"
 
 
 class TestCopilotRateLimiting:

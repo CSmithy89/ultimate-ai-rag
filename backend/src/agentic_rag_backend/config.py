@@ -6,7 +6,7 @@ import secrets
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from dotenv import load_dotenv
 import structlog
@@ -401,6 +401,12 @@ class Settings:
     colbert_enabled: bool
     colbert_model: str
     colbert_max_length: int
+    # Story 21-C1 - MCP Client Configuration
+    mcp_clients_enabled: bool
+    mcp_client_timeout_ms: int
+    mcp_client_retry_count: int
+    mcp_client_retry_delay_ms: int
+    mcp_client_servers: list[dict[str, Any]]
 
 
 def load_settings() -> Settings:
@@ -1336,6 +1342,25 @@ def load_settings() -> Settings:
     colbert_model = os.getenv("COLBERT_MODEL", "colbert-ir/colbertv2.0")
     colbert_max_length = get_int_env("COLBERT_MAX_LENGTH", 512, min_val=64)
 
+    # Story 21-C1 - MCP Client Configuration
+    mcp_clients_enabled = get_bool_env("MCP_CLIENTS_ENABLED", "false")
+    mcp_client_timeout_ms = get_int_env("MCP_CLIENT_TIMEOUT", 30000, min_val=1000)
+    mcp_client_retry_count = min(get_int_env("MCP_CLIENT_RETRY_COUNT", 3, min_val=0), 10)
+    mcp_client_retry_delay_ms = get_int_env("MCP_CLIENT_RETRY_DELAY", 1000, min_val=100)
+    # Parse JSON array of MCP server configs
+    mcp_client_servers_raw = os.getenv("MCP_CLIENT_SERVERS", "[]")
+    try:
+        mcp_client_servers = json.loads(mcp_client_servers_raw)
+        if not isinstance(mcp_client_servers, list):
+            mcp_client_servers = []
+    except json.JSONDecodeError:
+        # Security fix: Don't log raw value as it may contain API keys
+        logger.warning(
+            "mcp_client_servers_parse_failed",
+            detail="Invalid JSON in MCP_CLIENT_SERVERS environment variable",
+        )
+        mcp_client_servers = []
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1594,6 +1619,12 @@ def load_settings() -> Settings:
         colbert_enabled=colbert_enabled,
         colbert_model=colbert_model,
         colbert_max_length=colbert_max_length,
+        # Story 21-C1 - MCP Client Configuration
+        mcp_clients_enabled=mcp_clients_enabled,
+        mcp_client_timeout_ms=mcp_client_timeout_ms,
+        mcp_client_retry_count=mcp_client_retry_count,
+        mcp_client_retry_delay_ms=mcp_client_retry_delay_ms,
+        mcp_client_servers=mcp_client_servers,
     )
 
 

@@ -435,15 +435,15 @@ development_status:
   # Catch-all handler for unregistered backend tools
 
   # --- Group B: Observability & Debugging ---
-  21-B1-configure-observability-hooks-dev-console: backlog
+  21-B1-configure-observability-hooks-dev-console: review
   # Wire all observabilityHooks to analytics pipeline + enable showDevConsole
-  21-B2-add-run-error-event-support: backlog
+  21-B2-add-run-error-event-support: review
   # Emit RUN_ERROR instead of embedding errors in text
-  21-B3-implement-state-delta-messages-snapshot: backlog
+  21-B3-implement-state-delta-messages-snapshot: review
   # Add STATE_DELTA for incremental updates + MESSAGES_SNAPSHOT for session sync
 
   # --- Group C: MCP Client Integration ---
-  21-C1-implement-mcp-client-configuration: backlog
+  21-C1-implement-mcp-client-configuration: review
   # Add MCP_CLIENT_SERVERS env + config models
   21-C2-implement-mcp-client-factory: backlog
   # Create MCPClient + MCPClientFactory with retry/timeout

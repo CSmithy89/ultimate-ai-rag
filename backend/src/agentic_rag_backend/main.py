@@ -657,6 +657,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         struct_logger.warning("mcp_server_init_failed", error=str(e))
 
+    # Story 21-C2: Initialize MCP client factory (for external MCP servers)
+    app.state.mcp_client_factory = None
+    if settings.mcp_clients_enabled:
+        try:
+            from .mcp_client import create_mcp_client_factory
+
+            mcp_client_factory = create_mcp_client_factory(settings)
+            app.state.mcp_client_factory = mcp_client_factory
+
+            # Log configured servers
+            server_names = mcp_client_factory.server_names
+            struct_logger.info(
+                "mcp_client_factory_initialized",
+                enabled=True,
+                server_count=len(server_names),
+                servers=server_names,
+            )
+        except Exception as e:
+            struct_logger.warning("mcp_client_factory_init_failed", error=str(e))
+            app.state.mcp_client_factory = None
+    else:
+        struct_logger.info("mcp_client_factory_disabled")
+
     # Story 20-A2: Initialize memory consolidation
     app.state.memory_consolidator = None
     app.state.memory_consolidation_scheduler = None
@@ -747,6 +770,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Epic 14: Close A2A delegation manager HTTP client
     if hasattr(app.state, "a2a_delegation_manager") and app.state.a2a_delegation_manager:
         await app.state.a2a_delegation_manager.close()
+    # Story 21-C2: Close MCP client factory connections
+    if hasattr(app.state, "mcp_client_factory") and app.state.mcp_client_factory:
+        await app.state.mcp_client_factory.close_all()
+        struct_logger.info("mcp_client_factory_closed")
     # Epic 5: Graphiti connection
     if hasattr(app.state, "graphiti") and app.state.graphiti:
         await app.state.graphiti.disconnect()

@@ -507,7 +507,7 @@ class TestLazyRAGErrorHandling:
     def test_query_error_returns_500(
         self, lazy_rag_app, mock_lazy_rag_retriever, sample_tenant_id
     ):
-        """Test that query errors return 500 status."""
+        """Test that query errors return 500 status with generic message (no internal details leaked)."""
         mock_lazy_rag_retriever.query.side_effect = RuntimeError("Test error")
 
         client = TestClient(lazy_rag_app, raise_server_exceptions=False)
@@ -520,12 +520,14 @@ class TestLazyRAGErrorHandling:
         )
 
         assert response.status_code == 500
-        assert "Test error" in response.json()["detail"]
+        # Security: Generic error message returned (internal details not leaked)
+        assert "internal server error" in response.json()["detail"]
+        assert "Test error" not in response.json()["detail"]
 
     def test_expand_error_returns_500(
         self, lazy_rag_app, mock_lazy_rag_retriever, sample_tenant_id
     ):
-        """Test that expand errors return 500 status."""
+        """Test that expand errors return 500 status with generic message (no internal details leaked)."""
         mock_lazy_rag_retriever.expand_only.side_effect = RuntimeError("Expand error")
 
         client = TestClient(lazy_rag_app, raise_server_exceptions=False)
@@ -538,4 +540,6 @@ class TestLazyRAGErrorHandling:
         )
 
         assert response.status_code == 500
-        assert "Expand error" in response.json()["detail"]
+        # Security: Generic error message returned (internal details not leaked)
+        assert "internal server error" in response.json()["detail"]
+        assert "Expand error" not in response.json()["detail"]

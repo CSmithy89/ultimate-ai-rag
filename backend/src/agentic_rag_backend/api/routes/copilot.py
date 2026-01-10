@@ -1,4 +1,7 @@
-"""CopilotKit AG-UI protocol endpoint."""
+"""CopilotKit AG-UI protocol endpoint.
+
+Story 21-C3: Wire MCP Client to CopilotRuntime
+"""
 
 import re
 from typing import Any, List, Optional
@@ -10,7 +13,13 @@ from pydantic import BaseModel, Field, field_validator
 import structlog
 
 from ...agents.orchestrator import OrchestratorAgent
-from ...api.utils import rate_limit_exceeded
+from ...api.utils import rate_limit_exceeded, rfc7807_error
+from ...mcp_client import (
+    MCPClientFactory,
+    discover_all_tools,
+    get_mcp_factory,
+    parse_namespaced_tool,
+)
 from ...models.copilot import CopilotRequest
 from ...protocols.ag_ui_bridge import AGUIBridge
 from ...rate_limit import RateLimiter
@@ -69,6 +78,211 @@ async def copilot_handler(
             "Connection": "keep-alive",
         },
     )
+
+
+# ============================================
+# MCP TOOLS ENDPOINTS - Story 21-C3
+# ============================================
+
+
+class ToolDefinition(BaseModel):
+    """Tool definition returned by discovery endpoint."""
+
+    name: str = Field(..., description="Tool name (namespaced for external tools)")
+    description: str = Field(default="", description="Tool description")
+    input_schema: dict[str, Any] = Field(
+        default_factory=dict, alias="inputSchema", description="JSON Schema for inputs"
+    )
+    source: str = Field(default="internal", description="Tool source: internal or external")
+    server_name: Optional[str] = Field(
+        default=None, alias="serverName", description="MCP server name for external tools"
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class ToolsResponse(BaseModel):
+    """Response from tools discovery endpoint."""
+
+    tools: List[ToolDefinition] = Field(default_factory=list, description="Available tools")
+    mcp_enabled: bool = Field(default=False, alias="mcpEnabled", description="Whether MCP is enabled")
+    server_count: int = Field(default=0, alias="serverCount", description="Number of MCP servers")
+
+    model_config = {"populate_by_name": True}
+
+
+# Valid tool name pattern: server_name:tool_name (alphanumeric, underscores, hyphens)
+TOOL_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+:[a-zA-Z0-9_-]+$')
+
+
+class ToolCallRequest(BaseModel):
+    """Request to call an external MCP tool."""
+
+    tool_name: str = Field(..., alias="toolName", description="Tool name (namespaced)")
+    arguments: dict[str, Any] = Field(default_factory=dict, description="Tool arguments")
+
+    model_config = {"populate_by_name": True}
+
+    @field_validator('tool_name')
+    @classmethod
+    def validate_tool_name(cls, v: str) -> str:
+        """Validate tool_name matches expected namespaced format."""
+        if not TOOL_NAME_PATTERN.match(v):
+            raise ValueError(
+                'tool_name must be in format "server_name:tool_name" '
+                'with alphanumeric characters, underscores, and hyphens only'
+            )
+        return v
+
+
+class ToolCallResponse(BaseModel):
+    """Response from external tool call."""
+
+    result: Any = Field(..., description="Tool execution result")
+    server_name: Optional[str] = Field(
+        default=None, alias="serverName", description="MCP server that handled the call"
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+@router.get("/tools", response_model=ToolsResponse)
+async def list_tools(
+    request: Request,
+    mcp_factory: Optional[MCPClientFactory] = Depends(get_mcp_factory),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+    tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
+) -> ToolsResponse:
+    """
+    List all available tools from internal agents and external MCP servers.
+
+    Story 21-C3: Wire MCP Client to CopilotRuntime
+
+    Returns:
+        ToolsResponse with unified tool list
+    """
+    # Rate limit by tenant or anonymous
+    rate_key = f"tools:{tenant_id or 'anon'}"
+    if not await limiter.allow(rate_key):
+        raise rate_limit_exceeded()
+
+    # Discover all tools (internal + external MCP)
+    # Note: Internal tools from the orchestrator would be added here
+    # For now, we only discover external MCP tools
+    all_tools = await discover_all_tools(factory=mcp_factory, internal_tools=[])
+
+    tools = [
+        ToolDefinition(
+            name=tool.get("name", ""),
+            description=tool.get("description", ""),
+            inputSchema=tool.get("inputSchema", {}),
+            source=tool.get("source", "internal"),
+            serverName=tool.get("serverName"),
+        )
+        for tool in all_tools.values()
+    ]
+
+    return ToolsResponse(
+        tools=tools,
+        mcpEnabled=mcp_factory is not None and mcp_factory.is_enabled,
+        serverCount=len(mcp_factory.server_names) if mcp_factory else 0,
+    )
+
+
+@router.post("/tools/call", response_model=ToolCallResponse)
+async def call_external_tool(
+    request_body: ToolCallRequest,
+    request: Request,
+    mcp_factory: Optional[MCPClientFactory] = Depends(get_mcp_factory),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+    tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
+) -> ToolCallResponse:
+    """
+    Call an external MCP tool by namespaced name.
+
+    Story 21-C3: Wire MCP Client to CopilotRuntime
+
+    Args:
+        request_body: Tool name and arguments
+
+    Returns:
+        ToolCallResponse with execution result
+    """
+    # Multi-tenancy: Require tenant_id for external tool calls (security)
+    if not tenant_id:
+        raise rfc7807_error(
+            status=400,
+            title="Missing Tenant ID",
+            detail="X-Tenant-ID header required for external tool calls",
+            error_type="urn:error:missing-tenant-id",
+        )
+
+    # Rate limit by tenant
+    rate_key = f"tools_call:{tenant_id}"
+    if not await limiter.allow(rate_key):
+        raise rate_limit_exceeded()
+
+    if not mcp_factory or not mcp_factory.is_enabled:
+        raise rfc7807_error(
+            status=503,
+            title="Service Unavailable",
+            detail="MCP client is not enabled",
+            error_type="urn:error:mcp-disabled",
+        )
+
+    # Parse the namespaced tool name
+    server_name, original_name = parse_namespaced_tool(request_body.tool_name)
+
+    if not server_name:
+        raise rfc7807_error(
+            status=400,
+            title="Invalid Tool Name",
+            detail=f"Tool '{request_body.tool_name}' is not an external tool (missing server namespace)",
+            error_type="urn:error:invalid-tool-name",
+        )
+
+    # Security fix: Validate server exists before attempting call (return 404 not 500)
+    if server_name not in mcp_factory.server_names:
+        raise rfc7807_error(
+            status=404,
+            title="Server Not Found",
+            detail=f"MCP server '{server_name}' is not configured",
+            error_type="urn:error:server-not-found",
+        )
+
+    logger.info(
+        "calling_external_tool",
+        tool_name=request_body.tool_name,
+        server_name=server_name,
+        original_name=original_name,
+        tenant_id=tenant_id,
+    )
+
+    try:
+        result = await mcp_factory.call_tool(
+            server_name=server_name,
+            tool_name=original_name,
+            arguments=request_body.arguments,
+        )
+        return ToolCallResponse(result=result, serverName=server_name)
+    except Exception as e:
+        # Log error for debugging but don't expose to client
+        # Use logger.error instead of logger.exception to avoid leaking stack traces
+        # Redact arguments to prevent logging sensitive data
+        logger.error(
+            "external_tool_call_failed",
+            tool_name=request_body.tool_name,
+            server_name=server_name,
+            error_type=type(e).__name__,
+            # Don't log arguments - may contain sensitive data like API keys
+        )
+        # Security fix: Don't leak internal error details to client
+        raise rfc7807_error(
+            status=500,
+            title="Tool Execution Failed",
+            detail="An error occurred during external tool execution",
+            error_type="urn:error:tool-execution-failed",
+        )
 
 
 # ============================================

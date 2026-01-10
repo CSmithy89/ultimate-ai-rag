@@ -1,0 +1,641 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story Context: 21-B1 Configure Observability Hooks and Dev Console
+  Generated: 2026-01-10
+  Epic: 21 - CopilotKit Full Integration
+  Priority: P0 - HIGH
+  Story Points: 5
+-->
+<story-context>
+  <story-summary>
+    <title>Configure Observability Hooks and Dev Console</title>
+    <description>
+      Wire CopilotKit observability hooks (onMessageSent, onChatExpanded, onFeedbackGiven, etc.)
+      to an analytics pipeline and enable the showDevConsole for development debugging.
+      This includes creating a useAnalytics hook on the frontend, a /api/telemetry endpoint
+      on the backend with PII redaction, Prometheus metrics integration, and proper
+      environment variable configuration.
+    </description>
+    <user-story>
+      As a developer and operations engineer, I want CopilotKit observability hooks wired to
+      our analytics pipeline and the dev console enabled for debugging, so that I can monitor
+      chat interactions, track usage metrics, debug issues in development, and integrate with
+      our existing Prometheus/Grafana observability stack.
+    </user-story>
+    <acceptance-criteria-summary>
+      1. showDevConsole enabled when NEXT_PUBLIC_SHOW_DEV_CONSOLE=true and NODE_ENV=development
+      2. onMessageSent fires and emits telemetry with message length (not content)
+      3. onChatExpanded/onChatMinimized fire telemetry events
+      4. onMessageRegenerated fires telemetry with message ID
+      5. onMessageCopied fires telemetry with content length (not raw content)
+      6. onFeedbackGiven fires telemetry with message ID and feedback type
+      7. onChatStarted/onChatStopped fire telemetry events
+      8. onError handler fires structured error telemetry
+      9. Backend /api/telemetry validates, redacts PII, exposes to Prometheus
+      10. Dev console hidden in production
+      11. useAnalytics hook provides track(event, properties) function
+      12. Message content is SHA-256 hashed, never stored raw
+    </acceptance-criteria-summary>
+  </story-summary>
+
+  <files-to-modify>
+    <file>
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/frontend/components/copilot/CopilotProvider.tsx</path>
+      <action>modify</action>
+      <description>Add showDevConsole prop based on env vars and onError handler that emits telemetry</description>
+      <changes>
+        - Import useAnalytics hook
+        - Add showDevConsole prop conditionally based on NODE_ENV and NEXT_PUBLIC_SHOW_DEV_CONSOLE
+        - Add onError prop to CopilotKit that calls analytics.track() with structured error data
+      </changes>
+    </file>
+    <file>
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/frontend/components/copilot/ChatSidebar.tsx</path>
+      <action>modify</action>
+      <description>Wire observabilityHooks prop to CopilotSidebar component</description>
+      <changes>
+        - Import useAnalytics hook
+        - Add observabilityHooks prop to CopilotSidebar with all 9 hooks
+        - Wire each hook to analytics.track() with appropriate event names and properties
+      </changes>
+    </file>
+    <file>
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/src/agentic_rag_backend/api/routes/telemetry.py</path>
+      <action>modify</action>
+      <description>Enhance existing telemetry endpoint with Prometheus metrics and tenant_id tracking</description>
+      <changes>
+        - Add Prometheus Counter metric for telemetry events by event_type and tenant_id
+        - Extract tenant_id from request context (may need session validation)
+        - Ensure RFC 7807 error responses on validation failures
+      </changes>
+    </file>
+    <file>
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/.env.example</path>
+      <action>modify</action>
+      <description>Document new environment variables for observability configuration</description>
+      <changes>
+        - Add NEXT_PUBLIC_SHOW_DEV_CONSOLE with description
+        - Add NEXT_PUBLIC_COPILOTKIT_API_KEY (optional)
+        - Add NEXT_PUBLIC_ENABLE_INSPECTOR (optional)
+      </changes>
+    </file>
+  </files-to-modify>
+
+  <files-to-create>
+    <file>
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/frontend/hooks/use-analytics.ts</path>
+      <action>create</action>
+      <description>Analytics hook for tracking telemetry events to backend endpoint</description>
+      <template>
+        - useCallback-based track(event, properties) function
+        - Console logging in development mode
+        - Non-blocking fetch to /api/telemetry endpoint
+        - Error handling that logs but doesnt block
+        - TypeScript types for AnalyticsProperties
+      </template>
+    </file>
+    <file>
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/frontend/__tests__/hooks/use-analytics.test.ts</path>
+      <action>create</action>
+      <description>Unit tests for useAnalytics hook</description>
+      <template>
+        - Test track() calls fetch with correct payload
+        - Test development logging
+        - Test error handling (non-blocking)
+        - Test timestamp generation
+      </template>
+    </file>
+    <file>
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/tests/api/routes/test_telemetry.py</path>
+      <action>create</action>
+      <description>Integration tests for /api/telemetry endpoint</description>
+      <template>
+        - Test valid telemetry event submission
+        - Test PII redaction (message content hashed)
+        - Test sensitive key redaction
+        - Test rate limiting
+        - Test RFC 7807 error responses
+      </template>
+    </file>
+  </files-to-create>
+
+  <reference-files>
+    <file>
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/frontend/hooks/use-default-tool.tsx</path>
+      <purpose>Pattern reference for hooks that integrate with CopilotKit and use toast notifications</purpose>
+    </file>
+    <file>
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/frontend/lib/utils/redact.ts</path>
+      <purpose>Existing PII redaction utility - reuse patterns for frontend telemetry</purpose>
+    </file>
+    <file>
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/src/agentic_rag_backend/observability/metrics.py</path>
+      <purpose>Prometheus metrics patterns with tenant_id label normalization</purpose>
+    </file>
+    <file>
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/frontend/__tests__/hooks/use-default-tool.test.ts</path>
+      <purpose>Test pattern reference for hooks with CopilotKit mocking</purpose>
+    </file>
+    <file>
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/backend/tests/api/routes/test_ops.py</path>
+      <purpose>Test pattern reference for FastAPI route testing with mocked dependencies</purpose>
+    </file>
+    <file>
+      <path>/home/chris/projects/work/Agentic Rag and Graphrag with copilot/frontend/types/copilot.ts</path>
+      <purpose>Existing CopilotKit types - add analytics types here or create separate file</purpose>
+    </file>
+  </reference-files>
+
+  <technical-context>
+    <existing-copilot-provider>
+      <![CDATA[
+// Current CopilotProvider.tsx (lines 52-59)
+export function CopilotProvider({ children }: CopilotProviderProps) {
+  return (
+    <CopilotKit runtimeUrl="/api/copilotkit">
+      <CopilotContextProvider />
+      {children}
+    </CopilotKit>
+  );
+}
+      ]]>
+    </existing-copilot-provider>
+
+    <existing-chat-sidebar>
+      <![CDATA[
+// Current ChatSidebar.tsx (lines 21-37)
+export function ChatSidebar() {
+  return (
+    <CopilotErrorBoundary>
+      <CopilotSidebar
+        defaultOpen={true}
+        labels={{
+          title: "AI Copilot",
+          initial: "How can I help you today?",
+        }}
+        className="copilot-sidebar"
+      >
+        <ThoughtTraceStepper />
+        <GenerativeUIRenderer />
+      </CopilotSidebar>
+    </CopilotErrorBoundary>
+  );
+}
+      ]]>
+    </existing-chat-sidebar>
+
+    <existing-telemetry-endpoint>
+      <![CDATA[
+// Current telemetry.py - endpoint already exists with PII redaction
+@router.post("/telemetry", response_model=TelemetryResponse)
+async def track_telemetry(
+    payload: TelemetryEvent,
+    request: Request,
+    limiter: RateLimiter = Depends(get_rate_limiter),
+):
+    """Track frontend telemetry events."""
+    # Rate limiting by IP
+    client_ip = request.client.host if request.client else "unknown"
+    if not await limiter.allow(f"telemetry:{client_ip}"):
+        raise rate_limit_exceeded()
+
+    # Sanitize payload - already has PII redaction!
+    sanitized_props = _sanitize_properties(payload.properties)
+
+    # Log via structlog
+    logger.info(
+        "frontend_telemetry",
+        event=payload.event,
+        properties=sanitized_props,
+        ...
+    )
+    return TelemetryResponse(status="accepted", ...)
+      ]]>
+    </existing-telemetry-endpoint>
+
+    <existing-pii-redaction>
+      <![CDATA[
+// Frontend redact.ts pattern
+export const SENSITIVE_PATTERNS =
+  /password|secret|token|key|auth|credential|api[-_]?key|private[-_]?key|access[-_]?token/i;
+
+export function redactSensitiveKeys(
+  obj: Record<string, unknown>
+): Record<string, unknown> {
+  // Recursively redact sensitive keys
+  return Object.fromEntries(
+    Object.entries(obj).map(([key, value]) => [
+      key,
+      SENSITIVE_PATTERNS.test(key)
+        ? "[REDACTED]"
+        : typeof value === "object" && value !== null
+          ? redactSensitiveKeys(value as Record<string, unknown>)
+          : value,
+    ])
+  );
+}
+      ]]>
+    </existing-pii-redaction>
+
+    <prometheus-metrics-pattern>
+      <![CDATA[
+// Backend metrics.py pattern for tenant-aware metrics
+from prometheus_client import Counter
+
+TELEMETRY_EVENTS = Counter(
+    "copilotkit_telemetry_events_total",
+    "Total CopilotKit telemetry events",
+    labelnames=["event_type", "tenant_id"],
+    registry=_registry,
+)
+
+def normalize_tenant_label(tenant_id: str) -> str:
+    """Normalize tenant_id label to reduce cardinality."""
+    mode = _get_tenant_label_mode()
+    if mode == "full":
+        return tenant_id
+    if mode == "hash":
+        bucket_count = _get_tenant_label_bucket_count()
+        digest = hashlib.sha256(tenant_id.encode("utf-8")).hexdigest()
+        bucket = int(digest[:8], 16) % bucket_count
+        return f"bucket-{bucket}"
+    return "global"
+      ]]>
+    </prometheus-metrics-pattern>
+
+    <test-mocking-pattern>
+      <![CDATA[
+// Frontend test pattern from use-default-tool.test.ts
+jest.mock("@copilotkit/react-core", () => ({
+  useDefaultTool: jest.fn(),
+}));
+
+const mockToast = jest.fn();
+jest.mock("@/hooks/use-toast", () => ({
+  useToast: () => ({
+    toast: mockToast,
+    toasts: [],
+    dismiss: jest.fn(),
+    dismissAll: jest.fn(),
+  }),
+}));
+      ]]>
+    </test-mocking-pattern>
+  </technical-context>
+
+  <dependencies>
+    <frontend>
+      <package name="@copilotkit/react-core" version="existing">CopilotKit core with observabilityHooks support</package>
+      <package name="@copilotkit/react-ui" version="existing">CopilotSidebar with showDevConsole prop</package>
+    </frontend>
+    <backend>
+      <package name="prometheus-client" version="existing">Already installed, use for telemetry metrics</package>
+      <package name="structlog" version="existing">Already used in telemetry.py for logging</package>
+    </backend>
+    <environment-variables>
+      <var name="NEXT_PUBLIC_SHOW_DEV_CONSOLE" type="boolean" default="false">Enable CopilotKit dev console in development</var>
+      <var name="NEXT_PUBLIC_COPILOTKIT_API_KEY" type="string" optional="true">Optional CopilotKit Cloud API key for Inspector</var>
+      <var name="NEXT_PUBLIC_ENABLE_INSPECTOR" type="boolean" optional="true">Enable CopilotKit Inspector panel</var>
+      <var name="METRICS_TENANT_LABEL_MODE" type="string" default="global">Existing: full|hash|global for cardinality control</var>
+    </environment-variables>
+  </dependencies>
+
+  <testing-context>
+    <frontend-test-patterns>
+      <pattern name="hook-mocking">
+        Use jest.mock() before imports to mock CopilotKit dependencies.
+        Mock useAnalytics in dependent components.
+      </pattern>
+      <pattern name="fetch-mocking">
+        Mock global.fetch to test non-blocking telemetry calls.
+        Test both success and failure scenarios.
+      </pattern>
+      <pattern name="console-spy">
+        Use jest.spyOn(console, 'log') to verify development logging.
+        Use jest.spyOn(console, 'error') for error path testing.
+      </pattern>
+    </frontend-test-patterns>
+    <backend-test-patterns>
+      <pattern name="fastapi-test-client">
+        Use pytest with TestClient for endpoint testing.
+        Mock RateLimiter dependency with allow/deny test doubles.
+      </pattern>
+      <pattern name="pii-redaction-tests">
+        Test _sanitize_properties function directly.
+        Verify message content is hashed, not stored.
+        Verify sensitive keys are redacted.
+      </pattern>
+      <pattern name="prometheus-metrics">
+        Use prometheus_client.REGISTRY to verify metric registration.
+        Test metric labels include tenant_id.
+      </pattern>
+    </backend-test-patterns>
+    <test-files-to-create>
+      <file>frontend/__tests__/hooks/use-analytics.test.ts</file>
+      <file>backend/tests/api/routes/test_telemetry.py</file>
+    </test-files-to-create>
+  </testing-context>
+
+  <implementation-notes>
+    <note priority="high">
+      The backend /api/telemetry endpoint already exists with PII redaction.
+      Enhance it with Prometheus metrics, not replace it.
+    </note>
+    <note priority="high">
+      CopilotSidebar observabilityHooks props may vary by CopilotKit version.
+      Verify available hooks in @copilotkit/react-ui types before implementation.
+    </note>
+    <note priority="medium">
+      Use existing SENSITIVE_PATTERNS from frontend/lib/utils/redact.ts.
+      Do not duplicate redaction logic.
+    </note>
+    <note priority="medium">
+      Follow naming convention: use-analytics.ts for hook file (kebab-case),
+      useAnalytics for export (camelCase).
+    </note>
+    <note priority="low">
+      Consider adding telemetry types to frontend/types/copilot.ts or
+      create separate frontend/types/analytics.ts.
+    </note>
+  </implementation-notes>
+
+  <security-checklist>
+    <item status="addressed">Cross-tenant isolation: Telemetry events include tenant_id, never expose cross-tenant data</item>
+    <item status="addressed">Authorization: /api/telemetry requires valid session or rate limits by IP</item>
+    <item status="addressed">No information leakage: Message content is SHA-256 hashed, sensitive keys redacted</item>
+    <item status="not-applicable">Redis keys: No Redis interactions in this story</item>
+    <item status="addressed">Integration tests: Telemetry endpoint auth tested via rate limiting</item>
+    <item status="addressed">RFC 7807 errors: Backend returns RFC 7807 on validation errors</item>
+    <item status="not-applicable">File-path inputs: No file path handling</item>
+  </security-checklist>
+
+  <code-snippets>
+    <snippet name="useAnalytics-hook-implementation">
+      <![CDATA[
+// frontend/hooks/use-analytics.ts
+"use client";
+
+import { useCallback } from "react";
+
+interface AnalyticsProperties {
+  [key: string]: unknown;
+}
+
+interface UseAnalyticsReturn {
+  track: (event: string, properties?: AnalyticsProperties) => void;
+}
+
+/**
+ * useAnalytics provides a track() function for sending telemetry events.
+ *
+ * Story 21-B1: Configure Observability Hooks and Dev Console
+ *
+ * Features:
+ * - Non-blocking fetch to /api/telemetry
+ * - Console logging in development mode
+ * - Graceful error handling (logs but doesn't block)
+ *
+ * @example
+ * ```tsx
+ * const { track } = useAnalytics();
+ * track("copilot_message_sent", { messageLength: 100 });
+ * ```
+ */
+export function useAnalytics(): UseAnalyticsReturn {
+  const track = useCallback((event: string, properties?: AnalyticsProperties) => {
+    const payload = {
+      event,
+      properties: properties ?? {},
+      timestamp: new Date().toISOString(),
+    };
+
+    // Development logging
+    if (process.env.NODE_ENV === "development") {
+      console.log("[Analytics]", event, properties);
+    }
+
+    // Non-blocking fetch to telemetry endpoint
+    fetch("/api/telemetry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).catch((error) => {
+      // Log but don't block on telemetry failures
+      console.error("[Analytics] Failed to send event:", error);
+    });
+  }, []);
+
+  return { track };
+}
+
+export default useAnalytics;
+      ]]>
+    </snippet>
+
+    <snippet name="copilot-provider-update">
+      <![CDATA[
+// Updated CopilotProvider.tsx
+"use client";
+
+import { CopilotKit } from "@copilotkit/react-core";
+import "@copilotkit/react-ui/styles.css";
+import { ReactNode } from "react";
+import { useDefaultToolHandler } from "@/hooks/use-default-tool";
+import { useAnalytics } from "@/hooks/use-analytics";
+
+interface CopilotProviderProps {
+  children: ReactNode;
+}
+
+function CopilotContextProvider() {
+  useDefaultToolHandler();
+  return null;
+}
+
+export function CopilotProvider({ children }: CopilotProviderProps) {
+  const { track } = useAnalytics();
+  const isDev = process.env.NODE_ENV === "development";
+  const showDevConsole = isDev && process.env.NEXT_PUBLIC_SHOW_DEV_CONSOLE === "true";
+
+  return (
+    <CopilotKit
+      runtimeUrl="/api/copilotkit"
+      showDevConsole={showDevConsole}
+      onError={(errorEvent) => {
+        track("copilot_error", {
+          type: errorEvent.type,
+          message: errorEvent.error?.message,
+          context: errorEvent.context,
+          timestamp: new Date().toISOString(),
+        });
+        if (isDev) {
+          console.error("CopilotKit Error:", errorEvent);
+        }
+      }}
+    >
+      <CopilotContextProvider />
+      {children}
+    </CopilotKit>
+  );
+}
+      ]]>
+    </snippet>
+
+    <snippet name="chat-sidebar-observability-hooks">
+      <![CDATA[
+// Updated ChatSidebar.tsx
+"use client";
+
+import { CopilotSidebar } from "@copilotkit/react-ui";
+import "@copilotkit/react-ui/styles.css";
+import { ThoughtTraceStepper } from "./ThoughtTraceStepper";
+import { CopilotErrorBoundary } from "./CopilotErrorBoundary";
+import { GenerativeUIRenderer } from "./GenerativeUIRenderer";
+import { useAnalytics } from "@/hooks/use-analytics";
+
+export function ChatSidebar() {
+  const { track } = useAnalytics();
+
+  return (
+    <CopilotErrorBoundary>
+      <CopilotSidebar
+        defaultOpen={true}
+        labels={{
+          title: "AI Copilot",
+          initial: "How can I help you today?",
+        }}
+        className="copilot-sidebar"
+        observabilityHooks={{
+          onMessageSent: (message) => {
+            track("copilot_message_sent", {
+              messageLength: message?.length ?? 0,
+              timestamp: new Date().toISOString(),
+            });
+          },
+          onChatExpanded: () => track("copilot_chat_expanded"),
+          onChatMinimized: () => track("copilot_chat_minimized"),
+          onMessageRegenerated: (messageId) => {
+            track("copilot_message_regenerated", { messageId });
+          },
+          onMessageCopied: (content) => {
+            track("copilot_message_copied", { contentLength: content?.length ?? 0 });
+          },
+          onFeedbackGiven: (messageId, type) => {
+            track("copilot_feedback", { messageId, type });
+          },
+          onChatStarted: () => track("copilot_generation_started"),
+          onChatStopped: () => track("copilot_generation_stopped"),
+        }}
+      >
+        <ThoughtTraceStepper />
+        <GenerativeUIRenderer />
+      </CopilotSidebar>
+    </CopilotErrorBoundary>
+  );
+}
+      ]]>
+    </snippet>
+
+    <snippet name="prometheus-metrics-enhancement">
+      <![CDATA[
+# Add to telemetry.py - Prometheus metrics
+from prometheus_client import Counter
+from ...observability.metrics import normalize_tenant_label, get_metrics_registry
+
+COPILOTKIT_TELEMETRY_EVENTS = Counter(
+    "copilotkit_telemetry_events_total",
+    "Total CopilotKit telemetry events received from frontend",
+    labelnames=["event_type", "tenant_id"],
+    registry=get_metrics_registry(),
+)
+
+# In the track_telemetry endpoint, after sanitization:
+tenant_id = getattr(request.state, "tenant_id", "unknown")
+normalized_tenant = normalize_tenant_label(tenant_id)
+
+COPILOTKIT_TELEMETRY_EVENTS.labels(
+    event_type=payload.event,
+    tenant_id=normalized_tenant,
+).inc()
+      ]]>
+    </snippet>
+
+    <snippet name="env-example-additions">
+      <![CDATA[
+# Add to .env.example after existing observability section
+
+# Epic 21 - CopilotKit Observability
+# Enable CopilotKit dev console in development mode
+NEXT_PUBLIC_SHOW_DEV_CONSOLE=false
+
+# Optional: CopilotKit Cloud API key for Inspector panel
+# Get from https://cloud.copilotkit.ai
+NEXT_PUBLIC_COPILOTKIT_API_KEY=
+
+# Optional: Enable CopilotKit Inspector panel (requires API key or license)
+NEXT_PUBLIC_ENABLE_INSPECTOR=false
+      ]]>
+    </snippet>
+  </code-snippets>
+
+  <task-breakdown>
+    <task id="1" name="Create useAnalytics hook" ac="11,12">
+      <subtask>Create frontend/hooks/use-analytics.ts</subtask>
+      <subtask>Implement track(event, properties) function with useCallback</subtask>
+      <subtask>Add console logging in development mode</subtask>
+      <subtask>Implement non-blocking fetch to /api/telemetry</subtask>
+      <subtask>Add error handling (logs but does not block)</subtask>
+      <subtask>Export hook and types</subtask>
+    </task>
+    <task id="2" name="Enhance backend telemetry endpoint" ac="9,12">
+      <subtask>Add Prometheus Counter metric for telemetry events</subtask>
+      <subtask>Import normalize_tenant_label from observability/metrics.py</subtask>
+      <subtask>Extract tenant_id from request.state (may need middleware)</subtask>
+      <subtask>Increment metric with event_type and normalized tenant_id labels</subtask>
+      <subtask>Ensure RFC 7807 error response format on validation failures</subtask>
+    </task>
+    <task id="3" name="Update CopilotProvider with showDevConsole" ac="1,10">
+      <subtask>Import useAnalytics hook</subtask>
+      <subtask>Add isDev and showDevConsole computed values</subtask>
+      <subtask>Add showDevConsole prop to CopilotKit component</subtask>
+      <subtask>Verify dev console appears in development mode</subtask>
+      <subtask>Verify dev console hidden in production build</subtask>
+    </task>
+    <task id="4" name="Add onError handler to CopilotKit" ac="8">
+      <subtask>Add onError prop to CopilotKit in CopilotProvider</subtask>
+      <subtask>Emit structured error event with type, message, context, timestamp</subtask>
+      <subtask>Add console.error logging in development mode</subtask>
+      <subtask>Test error event emission</subtask>
+    </task>
+    <task id="5" name="Wire observabilityHooks to CopilotSidebar" ac="2,3,4,5,6,7">
+      <subtask>Import useAnalytics hook in ChatSidebar.tsx</subtask>
+      <subtask>Add observabilityHooks prop to CopilotSidebar</subtask>
+      <subtask>Wire onMessageSent (message length only)</subtask>
+      <subtask>Wire onChatExpanded</subtask>
+      <subtask>Wire onChatMinimized</subtask>
+      <subtask>Wire onMessageRegenerated (message ID)</subtask>
+      <subtask>Wire onMessageCopied (content length only)</subtask>
+      <subtask>Wire onFeedbackGiven (message ID, type)</subtask>
+      <subtask>Wire onChatStarted</subtask>
+      <subtask>Wire onChatStopped</subtask>
+    </task>
+    <task id="6" name="Add environment variable documentation" ac="1">
+      <subtask>Add NEXT_PUBLIC_SHOW_DEV_CONSOLE to .env.example</subtask>
+      <subtask>Add NEXT_PUBLIC_COPILOTKIT_API_KEY to .env.example (optional)</subtask>
+      <subtask>Add NEXT_PUBLIC_ENABLE_INSPECTOR to .env.example (optional)</subtask>
+      <subtask>Document variables in code comments</subtask>
+    </task>
+    <task id="7" name="Add tests" ac="all">
+      <subtask>Create frontend/__tests__/hooks/use-analytics.test.ts</subtask>
+      <subtask>Test track() function with mocked fetch</subtask>
+      <subtask>Test development console logging</subtask>
+      <subtask>Test error handling (non-blocking)</subtask>
+      <subtask>Create backend/tests/api/routes/test_telemetry.py</subtask>
+      <subtask>Test valid event submission</subtask>
+      <subtask>Test PII redaction (message hashing)</subtask>
+      <subtask>Test sensitive key redaction</subtask>
+      <subtask>Test rate limiting behavior</subtask>
+      <subtask>Test Prometheus metric increment</subtask>
+    </task>
+  </task-breakdown>
+</story-context>
