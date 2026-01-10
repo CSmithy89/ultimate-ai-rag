@@ -69,6 +69,14 @@ export const SpeakButton = memo(function SpeakButton({
     };
   }, []);
 
+  // Auto-dismiss error after 5 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
   const speak = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -103,6 +111,11 @@ export const SpeakButton = memo(function SpeakButton({
         setIsPlaying(false);
       };
       audioRef.current.onerror = () => {
+        // Clean up on error to prevent memory leak
+        if (objectUrlRef.current) {
+          URL.revokeObjectURL(objectUrlRef.current);
+          objectUrlRef.current = null;
+        }
         setError("Audio playback failed");
         setIsPlaying(false);
       };
@@ -182,19 +195,27 @@ export const SpeakButton = memo(function SpeakButton({
         </span>
       )}
 
-      {/* Error tooltip */}
+      {/* ARIA live region for screen readers */}
+      <span className="sr-only" aria-live="polite" role="status">
+        {isLoading ? "Loading audio" : isPlaying ? "Playing audio" : ""}
+      </span>
+
+      {/* Error tooltip (click to dismiss) */}
       {error && (
-        <div
+        <button
+          type="button"
+          onClick={() => setError(null)}
           className={cn(
             "absolute bottom-full left-1/2 -translate-x-1/2 mb-2",
             "px-2 py-1 text-xs text-white bg-red-600 rounded shadow-lg",
-            "whitespace-nowrap"
+            "whitespace-nowrap cursor-pointer hover:bg-red-700"
           )}
           role="alert"
+          aria-label={`Error: ${error}. Click to dismiss.`}
         >
           {error}
           <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-red-600" />
-        </div>
+        </button>
       )}
     </div>
   );

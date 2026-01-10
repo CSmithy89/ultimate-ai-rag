@@ -264,6 +264,19 @@ async def list_hitl_checkpoints(
 # VOICE I/O ENDPOINTS - Stories 21-E1, 21-E2
 # ============================================
 
+# Allowed audio content types for transcription
+ALLOWED_AUDIO_TYPES = frozenset({
+    "audio/webm",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/mp3",
+    "audio/mpeg",
+    "audio/ogg",
+    "audio/flac",
+    "audio/m4a",
+    "audio/mp4",
+})
+
 
 class TranscriptionResponse(BaseModel):
     """Response for audio transcription.
@@ -286,6 +299,18 @@ class TTSRequest(BaseModel):
     voice: Optional[str] = Field(None, description="Voice to use (alloy, echo, fable, onyx, nova, shimmer)")
     speed: Optional[float] = Field(None, ge=0.25, le=4.0, description="Speech speed multiplier")
 
+    @field_validator("text")
+    @classmethod
+    def sanitize_text(cls, v: str) -> str:
+        """Sanitize text to prevent injection attacks.
+
+        Removes control characters that could be interpreted as commands.
+        """
+        import re
+        # Remove control characters except newlines and tabs
+        v = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", v)
+        return v.strip()
+
 
 @router.post("/transcribe", response_model=TranscriptionResponse)
 async def transcribe_audio(
@@ -293,6 +318,8 @@ async def transcribe_audio(
     language: str = Query(default="en", description="ISO 639-1 language code hint"),
     request: Request = None,
     voice_adapter: Optional[VoiceAdapter] = Depends(get_voice_adapter),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
 ) -> TranscriptionResponse:
     """Transcribe audio to text using configured transcription service.
 
@@ -310,13 +337,28 @@ async def transcribe_audio(
 
     Raises:
         403: Voice I/O is disabled
+        415: Unsupported media type
+        429: Rate limit exceeded
         503: Voice adapter not configured
     """
+    # Rate limiting
+    tenant_id = x_tenant_id or "anonymous"
+    if not await limiter.allow(tenant_id):
+        raise rate_limit_exceeded()
+
     if voice_adapter is None:
         raise HTTPException(status_code=503, detail="Voice adapter not configured")
 
     if not voice_adapter.enabled:
         raise HTTPException(status_code=403, detail="Voice I/O is disabled")
+
+    # Validate audio content type
+    content_type = audio.content_type or ""
+    if content_type not in ALLOWED_AUDIO_TYPES:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported media type: {content_type}. Allowed types: {', '.join(sorted(ALLOWED_AUDIO_TYPES))}",
+        )
 
     try:
         # Read audio data from upload
@@ -358,6 +400,8 @@ async def text_to_speech(
     tts_request: TTSRequest,
     request: Request,
     voice_adapter: Optional[VoiceAdapter] = Depends(get_voice_adapter),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
 ) -> Response:
     """Convert text to speech audio stream.
 
@@ -374,8 +418,14 @@ async def text_to_speech(
 
     Raises:
         403: Voice I/O is disabled
+        429: Rate limit exceeded
         503: Voice adapter not configured
     """
+    # Rate limiting
+    tenant_id = x_tenant_id or "anonymous"
+    if not await limiter.allow(tenant_id):
+        raise rate_limit_exceeded()
+
     if voice_adapter is None:
         raise HTTPException(status_code=503, detail="Voice adapter not configured")
 

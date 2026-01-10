@@ -11,9 +11,11 @@
  * - Visual feedback during recording/transcription
  * - Error handling for microphone permissions
  * - Accessibility labels for screen readers
+ * - Browser-compatible MIME type detection
+ * - Keyboard support (Escape to cancel recording)
  */
 
-import { useState, useRef, useCallback, memo } from "react";
+import { useState, useRef, useCallback, memo, useEffect } from "react";
 import { Mic, MicOff, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +28,41 @@ export interface VoiceInputProps {
   className?: string;
   /** Language hint for transcription (ISO 639-1 code) */
   language?: string;
+}
+
+/**
+ * Get a supported MIME type for MediaRecorder.
+ * Checks browser support and returns the first available option.
+ */
+function getSupportedMimeType(): string {
+  const types = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+    "audio/ogg",
+    "audio/mp4",
+    "audio/mpeg",
+  ];
+
+  for (const type of types) {
+    if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type)) {
+      return type;
+    }
+  }
+
+  // Fallback - let browser choose
+  return "";
+}
+
+/**
+ * Get file extension from MIME type.
+ */
+function getFileExtension(mimeType: string): string {
+  if (mimeType.includes("webm")) return "webm";
+  if (mimeType.includes("ogg")) return "ogg";
+  if (mimeType.includes("mp4")) return "m4a";
+  if (mimeType.includes("mpeg")) return "mp3";
+  return "webm"; // fallback
 }
 
 /**
@@ -52,6 +89,23 @@ export const VoiceInput = memo(function VoiceInput({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const mimeTypeRef = useRef<string>("");
+
+  // Auto-dismiss error after 5 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
+  // Cleanup stream helper
+  const cleanupStream = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+  }, []);
 
   const startRecording = useCallback(async () => {
     setError(null);
@@ -61,10 +115,13 @@ export const VoiceInput = memo(function VoiceInput({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      // Create MediaRecorder with webm format (widely supported)
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: "audio/webm;codecs=opus",
-      });
+      // Detect supported MIME type for browser compatibility
+      const mimeType = getSupportedMimeType();
+      mimeTypeRef.current = mimeType;
+
+      // Create MediaRecorder with detected MIME type
+      const options: MediaRecorderOptions = mimeType ? { mimeType } : {};
+      const mediaRecorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
 
@@ -76,27 +133,33 @@ export const VoiceInput = memo(function VoiceInput({
 
       mediaRecorder.onstop = async () => {
         // Stop all tracks to release microphone
-        streamRef.current?.getTracks().forEach((track) => track.stop());
+        cleanupStream();
 
         if (chunksRef.current.length > 0) {
-          const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-          await transcribeAudio(blob);
+          const actualMimeType = mimeTypeRef.current || "audio/webm";
+          const blob = new Blob(chunksRef.current, { type: actualMimeType });
+          await transcribeAudio(blob, actualMimeType);
         }
       };
 
       mediaRecorder.start();
       setIsRecording(true);
     } catch (err) {
+      // Clean up any acquired stream on error
+      cleanupStream();
+
       console.error("Failed to start recording:", err);
       if (err instanceof DOMException && err.name === "NotAllowedError") {
         setError("Microphone permission denied");
       } else if (err instanceof DOMException && err.name === "NotFoundError") {
         setError("No microphone found");
+      } else if (err instanceof DOMException && err.name === "NotSupportedError") {
+        setError("Audio recording not supported");
       } else {
         setError("Failed to start recording");
       }
     }
-  }, []);
+  }, [cleanupStream]);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && isRecording) {
@@ -105,14 +168,24 @@ export const VoiceInput = memo(function VoiceInput({
     }
   }, [isRecording]);
 
+  const cancelRecording = useCallback(() => {
+    if (mediaRecorderRef.current && isRecording) {
+      // Discard chunks before stopping
+      chunksRef.current = [];
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  }, [isRecording]);
+
   const transcribeAudio = useCallback(
-    async (blob: Blob) => {
+    async (blob: Blob, mimeType: string) => {
       setIsTranscribing(true);
       setError(null);
 
       try {
+        const extension = getFileExtension(mimeType);
         const formData = new FormData();
-        formData.append("audio", blob, "recording.webm");
+        formData.append("audio", blob, `recording.${extension}`);
 
         const response = await fetch(`/api/copilot/transcribe?language=${language}`, {
           method: "POST",
@@ -147,6 +220,17 @@ export const VoiceInput = memo(function VoiceInput({
     }
   }, [isRecording, startRecording, stopRecording]);
 
+  // Keyboard support: Escape to cancel recording
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Escape" && isRecording) {
+        e.preventDefault();
+        cancelRecording();
+      }
+    },
+    [isRecording, cancelRecording]
+  );
+
   const isDisabled = disabled || isTranscribing;
 
   return (
@@ -154,6 +238,7 @@ export const VoiceInput = memo(function VoiceInput({
       <button
         type="button"
         onClick={handleClick}
+        onKeyDown={handleKeyDown}
         disabled={isDisabled}
         className={cn(
           "inline-flex items-center justify-center rounded-md p-2",
@@ -168,14 +253,14 @@ export const VoiceInput = memo(function VoiceInput({
           isTranscribing
             ? "Transcribing audio..."
             : isRecording
-            ? "Stop recording"
+            ? "Stop recording (or press Escape to cancel)"
             : "Start voice input"
         }
         title={
           isTranscribing
             ? "Transcribing..."
             : isRecording
-            ? "Stop recording"
+            ? "Stop recording (Escape to cancel)"
             : "Voice input"
         }
       >
@@ -196,19 +281,27 @@ export const VoiceInput = memo(function VoiceInput({
         </span>
       )}
 
-      {/* Error tooltip */}
+      {/* ARIA live region for screen readers */}
+      <span className="sr-only" aria-live="polite" role="status">
+        {isRecording ? "Recording audio" : isTranscribing ? "Transcribing audio" : ""}
+      </span>
+
+      {/* Error tooltip (click to dismiss) */}
       {error && (
-        <div
+        <button
+          type="button"
+          onClick={() => setError(null)}
           className={cn(
             "absolute bottom-full left-1/2 -translate-x-1/2 mb-2",
             "px-2 py-1 text-xs text-white bg-red-600 rounded shadow-lg",
-            "whitespace-nowrap"
+            "whitespace-nowrap cursor-pointer hover:bg-red-700"
           )}
           role="alert"
+          aria-label={`Error: ${error}. Click to dismiss.`}
         >
           {error}
           <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-red-600" />
-        </div>
+        </button>
       )}
     </div>
   );
