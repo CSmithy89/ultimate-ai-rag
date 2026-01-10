@@ -399,6 +399,23 @@ Labels:
 
 
 # =============================================================================
+# Telemetry Metrics (Story 21-B1)
+# =============================================================================
+
+FRONTEND_TELEMETRY_EVENTS_TOTAL = Counter(
+    "frontend_telemetry_events_total",
+    "Total frontend telemetry events received",
+    labelnames=["event_type"],
+    registry=_registry,
+)
+"""Counter for frontend telemetry events.
+
+Labels:
+    event_type: Type of telemetry event (e.g., page_view, button_click)
+"""
+
+
+# =============================================================================
 # Helper Functions
 # =============================================================================
 
@@ -732,3 +749,14 @@ def set_reranker_cache_size(size: int) -> None:
         size: Current number of entries in the cache
     """
     RERANKER_CACHE_SIZE.set(size)
+
+
+def record_frontend_telemetry(event_type: str) -> None:
+    """Record a frontend telemetry event.
+
+    Story 21-B1: Prometheus counter for telemetry endpoint.
+
+    Args:
+        event_type: Type of telemetry event (e.g., page_view, button_click)
+    """
+    FRONTEND_TELEMETRY_EVENTS_TOTAL.labels(event_type=event_type).inc()

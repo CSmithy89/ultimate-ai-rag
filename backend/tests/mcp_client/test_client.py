@@ -159,7 +159,7 @@ class TestMCPClient:
 
     @pytest.mark.asyncio
     async def test_request_no_retry_on_4xx(self, server_config: MCPServerConfig) -> None:
-        """Test no retry on 4xx client errors."""
+        """Test no retry on 4xx client errors (raised as MCPProtocolError)."""
         client = MCPClient(server_config, retry_count=3, retry_delay_ms=10)
 
         mock_response = MagicMock()
@@ -170,12 +170,14 @@ class TestMCPClient:
                 "Unauthorized", request=MagicMock(), response=mock_response
             )
 
-            with pytest.raises(MCPClientConnectionError) as exc_info:
+            # 4xx errors are MCPProtocolError (semantic client errors, not connection errors)
+            with pytest.raises(MCPProtocolError) as exc_info:
                 await client.list_tools()
 
             # Should not retry 4xx errors
             assert mock_post.call_count == 1
-            assert "HTTP 401" in exc_info.value.reason
+            assert exc_info.value.error_code == 401
+            assert "HTTP 401" in exc_info.value.error_message
 
         await client.close()
 

@@ -6,11 +6,9 @@ Story 21-C2: Implement MCP Client Factory
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import FastAPI, Request
-from fastapi.testclient import TestClient
+from fastapi import Request
 
 from agentic_rag_backend.mcp_client.client import MCPClientFactory
-from agentic_rag_backend.mcp_client.config import MCPClientSettings, MCPServerConfig
 from agentic_rag_backend.mcp_client.dependencies import (
     create_mcp_client_factory,
     create_mcp_client_settings,
@@ -122,15 +120,15 @@ class TestGetMCPFactory:
     @pytest.mark.asyncio
     async def test_returns_none_when_not_initialized(self) -> None:
         """Test returns None when factory not in state."""
+        # Create a mock state without mcp_client_factory attribute
+        class MockState:
+            """State object without mcp_client_factory."""
+            pass
+
         mock_app = MagicMock()
-        # No mcp_client_factory attribute
-        del mock_app.state.mcp_client_factory
+        mock_app.state = MockState()
         mock_request = MagicMock(spec=Request)
         mock_request.app = mock_app
-
-        # Use getattr default behavior
-        mock_app.state = MagicMock()
-        type(mock_app.state).mcp_client_factory = property(lambda x: None)
 
         factory = await get_mcp_factory(mock_request)
 

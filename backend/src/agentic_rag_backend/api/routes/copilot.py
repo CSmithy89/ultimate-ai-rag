@@ -111,6 +111,10 @@ class ToolsResponse(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+# Valid tool name pattern: server_name:tool_name (alphanumeric, underscores, hyphens)
+TOOL_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+:[a-zA-Z0-9_-]+$')
+
+
 class ToolCallRequest(BaseModel):
     """Request to call an external MCP tool."""
 
@@ -118,6 +122,17 @@ class ToolCallRequest(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict, description="Tool arguments")
 
     model_config = {"populate_by_name": True}
+
+    @field_validator('tool_name')
+    @classmethod
+    def validate_tool_name(cls, v: str) -> str:
+        """Validate tool_name matches expected namespaced format."""
+        if not TOOL_NAME_PATTERN.match(v):
+            raise ValueError(
+                'tool_name must be in format "server_name:tool_name" '
+                'with alphanumeric characters, underscores, and hyphens only'
+            )
+        return v
 
 
 class ToolCallResponse(BaseModel):
@@ -200,6 +215,13 @@ async def call_external_tool(
             detail=f"Tool '{request_body.tool_name}' is not an external tool (missing server namespace)"
         )
 
+    # Security fix: Validate server exists before attempting call (return 404 not 500)
+    if server_name not in mcp_factory.server_names:
+        raise HTTPException(
+            status_code=404,
+            detail=f"MCP server '{server_name}' is not configured"
+        )
+
     logger.info(
         "calling_external_tool",
         tool_name=request_body.tool_name,
@@ -216,15 +238,17 @@ async def call_external_tool(
         )
         return ToolCallResponse(result=result, serverName=server_name)
     except Exception as e:
+        # Log full error for debugging but don't expose to client
         logger.exception(
             "external_tool_call_failed",
             tool_name=request_body.tool_name,
             server_name=server_name,
             error=str(e),
         )
+        # Security fix: Don't leak internal error details to client
         raise HTTPException(
             status_code=500,
-            detail=f"Tool execution failed: {str(e)}"
+            detail="An error occurred during external tool execution"
         )
 
 

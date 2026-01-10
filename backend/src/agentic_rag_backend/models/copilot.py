@@ -119,14 +119,14 @@ class RunErrorEvent(AGUIEvent):
             message: User-friendly error message
             details: Optional technical details for debugging
         """
-        super().__init__(
-            data={
-                "code": code.value if isinstance(code, RunErrorCode) else code,
-                "message": message,
-                "details": details or {},
-            },
-            **kwargs
-        )
+        # Bug fix: Only include details field when it has content
+        data = {
+            "code": code.value if isinstance(code, RunErrorCode) else code,
+            "message": message,
+        }
+        if details:
+            data["details"] = details
+        super().__init__(data=data, **kwargs)
 
 
 class TextDeltaEvent(AGUIEvent):

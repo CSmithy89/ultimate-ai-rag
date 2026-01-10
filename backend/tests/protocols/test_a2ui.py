@@ -3,8 +3,6 @@
 Story 21-D1: Enable A2UI Support
 """
 
-import pytest
-
 from agentic_rag_backend.protocols.a2ui import (
     A2UIWidget,
     A2UIAction,

@@ -205,13 +205,18 @@ class AGUIBridge:
 
             # Story 21-B2: Use RUN_ERROR event instead of embedding error in text
             # Include details only in development mode for debugging
-            settings = get_settings()
+            # Bug fix: Wrap get_settings() in try-except to prevent secondary failure
             details = None
-            if is_development_env(settings.app_env):
-                details = {
-                    "error_type": type(e).__name__,
-                    "error_message": str(e),
-                }
+            try:
+                settings = get_settings()
+                if is_development_env(settings.app_env):
+                    details = {
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                    }
+            except Exception:
+                # If settings lookup fails, proceed without details
+                pass
 
             yield RunErrorEvent(
                 code=RunErrorCode.AGENT_EXECUTION_ERROR,

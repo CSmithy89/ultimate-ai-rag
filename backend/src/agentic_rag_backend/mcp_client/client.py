@@ -202,7 +202,7 @@ class MCPClient:
                 await self._backoff(attempt)
 
             except httpx.HTTPStatusError as e:
-                # Don't retry 4xx client errors
+                # Don't retry 4xx client errors - use MCPProtocolError for semantic clarity
                 if 400 <= e.response.status_code < 500:
                     logger.error(
                         "mcp_client_error",
@@ -210,10 +210,10 @@ class MCPClient:
                         method=method,
                         status_code=e.response.status_code,
                     )
-                    raise MCPClientConnectionError(
+                    raise MCPProtocolError(
                         server_name=self.name,
-                        url=url,
-                        reason=f"HTTP {e.response.status_code}",
+                        error_code=e.response.status_code,
+                        error_message=f"HTTP {e.response.status_code}",
                     ) from e
 
                 last_error = e
@@ -362,10 +362,20 @@ class MCPClientFactory:
             name: Server name to find
 
         Returns:
-            Server configuration or None if not found
+            Server configuration with global timeout applied if not explicitly set
         """
         for server in self.settings.servers:
             if server.name == name:
+                # Bug fix: Apply global default_timeout_ms to server config
+                # If server config uses the default timeout (30000), apply global setting
+                if server.timeout_ms == 30000 and self.settings.default_timeout_ms != 30000:
+                    return MCPServerConfig(
+                        name=server.name,
+                        url=server.url,
+                        api_key=server.api_key,
+                        transport=server.transport,
+                        timeout_ms=self.settings.default_timeout_ms,
+                    )
                 return server
         return None
 
@@ -428,6 +438,8 @@ class MCPClientFactory:
         Should be called during application shutdown.
         """
         async with self._lock:
+            # Bug fix: Capture count before clearing dict
+            count = len(self._clients)
             for name, client in self._clients.items():
                 try:
                     await client.close()
@@ -438,7 +450,7 @@ class MCPClientFactory:
                         error=str(e),
                     )
             self._clients.clear()
-            logger.info("mcp_clients_closed", count=len(self._clients))
+            logger.info("mcp_clients_closed", count=count)
 
     @asynccontextmanager
     async def lifespan(self) -> AsyncIterator["MCPClientFactory"]:

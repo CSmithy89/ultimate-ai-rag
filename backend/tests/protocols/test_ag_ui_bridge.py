@@ -282,7 +282,7 @@ class TestAGUIBridgeMultiTenancy:
     async def test_process_request_requires_tenant_id(
         self, mock_orchestrator
     ):
-        """Test that missing tenant_id raises an error."""
+        """Test that missing tenant_id returns a RUN_ERROR event (Story 21-B2)."""
         request = CopilotRequest(
             messages=[CopilotMessage(role=MessageRole.USER, content="Test query")],
             config=CopilotConfig(configurable={}),  # No tenant_id
@@ -294,12 +294,12 @@ class TestAGUIBridgeMultiTenancy:
         async for event in bridge.process_request(request):
             events.append(event)
 
-        # Should emit an error via TextDeltaEvent
-        text_events = [e for e in events if e.event == AGUIEventType.TEXT_MESSAGE_CONTENT]
-        assert len(text_events) >= 1
-        # Check for error indication
-        assert "error" in text_events[0].data["content"].lower() or \
-               events[-1].event == AGUIEventType.RUN_FINISHED
+        # Should emit RUN_STARTED, RUN_ERROR, RUN_FINISHED (Story 21-B2)
+        assert events[0].event == AGUIEventType.RUN_STARTED
+        error_events = [e for e in events if e.event == AGUIEventType.RUN_ERROR]
+        assert len(error_events) == 1
+        assert error_events[0].data["code"] == "TENANT_REQUIRED"
+        assert events[-1].event == AGUIEventType.RUN_FINISHED
 
     @pytest.mark.asyncio
     async def test_process_request_extracts_session_id(

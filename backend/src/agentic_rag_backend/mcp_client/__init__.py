@@ -7,7 +7,9 @@ as part of the CopilotKit integration. It enables tool discovery and execution
 from MCP ecosystem servers like GitHub, Notion, etc.
 
 Example usage:
-    from agentic_rag_backend.mcp_client import MCPClientFactory, MCPClientSettings
+    from agentic_rag_backend.mcp_client import (
+        MCPClientFactory, MCPClientSettings, MCPServerConfig
+    )
 
     settings = MCPClientSettings(
         enabled=True,

@@ -1,10 +1,11 @@
-from typing import Any
+from typing import Any, Optional
 from datetime import datetime, timezone
 import hashlib
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, Field
 
 from ..utils import rate_limit_exceeded
+from ...observability.metrics import record_frontend_telemetry
 from ...rate_limit import RateLimiter
 
 router = APIRouter()
@@ -64,16 +65,18 @@ async def track_telemetry(
     payload: TelemetryEvent,
     request: Request,
     limiter: RateLimiter = Depends(get_rate_limiter),
+    tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
 ):
     """
     Track frontend telemetry events.
-    
+
     Events are sanitized to remove PII before logging/storage.
     Currently logs structured events; can be extended to store in DB/Timescale.
     """
-    # Simple rate limiting using IP since this is a public-facing endpoint (auth optional for tracking)
+    # Rate limiting using composite key (tenant_id:ip) for better isolation
     client_ip = request.client.host if request.client else "unknown"
-    if not await limiter.allow(f"telemetry:{client_ip}"):
+    rate_limit_key = f"telemetry:{tenant_id or 'anon'}:{client_ip}"
+    if not await limiter.allow(rate_limit_key):
         raise rate_limit_exceeded()
 
     # Sanitize payload
@@ -93,6 +96,9 @@ async def track_telemetry(
         received_at=datetime.now(timezone.utc).isoformat(),
         source="frontend"
     )
+
+    # Story 21-B1: Record Prometheus metric for telemetry events
+    record_frontend_telemetry(event_type=payload.event)
 
     return TelemetryResponse(
         status="accepted",

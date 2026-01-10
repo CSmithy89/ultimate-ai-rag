@@ -1354,7 +1354,11 @@ def load_settings() -> Settings:
         if not isinstance(mcp_client_servers, list):
             mcp_client_servers = []
     except json.JSONDecodeError:
-        logger.warning("mcp_client_servers_parse_failed", raw=mcp_client_servers_raw)
+        # Security fix: Don't log raw value as it may contain API keys
+        logger.warning(
+            "mcp_client_servers_parse_failed",
+            detail="Invalid JSON in MCP_CLIENT_SERVERS environment variable",
+        )
         mcp_client_servers = []
 
     return Settings(

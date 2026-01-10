@@ -114,7 +114,7 @@ class TestCallToolEndpoint:
         assert response.status_code == 503
 
     def test_call_internal_tool_rejected(self, app: FastAPI) -> None:
-        """Test calling internal tool (no namespace) is rejected."""
+        """Test calling internal tool (no namespace) is rejected via validation."""
         mock_factory = MagicMock(spec=MCPClientFactory)
         mock_factory.is_enabled = True
         app.state.mcp_client_factory = mock_factory
@@ -129,13 +129,15 @@ class TestCallToolEndpoint:
                     json={"toolName": "search", "arguments": {}},
                 )
 
-        assert response.status_code == 400
-        assert "not an external tool" in response.json()["detail"]
+        # Validation rejects non-namespaced tool names (must be server_name:tool_name)
+        assert response.status_code == 422
+        assert "tool_name must be in format" in str(response.json())
 
     def test_call_external_tool_success(self, app: FastAPI) -> None:
         """Test successfully calling an external tool."""
         mock_factory = MagicMock(spec=MCPClientFactory)
         mock_factory.is_enabled = True
+        mock_factory.server_names = ["github"]  # Include server in allowed list
         mock_factory.call_tool = AsyncMock(return_value={
             "issue_url": "https://github.com/test/repo/issues/1",
             "issue_number": 1,
@@ -167,9 +169,10 @@ class TestCallToolEndpoint:
         )
 
     def test_call_tool_execution_error(self, app: FastAPI) -> None:
-        """Test handling tool execution error."""
+        """Test handling tool execution error (generic message returned)."""
         mock_factory = MagicMock(spec=MCPClientFactory)
         mock_factory.is_enabled = True
+        mock_factory.server_names = ["github"]  # Include server in allowed list
         mock_factory.call_tool = AsyncMock(
             side_effect=Exception("Tool execution failed")
         )
@@ -186,12 +189,14 @@ class TestCallToolEndpoint:
                 )
 
         assert response.status_code == 500
-        assert "Tool execution failed" in response.json()["detail"]
+        # Security: Generic error message returned (no internal details leaked)
+        assert response.json()["detail"] == "An error occurred during external tool execution"
 
     def test_call_tool_with_tenant_header(self, app: FastAPI) -> None:
         """Test calling tool with tenant ID header."""
         mock_factory = MagicMock(spec=MCPClientFactory)
         mock_factory.is_enabled = True
+        mock_factory.server_names = ["notion"]  # Include server in allowed list
         mock_factory.call_tool = AsyncMock(return_value={"success": True})
         app.state.mcp_client_factory = mock_factory
 
