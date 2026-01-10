@@ -439,7 +439,7 @@ development_status:
   # Wire all observabilityHooks to analytics pipeline + enable showDevConsole
   21-B2-add-run-error-event-support: review
   # Emit RUN_ERROR instead of embedding errors in text
-  21-B3-implement-state-delta-messages-snapshot: backlog
+  21-B3-implement-state-delta-messages-snapshot: review
   # Add STATE_DELTA for incremental updates + MESSAGES_SNAPSHOT for session sync
 
   # --- Group C: MCP Client Integration ---
