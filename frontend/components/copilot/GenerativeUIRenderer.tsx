@@ -3,6 +3,7 @@
 import { useGenerativeUI, type GraphPreviewNode } from "@/hooks/use-generative-ui";
 import { useSourceValidation } from "@/hooks/use-source-validation";
 import { useCopilotActions } from "@/hooks/use-copilot-actions";
+import { useToolCallRenderers } from "./tool-renderers";
 import type { Source, ActionableContent } from "@/types/copilot";
 
 interface GenerativeUIRendererProps {
@@ -50,6 +51,7 @@ interface GenerativeUIRendererProps {
  * Story 6-4: Human-in-the-Loop Source Validation
  * Story 6-5: Frontend Actions
  * Story 21-A2: Migrate to useHumanInTheLoop Pattern
+ * Story 21-A3: Implement Tool Call Visualization
  *
  * Migration Notes (21-A2):
  * - The validation dialog is now rendered INSIDE useHumanInTheLoop's render function.
@@ -90,6 +92,10 @@ export function GenerativeUIRenderer({
     onGraphNodeClick,
     onGraphExpand,
   });
+
+  // Initialize tool call renderers (Story 21-A3)
+  // Registers custom visualizations for MCP tool calls
+  useToolCallRenderers();
 
   // Initialize source validation hooks (Story 6-4, 21-A2)
   // Dialog is now rendered inside useHumanInTheLoop's render function

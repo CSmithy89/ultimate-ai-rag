@@ -421,7 +421,7 @@ development_status:
   # Replace deprecated useCopilotAction with handler to useFrontendTool
   21-A2-migrate-to-usehumanintheloop-pattern: done
   # Replace deprecated useCopilotAction with render to useHumanInTheLoop
-  21-A3-implement-tool-call-visualization: backlog
+  21-A3-implement-tool-call-visualization: done
   # Add useRenderToolCall for MCP tool call visibility
   21-A4-implement-usecopilotreadable-context: backlog
   # Expose app state to AI via useCopilotReadable
