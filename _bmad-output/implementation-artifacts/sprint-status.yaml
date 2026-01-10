@@ -429,9 +429,9 @@ development_status:
   # Generate contextual chat suggestions
   21-A6-implement-usecopilotchat-headless: done
   # Enable programmatic chat control for testing and automation
-  21-A7-implement-usecopilotadditionalinstructions: backlog
+  21-A7-implement-usecopilotadditionalinstructions: done
   # Dynamic system prompt modifications based on context
-  21-A8-implement-usedefaulttool-catchall: backlog
+  21-A8-implement-usedefaulttool-catchall: done
   # Catch-all handler for unregistered backend tools
 
   # --- Group B: Observability & Debugging ---

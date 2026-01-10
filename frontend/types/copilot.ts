@@ -540,3 +540,98 @@ export const QuickActionConfigSchema = z.object({
   icon: z.string().optional(),
   description: z.string().optional(),
 });
+
+// ============================================
+// DEFAULT TOOL TYPES - Story 21-A8
+// ============================================
+
+/**
+ * Status values for default tool execution.
+ * Story 21-A8: Implement useDefaultTool Catch-All
+ *
+ * These values match CopilotKit's internal status enum:
+ * - "inProgress" - Tool call initiated
+ * - "executing" - Tool currently executing
+ * - "complete" - Tool finished executing
+ */
+export type DefaultToolStatus = "inProgress" | "executing" | "complete";
+
+/**
+ * Props passed to the useDefaultTool render function.
+ * Story 21-A8: Implement useDefaultTool Catch-All
+ */
+export interface DefaultToolRenderProps {
+  /** Name of the tool being executed */
+  name: string;
+  /** Arguments passed to the tool */
+  args: Record<string, unknown>;
+  /** Current execution status */
+  status: DefaultToolStatus;
+  /** Tool result (when status is "complete") */
+  result?: unknown;
+}
+
+/**
+ * Return type for useDefaultToolHandler hook utilities.
+ * Story 21-A8: Implement useDefaultTool Catch-All
+ */
+export interface DefaultToolHandlerUtilities {
+  /** Check if status indicates tool is running */
+  isRunning: (status: DefaultToolStatus) => boolean;
+  /** Check if status indicates tool is complete */
+  isComplete: (status: DefaultToolStatus) => boolean;
+  /** Format tool name for display (removes prefixes) */
+  formatToolName: (name: string) => string;
+}
+
+// ============================================
+// DYNAMIC INSTRUCTIONS TYPES - Story 21-A7
+// ============================================
+
+/**
+ * Categories of dynamic instructions that can be applied.
+ * Story 21-A7: Implement useCopilotAdditionalInstructions for Dynamic Prompts
+ */
+export type InstructionCategory =
+  | "page"
+  | "preferences"
+  | "security"
+  | "feature"
+  | "custom";
+
+/**
+ * Configuration for a single instruction registration.
+ * Story 21-A7: Implement useCopilotAdditionalInstructions for Dynamic Prompts
+ */
+export interface InstructionConfig {
+  /** Category of this instruction */
+  category: InstructionCategory;
+  /** The instruction text to add to the system prompt */
+  instructions: string;
+  /** Whether this instruction is currently active */
+  available: "enabled" | "disabled";
+}
+
+/**
+ * Feature flag instruction configuration.
+ * Story 21-A7: Implement useCopilotAdditionalInstructions for Dynamic Prompts
+ */
+export interface FeatureInstructionConfig {
+  /** The instruction to add when feature is enabled */
+  instructions: string;
+  /** Whether the feature is currently available */
+  available: boolean;
+}
+
+/**
+ * All feature flag instructions.
+ * Story 21-A7: Implement useCopilotAdditionalInstructions for Dynamic Prompts
+ */
+export interface FeatureInstructions {
+  /** Voice input feature instructions */
+  voiceInput: FeatureInstructionConfig;
+  /** Experimental features instructions */
+  experimentalFeatures: FeatureInstructionConfig;
+  /** A2UI rendering instructions */
+  a2ui: FeatureInstructionConfig;
+}
