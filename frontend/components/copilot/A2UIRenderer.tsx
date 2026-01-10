@@ -120,6 +120,13 @@ interface TableProperties {
   sortable?: boolean;
 }
 
+/**
+ * Form field configuration for A2UI form widgets.
+ *
+ * NOTE: Validation attributes (minLength, maxLength, pattern, etc.) provide
+ * client-side UX hints only and can be bypassed. Backend agents MUST perform
+ * server-side validation on all form submissions before processing.
+ */
 interface FormField {
   name: string;
   label: string;
@@ -128,15 +135,15 @@ interface FormField {
   required?: boolean;
   options?: Array<{ value: string; label: string }>;
   defaultValue?: unknown;
-  /** Minimum length for text inputs */
+  /** Minimum length for text inputs (client-side hint only) */
   minLength?: number;
-  /** Maximum length for text inputs */
+  /** Maximum length for text inputs (client-side hint only) */
   maxLength?: number;
-  /** Minimum value for number inputs */
+  /** Minimum value for number inputs (client-side hint only) */
   min?: number;
-  /** Maximum value for number inputs */
+  /** Maximum value for number inputs (client-side hint only) */
   max?: number;
-  /** Custom regex pattern for validation */
+  /** Custom regex pattern for validation (client-side hint only) */
   pattern?: string;
 }
 

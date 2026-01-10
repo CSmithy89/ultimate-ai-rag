@@ -96,7 +96,17 @@ class MCPClient:
         """
         logger.debug("mcp_list_tools", server=self.name)
         response = await self._request("tools/list", {})
-        tools = response.get("tools", [])
+        
+        # Warn if tools key missing - may indicate server issue or protocol mismatch
+        if "tools" not in response:
+            logger.warning(
+                "mcp_list_tools_missing_key",
+                server=self.name,
+                response_keys=list(response.keys()),
+            )
+            return []
+        
+        tools = response["tools"]
         logger.info(
             "mcp_tools_discovered",
             server=self.name,
