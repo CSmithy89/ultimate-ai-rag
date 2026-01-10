@@ -11,6 +11,7 @@ from typing import Any, AsyncIterator, Awaitable, Dict, List, Optional, cast
 import structlog
 
 from ..agents.orchestrator import OrchestratorAgent
+from ..config import get_settings, is_development_env
 from ..db.redis import RedisClient
 from ..models.copilot import (
     AGUIEvent,
@@ -21,6 +22,8 @@ from ..models.copilot import (
     StateSnapshotEvent,
     RunStartedEvent,
     RunFinishedEvent,
+    RunErrorEvent,
+    RunErrorCode,
     ToolCallStartEvent,
     ToolCallArgsEvent,
     ToolCallEndEvent,
@@ -132,9 +135,11 @@ class AGUIBridge:
         if not tenant_id:
             logger.warning("copilot_request_missing_tenant_id")
             yield RunStartedEvent()
-            yield TextMessageStartEvent()
-            yield TextDeltaEvent(content="Error: tenant_id is required in request configuration.")
-            yield TextMessageEndEvent()
+            # Story 21-B2: Use RUN_ERROR event instead of embedding error in text
+            yield RunErrorEvent(
+                code=RunErrorCode.TENANT_REQUIRED,
+                message="Authentication required. Please ensure you are logged in.",
+            )
             yield RunFinishedEvent()
             return
 
@@ -197,9 +202,22 @@ class AGUIBridge:
         except Exception as e:
             # Log full error server-side but return sanitized message to client
             logger.exception("copilot_request_failed", error=str(e), tenant_id=tenant_id)
-            yield TextMessageStartEvent()
-            yield TextDeltaEvent(content=GENERIC_ERROR_MESSAGE)
-            yield TextMessageEndEvent()
+
+            # Story 21-B2: Use RUN_ERROR event instead of embedding error in text
+            # Include details only in development mode for debugging
+            settings = get_settings()
+            details = None
+            if is_development_env(settings.app_env):
+                details = {
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                }
+
+            yield RunErrorEvent(
+                code=RunErrorCode.AGENT_EXECUTION_ERROR,
+                message=GENERIC_ERROR_MESSAGE,
+                details=details,
+            )
 
         # Emit run finished
         yield RunFinishedEvent()

@@ -36,6 +36,7 @@ class AGUIEventType(str, Enum):
     """AG-UI event types."""
     RUN_STARTED = "RUN_STARTED"
     RUN_FINISHED = "RUN_FINISHED"
+    RUN_ERROR = "RUN_ERROR"  # Story 21-B2: Error event support
     TEXT_MESSAGE_START = "TEXT_MESSAGE_START"
     TEXT_MESSAGE_CONTENT = "TEXT_MESSAGE_CONTENT"
     TEXT_MESSAGE_END = "TEXT_MESSAGE_END"
@@ -61,6 +62,68 @@ class RunStartedEvent(AGUIEvent):
 class RunFinishedEvent(AGUIEvent):
     """Event emitted when agent run finishes."""
     event: AGUIEventType = AGUIEventType.RUN_FINISHED
+
+
+# ============================================
+# ERROR EVENTS - Story 21-B2
+# ============================================
+
+
+class RunErrorCode(str, Enum):
+    """Standard error codes for RUN_ERROR events.
+
+    Story 21-B2: Add RUN_ERROR Event Support
+
+    Error codes follow a structured naming convention:
+    - AGENT_*: Errors during agent execution
+    - AUTH_*: Authentication/authorization errors
+    - RATE_*: Rate limiting errors
+    - REQUEST_*: Invalid request errors
+    """
+    AGENT_EXECUTION_ERROR = "AGENT_EXECUTION_ERROR"
+    TENANT_REQUIRED = "TENANT_REQUIRED"
+    RATE_LIMITED = "RATE_LIMITED"
+    TIMEOUT = "TIMEOUT"
+    INVALID_REQUEST = "INVALID_REQUEST"
+
+
+class RunErrorEvent(AGUIEvent):
+    """Event emitted when agent run fails with error.
+
+    Story 21-B2: Add RUN_ERROR Event Support
+
+    Instead of embedding errors in text messages, this event provides
+    structured error information that the frontend can handle gracefully.
+
+    Attributes:
+        code: Error code from RunErrorCode enum
+        message: User-friendly error message
+        details: Optional technical details (hidden in production)
+    """
+    event: AGUIEventType = AGUIEventType.RUN_ERROR
+
+    def __init__(
+        self,
+        code: str | RunErrorCode,
+        message: str,
+        details: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Create a RUN_ERROR event.
+
+        Args:
+            code: Error code (from RunErrorCode or custom string)
+            message: User-friendly error message
+            details: Optional technical details for debugging
+        """
+        super().__init__(
+            data={
+                "code": code.value if isinstance(code, RunErrorCode) else code,
+                "message": message,
+                "details": details or {},
+            },
+            **kwargs
+        )
 
 
 class TextDeltaEvent(AGUIEvent):

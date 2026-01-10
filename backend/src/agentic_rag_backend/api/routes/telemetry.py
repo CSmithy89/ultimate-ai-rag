@@ -1,14 +1,21 @@
 from typing import Any
 from datetime import datetime, timezone
 import hashlib
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from ..utils import rate_limit_exceeded
 from ...rate_limit import RateLimiter
-from ...main import get_rate_limiter
 
 router = APIRouter()
+
+
+def get_rate_limiter(request: Request) -> RateLimiter:
+    """Get rate limiter from app state.
+
+    This is defined locally to avoid circular imports from main.py.
+    """
+    return request.app.state.rate_limiter
 
 class TelemetryEvent(BaseModel):
     event: str = Field(..., description="Name of the event")
