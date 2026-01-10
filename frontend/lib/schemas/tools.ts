@@ -16,7 +16,7 @@
 import { z } from "zod";
 
 // Re-export ExportFormat from types/copilot for consistency
-import { ExportFormatSchema } from "@/types/copilot";
+import { ExportFormatSchema, SourceSchema } from "@/types/copilot";
 
 /**
  * CopilotKit Parameter type for tool definitions.
@@ -248,6 +248,45 @@ export const suggestFollowUpToolParams: ToolParameter[] = [
     name: "context",
     type: "string",
     description: "Context from the current response",
+    required: false,
+  },
+];
+
+// ============================================
+// Human-in-the-Loop (HITL) Schemas
+// Story 21-A2: Migrate to useHumanInTheLoop Pattern
+// ============================================
+
+/**
+ * Schema for validate_sources tool parameters.
+ *
+ * Used by useHumanInTheLoop for Human-in-the-Loop source validation.
+ * The agent triggers this tool to request human approval of retrieved sources
+ * before generating an answer.
+ */
+export const ValidateSourcesSchema = z.object({
+  sources: z.array(SourceSchema).describe("Array of sources requiring human validation"),
+  query: z.string().optional().describe("The original user query for context"),
+});
+
+/** Inferred TypeScript type for validate_sources parameters */
+export type ValidateSourcesParams = z.infer<typeof ValidateSourcesSchema>;
+
+/**
+ * Parameter definitions for validate_sources tool.
+ * Compatible with CopilotKit 1.x useHumanInTheLoop.
+ */
+export const validateSourcesToolParams: ToolParameter[] = [
+  {
+    name: "sources",
+    type: "object",
+    description: "Array of sources requiring human validation",
+    required: true,
+  },
+  {
+    name: "query",
+    type: "string",
+    description: "The original user query for context",
     required: false,
   },
 ];

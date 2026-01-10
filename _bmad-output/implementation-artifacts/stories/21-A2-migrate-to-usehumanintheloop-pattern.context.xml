@@ -1,0 +1,768 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Context file for Story 21-A2: Migrate to useHumanInTheLoop Pattern
+  Generated: 2026-01-10
+  Epic: 21 - CopilotKit Full Integration
+-->
+<story-context>
+
+  <story-summary>
+    <title>Migrate to useHumanInTheLoop Pattern</title>
+    <priority>P0 - HIGH</priority>
+    <story-points>5</story-points>
+    <owner>Frontend</owner>
+
+    <objective>
+      Replace the deprecated `useCopilotAction` with `render` prop in
+      `frontend/hooks/use-source-validation.ts` with the modern `useHumanInTheLoop` hook
+      from @copilotkit/react-core. This eliminates the problematic `setTimeout(..., 0)` hack
+      and provides proper lifecycle management for Human-in-the-Loop validation flows.
+    </objective>
+
+    <current-anti-pattern>
+      The current implementation uses a `setTimeout(..., 0)` hack inside the render callback
+      to defer state updates to the next event loop tick. This is necessary because CopilotKit's
+      render callback runs during React's render phase, causing "Cannot update a component while
+      rendering" warnings. The modern `useHumanInTheLoop` hook provides a proper `respond`
+      callback that handles this correctly.
+    </current-anti-pattern>
+
+    <key-benefits>
+      <benefit>Eliminates setTimeout workaround - respond callback is lifecycle-safe</benefit>
+      <benefit>Removes need for refs (respondRef, validationTriggeredRef)</benefit>
+      <benefit>Proper lifecycle management built into the hook</benefit>
+      <benefit>Type safety via Zod schema inference</benefit>
+      <benefit>Future-proofing against deprecation removal</benefit>
+    </key-benefits>
+  </story-summary>
+
+  <files-to-modify>
+    <file path="frontend/hooks/use-source-validation.ts" action="major-refactor">
+      <description>
+        Main file containing the useCopilotAction call with render prop that needs migration.
+        Replace with useHumanInTheLoop hook. Remove setTimeout hack, refs, and simplify state.
+        The hook's public interface may change - dialog rendering moves inside the hook.
+      </description>
+      <line-count>251</line-count>
+      <current-imports>
+        <import>React, { useState, useCallback, useRef }</import>
+        <import>useCopilotAction from @copilotkit/react-core</import>
+        <import>Source, ValidationDecision, SourceValidationState from @/types/copilot</import>
+      </current-imports>
+      <changes-needed>
+        <change>Replace useCopilotAction import with useHumanInTheLoop</change>
+        <change>Remove validationTriggeredRef and respondRef</change>
+        <change>Remove setTimeout workaround</change>
+        <change>Update render function to use respond callback directly</change>
+        <change>Render actual validation UI inside hook's render function</change>
+      </changes-needed>
+    </file>
+
+    <file path="frontend/lib/schemas/tools.ts" action="add-schema">
+      <description>
+        Add ValidateSourcesSchema Zod schema for the validate_sources tool parameters.
+        Follow pattern established by Story 21-A1 with .describe() annotations.
+        Also need ToolParameter[] format for CopilotKit 1.x compatibility.
+      </description>
+      <line-count>254</line-count>
+      <schema-to-add>
+        <name>ValidateSourcesSchema</name>
+        <params>
+          <param name="sources" type="z.array(SourceSchema)" required="true"/>
+          <param name="query" type="z.string().optional()" required="false"/>
+        </params>
+      </schema-to-add>
+    </file>
+
+    <file path="frontend/__tests__/hooks/use-source-validation.test.ts" action="update-tests">
+      <description>
+        Update tests to mock useHumanInTheLoop instead of useCopilotAction.
+        Add tests for respond callback integration in approval/rejection flows.
+        Test status transitions (inProgress -> executing -> complete).
+      </description>
+      <line-count>385</line-count>
+    </file>
+
+    <file path="frontend/components/copilot/GenerativeUIRenderer.tsx" action="review-consumer">
+      <description>
+        Main consumer of useSourceValidation hook. May need updates if hook's
+        public interface changes. Currently uses: state, isDialogOpen, submitValidation,
+        cancelValidation. Dialog is rendered externally - this pattern may change.
+      </description>
+      <line-count>157</line-count>
+      <current-usage>
+        Uses isDialogOpen to conditionally render SourceValidationDialog/Panel.
+        Passes submitValidation/cancelValidation to dialog buttons.
+      </current-usage>
+    </file>
+  </files-to-modify>
+
+  <reference-files>
+    <file path="frontend/types/copilot.ts" purpose="existing-types">
+      <description>
+        Contains Source, ValidationDecision, SourceValidationState, and SourceSchema.
+        Import SourceSchema for use in ValidateSourcesSchema.
+      </description>
+      <relevant-exports>
+        Source (interface), ValidationDecision (type), SourceValidationState (interface),
+        SourceSchema (Zod), ValidatableSourceSchema (Zod)
+      </relevant-exports>
+    </file>
+
+    <file path="frontend/lib/schemas/tools.ts" purpose="schema-patterns">
+      <description>
+        Contains existing Zod schemas from Story 21-A1. Follow this pattern for
+        ValidateSourcesSchema with both Zod schema and ToolParameter[] format.
+      </description>
+    </file>
+
+    <file path="frontend/components/copilot/SourceValidationDialog.tsx" purpose="ui-component">
+      <description>
+        The validation dialog component that will be rendered inside useHumanInTheLoop's
+        render function. Props: open, sources, onSubmit, onCancel, title?, description?, isSubmitting?
+      </description>
+    </file>
+
+    <file path="frontend/components/copilot/SourceValidationPanel.tsx" purpose="ui-component-alt">
+      <description>
+        Alternative inline validation panel. May also need to support respond callback pattern.
+      </description>
+    </file>
+
+    <file path="frontend/components/copilot/CopilotProvider.tsx" purpose="provider-config">
+      <description>
+        CopilotKit provider configuration. Minimal setup with runtimeUrl only.
+        No changes needed for this story.
+      </description>
+    </file>
+
+    <file path="frontend/package.json" purpose="dependencies">
+      <description>
+        Confirms @copilotkit/react-core@^1.50.1, @copilotkit/react-ui@^1.50.1,
+        @copilotkit/runtime@^1.50.1, and zod@^4.2.1 are installed.
+      </description>
+    </file>
+
+    <file path="CLAUDE.md" purpose="conventions">
+      <description>
+        Project conventions: camelCase functions, PascalCase components,
+        use-hook-name.ts file naming. Zod for frontend validation.
+        TanStack Query for data fetching (not relevant for this story).
+      </description>
+    </file>
+
+    <file path="_bmad-output/implementation-artifacts/stories/21-A1-migrate-to-usefrontendtool-pattern.context.xml" purpose="pattern-reference">
+      <description>
+        Story 21-A1 context file. Reference for Zod schema patterns and
+        CopilotKit 1.x compatibility notes (ToolParameter[] format).
+      </description>
+    </file>
+  </reference-files>
+
+  <technical-context>
+    <current-implementation>
+      <description>Current useCopilotAction with render prop in use-source-validation.ts</description>
+      <code-snippet language="typescript" location="lines 197-238">
+<![CDATA[
+// Current anti-pattern (deprecated)
+useCopilotAction({
+  name: "validate_sources",
+  description:
+    "Request human approval for retrieved sources before answer generation",
+  parameters: [
+    {
+      name: "sources",
+      type: "object[]",
+      description: "Array of sources requiring validation",
+      required: true,
+    },
+    {
+      name: "query",
+      type: "string",
+      description: "The original user query for context",
+      required: false,
+    },
+  ],
+  render: ({ status, args }) => {
+    // Extract sources from args when action is executing
+    if (status === "executing" && args.sources && !validationTriggeredRef.current) {
+      const sources = args.sources as Source[];
+      if (sources.length > 0) {
+        // Mark as triggered to prevent multiple calls
+        validationTriggeredRef.current = true;
+        // HACK: setTimeout to defer state update to next event loop tick
+        // This is necessary because CopilotKit's render callback runs during
+        // React's render phase
+        setTimeout(() => startValidation(sources), 0);
+      }
+    }
+    // Return empty fragment - actual UI is rendered externally
+    return React.createElement(React.Fragment);
+  },
+});
+]]>
+      </code-snippet>
+    </current-implementation>
+
+    <target-implementation>
+      <description>Target useHumanInTheLoop pattern from Epic 21 tech spec</description>
+      <code-snippet language="typescript">
+<![CDATA[
+// Target pattern (modern) with respond callback
+import { useHumanInTheLoop } from "@copilotkit/react-core";
+import { ValidateSourcesSchema, validateSourcesToolParams } from "@/lib/schemas/tools";
+import { SourceValidationDialog } from "@/components/copilot/SourceValidationDialog";
+
+useHumanInTheLoop({
+  name: "validate_sources",
+  description: "Request human approval for retrieved sources before answer generation",
+  // NOTE: CopilotKit 1.x may use ToolParameter[] format instead of Zod schemas
+  // Use validateSourcesToolParams for runtime, ValidateSourcesSchema for type inference
+  parameters: validateSourcesToolParams, // or ValidateSourcesSchema if 2.x compatible
+  render: ({ status, args, respond, result }) => {
+    // Guard: respond is only available during "executing" status
+    if ((status === "executing" || status === "Executing") && respond) {
+      return (
+        <SourceValidationDialog
+          open={true}
+          sources={args.sources as Source[]}
+          onSubmit={(approvedIds) => {
+            respond({ approved: approvedIds });
+            onValidationComplete?.(approvedIds);
+          }}
+          onCancel={() => {
+            respond({ approved: [] });
+            onValidationCancelled?.();
+          }}
+        />
+      );
+    }
+
+    // Show completion state
+    if ((status === "complete" || status === "Complete") && result) {
+      const approvedCount = (result as { approved?: string[] }).approved?.length ?? 0;
+      return (
+        <div className="text-sm text-muted-foreground">
+          {approvedCount > 0
+            ? `Approved ${approvedCount} source(s)`
+            : "Validation cancelled"}
+        </div>
+      );
+    }
+
+    return null;
+  },
+});
+]]>
+      </code-snippet>
+    </target-implementation>
+
+    <schema-to-add>
+      <description>Schema to add to frontend/lib/schemas/tools.ts</description>
+      <code-snippet language="typescript">
+<![CDATA[
+// Import SourceSchema from types/copilot
+import { SourceSchema } from "@/types/copilot";
+
+/**
+ * Schema for validate_sources tool parameters.
+ *
+ * Story 21-A2: Migrate to useHumanInTheLoop Pattern
+ *
+ * Used by useHumanInTheLoop for Human-in-the-Loop source validation.
+ */
+export const ValidateSourcesSchema = z.object({
+  sources: z.array(SourceSchema).describe("Array of sources requiring human validation"),
+  query: z.string().optional().describe("The original user query for context"),
+});
+
+/** Inferred TypeScript type for validate_sources parameters */
+export type ValidateSourcesParams = z.infer<typeof ValidateSourcesSchema>;
+
+/**
+ * Parameter definitions for validate_sources tool.
+ * Compatible with CopilotKit 1.x useHumanInTheLoop.
+ */
+export const validateSourcesToolParams: ToolParameter[] = [
+  {
+    name: "sources",
+    type: "object[]",
+    description: "Array of sources requiring human validation",
+    required: true,
+  },
+  {
+    name: "query",
+    type: "string",
+    description: "The original user query for context",
+    required: false,
+  },
+];
+]]>
+      </code-snippet>
+    </schema-to-add>
+
+    <hook-interface-changes>
+      <description>Changes to useSourceValidation hook public interface</description>
+      <current-interface>
+<![CDATA[
+export interface UseSourceValidationReturn {
+  /** Current validation state */
+  state: SourceValidationState;
+  /** Open the validation dialog with sources */
+  startValidation: (sources: Source[]) => void;
+  /** Submit validation decisions */
+  submitValidation: (approvedIds: string[]) => void;
+  /** Cancel validation */
+  cancelValidation: () => void;
+  /** Reset validation state */
+  resetValidation: () => void;
+  /** Whether the validation dialog should be open */
+  isDialogOpen: boolean;
+}
+]]>
+      </current-interface>
+      <target-interface>
+<![CDATA[
+// DECISION POINT: Two options for interface changes
+
+// Option A: Simplified interface (dialog rendered inside hook)
+// The hook internally renders the dialog via useHumanInTheLoop's render function.
+// Consumer only needs state for status display.
+export interface UseSourceValidationReturn {
+  /** Current validation state */
+  state: SourceValidationState;
+  /** Reset validation state */
+  resetValidation: () => void;
+  // isDialogOpen, startValidation, submitValidation, cancelValidation
+  // are no longer needed - managed internally by useHumanInTheLoop
+}
+
+// Option B: Backward-compatible interface (recommended for smooth migration)
+// Keep external functions as deprecated pass-throughs
+export interface UseSourceValidationReturn {
+  /** Current validation state */
+  state: SourceValidationState;
+  /** @deprecated No longer needed - hook manages lifecycle */
+  startValidation: (sources: Source[]) => void;
+  /** @deprecated Use respond callback instead */
+  submitValidation: (approvedIds: string[]) => void;
+  /** @deprecated Use respond callback instead */
+  cancelValidation: () => void;
+  /** Reset validation state */
+  resetValidation: () => void;
+  /** @deprecated Dialog rendered inside hook via useHumanInTheLoop */
+  isDialogOpen: boolean;
+}
+
+// RECOMMENDATION: Use Option B for backward compatibility, then deprecate
+// in a follow-up story after confirming all consumers are updated.
+]]>
+      </target-interface>
+    </hook-interface-changes>
+
+    <consumer-impact>
+      <description>Impact on GenerativeUIRenderer.tsx (main consumer)</description>
+      <current-usage>
+<![CDATA[
+// frontend/components/copilot/GenerativeUIRenderer.tsx (lines 84-93, 131-152)
+const {
+  state: validationState,
+  isDialogOpen,
+  submitValidation,
+  cancelValidation,
+} = useSourceValidation({
+  onValidationComplete,
+  autoApproveThreshold,
+  autoRejectThreshold,
+});
+
+// Later in render:
+{useModalForValidation && (
+  <SourceValidationDialog
+    open={isDialogOpen}
+    sources={validationState.pendingSources}
+    onSubmit={submitValidation}
+    onCancel={cancelValidation}
+    isSubmitting={validationState.isSubmitting}
+  />
+)}
+]]>
+      </current-usage>
+      <migration-strategy>
+<![CDATA[
+// After migration, the dialog is rendered INSIDE useHumanInTheLoop's render function.
+// GenerativeUIRenderer should be simplified:
+
+const { state: validationState } = useSourceValidation({
+  onValidationComplete,
+  autoApproveThreshold,
+  autoRejectThreshold,
+  useModalForValidation, // Pass preference to hook
+});
+
+// Dialog is auto-rendered by the hook - remove from render:
+// No need for SourceValidationDialog/Panel JSX here!
+// The hook's render function handles it.
+
+// ALTERNATIVE: If backward compatibility is needed, keep the external
+// dialog rendering and have the hook return a flag indicating whether
+// it's handling rendering internally.
+]]>
+      </migration-strategy>
+    </consumer-impact>
+
+    <copilotkit-version-notes>
+      <description>Important CopilotKit 1.x vs 2.x compatibility notes</description>
+      <note priority="high">
+        CopilotKit 1.50.1 (currently installed) may use Parameter[] format instead
+        of direct Zod schemas. Create dual-format like Story 21-A1:
+        - Zod schema for type inference (ValidateSourcesSchema)
+        - ToolParameter[] array for runtime (validateSourcesToolParams)
+      </note>
+      <note priority="high">
+        Status values may be lowercase or PascalCase depending on version:
+        - CopilotKit 1.x: often "executing", "complete"
+        - CopilotKit 2.x: "Executing", "Complete"
+        Use safe pattern: if (status === "executing" || status === "Executing")
+      </note>
+      <note priority="medium">
+        If useHumanInTheLoop is not available in 1.50.1, check for alternate names:
+        - useHumanInTheLoop (standard)
+        - useCopilotHITL (possible alias)
+        - May still need useCopilotAction with render prop (fallback)
+      </note>
+    </copilotkit-version-notes>
+
+    <key-differences>
+      <difference aspect="render-pattern">
+        <before>Returns empty fragment, external UI managed separately</before>
+        <after>Renders actual validation UI inside render function</after>
+      </difference>
+      <difference aspect="state-update-trigger">
+        <before>setTimeout(..., 0) hack to defer state update</before>
+        <after>Direct respond callback - lifecycle-safe</after>
+      </difference>
+      <difference aspect="refs-needed">
+        <before>respondRef, validationTriggeredRef required</before>
+        <after>No refs needed - hook manages lifecycle</after>
+      </difference>
+      <difference aspect="lifecycle-management">
+        <before>Manual via refs and state</before>
+        <after>Built-in via useHumanInTheLoop</after>
+      </difference>
+      <difference aspect="type-safety">
+        <before>Loose parameter typing with casting</before>
+        <after>Zod schema inference - no casting needed</after>
+      </difference>
+    </key-differences>
+  </technical-context>
+
+  <dependencies>
+    <external-packages>
+      <package name="@copilotkit/react-core" version="^1.50.1">
+        <imports>useHumanInTheLoop (new), useCopilotAction (to remove)</imports>
+        <note>Verify useHumanInTheLoop availability in 1.50.1</note>
+      </package>
+      <package name="@copilotkit/react-ui" version="^1.50.1">
+        <imports>Not directly used by this hook</imports>
+      </package>
+      <package name="zod" version="^4.2.1">
+        <imports>z (for schema definition)</imports>
+      </package>
+      <package name="react" version="18.3.1">
+        <imports>useState, useCallback, useRef (remove useRef if no longer needed)</imports>
+      </package>
+    </external-packages>
+
+    <internal-imports>
+      <import from="@/types/copilot">
+        Source, ValidationDecision, SourceValidationState, SourceSchema
+      </import>
+      <import from="@/lib/schemas/tools" note="to be added">
+        ValidateSourcesSchema, ValidateSourcesParams, validateSourcesToolParams
+      </import>
+      <import from="@/components/copilot/SourceValidationDialog">
+        SourceValidationDialog (for inline rendering)
+      </import>
+    </internal-imports>
+
+    <story-dependencies>
+      <dependency>Story 21-A1 completed - Zod schema pattern established</dependency>
+      <dependency>Epic 6 completed - Original use-source-validation.ts created in Story 6-4</dependency>
+    </story-dependencies>
+  </dependencies>
+
+  <testing-context>
+    <existing-test-structure>
+      <description>Current test file mocks useCopilotAction and verifies action registration</description>
+      <code-snippet language="typescript" location="lines 1-16, 271-295">
+<![CDATA[
+// Current mock setup
+jest.mock("@copilotkit/react-core", () => ({
+  useCopilotAction: jest.fn(),
+}));
+
+const mockUseCopilotAction = useCopilotAction as jest.MockedFunction<typeof useCopilotAction>;
+
+// CopilotKit Integration tests
+describe("CopilotKit Integration", () => {
+  it("registers useCopilotAction with correct parameters", () => {
+    renderHook(() => useSourceValidation());
+
+    expect(mockUseCopilotAction).toHaveBeenCalledTimes(1);
+    expect(mockUseCopilotAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "validate_sources",
+        description: expect.stringContaining("human approval"),
+        parameters: expect.arrayContaining([...]),
+        render: expect.any(Function),
+      })
+    );
+  });
+});
+]]>
+      </code-snippet>
+    </existing-test-structure>
+
+    <updated-test-structure>
+      <description>Updated test should mock useHumanInTheLoop instead</description>
+      <code-snippet language="typescript">
+<![CDATA[
+// Updated mock setup
+jest.mock("@copilotkit/react-core", () => ({
+  useHumanInTheLoop: jest.fn(),
+}));
+
+import { useHumanInTheLoop } from "@copilotkit/react-core";
+const mockUseHumanInTheLoop = useHumanInTheLoop as jest.MockedFunction<typeof useHumanInTheLoop>;
+
+// Updated integration tests
+describe("CopilotKit useHumanInTheLoop Integration", () => {
+  it("registers useHumanInTheLoop with correct parameters", () => {
+    renderHook(() => useSourceValidation());
+
+    expect(mockUseHumanInTheLoop).toHaveBeenCalledTimes(1);
+    expect(mockUseHumanInTheLoop).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "validate_sources",
+        description: expect.stringContaining("human approval"),
+        parameters: expect.any(Array), // or Zod schema
+        render: expect.any(Function),
+      })
+    );
+  });
+
+  it("render callback calls respond with approved IDs on submit", () => {
+    const mockRespond = jest.fn();
+    renderHook(() => useSourceValidation({
+      onValidationComplete: jest.fn(),
+    }));
+
+    const hookConfig = mockUseHumanInTheLoop.mock.calls[0][0];
+
+    // Simulate render being called with executing status
+    const renderResult = hookConfig.render({
+      status: "executing",
+      args: { sources: mockSources },
+      respond: mockRespond,
+      result: null,
+    });
+
+    // Find and click the submit button in the rendered component
+    // (implementation depends on testing approach - RTL recommended)
+    // When submit is clicked with ["source-1"], respond should be called
+    expect(mockRespond).toHaveBeenCalledWith({ approved: ["source-1"] });
+  });
+
+  it("render callback calls respond with empty array on cancel", () => {
+    const mockRespond = jest.fn();
+    renderHook(() => useSourceValidation({
+      onValidationCancelled: jest.fn(),
+    }));
+
+    const hookConfig = mockUseHumanInTheLoop.mock.calls[0][0];
+
+    const renderResult = hookConfig.render({
+      status: "executing",
+      args: { sources: mockSources },
+      respond: mockRespond,
+      result: null,
+    });
+
+    // When cancel is clicked, respond should be called with empty array
+    expect(mockRespond).toHaveBeenCalledWith({ approved: [] });
+  });
+
+  it("render callback returns null when status is not executing", () => {
+    renderHook(() => useSourceValidation());
+
+    const hookConfig = mockUseHumanInTheLoop.mock.calls[0][0];
+
+    // Test idle status
+    const idleResult = hookConfig.render({
+      status: "idle",
+      args: {},
+      respond: null,
+      result: null,
+    });
+    expect(idleResult).toBeNull();
+
+    // Test complete status without result
+    const completeNoResult = hookConfig.render({
+      status: "complete",
+      args: {},
+      respond: null,
+      result: null,
+    });
+    expect(completeNoResult).toBeNull();
+  });
+
+  it("render callback shows completion message when status is complete with result", () => {
+    renderHook(() => useSourceValidation());
+
+    const hookConfig = mockUseHumanInTheLoop.mock.calls[0][0];
+
+    const completeResult = hookConfig.render({
+      status: "complete",
+      args: {},
+      respond: null,
+      result: { approved: ["source-1", "source-2"] },
+    });
+
+    // Should render completion message
+    expect(completeResult).not.toBeNull();
+    // Verify text content indicates 2 sources approved
+  });
+});
+
+// NEW: Schema validation tests
+describe("ValidateSourcesSchema Validation", () => {
+  it("accepts valid params with sources array", () => {
+    const valid = {
+      sources: [
+        { id: "1", title: "Doc", preview: "...", similarity: 0.9 }
+      ],
+      query: "test query"
+    };
+    expect(ValidateSourcesSchema.parse(valid)).toEqual(valid);
+  });
+
+  it("accepts params without optional query", () => {
+    const valid = {
+      sources: [
+        { id: "1", title: "Doc", preview: "...", similarity: 0.9 }
+      ]
+    };
+    expect(ValidateSourcesSchema.parse(valid)).toEqual(valid);
+  });
+
+  it("rejects missing sources array", () => {
+    const invalid = { query: "test" };
+    expect(() => ValidateSourcesSchema.parse(invalid)).toThrow();
+  });
+
+  it("rejects invalid source structure", () => {
+    const invalid = {
+      sources: [{ id: "1" }] // missing required fields
+    };
+    expect(() => ValidateSourcesSchema.parse(invalid)).toThrow();
+  });
+});
+]]>
+      </code-snippet>
+    </updated-test-structure>
+
+    <test-commands>
+      <command>cd frontend && pnpm test -- --testPathPattern=use-source-validation</command>
+      <command>cd frontend && pnpm type-check</command>
+      <command>cd frontend && pnpm lint</command>
+    </test-commands>
+  </testing-context>
+
+  <acceptance-criteria-checklist>
+    <criterion id="AC1">
+      useCopilotAction with render prop replaced by useHumanInTheLoop
+    </criterion>
+    <criterion id="AC2">
+      setTimeout workaround removed - respond callback used directly
+    </criterion>
+    <criterion id="AC3">
+      Zod schema created in frontend/lib/schemas/tools.ts with .describe() annotations
+    </criterion>
+    <criterion id="AC4">
+      Validation dialog rendered inside hook's render function with respond callback
+    </criterion>
+    <criterion id="AC5">
+      Approve button calls respond({ approved: approvedIds }) - agent resumes
+    </criterion>
+    <criterion id="AC6">
+      Cancel button calls respond({ approved: [] }) - agent resumes with empty list
+    </criterion>
+    <criterion id="AC7">
+      Status "executing" renders validation UI with functional buttons
+    </criterion>
+    <criterion id="AC8">
+      Status "complete" renders completion message
+    </criterion>
+    <criterion id="AC9">
+      No useCopilotAction calls remain in use-source-validation.ts
+    </criterion>
+    <criterion id="AC10">
+      All existing tests pass with approval and rejection flows verified
+    </criterion>
+  </acceptance-criteria-checklist>
+
+  <implementation-notes>
+    <note priority="high">
+      First verify useHumanInTheLoop is available in @copilotkit/react-core@1.50.1.
+      If not, check for alternate imports or consider if a package upgrade is needed.
+    </note>
+    <note priority="high">
+      The hook interface change may require updates to GenerativeUIRenderer.tsx.
+      Two strategies: (1) render dialog inside hook, simplify consumer, or (2) keep
+      backward-compatible interface with deprecated warnings.
+    </note>
+    <note priority="high">
+      Handle both status casing formats: "executing"/"Executing" for CopilotKit version safety.
+    </note>
+    <note priority="medium">
+      Import SourceSchema from @/types/copilot for use in ValidateSourcesSchema.
+      This reuses existing validation logic.
+    </note>
+    <note priority="medium">
+      The auto-approve/auto-reject threshold logic should still work. It operates
+      on the sources before displaying the dialog - can remain unchanged.
+    </note>
+    <note priority="low">
+      Consider adding JSDoc comments explaining the migration from Story 21-A2.
+    </note>
+  </implementation-notes>
+
+  <directory-structure>
+    <tree>
+      <![CDATA[
+frontend/
+├── hooks/
+│   ├── use-source-validation.ts    # MODIFY: Replace useCopilotAction with useHumanInTheLoop
+│   └── ...
+├── lib/
+│   ├── api.ts
+│   ├── utils.ts
+│   └── schemas/
+│       └── tools.ts                # MODIFY: Add ValidateSourcesSchema + validateSourcesToolParams
+├── types/
+│   └── copilot.ts                  # REFERENCE: SourceSchema, Source, ValidationDecision
+├── components/
+│   └── copilot/
+│       ├── GenerativeUIRenderer.tsx      # REVIEW: Consumer of useSourceValidation
+│       ├── SourceValidationDialog.tsx    # REFERENCE: Dialog component to render inline
+│       └── SourceValidationPanel.tsx     # REFERENCE: Alternative panel component
+├── __tests__/
+│   └── hooks/
+│       └── use-source-validation.test.ts # MODIFY: Update mocks and add new tests
+└── package.json                    # REFERENCE: CopilotKit version confirmation
+      ]]>
+    </tree>
+  </directory-structure>
+
+</story-context>

@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useState, useCallback, useRef } from "react";
-import { useCopilotAction } from "@copilotkit/react-core";
+import React, { useState, useCallback } from "react";
+import { useHumanInTheLoop } from "@copilotkit/react-core";
+import { SourceValidationDialog } from "@/components/copilot/SourceValidationDialog";
+import { validateSourcesToolParams } from "@/lib/schemas/tools";
 import type { Source, ValidationDecision, SourceValidationState } from "@/types/copilot";
 
 /**
@@ -20,19 +22,35 @@ export interface UseSourceValidationOptions {
 
 /**
  * Return type for the useSourceValidation hook.
+ *
+ * Story 21-A2: Migrated to useHumanInTheLoop pattern.
+ * The dialog is now rendered inside the hook via useHumanInTheLoop's render function.
+ * Deprecated functions are kept for backward compatibility with existing consumers.
  */
 export interface UseSourceValidationReturn {
   /** Current validation state */
   state: SourceValidationState;
-  /** Open the validation dialog with sources */
+  /**
+   * @deprecated No longer needed - hook manages lifecycle via useHumanInTheLoop.
+   * Kept for backward compatibility.
+   */
   startValidation: (sources: Source[]) => void;
-  /** Submit validation decisions */
+  /**
+   * @deprecated Use respond callback from useHumanInTheLoop instead.
+   * Kept for backward compatibility.
+   */
   submitValidation: (approvedIds: string[]) => void;
-  /** Cancel validation */
+  /**
+   * @deprecated Use respond callback from useHumanInTheLoop instead.
+   * Kept for backward compatibility.
+   */
   cancelValidation: () => void;
   /** Reset validation state */
   resetValidation: () => void;
-  /** Whether the validation dialog should be open */
+  /**
+   * @deprecated Dialog is rendered inside hook via useHumanInTheLoop.
+   * Kept for backward compatibility - always returns false.
+   */
   isDialogOpen: boolean;
 }
 
@@ -50,34 +68,51 @@ const initialState: SourceValidationState = {
 };
 
 /**
+ * Apply auto-approve/reject thresholds to sources.
+ * Returns a Map of source IDs to their initial validation decisions.
+ */
+function applyThresholds(
+  sources: Source[],
+  autoApproveThreshold?: number,
+  autoRejectThreshold?: number
+): Map<string, ValidationDecision> {
+  const decisions = new Map<string, ValidationDecision>();
+
+  for (const source of sources) {
+    if (autoApproveThreshold && source.similarity >= autoApproveThreshold) {
+      decisions.set(source.id, "approved");
+    } else if (autoRejectThreshold && source.similarity < autoRejectThreshold) {
+      decisions.set(source.id, "rejected");
+    } else {
+      decisions.set(source.id, "pending");
+    }
+  }
+
+  return decisions;
+}
+
+/**
  * useSourceValidation hook manages Human-in-the-Loop source validation
- * state and integrates with CopilotKit actions.
+ * state and integrates with CopilotKit's useHumanInTheLoop hook.
  *
  * Story 6-4: Human-in-the-Loop Source Validation
+ * Story 21-A2: Migrate to useHumanInTheLoop Pattern
+ *
+ * Migration Notes (21-A2):
+ * - Replaced useCopilotAction with useHumanInTheLoop
+ * - Removed setTimeout workaround - respond callback is lifecycle-safe
+ * - Dialog is now rendered inside the hook's render function
+ * - Removed validationTriggeredRef and respondRef - no longer needed
  *
  * @example
  * ```tsx
  * function ChatWithHITL() {
- *   const {
- *     state,
- *     isDialogOpen,
- *     submitValidation,
- *     cancelValidation,
- *   } = useSourceValidation({
+ *   const { state, resetValidation } = useSourceValidation({
  *     onValidationComplete: (ids) => console.log("Approved:", ids),
  *   });
  *
- *   return (
- *     <>
- *       <ChatSidebar />
- *       <SourceValidationDialog
- *         open={isDialogOpen}
- *         sources={state.pendingSources}
- *         onSubmit={submitValidation}
- *         onCancel={cancelValidation}
- *       />
- *     </>
- *   );
+ *   // Dialog is auto-rendered by useHumanInTheLoop when executing
+ *   return <ChatSidebar />;
  * }
  * ```
  */
@@ -94,33 +129,16 @@ export function useSourceValidation(
   // Validation state
   const [state, setState] = useState<SourceValidationState>(initialState);
 
-  // Reference to store the respond function from renderAndWait
-  // Using any type to avoid CopilotKit type issues
-  // eslint-disable-next-line
-  const respondRef = useRef<((response: any) => void) | null>(null);
+  // Reset validation state
+  const resetValidation = useCallback(() => {
+    setState(initialState);
+  }, []);
 
-  // Track if we've already triggered validation for current action
-  const validationTriggeredRef = useRef<boolean>(false);
-
-  // Start validation with a set of sources
+  // Deprecated: Start validation (kept for backward compatibility)
+  // In the new pattern, useHumanInTheLoop manages the lifecycle
   const startValidation = useCallback(
     (sources: Source[]) => {
-      // Apply auto-approve/reject thresholds if configured
-      const decisions = new Map<string, ValidationDecision>();
-
-      for (const source of sources) {
-        if (autoApproveThreshold && source.similarity >= autoApproveThreshold) {
-          decisions.set(source.id, "approved");
-        } else if (
-          autoRejectThreshold &&
-          source.similarity < autoRejectThreshold
-        ) {
-          decisions.set(source.id, "rejected");
-        } else {
-          decisions.set(source.id, "pending");
-        }
-      }
-
+      const decisions = applyThresholds(sources, autoApproveThreshold, autoRejectThreshold);
       setState({
         isValidating: true,
         pendingSources: sources,
@@ -134,30 +152,14 @@ export function useSourceValidation(
     [autoApproveThreshold, autoRejectThreshold]
   );
 
-  // Submit validation decisions
+  // Deprecated: Submit validation (kept for backward compatibility)
   const submitValidation = useCallback(
     (approvedIds: string[]) => {
-      setState((prev) => ({
-        ...prev,
-        isSubmitting: true,
-      }));
-
-      // Compute rejected IDs from current state
       setState((prev) => {
         const rejectedIds = prev.pendingSources
           .map((s) => s.id)
           .filter((id) => !approvedIds.includes(id));
 
-        // Call the respond function if available (renderAndWait pattern)
-        if (respondRef.current) {
-          respondRef.current({ approved: approvedIds });
-          respondRef.current = null;
-        }
-
-        // Reset validation triggered flag
-        validationTriggeredRef.current = false;
-
-        // Call completion callback
         onValidationComplete?.(approvedIds);
 
         return {
@@ -172,67 +174,110 @@ export function useSourceValidation(
     [onValidationComplete]
   );
 
-  // Cancel validation
+  // Deprecated: Cancel validation (kept for backward compatibility)
   const cancelValidation = useCallback(() => {
-    // If renderAndWait is active, respond with empty approved list
-    if (respondRef.current) {
-      respondRef.current({ approved: [] });
-      respondRef.current = null;
-    }
-
-    // Reset validation triggered flag
-    validationTriggeredRef.current = false;
-
     setState(initialState);
-
     onValidationCancelled?.();
   }, [onValidationCancelled]);
 
-  // Reset validation state
-  const resetValidation = useCallback(() => {
-    validationTriggeredRef.current = false;
-    setState(initialState);
-  }, []);
-
-  // Register CopilotKit action for HITL
-  // Using render instead of renderAndWait to avoid type issues
-  // The validation UI is managed externally by the parent component
-  useCopilotAction({
+  // Register CopilotKit useHumanInTheLoop hook
+  // Story 21-A2: Replaces deprecated useCopilotAction with render prop
+  useHumanInTheLoop({
     name: "validate_sources",
     description:
       "Request human approval for retrieved sources before answer generation",
-    parameters: [
-      {
-        name: "sources",
-        type: "object[]",
-        description: "Array of sources requiring validation",
-        required: true,
-      },
-      {
-        name: "query",
-        type: "string",
-        description: "The original user query for context",
-        required: false,
-      },
-    ],
-    render: ({ status, args }) => {
-      // Extract sources from args when action is executing
-      if (status === "executing" && args.sources && !validationTriggeredRef.current) {
-        const sources = args.sources as Source[];
-        if (sources.length > 0) {
-          // Mark as triggered to prevent multiple calls
-          validationTriggeredRef.current = true;
-          // Issue 4 Fix: Known CopilotKit pattern limitation
-          // We use setTimeout(fn, 0) to defer the state update to the next event loop tick.
-          // This is necessary because CopilotKit's render callback is called during React's
-          // render phase, and calling setState directly would cause a "Cannot update a component
-          // while rendering a different component" warning. This is a documented pattern for
-          // CopilotKit actions that need to trigger React state updates from render callbacks.
-          // See: https://react.dev/reference/react/useState#im-getting-an-error-too-many-re-renders
-          setTimeout(() => startValidation(sources), 0);
+    parameters: validateSourcesToolParams,
+    render: ({ status, args, respond, result }) => {
+      // Guard: respond is only available during "executing" status
+      // CopilotKit 1.x uses lowercase status values
+      if (status === "executing" && respond) {
+        // Safely extract sources from args - may be undefined or wrong type
+        const rawSources = args?.sources;
+        const sources: Source[] = Array.isArray(rawSources)
+          ? (rawSources as unknown as Source[])
+          : [];
+
+        // Apply auto-thresholds if no sources require manual review
+        const decisions = applyThresholds(sources, autoApproveThreshold, autoRejectThreshold);
+        const pendingCount = Array.from(decisions.values()).filter(d => d === "pending").length;
+
+        // If all sources are auto-approved/rejected, auto-respond
+        if (pendingCount === 0 && sources.length > 0) {
+          const autoApprovedIds = sources
+            .filter(s => decisions.get(s.id) === "approved")
+            .map(s => s.id);
+
+          // Update state and respond
+          setState({
+            isValidating: false,
+            pendingSources: sources,
+            decisions,
+            approvedIds: autoApprovedIds,
+            rejectedIds: sources.filter(s => !autoApprovedIds.includes(s.id)).map(s => s.id),
+            isSubmitting: false,
+            error: null,
+          });
+          onValidationComplete?.(autoApprovedIds);
+          respond({ approved: autoApprovedIds });
+          // Return empty fragment (CopilotKit requires a ReactElement)
+          return React.createElement(React.Fragment);
         }
+
+        // Render the validation dialog
+        return React.createElement(SourceValidationDialog, {
+          open: true,
+          sources: sources,
+          onSubmit: (approvedIds: string[]) => {
+            // Update state
+            const rejectedIds = sources
+              .map((s) => s.id)
+              .filter((id) => !approvedIds.includes(id));
+
+            setState({
+              isValidating: false,
+              pendingSources: sources,
+              decisions: new Map(sources.map(s => [s.id, approvedIds.includes(s.id) ? "approved" : "rejected"] as const)),
+              approvedIds,
+              rejectedIds,
+              isSubmitting: false,
+              error: null,
+            });
+
+            // Call completion callback
+            onValidationComplete?.(approvedIds);
+
+            // Respond to the agent
+            respond({ approved: approvedIds });
+          },
+          onCancel: () => {
+            // Update state
+            setState(initialState);
+
+            // Call cancellation callback
+            onValidationCancelled?.();
+
+            // Respond with empty approval (cancellation)
+            respond({ approved: [] });
+          },
+          isSubmitting: false,
+        });
       }
-      // Return empty fragment - actual UI is rendered externally
+
+      // Show completion state
+      // CopilotKit 1.x uses lowercase status values
+      if (status === "complete" && result) {
+        const approvedCount = (result as { approved?: string[] }).approved?.length ?? 0;
+        return React.createElement(
+          "div",
+          { className: "text-sm text-muted-foreground p-2" },
+          approvedCount > 0
+            ? `Approved ${approvedCount} source(s)`
+            : "Validation cancelled"
+        );
+      }
+
+      // Return empty fragment for other states (idle, inProgress, etc.)
+      // CopilotKit requires a ReactElement, not null
       return React.createElement(React.Fragment);
     },
   });
@@ -243,7 +288,8 @@ export function useSourceValidation(
     submitValidation,
     cancelValidation,
     resetValidation,
-    isDialogOpen: state.isValidating,
+    // Dialog is rendered inside useHumanInTheLoop - always return false
+    isDialogOpen: false,
   };
 }
 
