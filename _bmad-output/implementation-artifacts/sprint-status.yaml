@@ -435,25 +435,25 @@ development_status:
   # Catch-all handler for unregistered backend tools
 
   # --- Group B: Observability & Debugging ---
-  21-B1-configure-observability-hooks-dev-console: backlog
+  21-B1-configure-observability-hooks-dev-console: done
   # Wire all observabilityHooks to analytics pipeline + enable showDevConsole
-  21-B2-add-run-error-event-support: backlog
+  21-B2-add-run-error-event-support: done
   # Emit RUN_ERROR instead of embedding errors in text
-  21-B3-implement-state-delta-messages-snapshot: backlog
+  21-B3-implement-state-delta-messages-snapshot: done
   # Add STATE_DELTA for incremental updates + MESSAGES_SNAPSHOT for session sync
 
   # --- Group C: MCP Client Integration ---
-  21-C1-implement-mcp-client-configuration: backlog
+  21-C1-implement-mcp-client-configuration: done
   # Add MCP_CLIENT_SERVERS env + config models
-  21-C2-implement-mcp-client-factory: backlog
+  21-C2-implement-mcp-client-factory: done
   # Create MCPClient + MCPClientFactory with retry/timeout
-  21-C3-wire-mcp-client-to-copilotruntime: backlog
+  21-C3-wire-mcp-client-to-copilotruntime: done
   # Merge external tools into unified registry
 
   # --- Group D: A2UI Widget Rendering ---
-  21-D1-enable-a2ui-support: backlog
+  21-D1-enable-a2ui-support: done
   # Backend A2UI widget emission via STATE_SNAPSHOT
-  21-D2-implement-a2ui-widget-renderer: backlog
+  21-D2-implement-a2ui-widget-renderer: done
   # Frontend A2UI components (card, table, chart, form, list, image)
 
   # --- Group E: Voice & Audio Features ---
