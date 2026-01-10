@@ -82,16 +82,28 @@ export function useAnalytics(): UseAnalyticsReturn {
         console.log("[Analytics]", event, safeProperties);
       }
 
-      // Non-blocking fetch to telemetry endpoint
-      // We intentionally don't await this - telemetry should never block UI
-      fetch("/api/telemetry", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }).catch((error) => {
-        // Log telemetry failures but don't block the application
-        console.error("[Analytics] Failed to send event:", error);
-      });
+      // Non-blocking telemetry - should never block UI
+      // Use sendBeacon when available for better reliability on page unload
+      const jsonPayload = JSON.stringify(payload);
+      const beaconSent =
+        typeof navigator !== "undefined" &&
+        navigator.sendBeacon &&
+        navigator.sendBeacon(
+          "/api/telemetry",
+          new Blob([jsonPayload], { type: "application/json" })
+        );
+
+      // Fall back to fetch if sendBeacon is unavailable or fails
+      if (!beaconSent) {
+        fetch("/api/telemetry", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: jsonPayload,
+        }).catch((error) => {
+          // Log telemetry failures but don't block the application
+          console.error("[Analytics] Failed to send event:", error);
+        });
+      }
     },
     []
   );

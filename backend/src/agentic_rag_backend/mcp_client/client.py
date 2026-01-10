@@ -444,9 +444,10 @@ class MCPClientFactory:
         Should be called during application shutdown.
         """
         async with self._lock:
-            # Bug fix: Capture count before clearing dict
-            count = len(self._clients)
-            for name, client in self._clients.items():
+            # Create a copy of items before iterating to avoid dict modification issues
+            clients_copy = list(self._clients.items())
+            count = len(clients_copy)
+            for name, client in clients_copy:
                 try:
                     await client.close()
                 except Exception as e:

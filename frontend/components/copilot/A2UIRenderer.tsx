@@ -127,6 +127,23 @@ interface ListProperties {
 }
 
 // ============================================
+// SECURITY UTILITIES
+// ============================================
+
+/**
+ * Validates URL to prevent XSS attacks via malicious image/link URLs.
+ * Only allows http:, https:, and data: (for inline images) protocols.
+ */
+function isValidUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return ["http:", "https:", "data:"].includes(parsed.protocol);
+  } catch {
+    return false;
+  }
+}
+
+// ============================================
 // ACTION HANDLER
 // ============================================
 
@@ -223,7 +240,7 @@ function A2UICard({
 }: CardProperties & { onAction?: (action: string, data?: Record<string, unknown>) => void }) {
   return (
     <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
-      {imageUrl && (
+      {imageUrl && isValidUrl(imageUrl) && (
         <div className="w-full h-32 bg-gray-100">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={imageUrl} alt={title} className="w-full h-full object-cover" />
@@ -328,7 +345,20 @@ function A2UIForm({
     formData.forEach((value, key) => {
       data[key] = value;
     });
-    onSubmit?.(submitAction, data);
+
+    // Security: Sanitize form data before submission
+    // - Convert all values to strings
+    // - Trim whitespace
+    // - Limit string length to prevent DoS
+    const MAX_FIELD_LENGTH = 10000;
+    const sanitizedData = Object.fromEntries(
+      Object.entries(data).map(([k, v]) => [
+        k,
+        typeof v === "string" ? v.trim().slice(0, MAX_FIELD_LENGTH) : v,
+      ])
+    );
+
+    onSubmit?.(submitAction, sanitizedData);
   };
 
   return (
@@ -482,6 +512,9 @@ function A2UIChart({ chartType, data, xKey, yKey, title, xLabel, yLabel }: Chart
 // ============================================
 
 function A2UIImage({ url, alt, caption, width, height }: ImageProperties) {
+  // Security: Validate URL to prevent XSS attacks
+  const validUrl = isValidUrl(url);
+
   return (
     <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-2 border-b bg-gray-50">
@@ -489,16 +522,25 @@ function A2UIImage({ url, alt, caption, width, height }: ImageProperties) {
         <span className="text-sm font-medium text-gray-700 truncate">{alt}</span>
       </div>
       <div className="p-2">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={url}
-          alt={alt}
-          width={width}
-          height={height}
-          className="max-w-full h-auto rounded"
-          loading="lazy"
-        />
-        {caption && <p className="mt-2 text-xs text-gray-500 text-center">{caption}</p>}
+        {validUrl ? (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={url}
+              alt={alt}
+              width={width}
+              height={height}
+              className="max-w-full h-auto rounded"
+              loading="lazy"
+            />
+            {caption && <p className="mt-2 text-xs text-gray-500 text-center">{caption}</p>}
+          </>
+        ) : (
+          <div className="text-sm text-gray-500 p-4 text-center">
+            <AlertCircle className="w-6 h-6 mx-auto mb-2 text-amber-500" />
+            <p>Invalid image URL</p>
+          </div>
+        )}
       </div>
     </div>
   );
