@@ -173,7 +173,7 @@ development_status:
   # Epic 13: Enterprise Ingestion
   # DECISION (2026-01-04): Current crawler.py does NOT use installed Crawl4AI library!
   # Must migrate from custom httpx to AsyncWebCrawler for JS rendering + parallel crawling
-  # See: docs/epics/epic-13-tech-spec.md
+  # See: _bmad-output/epics/epic-13-tech-spec.md
   #
   # CARRY-FORWARD FROM EPIC 12 CODE REVIEW (2026-01-04):
   # - HIGH: Add full retrieval pipeline integration test (rerank + grade + fallback)
@@ -494,7 +494,7 @@ development_status:
   # Full error taxonomy: RATE_LIMITED, TIMEOUT, CAPABILITY_NOT_FOUND, etc.
 
   # --- Group C: MCP-UI & Open-JSON-UI Rendering ---
-  22-C1-implement-mcp-ui-renderer: backlog
+  22-C1-implement-mcp-ui-renderer: done
   # Iframe sandbox, origin allowlist, postMessage bridge
   22-C2-implement-open-json-ui-renderer: backlog
   # OpenAI-style declarative UI: text, heading, code, table, image, button, etc.
