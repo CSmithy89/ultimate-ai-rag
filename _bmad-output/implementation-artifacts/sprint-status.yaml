@@ -278,7 +278,7 @@ development_status:
   # Automated migration between configuration profiles
   17-18-implement-cli-upgrade-self-update: done
   # Version checking and self-update mechanism
-  17-19-create-framework-template-details-testing: backlog
+  17-19-create-framework-template-details-testing: done
   # Complete examples for PydanticAI, CrewAI, LangGraph, Anthropic SDK
   epic-17-retrospective: optional
 
