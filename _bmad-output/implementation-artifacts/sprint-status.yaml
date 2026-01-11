@@ -414,7 +414,7 @@ development_status:
   # GAPS FOUND: A2UI, MCP Client, Modern Hooks, Observability
   # See: epic-21-tech-spec.md
   # ==========================================
-  epic-21: in-progress
+  epic-21: done
 
   # --- Group A: Modern Hook Migration (Tech Debt) ---
   21-A1-migrate-to-usefrontendtool-pattern: done
@@ -457,20 +457,20 @@ development_status:
   # Frontend A2UI components (card, table, chart, form, list, image)
 
   # --- Group E: Voice & Audio Features ---
-  21-E1-implement-voice-input-stt: review
+  21-E1-implement-voice-input-stt: done
   # Speech-to-text transcription via transcribeAudioUrl
-  21-E2-implement-voice-output-tts: review
+  21-E2-implement-voice-output-tts: done
   # Text-to-speech synthesis via textToSpeechUrl
 
   # --- Group F: Alternative UI Components ---
-  21-F1-implement-copilotpopup-component: review
+  21-F1-implement-copilotpopup-component: done
   # Floating popup chat option
-  21-F2-implement-copilotchat-embedded: review
+  21-F2-implement-copilotchat-embedded: done
   # Inline embedded chat panel
-  21-F3-implement-copilottextarea-component: review
+  21-F3-implement-copilottextarea-component: done
   # AI-powered textarea with autocompletion
 
-  epic-21-retrospective: optional
+  epic-21-retrospective: done
 
   # ==========================================
   # Epic 22: Advanced Protocol Integration
