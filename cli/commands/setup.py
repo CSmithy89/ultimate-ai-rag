@@ -116,5 +116,42 @@ def run_setup(
             "graph_reranker_enabled": graph_reranker_enabled,
         }
 
+    if target_category in {"voice", "all"}:
+        voice_defaults = base_config.get("voice", {})
+        voice_enabled = bool(voice_defaults.get("enabled", False))
+        whisper_model = voice_defaults.get("whisper_model", "base")
+        tts_provider = voice_defaults.get("tts_provider", "openai")
+        tts_voice = voice_defaults.get("tts_voice", "alloy")
+
+        if not yes:
+            voice_enabled = _prompt_bool(console, "Enable voice I/O?", voice_enabled)
+            if voice_enabled:
+                whisper_model = Prompt.ask(
+                    "Whisper model",
+                    choices=["tiny", "base", "small", "medium", "large"],
+                    default=whisper_model,
+                    console=console,
+                )
+                tts_provider = Prompt.ask(
+                    "TTS provider",
+                    choices=["openai", "elevenlabs", "pyttsx3"],
+                    default=tts_provider,
+                    console=console,
+                )
+                if tts_provider == "openai":
+                    tts_voice = Prompt.ask(
+                        "OpenAI TTS voice",
+                        choices=["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
+                        default=tts_voice,
+                        console=console,
+                    )
+
+        custom_config["voice"] = {
+            "enabled": voice_enabled,
+            "whisper_model": whisper_model,
+            "tts_provider": tts_provider,
+            "tts_voice": tts_voice,
+        }
+
     write_custom_profile(custom_config)
     console.print("Configuration saved to config/profiles/custom.yaml")

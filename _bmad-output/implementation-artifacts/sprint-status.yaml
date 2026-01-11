@@ -261,7 +261,7 @@ development_status:
   # Crawl4AI, PDF/Docling, YouTube, External Sync, Codebase indexing
   17-10-implement-cli-memory-graph-config: done
   # Memory scopes, consolidation, community detection, LazyRAG, query routing
-  17-11-implement-cli-voice-io-config: backlog
+  17-11-implement-cli-voice-io-config: done
   # STT (Whisper), TTS (OpenAI/ElevenLabs/pyttsx3)
   17-12-implement-cli-observability-config: backlog
   # Prometheus, cost tracking, alerts, trajectory debugging

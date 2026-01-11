@@ -64,3 +64,29 @@ def test_setup_memory_graph_writes_custom_profile() -> None:
         contents = custom_path.read_text(encoding="utf-8")
         assert "memory" in contents
         assert "graph_intelligence" in contents
+
+
+def test_setup_voice_writes_custom_profile() -> None:
+    runner = CliRunner()
+    with runner.isolated_filesystem() as root_str:
+        root = Path(root_str)
+        profile_dir = root / "config" / "profiles"
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        (profile_dir / "enterprise.yaml").write_text(
+            "voice:\n"
+            "  enabled: true\n"
+            "  whisper_model: base\n"
+            "  tts_provider: openai\n"
+            "  tts_voice: alloy\n",
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(
+            app,
+            ["setup", "--category", "voice", "--profile", "enterprise", "--yes"],
+        )
+        assert result.exit_code == 0
+        custom_path = profile_dir / "custom.yaml"
+        assert custom_path.exists()
+        contents = custom_path.read_text(encoding="utf-8")
+        assert "voice" in contents
