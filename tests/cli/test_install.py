@@ -18,11 +18,18 @@ def _write_env_example(root: Path) -> None:
     )
 
 
+def _write_framework_template(root: Path, framework: str) -> None:
+    template_root = root / "cli" / "templates" / "frameworks" / framework
+    template_root.mkdir(parents=True, exist_ok=True)
+    (template_root / "README.md").write_text("# Template\n", encoding="utf-8")
+
+
 def test_non_interactive_install_writes_env_and_template() -> None:
     runner = CliRunner()
     with runner.isolated_filesystem() as root_str:
         root = Path(root_str)
         _write_env_example(root)
+        _write_framework_template(root, "pydanticai")
         result = runner.invoke(
             app,
             [

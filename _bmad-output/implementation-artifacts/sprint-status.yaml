@@ -248,7 +248,7 @@ development_status:
   # Generate complete .env, validate all combinations
   17-4-verify-docker-compose-startup: done
   # Health checks for selected stack
-  17-5-create-framework-starter-templates: backlog
+  17-5-create-framework-starter-templates: done
   # NEW (from Epic 16): PydanticAI, CrewAI, LangGraph, Anthropic examples
   17-6-implement-agent-skills-anthropic: backlog
   # NEW (from Epic 16-4): .skills/ folder for Claude Desktop/Code integration
