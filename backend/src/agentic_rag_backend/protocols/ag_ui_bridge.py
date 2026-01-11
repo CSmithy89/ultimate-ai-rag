@@ -26,6 +26,8 @@ from ..models.copilot import (
     ToolCallEndEvent,
 )
 from ..schemas import VectorCitation
+from .ag_ui_errors import create_error_event
+from .ag_ui_metrics import AGUIMetricsCollector
 
 logger = structlog.get_logger(__name__)
 
@@ -119,90 +121,167 @@ class AGUIBridge:
         - TEXT_MESSAGE_CONTENT for streaming text
         - TEXT_MESSAGE_END after text content
         - RUN_FINISHED at end
+
+        All events are tracked via Prometheus metrics (Story 22-B1).
         """
         # Extract tenant and session from config
+        # Issue #1 Fix: Default to empty dict if config parsing fails
         config: dict[str, Any] = {}
-        if request.config:
-            config = request.config.configurable
+        try:
+            if request.config:
+                config = request.config.configurable
+        except AttributeError:
+            # Handle case where config exists but configurable doesn't
+            pass
 
         tenant_id = config.get("tenant_id")
         session_id = config.get("session_id")
 
-        # Validate tenant_id is present (multi-tenancy requirement)
-        if not tenant_id:
-            logger.warning("copilot_request_missing_tenant_id")
-            yield RunStartedEvent()
-            yield TextMessageStartEvent()
-            yield TextDeltaEvent(content="Error: tenant_id is required in request configuration.")
-            yield TextMessageEndEvent()
-            yield RunFinishedEvent()
-            return
+        # Initialize metrics collector (collector handles empty/None tenant_id)
+        # Issue #7 Fix: Remove redundant "or unknown" - collector handles this
+        metrics = AGUIMetricsCollector(tenant_id or "")
+        metrics.stream_started()
 
-        # Get the latest user message
-        user_message = ""
-        for msg in reversed(request.messages):
-            if msg.role.value == "user":
-                user_message = msg.content
-                break
-
-        if not user_message:
-            yield RunFinishedEvent()
-            return
-
-        # Emit run started
-        yield RunStartedEvent()
+        # Issue #1 Fix: Default to error=True, only set False on explicit success path
+        stream_error = True
 
         try:
-            # Run the orchestrator
-            result = await self._orchestrator.run(
-                query=user_message,
-                tenant_id=tenant_id,
-                session_id=session_id,
-            )
+            # Validate tenant_id is present (multi-tenancy requirement)
+            if not tenant_id:
+                logger.warning("copilot_request_missing_tenant_id")
+                event = RunStartedEvent()
+                metrics.event_emitted(event.event.value)
+                yield event
 
-            # Format thoughts into steps for frontend useCoAgentStateRender
-            steps = self._format_thought_steps(result.thoughts)
+                event = TextMessageStartEvent()
+                metrics.event_emitted(event.event.value)
+                yield event
 
-            # Emit state snapshot with steps (changed from "thoughts" key)
-            yield StateSnapshotEvent(
-                state={
-                    "currentStep": "completed",
-                    "steps": steps,
-                    "retrievalStrategy": result.retrieval_strategy.value,
-                    "trajectoryId": str(result.trajectory_id) if result.trajectory_id else None,
-                }
-            )
+                error_msg = "Error: tenant_id is required in request configuration."
+                event = TextDeltaEvent(content=error_msg)
+                metrics.event_emitted(event.event.value, len(error_msg))
+                yield event
 
-            if self._hitl_manager and result.evidence and result.evidence.vector:
-                sources = self._build_hitl_sources(result.evidence.vector)
-                if sources:
-                    checkpoint = await self._hitl_manager.create_checkpoint(
-                        sources=sources,
-                        query=user_message,
-                        tenant_id=tenant_id,
-                    )
-                    for event in self._hitl_manager.get_checkpoint_events(checkpoint):
-                        yield event
-                    checkpoint = await self._hitl_manager.wait_for_validation(
-                        checkpoint_id=checkpoint.checkpoint_id,
-                    )
-                    for event in self._hitl_manager.get_completion_events(checkpoint):
-                        yield event
+                event = TextMessageEndEvent()
+                metrics.event_emitted(event.event.value)
+                yield event
 
-            # Stream the answer as text with proper envelope events
-            yield TextMessageStartEvent()
-            yield TextDeltaEvent(content=result.answer)
-            yield TextMessageEndEvent()
+                event = RunFinishedEvent()
+                metrics.event_emitted(event.event.value)
+                yield event
+                return
 
-        except Exception as e:
-            # Log full error server-side but return sanitized message to client
-            logger.exception("copilot_request_failed", error=str(e), tenant_id=tenant_id)
-            yield TextMessageStartEvent()
-            yield TextDeltaEvent(content=GENERIC_ERROR_MESSAGE)
-            yield TextMessageEndEvent()
+            # Get the latest user message
+            user_message = ""
+            for msg in reversed(request.messages):
+                if msg.role.value == "user":
+                    user_message = msg.content
+                    break
 
-        # Emit run finished
-        yield RunFinishedEvent()
+            if not user_message:
+                event = RunFinishedEvent()
+                metrics.event_emitted(event.event.value)
+                yield event
+                return
+
+            # Emit run started
+            event = RunStartedEvent()
+            metrics.event_emitted(event.event.value)
+            yield event
+
+            try:
+                # Run the orchestrator
+                result = await self._orchestrator.run(
+                    query=user_message,
+                    tenant_id=tenant_id,
+                    session_id=session_id,
+                )
+
+                # Format thoughts into steps for frontend useCoAgentStateRender
+                steps = self._format_thought_steps(result.thoughts)
+
+                # Emit state snapshot with steps (changed from "thoughts" key)
+                event = StateSnapshotEvent(
+                    state={
+                        "currentStep": "completed",
+                        "steps": steps,
+                        "retrievalStrategy": result.retrieval_strategy.value,
+                        "trajectoryId": str(result.trajectory_id) if result.trajectory_id else None,
+                    }
+                )
+                metrics.event_emitted(event.event.value)
+                yield event
+
+                if self._hitl_manager and result.evidence and result.evidence.vector:
+                    sources = self._build_hitl_sources(result.evidence.vector)
+                    if sources:
+                        checkpoint = await self._hitl_manager.create_checkpoint(
+                            sources=sources,
+                            query=user_message,
+                            tenant_id=tenant_id,
+                        )
+                        for hitl_event in self._hitl_manager.get_checkpoint_events(checkpoint):
+                            metrics.event_emitted(hitl_event.event.value)
+                            yield hitl_event
+                        checkpoint = await self._hitl_manager.wait_for_validation(
+                            checkpoint_id=checkpoint.checkpoint_id,
+                        )
+                        for hitl_event in self._hitl_manager.get_completion_events(checkpoint):
+                            metrics.event_emitted(hitl_event.event.value)
+                            yield hitl_event
+
+                # Stream the answer as text with proper envelope events
+                event = TextMessageStartEvent()
+                metrics.event_emitted(event.event.value)
+                yield event
+
+                event = TextDeltaEvent(content=result.answer)
+                metrics.event_emitted(event.event.value, len(result.answer))
+                yield event
+
+                event = TextMessageEndEvent()
+                metrics.event_emitted(event.event.value)
+                yield event
+
+            except Exception as e:
+                # Log full error server-side but return sanitized message to client
+                logger.exception("copilot_request_failed", error=str(e), tenant_id=tenant_id)
+                # Issue #1 Fix: stream_error already defaults to True, no need to set again
+
+                # Story 22-B2: Emit structured AG-UI error event
+                # Determine if we should include debug details (development mode only)
+                from ..config import get_settings, is_development_env
+                settings = get_settings()
+                is_debug = is_development_env(settings.app_env)
+
+                error_event = create_error_event(e, is_debug=is_debug)
+                metrics.event_emitted(error_event.event.value)
+                yield error_event
+
+                # Also emit the error as a text message for backward compatibility
+                event = TextMessageStartEvent()
+                metrics.event_emitted(event.event.value)
+                yield event
+
+                event = TextDeltaEvent(content=GENERIC_ERROR_MESSAGE)
+                metrics.event_emitted(event.event.value, len(GENERIC_ERROR_MESSAGE))
+                yield event
+
+                event = TextMessageEndEvent()
+                metrics.event_emitted(event.event.value)
+                yield event
+            else:
+                # Issue #1 Fix: Only mark success if inner try completed without exception
+                stream_error = False
+
+            # Emit run finished
+            event = RunFinishedEvent()
+            metrics.event_emitted(event.event.value)
+            yield event
+
+        finally:
+            # Record stream completion with appropriate status
+            metrics.stream_completed("error" if stream_error else "success")
 
 
 # ============================================

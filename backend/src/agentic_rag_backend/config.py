@@ -226,6 +226,13 @@ class Settings:
     a2a_heartbeat_timeout_seconds: int
     a2a_task_default_timeout_seconds: int
     a2a_task_max_retries: int
+    # Story 22-A2 - A2A Resource Limits settings
+    a2a_limits_backend: str
+    a2a_session_limit_per_tenant: int
+    a2a_message_limit_per_session: int
+    a2a_session_ttl_hours: int
+    a2a_message_rate_limit: int
+    a2a_limits_cleanup_interval_minutes: int
     # Epic 7 - MCP settings
     mcp_tool_timeout_seconds: float
     mcp_tool_timeout_overrides: dict[str, float]
@@ -401,6 +408,10 @@ class Settings:
     colbert_enabled: bool
     colbert_model: str
     colbert_max_length: int
+    # Story 22-C1 - MCP-UI Renderer
+    mcp_ui_enabled: bool
+    mcp_ui_allowed_origins: list[str]
+    mcp_ui_signing_secret: str
 
 
 def load_settings() -> Settings:
@@ -592,6 +603,22 @@ def load_settings() -> Settings:
     a2a_heartbeat_timeout_seconds = get_int_env("A2A_HEARTBEAT_TIMEOUT_SECONDS", 60, min_val=10)
     a2a_task_default_timeout_seconds = get_int_env("A2A_TASK_DEFAULT_TIMEOUT_SECONDS", 300, min_val=1)
     a2a_task_max_retries = get_int_env("A2A_TASK_MAX_RETRIES", 3, min_val=0)
+
+    # Story 22-A2 - A2A Resource Limits settings
+    a2a_limits_backend = os.getenv("A2A_LIMITS_BACKEND", "memory").strip().lower()
+    if a2a_limits_backend not in {"memory", "redis", "postgres"}:
+        logger.warning(
+            "invalid_a2a_limits_backend",
+            backend=a2a_limits_backend,
+            valid_backends=["memory", "redis", "postgres"],
+            fallback="memory",
+        )
+        a2a_limits_backend = "memory"
+    a2a_session_limit_per_tenant = get_int_env("A2A_SESSION_LIMIT_PER_TENANT", 100, min_val=1)
+    a2a_message_limit_per_session = get_int_env("A2A_MESSAGE_LIMIT_PER_SESSION", 1000, min_val=1)
+    a2a_session_ttl_hours = get_int_env("A2A_SESSION_TTL_HOURS", 24, min_val=1)
+    a2a_message_rate_limit = get_int_env("A2A_MESSAGE_RATE_LIMIT", 60, min_val=1)
+    a2a_limits_cleanup_interval_minutes = get_int_env("A2A_LIMITS_CLEANUP_INTERVAL_MINUTES", 15, min_val=1)
 
     try:
         mcp_tool_timeout_seconds = float(os.getenv("MCP_TOOL_TIMEOUT_SECONDS", "30"))
@@ -1336,6 +1363,16 @@ def load_settings() -> Settings:
     colbert_model = os.getenv("COLBERT_MODEL", "colbert-ir/colbertv2.0")
     colbert_max_length = get_int_env("COLBERT_MAX_LENGTH", 512, min_val=64)
 
+    # Story 22-C1 - MCP-UI Renderer settings
+    mcp_ui_enabled = get_bool_env("MCP_UI_ENABLED", "false")
+    mcp_ui_allowed_origins_raw = os.getenv("MCP_UI_ALLOWED_ORIGINS", "")
+    mcp_ui_allowed_origins = [
+        origin.strip()
+        for origin in mcp_ui_allowed_origins_raw.split(",")
+        if origin.strip()
+    ]
+    mcp_ui_signing_secret = os.getenv("MCP_UI_SIGNING_SECRET", secrets.token_hex(32))
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1419,6 +1456,13 @@ def load_settings() -> Settings:
         a2a_heartbeat_timeout_seconds=a2a_heartbeat_timeout_seconds,
         a2a_task_default_timeout_seconds=a2a_task_default_timeout_seconds,
         a2a_task_max_retries=a2a_task_max_retries,
+        # Story 22-A2 - A2A Resource Limits settings
+        a2a_limits_backend=a2a_limits_backend,
+        a2a_session_limit_per_tenant=a2a_session_limit_per_tenant,
+        a2a_message_limit_per_session=a2a_message_limit_per_session,
+        a2a_session_ttl_hours=a2a_session_ttl_hours,
+        a2a_message_rate_limit=a2a_message_rate_limit,
+        a2a_limits_cleanup_interval_minutes=a2a_limits_cleanup_interval_minutes,
         # Epic 7 - MCP settings
         mcp_tool_timeout_seconds=mcp_tool_timeout_seconds,
         mcp_tool_timeout_overrides=mcp_tool_timeout_overrides,
@@ -1594,6 +1638,10 @@ def load_settings() -> Settings:
         colbert_enabled=colbert_enabled,
         colbert_model=colbert_model,
         colbert_max_length=colbert_max_length,
+        # Story 22-C1 - MCP-UI Renderer
+        mcp_ui_enabled=mcp_ui_enabled,
+        mcp_ui_allowed_origins=mcp_ui_allowed_origins,
+        mcp_ui_signing_secret=mcp_ui_signing_secret,
     )
 
 

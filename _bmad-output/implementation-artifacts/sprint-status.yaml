@@ -173,7 +173,7 @@ development_status:
   # Epic 13: Enterprise Ingestion
   # DECISION (2026-01-04): Current crawler.py does NOT use installed Crawl4AI library!
   # Must migrate from custom httpx to AsyncWebCrawler for JS rendering + parallel crawling
-  # See: docs/epics/epic-13-tech-spec.md
+  # See: _bmad-output/epics/epic-13-tech-spec.md
   #
   # CARRY-FORWARD FROM EPIC 12 CODE REVIEW (2026-01-04):
   # - HIGH: Add full retrieval pipeline integration test (rerank + grade + fallback)
@@ -479,28 +479,28 @@ development_status:
   # FEATURES: A2A Middleware, AG-UI Telemetry, Resource Limits, MCP-UI, Open-JSON-UI
   # See: epic-22-tech-spec.md
   # ==========================================
-  epic-22: backlog
+  epic-22: contexted
 
   # --- Group A: A2A Middleware & Collaboration ---
-  22-A1-implement-a2a-middleware-agent: backlog
+  22-A1-implement-a2a-middleware-agent: done
   # A2AMiddlewareAgent for agent delegation and discovery
-  22-A2-implement-a2a-session-resource-limits: backlog
+  22-A2-implement-a2a-session-resource-limits: done
   # Per-tenant session/message caps, rate limiting
 
   # --- Group B: AG-UI Telemetry & Error Handling ---
-  22-B1-implement-agui-stream-metrics: backlog
+  22-B1-implement-agui-stream-metrics: done
   # Prometheus metrics: stream_started, completed, event_emitted, duration, latency
-  22-B2-implement-extended-agui-error-events: backlog
+  22-B2-implement-extended-agui-error-events: done
   # Full error taxonomy: RATE_LIMITED, TIMEOUT, CAPABILITY_NOT_FOUND, etc.
 
   # --- Group C: MCP-UI & Open-JSON-UI Rendering ---
-  22-C1-implement-mcp-ui-renderer: backlog
+  22-C1-implement-mcp-ui-renderer: done
   # Iframe sandbox, origin allowlist, postMessage bridge
-  22-C2-implement-open-json-ui-renderer: backlog
+  22-C2-implement-open-json-ui-renderer: done
   # OpenAI-style declarative UI: text, heading, code, table, image, button, etc.
 
   # --- Group D: Protocol Polish & Documentation ---
-  22-D1-create-protocol-integration-guide: backlog
+  22-D1-create-protocol-integration-guide: done
   # Comprehensive docs: AG-UI, A2A, MCP, A2UI, MCP-UI, Open-JSON-UI
 
   # --- Tech Debt (from Epic 21 Retrospective) ---
@@ -514,9 +514,9 @@ development_status:
   # 80% coverage threshold in pyproject.toml, jest.config.js, CI workflows
   22-TD5-telemetry-tenant-rate-limiting: done
   # Composite rate key: telemetry:{tenant_id}:{ip}
-  22-TD6-copilotkit-2x-migration-prep: backlog
+  22-TD6-copilotkit-2x-migration-prep: blocked  # CopilotKit 2.x not yet stable
   # Future: migrate to native Zod schemas when CopilotKit 2.x is stable
-  22-D2-implement-protocol-compliance-tests: backlog
-  # Contract tests for all protocol interfaces
+  22-D2-implement-protocol-compliance-tests: done
+  # Contract tests for all protocol interfaces (157 tests: 79 backend, 78 frontend)
 
   epic-22-retrospective: optional
