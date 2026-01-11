@@ -14,6 +14,7 @@ from .a2a_messages import (
 )
 from .a2a_registry import A2AAgentRegistry, RegistryConfig
 from .a2a_delegation import TaskDelegationManager, DelegationConfig
+from .a2a_middleware import A2AMiddlewareAgent, A2AAgentCapability, A2AAgentInfo
 
 __all__ = [
     "AGUIBridge",
@@ -31,4 +32,8 @@ __all__ = [
     "RegistryConfig",
     "TaskDelegationManager",
     "DelegationConfig",
+    # A2A Middleware (Story 22-A1)
+    "A2AMiddlewareAgent",
+    "A2AAgentCapability",
+    "A2AAgentInfo",
 ]
