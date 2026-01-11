@@ -5,8 +5,10 @@ import typer
 from cli.commands.install import run_install
 from cli.commands.setup import run_setup
 from cli.commands.doctor import run_doctor
+from cli.commands.migrate import run_analyze, run_execute
 
 app = typer.Typer(add_completion=False)
+migrate_app = typer.Typer()
 
 
 @app.command("rag-install")
@@ -49,6 +51,19 @@ def doctor(
     fix: bool = typer.Option(False, "--fix"),
 ) -> None:
     run_doctor(quick=quick, json_output=json_output, service=service, fix=fix)
+
+
+@migrate_app.command("analyze")
+def migrate_analyze(profile: str | None = typer.Option(None, "--profile")) -> None:
+    run_analyze(profile=profile)
+
+
+@migrate_app.command("execute")
+def migrate_execute(profile: str | None = typer.Option(None, "--profile")) -> None:
+    run_execute(profile=profile)
+
+
+app.add_typer(migrate_app, name="migrate")
 
 
 if __name__ == "__main__":

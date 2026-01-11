@@ -274,7 +274,7 @@ development_status:
   # Diagnostic command: connectivity, config, health checks
   17-16-implement-cli-interactive-setup-mode: done
   # Guided wizard for first-time users
-  17-17-implement-profile-migration-script: backlog
+  17-17-implement-profile-migration-script: done
   # Automated migration between configuration profiles
   17-18-implement-cli-upgrade-self-update: backlog
   # Version checking and self-update mechanism
