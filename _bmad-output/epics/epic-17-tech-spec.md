@@ -1982,17 +1982,21 @@ if __name__ == "__main__":
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
-from langchain_mcp_adapters import MCPToolkit
+from langchain_mcp_adapters.client import MultiServerMCPClient
 from typing import TypedDict, Annotated, Sequence
 import operator
 
 # RAG Configuration
 RAG_BASE_URL = "http://localhost:8000"
 
-# Initialize MCP toolkit
-mcp_toolkit = MCPToolkit(
-    server_url=f"{RAG_BASE_URL}/api/v1/mcp",
-    tool_names=["knowledge.query", "knowledge.graph_stats", "ingest_url"]
+# Initialize MCP client (connects to RAG MCP server)
+mcp_client = MultiServerMCPClient(
+    {
+        "rag": {
+            "url": f"{RAG_BASE_URL}/api/v1/mcp/sse",
+            "transport": "sse",
+        }
+    }
 )
 
 # State definition
@@ -2001,20 +2005,24 @@ class AgentState(TypedDict):
     context: str
     sources: list[str]
 
-# LLM with tools
-llm = ChatOpenAI(model="gpt-4o").bind_tools(mcp_toolkit.get_tools())
+# LLM setup (tools bound dynamically in graph)
+llm = ChatOpenAI(model="gpt-4o")
 
 # Node definitions
 async def retrieve_context(state: AgentState) -> AgentState:
     """Retrieve relevant context from RAG."""
     query = state["messages"][-1].content
-    result = await mcp_toolkit.call_tool(
-        "knowledge.query",
-        {"query": query, "tenant_id": "default"}
-    )
+    async with mcp_client:
+        tools = mcp_client.get_tools()
+        # Call knowledge.query tool
+        result = await mcp_client.call_tool(
+            "rag",  # server name
+            "knowledge.query",
+            {"query": query, "tenant_id": "default"}
+        )
     return {
-        "context": result["content"],
-        "sources": result.get("sources", [])
+        "context": result.content[0].text if result.content else "",
+        "sources": []
     }
 
 async def generate_response(state: AgentState) -> AgentState:
