@@ -250,7 +250,7 @@ development_status:
   # Health checks for selected stack
   17-5-create-framework-starter-templates: done
   # NEW (from Epic 16): PydanticAI, CrewAI, LangGraph, Anthropic examples
-  17-6-implement-agent-skills-anthropic: backlog
+  17-6-implement-agent-skills-anthropic: done
   # NEW (from Epic 16-4): .skills/ folder for Claude Desktop/Code integration
   17-7-document-protocol-integration-guide: done  # Completed via Epic 22-D1
   # COMPLETED (2026-01-11): Delivered via Epic 22-D1 with comprehensive protocol-integration/ folder

@@ -16,6 +16,7 @@ def rag_install(
     customize: bool = typer.Option(False, "--customize"),
     yes: bool = typer.Option(False, "--yes"),
     dry_run: bool = typer.Option(False, "--dry-run"),
+    with_skills: bool = typer.Option(False, "--with-skills"),
 ) -> None:
     run_install(
         profile=profile,
@@ -25,6 +26,7 @@ def rag_install(
         customize=customize,
         yes=yes,
         dry_run=dry_run,
+        with_skills=with_skills,
     )
 
 

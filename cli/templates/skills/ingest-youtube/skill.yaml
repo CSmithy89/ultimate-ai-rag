@@ -1,0 +1,21 @@
+name: ingest-youtube
+version: 1.0.0
+description: Ingest a YouTube transcript into the knowledge base
+author: Agentic RAG
+tags: [rag, ingest, youtube]
+
+mcp_tool: ingest_youtube
+
+triggers:
+  - "ingest youtube"
+  - "add youtube"
+
+parameters:
+  url:
+    type: string
+    description: YouTube URL
+    required: true
+  tenant_id:
+    type: string
+    description: Tenant identifier
+    default: "default"

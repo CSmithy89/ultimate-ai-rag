@@ -1,0 +1,22 @@
+name: explain-answer
+version: 1.0.0
+description: Explain how an answer was produced with sources and reasoning
+author: Agentic RAG
+tags: [rag, explain, provenance]
+
+mcp_tool: explain_answer
+
+triggers:
+  - "explain the answer"
+  - "show reasoning"
+  - "why did you say"
+
+parameters:
+  query_id:
+    type: string
+    description: Identifier for the query/response to explain
+    required: true
+  tenant_id:
+    type: string
+    description: Tenant identifier
+    default: "default"

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>17-6</story-id>
+    <story-title>Implement Agent Skills for Anthropic Ecosystem</story-title>
+    <epic>17 - Developer Experience, CLI &amp; Framework Integration</epic>
+    <generated>2026-01-12</generated>
+  </metadata>
+
+  <objective>
+    Generate .skills with skill.yaml and instructions.md files that map
+    to MCP tools and are discoverable by Anthropic Agent Skills tooling.
+  </objective>
+
+  <skills>
+    <skill>rag-search (knowledge.query)</skill>
+    <skill>ingest-url (ingest_url)</skill>
+    <skill>ingest-pdf (ingest_pdf)</skill>
+    <skill>ingest-youtube (ingest_youtube)</skill>
+    <skill>explain-answer (explain_answer)</skill>
+  </skills>
+
+  <install-behavior>
+    <requirement>rag-install --with-skills copies templates to .skills/</requirement>
+  </install-behavior>
+
+  <references>
+    <ref path="_bmad-output/epics/epic-17-tech-spec.md">Story 17-6</ref>
+  </references>
+</story-context>

@@ -243,6 +243,16 @@ def _generate_framework_template(framework: str, target_root: Path) -> Path:
     return target
 
 
+def _generate_skills(target_root: Path) -> Path:
+    import shutil
+
+    source = Path("cli") / "templates" / "skills"
+    if not source.exists():
+        raise typer.BadParameter("Skills templates not found")
+    target = target_root
+    shutil.copytree(source, target, dirs_exist_ok=True)
+    return target
+
 def _gather_selections(
     console: Console,
     profile: str | None,
@@ -310,6 +320,7 @@ def run_install(
     customize: bool = typer.Option(False, "--customize"),
     yes: bool = typer.Option(False, "--yes"),
     dry_run: bool = typer.Option(False, "--dry-run"),
+    with_skills: bool = typer.Option(False, "--with-skills"),
 ) -> None:
     console = Console()
     recommended_profile, hardware_lines = _recommend_profile()
@@ -349,6 +360,8 @@ def run_install(
 
     if selections.framework != "none":
         _generate_framework_template(selections.framework, Path("examples"))
+    if with_skills:
+        _generate_skills(Path(".skills"))
 
     _run_docker_compose(console, dry_run)
     if not dry_run:

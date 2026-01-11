@@ -1,0 +1,22 @@
+name: ingest-url
+version: 1.0.0
+description: Crawl and ingest a URL into the knowledge base
+author: Agentic RAG
+tags: [rag, ingest, crawl]
+
+mcp_tool: ingest_url
+
+triggers:
+  - "ingest url"
+  - "crawl"
+  - "add website"
+
+parameters:
+  url:
+    type: string
+    description: The URL to ingest
+    required: true
+  tenant_id:
+    type: string
+    description: Tenant identifier
+    default: "default"

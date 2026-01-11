@@ -24,12 +24,20 @@ def _write_framework_template(root: Path, framework: str) -> None:
     (template_root / "README.md").write_text("# Template\n", encoding="utf-8")
 
 
+def _write_skills_templates(root: Path) -> None:
+    template_root = root / "cli" / "templates" / "skills" / "rag-search"
+    template_root.mkdir(parents=True, exist_ok=True)
+    (template_root / "skill.yaml").write_text("name: rag-search\n", encoding="utf-8")
+    (template_root / "instructions.md").write_text("# RAG Search\n", encoding="utf-8")
+
+
 def test_non_interactive_install_writes_env_and_template() -> None:
     runner = CliRunner()
     with runner.isolated_filesystem() as root_str:
         root = Path(root_str)
         _write_env_example(root)
         _write_framework_template(root, "pydanticai")
+        _write_skills_templates(root)
         result = runner.invoke(
             app,
             [
@@ -43,6 +51,7 @@ def test_non_interactive_install_writes_env_and_template() -> None:
                 "--framework",
                 "pydanticai",
                 "--dry-run",
+                "--with-skills",
                 "--yes",
             ],
         )
@@ -51,6 +60,7 @@ def test_non_interactive_install_writes_env_and_template() -> None:
         assert "LLM_PROVIDER=openai" in env_output
         assert "OPENAI_API_KEY=sk-test-1234567890" in env_output
         assert (root / "examples" / "pydanticai" / "README.md").exists()
+        assert (root / ".skills" / "rag-search" / "skill.yaml").exists()
 
 
 def test_profile_mapping_from_ram(monkeypatch) -> None:
