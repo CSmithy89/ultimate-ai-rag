@@ -44,6 +44,14 @@ from .copilot import (
     TextMessageStartEvent,
     ToolCallEvent,
 )
+from .mcp_ui import (
+    MCPUIConfig,
+    MCPUIPayload,
+    MCPUIMessage,
+    MCPUIResizeMessage,
+    MCPUIResultMessage,
+    MCPUIErrorMessage,
+)
 
 # AG-UI Error Events are exported from protocols.ag_ui_errors to avoid circular imports
 # Use: from agentic_rag_backend.protocols.ag_ui_errors import AGUIErrorCode, AGUIErrorEvent, create_error_event
@@ -90,4 +98,11 @@ __all__ = [
     "TextMessageStartEvent",
     "ToolCallEvent",
     # AG-UI Error Events (Story 22-B2) - import from protocols.ag_ui_errors
+    # MCP-UI models (Story 22-C1)
+    "MCPUIConfig",
+    "MCPUIPayload",
+    "MCPUIMessage",
+    "MCPUIResizeMessage",
+    "MCPUIResultMessage",
+    "MCPUIErrorMessage",
 ]

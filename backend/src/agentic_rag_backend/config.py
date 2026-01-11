@@ -408,6 +408,10 @@ class Settings:
     colbert_enabled: bool
     colbert_model: str
     colbert_max_length: int
+    # Story 22-C1 - MCP-UI Renderer
+    mcp_ui_enabled: bool
+    mcp_ui_allowed_origins: list[str]
+    mcp_ui_signing_secret: str
 
 
 def load_settings() -> Settings:
@@ -1359,6 +1363,16 @@ def load_settings() -> Settings:
     colbert_model = os.getenv("COLBERT_MODEL", "colbert-ir/colbertv2.0")
     colbert_max_length = get_int_env("COLBERT_MAX_LENGTH", 512, min_val=64)
 
+    # Story 22-C1 - MCP-UI Renderer settings
+    mcp_ui_enabled = get_bool_env("MCP_UI_ENABLED", "false")
+    mcp_ui_allowed_origins_raw = os.getenv("MCP_UI_ALLOWED_ORIGINS", "")
+    mcp_ui_allowed_origins = [
+        origin.strip()
+        for origin in mcp_ui_allowed_origins_raw.split(",")
+        if origin.strip()
+    ]
+    mcp_ui_signing_secret = os.getenv("MCP_UI_SIGNING_SECRET", secrets.token_hex(32))
+
     return Settings(
         app_env=app_env,
         llm_provider=llm_provider,
@@ -1624,6 +1638,10 @@ def load_settings() -> Settings:
         colbert_enabled=colbert_enabled,
         colbert_model=colbert_model,
         colbert_max_length=colbert_max_length,
+        # Story 22-C1 - MCP-UI Renderer
+        mcp_ui_enabled=mcp_ui_enabled,
+        mcp_ui_allowed_origins=mcp_ui_allowed_origins,
+        mcp_ui_signing_secret=mcp_ui_signing_secret,
     )
 
 

@@ -1,14 +1,21 @@
-"""MCP-style tool discovery and invocation endpoints."""
+"""MCP-style tool discovery and invocation endpoints.
+
+Includes:
+- Tool discovery and invocation (Epic 7)
+- MCP-UI configuration for iframe rendering (Story 22-C1)
+"""
 
 from __future__ import annotations
 
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
 
 from ...api.utils import build_meta, rate_limit_exceeded
+from ...config import get_settings
+from ...models.mcp_ui import MCPUIConfig
 from ...protocols.mcp import MCPToolNotFoundError, MCPToolRegistry
 from ...rate_limit import RateLimiter
 from ...validation import is_valid_tenant_id
@@ -89,3 +96,37 @@ async def call_tool(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return ToolCallResponse(tool=request_body.tool, result=result, meta=build_meta())
+
+
+# =============================================================================
+# Story 22-C1: MCP-UI Configuration Endpoint
+# =============================================================================
+
+
+@router.get("/ui/config", response_model=MCPUIConfig)
+async def get_mcp_ui_config(
+    x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
+) -> MCPUIConfig:
+    """Get MCP-UI configuration for the requesting tenant.
+
+    Returns the list of allowed origins for MCP-UI iframe rendering.
+    The frontend uses this to validate iframe URLs before rendering.
+
+    Args:
+        x_tenant_id: Tenant identifier from request header
+
+    Returns:
+        MCPUIConfig with enabled status and allowed origins
+    """
+    if not is_valid_tenant_id(x_tenant_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid X-Tenant-ID header",
+        )
+
+    settings = get_settings()
+
+    return MCPUIConfig(
+        enabled=settings.mcp_ui_enabled,
+        allowed_origins=settings.mcp_ui_allowed_origins,
+    )
