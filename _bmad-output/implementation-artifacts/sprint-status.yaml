@@ -267,7 +267,7 @@ development_status:
   # Prometheus, cost tracking, alerts, trajectory debugging
   17-13-implement-cli-codebase-intelligence-config: done
   # AST validation, symbol extraction, hallucination detection
-  17-14-implement-cli-protocol-config: backlog
+  17-14-implement-cli-protocol-config: done
   # A2A, MCP, AG-UI, MCP-UI, Open-JSON-UI protocol settings
   # NEW (2026-01-11): CLI operational commands and framework template details
   17-15-implement-cli-doctor-validate-command: backlog

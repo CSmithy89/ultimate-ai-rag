@@ -140,3 +140,31 @@ def test_setup_codebase_writes_custom_profile() -> None:
         assert custom_path.exists()
         contents = custom_path.read_text(encoding="utf-8")
         assert "codebase_intelligence" in contents
+
+
+def test_setup_protocols_writes_custom_profile() -> None:
+    runner = CliRunner()
+    with runner.isolated_filesystem() as root_str:
+        root = Path(root_str)
+        profile_dir = root / "config" / "profiles"
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        (profile_dir / "standard.yaml").write_text(
+            "protocols:\n"
+            "  a2a:\n"
+            "    enabled: true\n"
+            "    max_sessions_per_tenant: 100\n"
+            "    max_messages_per_session: 1000\n"
+            "  mcp:\n"
+            "    enabled: true\n",
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(
+            app,
+            ["setup", "--category", "protocols", "--profile", "standard", "--yes"],
+        )
+        assert result.exit_code == 0
+        custom_path = profile_dir / "custom.yaml"
+        assert custom_path.exists()
+        contents = custom_path.read_text(encoding="utf-8")
+        assert "protocols" in contents

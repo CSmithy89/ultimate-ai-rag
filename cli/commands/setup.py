@@ -203,5 +203,44 @@ def run_setup(
             "hallucination_detection_enabled": hallucination_detection_enabled,
         }
 
+    if target_category in {"protocols", "all"}:
+        protocols_defaults = base_config.get("protocols", {})
+        a2a_defaults = protocols_defaults.get("a2a", {})
+        mcp_defaults = protocols_defaults.get("mcp", {})
+
+        a2a_enabled = bool(a2a_defaults.get("enabled", True))
+        max_sessions = int(a2a_defaults.get("max_sessions_per_tenant", 100))
+        max_messages = int(a2a_defaults.get("max_messages_per_session", 1000))
+        mcp_enabled = bool(mcp_defaults.get("enabled", True))
+
+        if not yes:
+            a2a_enabled = _prompt_bool(console, "Enable A2A protocol?", a2a_enabled)
+            max_sessions = int(
+                Prompt.ask(
+                    "A2A max sessions per tenant",
+                    default=str(max_sessions),
+                    console=console,
+                )
+            )
+            max_messages = int(
+                Prompt.ask(
+                    "A2A max messages per session",
+                    default=str(max_messages),
+                    console=console,
+                )
+            )
+            mcp_enabled = _prompt_bool(console, "Enable MCP protocol?", mcp_enabled)
+
+        custom_config["protocols"] = {
+            "a2a": {
+                "enabled": a2a_enabled,
+                "max_sessions_per_tenant": max_sessions,
+                "max_messages_per_session": max_messages,
+            },
+            "mcp": {
+                "enabled": mcp_enabled,
+            },
+        }
+
     write_custom_profile(custom_config)
     console.print("Configuration saved to config/profiles/custom.yaml")
