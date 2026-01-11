@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>17-1</story-id>
+    <story-title>Create rag-install CLI Tool</story-title>
+    <epic>17 - Developer Experience, CLI &amp; Framework Integration</epic>
+    <generated>2026-01-12</generated>
+  </metadata>
+
+  <objective>
+    Build an interactive rag-install CLI with a fast-path (4-5 questions),
+    smart defaults, and optional customize flow that generates a valid .env
+    and can create framework starter templates.
+  </objective>
+
+  <cli-design>
+    <fast-path>
+      <requirement>4-5 questions max (profile, LLM provider, API key, framework)</requirement>
+      <requirement>Hardware detection recommends profile before prompts</requirement>
+      <requirement>[c] or --customize switches to profile-specific extras</requirement>
+      <requirement>Non-interactive mode: --profile &lt;name&gt; --llm &lt;provider&gt; --yes</requirement>
+    </fast-path>
+    <customize>
+      <requirement>Show profile-appropriate options (embedding, retrieval, voice)</requirement>
+      <requirement>Defaults remain valid and functional</requirement>
+    </customize>
+    <validation>
+      <requirement>API key validation by format only, mask values in UI</requirement>
+    </validation>
+  </cli-design>
+
+  <files-to-create>
+    <file path="cli/main.py">Typer entrypoint for rag-install</file>
+    <file path="cli/commands/install.py">Install command orchestration</file>
+    <file path="cli/prompts/fast_path.py">Fast-path prompt flow</file>
+    <file path="cli/prompts/customize.py">Customize flow prompts</file>
+    <file path="cli/ui/panels.py">Rich UI panels and summary views</file>
+    <file path="tests/cli/test_install.py">CLI tests for fast path and non-interactive</file>
+  </files-to-create>
+
+  <acceptance-criteria>
+    <item>rag-install starts fast path with Rich TUI</item>
+    <item>Hardware detection recommends profile</item>
+    <item>Customize flow for profile-specific extras</item>
+    <item>API keys validated and masked</item>
+    <item>.env written with comments and defaults</item>
+    <item>Non-interactive mode works</item>
+    <item>Framework template generated when selected</item>
+  </acceptance-criteria>
+
+  <references>
+    <ref path="_bmad-output/epics/epic-17-tech-spec.md">Story 17-1 + CLI UX Design</ref>
+    <ref path="_bmad-output/implementation-artifacts/sprint-status.yaml">Story tracking</ref>
+    <ref path=".env.example">Existing env variable conventions</ref>
+  </references>
+</story-context>
