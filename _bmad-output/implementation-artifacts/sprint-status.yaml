@@ -244,7 +244,7 @@ development_status:
   # Guided setup: LLM provider, database, framework template, features
   17-2-implement-auto-hardware-detection: done
   # GPU for local LLM/Whisper, RAM for model selection
-  17-3-implement-env-generation-logic: backlog
+  17-3-implement-env-generation-logic: done
   # Generate complete .env, validate all combinations
   17-4-verify-docker-compose-startup: backlog
   # Health checks for selected stack
