@@ -6,9 +6,11 @@ from cli.commands.install import run_install
 from cli.commands.setup import run_setup
 from cli.commands.doctor import run_doctor
 from cli.commands.migrate import run_analyze, run_execute
+from cli.commands.update import run_update_check, run_update_apply
 
 app = typer.Typer(add_completion=False)
 migrate_app = typer.Typer()
+update_app = typer.Typer()
 
 
 @app.command("rag-install")
@@ -64,6 +66,19 @@ def migrate_execute(profile: str | None = typer.Option(None, "--profile")) -> No
 
 
 app.add_typer(migrate_app, name="migrate")
+
+
+@update_app.command("check")
+def update_check() -> None:
+    run_update_check()
+
+
+@update_app.command("apply")
+def update_apply() -> None:
+    run_update_apply()
+
+
+app.add_typer(update_app, name="update")
 
 
 if __name__ == "__main__":

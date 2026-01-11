@@ -276,7 +276,7 @@ development_status:
   # Guided wizard for first-time users
   17-17-implement-profile-migration-script: done
   # Automated migration between configuration profiles
-  17-18-implement-cli-upgrade-self-update: backlog
+  17-18-implement-cli-upgrade-self-update: done
   # Version checking and self-update mechanism
   17-19-create-framework-template-details-testing: backlog
   # Complete examples for PydanticAI, CrewAI, LangGraph, Anthropic SDK
