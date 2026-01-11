@@ -995,6 +995,11 @@ Codebase Intelligence (Enterprise profile only):
 - API keys validated before proceeding.
 - Generated config includes all ingestion settings.
 
+**Files to Create:**
+- `cli/commands/ingestion_config.py` - Ingestion source configuration prompts
+- `cli/prompts/ingestion_prompts.py` - Prompt definitions for ingestion options
+- `tests/cli/test_ingestion_config.py` - Tests for ingestion configuration flow
+
 ---
 
 ### Story 17-10: CLI Memory & Graph Intelligence Configuration
@@ -1054,6 +1059,11 @@ Graph Intelligence:
 - Enterprise profile shows all options.
 - Generated config reflects all selections.
 
+**Files to Create:**
+- `cli/commands/memory_config.py` - Memory & graph configuration prompts
+- `cli/prompts/memory_prompts.py` - Prompt definitions for memory/graph options
+- `tests/cli/test_memory_config.py` - Tests for memory configuration flow
+
 ---
 
 ### Story 17-11: CLI Voice I/O Configuration
@@ -1107,6 +1117,11 @@ Text-to-Speech (TTS):
 - pyttsx3 noted as offline-capable.
 - Generated config includes voice settings.
 
+**Files to Create:**
+- `cli/commands/voice_config.py` - Voice I/O configuration prompts
+- `cli/prompts/voice_prompts.py` - Prompt definitions for voice options
+- `tests/cli/test_voice_config.py` - Tests for voice configuration flow
+
 ---
 
 ### Story 17-12: CLI Observability Configuration
@@ -1157,6 +1172,12 @@ Trajectory Logging:
 - Warning displayed about key storage.
 - Generated config includes observability settings.
 
+**Files to Create:**
+- `cli/commands/observability_config.py` - Observability configuration prompts
+- `cli/prompts/observability_prompts.py` - Prompt definitions for monitoring options
+- `cli/utils/key_generator.py` - Secure encryption key generation utility
+- `tests/cli/test_observability_config.py` - Tests for observability configuration flow
+
 ---
 
 ### Story 17-13: CLI Codebase Intelligence Configuration
@@ -1203,6 +1224,11 @@ Rate Limiting:
 - Block mode warning displayed.
 - Generated config includes codebase settings.
 
+**Files to Create:**
+- `cli/commands/codebase_config.py` - Codebase intelligence configuration prompts
+- `cli/prompts/codebase_prompts.py` - Prompt definitions for codebase options
+- `tests/cli/test_codebase_config.py` - Tests for codebase configuration flow
+
 ---
 
 ### Story 17-14: CLI Protocol Configuration
@@ -1248,6 +1274,11 @@ MCP (Model Context Protocol):
 - Persistence backend options explained.
 - MCP-UI security implications noted.
 - Generated config includes protocol settings.
+
+**Files to Create:**
+- `cli/commands/protocol_config.py` - Protocol configuration prompts
+- `cli/prompts/protocol_prompts.py` - Prompt definitions for A2A/MCP options
+- `tests/cli/test_protocol_config.py` - Tests for protocol configuration flow
 
 ---
 
