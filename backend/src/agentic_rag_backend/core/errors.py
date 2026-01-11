@@ -49,6 +49,7 @@ class ErrorCode(str, Enum):
     A2A_DELEGATION_FAILED = "a2a_delegation_failed"
     A2A_REGISTRATION_FAILED = "a2a_registration_failed"
     A2A_PERMISSION_DENIED = "a2a_permission_denied"
+    A2A_AUTH_FAILED = "a2a_auth_failed"
     A2A_SERVICE_UNAVAILABLE = "a2a_service_unavailable"
     # Epic 20 - Memory Platform error codes
     MEMORY_NOT_FOUND = "memory_not_found"
@@ -547,6 +548,17 @@ class A2APermissionError(AppError):
             message=f"A2A operation denied: {reason}",
             status=403,
             details=details,
+        )
+
+
+class A2AAuthFailedError(AppError):
+    """Error when A2A request authentication fails."""
+
+    def __init__(self, reason: str = "A2A request authentication failed") -> None:
+        super().__init__(
+            code=ErrorCode.A2A_AUTH_FAILED,
+            message=reason,
+            status=401,
         )
 
 

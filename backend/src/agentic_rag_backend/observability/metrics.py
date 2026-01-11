@@ -16,6 +16,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import hashlib
 import os
+from threading import Lock
 from typing import Generator
 
 from prometheus_client import (
@@ -31,6 +32,8 @@ logger = structlog.get_logger(__name__)
 
 # Default registry (can be overridden for testing)
 _registry: CollectorRegistry = REGISTRY
+_tenant_label_lock = Lock()
+_tenant_labels_seen: set[str] = set()
 
 
 def _get_tenant_label_mode() -> str:
@@ -52,13 +55,26 @@ def normalize_tenant_label(tenant_id: str) -> str:
 
     mode = _get_tenant_label_mode()
     if mode == "full":
-        return tenant_id
-    if mode == "hash":
+        label = tenant_id
+    elif mode == "hash":
         bucket_count = _get_tenant_label_bucket_count()
         digest = hashlib.sha256(tenant_id.encode("utf-8")).hexdigest()
         bucket = int(digest[:8], 16) % bucket_count
-        return f"bucket-{bucket}"
-    return "global"
+        label = f"bucket-{bucket}"
+    else:
+        label = "global"
+
+    _record_tenant_label(label, mode)
+    return label
+
+
+def _record_tenant_label(label: str, mode: str) -> None:
+    """Track unique tenant labels to monitor cardinality."""
+    with _tenant_label_lock:
+        if label in _tenant_labels_seen:
+            return
+        _tenant_labels_seen.add(label)
+        TENANT_LABEL_CARDINALITY.labels(mode=mode).set(len(_tenant_labels_seen))
 
 
 def get_metrics_registry() -> CollectorRegistry:
@@ -213,6 +229,18 @@ ACTIVE_RETRIEVAL_OPERATIONS = Gauge(
 
 Labels:
     tenant_id: Tenant identifier for multi-tenancy
+"""
+
+TENANT_LABEL_CARDINALITY = Gauge(
+    "metrics_tenant_label_cardinality",
+    "Number of unique tenant_id labels observed",
+    labelnames=["mode"],
+    registry=_registry,
+)
+"""Gauge tracking unique tenant_id labels.
+
+Labels:
+    mode: full|hash|global (from METRICS_TENANT_LABEL_MODE)
 """
 
 

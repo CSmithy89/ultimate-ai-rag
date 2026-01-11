@@ -226,6 +226,8 @@ class Settings:
     a2a_heartbeat_timeout_seconds: int
     a2a_task_default_timeout_seconds: int
     a2a_task_max_retries: int
+    a2a_signing_secret: Optional[str]
+    a2a_signing_ttl_seconds: int
     # Story 22-A2 - A2A Resource Limits settings
     a2a_limits_backend: str
     a2a_session_limit_per_tenant: int
@@ -603,6 +605,16 @@ def load_settings() -> Settings:
     a2a_heartbeat_timeout_seconds = get_int_env("A2A_HEARTBEAT_TIMEOUT_SECONDS", 60, min_val=10)
     a2a_task_default_timeout_seconds = get_int_env("A2A_TASK_DEFAULT_TIMEOUT_SECONDS", 300, min_val=1)
     a2a_task_max_retries = get_int_env("A2A_TASK_MAX_RETRIES", 3, min_val=0)
+    raw_a2a_signing_secret = os.getenv("A2A_SIGNING_SECRET")
+    if raw_a2a_signing_secret is not None and not raw_a2a_signing_secret.strip():
+        logger.warning(
+            "a2a_signing_secret_empty",
+            reason="A2A_SIGNING_SECRET is empty or whitespace; signing disabled",
+        )
+        a2a_signing_secret = None
+    else:
+        a2a_signing_secret = raw_a2a_signing_secret.strip() if raw_a2a_signing_secret else None
+    a2a_signing_ttl_seconds = get_int_env("A2A_SIGNING_TTL_SECONDS", 300, min_val=1)
 
     # Story 22-A2 - A2A Resource Limits settings
     a2a_limits_backend = os.getenv("A2A_LIMITS_BACKEND", "memory").strip().lower()
@@ -1460,6 +1472,8 @@ def load_settings() -> Settings:
         a2a_heartbeat_timeout_seconds=a2a_heartbeat_timeout_seconds,
         a2a_task_default_timeout_seconds=a2a_task_default_timeout_seconds,
         a2a_task_max_retries=a2a_task_max_retries,
+        a2a_signing_secret=a2a_signing_secret,
+        a2a_signing_ttl_seconds=a2a_signing_ttl_seconds,
         # Story 22-A2 - A2A Resource Limits settings
         a2a_limits_backend=a2a_limits_backend,
         a2a_session_limit_per_tenant=a2a_session_limit_per_tenant,

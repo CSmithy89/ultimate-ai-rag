@@ -572,6 +572,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         delegation_config = DelegationConfig(
             default_timeout_seconds=settings.a2a_task_default_timeout_seconds,
             max_retries=settings.a2a_task_max_retries,
+            signing_secret=settings.a2a_signing_secret,
+            signing_ttl_seconds=settings.a2a_signing_ttl_seconds,
         )
         app.state.a2a_delegation_manager = TaskDelegationManager(
             registry=app.state.a2a_registry,

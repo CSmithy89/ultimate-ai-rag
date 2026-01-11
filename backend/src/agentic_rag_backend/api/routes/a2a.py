@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import time
 from typing import Any, AsyncIterator, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
@@ -25,6 +26,7 @@ from ...core.errors import (
     A2AAgentNotFoundError,
     A2ACapabilityNotFoundError,
     A2ADelegationError,
+    A2AAuthFailedError,
     A2AMessageLimitExceededError,
     A2APermissionError,
     A2ARateLimitExceededError,
@@ -46,6 +48,7 @@ from ...protocols.a2a_middleware import (
     A2AAgentInfo as MiddlewareAgentInfo,
     A2AAgentCapability as MiddlewareAgentCapability,
 )
+from ...protocols.a2a_signing import verify_a2a_signature
 from ...protocols.a2a_resource_limits import (
     A2AResourceManager,
     A2AMessageLimitExceeded,
@@ -797,6 +800,25 @@ async def execute_incoming_task(
     if not await limiter.allow(request_body.tenant_id):
         raise rate_limit_exceeded()
 
+    settings = getattr(request.app.state, "settings", None)
+    signing_secret = getattr(settings, "a2a_signing_secret", None)
+    if signing_secret:
+        signature = request.headers.get("X-A2A-Signature")
+        timestamp = request.headers.get("X-A2A-Timestamp")
+        if not verify_a2a_signature(
+            signing_secret,
+            request_body.model_dump(),
+            timestamp,
+            signature,
+            ttl_seconds=getattr(settings, "a2a_signing_ttl_seconds", 300),
+        ):
+            logger.warning(
+                "a2a_signature_invalid",
+                tenant_id=request_body.tenant_id,
+                security_event=True,
+            )
+            raise A2AAuthFailedError("Invalid or missing A2A signature")
+
     # Get the orchestrator to execute capabilities
     orchestrator = getattr(request.app.state, "orchestrator", None)
     if not orchestrator:
@@ -1026,17 +1048,36 @@ async def delegate_to_agent(
         raise
 
     async def event_stream() -> AsyncIterator[str]:
+        event_count = 0
+        bytes_sent = 0
+        started_at = time.monotonic()
         if first_event is not None:
-            yield f"data: {json.dumps(first_event, ensure_ascii=True)}\n\n"
+            payload = f"data: {json.dumps(first_event, ensure_ascii=True)}\n\n"
+            event_count += 1
+            bytes_sent += len(payload.encode("utf-8"))
+            yield payload
         try:
             async for event in delegate_iter:
-                yield f"data: {json.dumps(event, ensure_ascii=True)}\n\n"
+                payload = f"data: {json.dumps(event, ensure_ascii=True)}\n\n"
+                event_count += 1
+                bytes_sent += len(payload.encode("utf-8"))
+                yield payload
         except Exception as exc:
             logger.exception(
                 "a2a_delegation_stream_error",
                 agent_id=agent_id,
                 capability=body.capability_name,
                 error=str(exc),
+            )
+        finally:
+            duration_ms = int((time.monotonic() - started_at) * 1000)
+            logger.info(
+                "a2a_delegation_stream_summary",
+                agent_id=agent_id,
+                capability=body.capability_name,
+                event_count=event_count,
+                bytes_sent=bytes_sent,
+                duration_ms=duration_ms,
             )
 
     headers = {

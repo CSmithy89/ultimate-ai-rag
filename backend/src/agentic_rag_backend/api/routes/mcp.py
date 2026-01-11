@@ -16,6 +16,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
+import structlog
 
 from ...api.utils import build_meta, rate_limit_exceeded
 from ...config import get_settings
@@ -25,6 +26,7 @@ from ...rate_limit import RateLimiter
 from ...validation import is_valid_tenant_id
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
+logger = structlog.get_logger(__name__)
 
 
 class ToolDescriptor(BaseModel):
@@ -90,6 +92,8 @@ def maybe_sign_mcp_ui_result(
     result: dict[str, Any],
     secret: str,
     enabled: bool,
+    allowed_origins: list[str] | None = None,
+    tenant_id: str | None = None,
 ) -> dict[str, Any]:
     """Sign MCP-UI payload URLs when MCP-UI is enabled."""
     if not enabled:
@@ -99,6 +103,19 @@ def maybe_sign_mcp_ui_result(
     ui_url = result.get("ui_url")
     if not isinstance(ui_url, str):
         return result
+    if allowed_origins:
+        origin = None
+        parsed = urlsplit(ui_url)
+        if parsed.scheme and parsed.netloc:
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+        if not origin or origin not in {o.rstrip("/") for o in allowed_origins}:
+            logger.warning(
+                "mcp_ui_origin_blocked",
+                tenant_id=tenant_id,
+                origin=origin or "unknown",
+                security_event=True,
+            )
+            return result
     signed_url = sign_mcp_ui_url(
         ui_url=ui_url,
         secret=secret,
@@ -165,6 +182,8 @@ async def call_tool(
             result,
             secret=settings.mcp_ui_signing_secret,
             enabled=settings.mcp_ui_enabled,
+            allowed_origins=settings.mcp_ui_allowed_origins,
+            tenant_id=tenant_id,
         )
 
     return ToolCallResponse(tool=request_body.tool, result=result, meta=build_meta())
