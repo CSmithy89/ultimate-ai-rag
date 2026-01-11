@@ -47,7 +47,7 @@ _registry = get_metrics_registry()
 KNOWN_EVENT_TYPES: frozenset[str] = frozenset({
     "RUN_STARTED",
     "RUN_FINISHED",
-    "RUN_ERROR",
+    "RUN_ERROR",  # Story 22-B2: Extended error events
     "TEXT_MESSAGE_START",
     "TEXT_MESSAGE_CONTENT",
     "TEXT_MESSAGE_END",
