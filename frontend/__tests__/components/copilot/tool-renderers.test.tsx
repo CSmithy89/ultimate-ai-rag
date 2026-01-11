@@ -20,6 +20,12 @@ jest.mock("@/components/open-json-ui/OpenJSONUIRenderer", () => ({
   OpenJSONUIRenderer: () => <div data-testid="open-json-ui-renderer" />,
 }));
 
+jest.mock("@/components/copilot/MCPToolCallCard", () => ({
+  MCPToolCallCard: ({ name }: { name: string }) => (
+    <div data-testid="mcp-tool-card">{name}</div>
+  ),
+}));
+
 jest.mock("@/components/copilot/CopilotErrorBoundary", () => ({
   CopilotErrorBoundary: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
@@ -78,5 +84,44 @@ describe("tool renderers", () => {
 
     render(element);
     expect(screen.getByTestId("open-json-ui-renderer")).toBeInTheDocument();
+  });
+
+  it("falls back to MCPToolCallCard for malformed Open-JSON-UI payloads", () => {
+    render(<Harness />);
+    const renderer = renderers.get("*");
+    expect(renderer).toBeDefined();
+
+    const element = renderer!({
+      name: "custom_tool",
+      args: {},
+      status: "Complete",
+      result: {
+        type: "open_json_ui",
+        components: [{ type: "unknown", content: "bad" }],
+      },
+    });
+
+    render(element);
+    expect(screen.getByTestId("mcp-tool-card")).toHaveTextContent("custom_tool");
+  });
+
+  it("falls back to MCPToolCallCard for malformed MCP-UI payloads", () => {
+    render(<Harness />);
+    const renderer = renderers.get("*");
+    expect(renderer).toBeDefined();
+
+    const element = renderer!({
+      name: "custom_tool",
+      args: {},
+      status: "Complete",
+      result: {
+        type: "mcp_ui",
+        tool_name: "bad-ui",
+        ui_type: "iframe",
+      },
+    });
+
+    render(element);
+    expect(screen.getByTestId("mcp-tool-card")).toHaveTextContent("custom_tool");
   });
 });

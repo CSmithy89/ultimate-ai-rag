@@ -229,7 +229,10 @@ describe('MCPUIRenderer', () => {
       render(<MCPUIRenderer payload={createMockPayload()} tenantId="test-tenant-123" />);
 
       await waitFor(() => {
-        expect(mockLoadAllowedOrigins).toHaveBeenCalledWith('test-tenant-123');
+        expect(mockLoadAllowedOrigins).toHaveBeenCalledWith(
+          'test-tenant-123',
+          expect.any(AbortSignal)
+        );
       });
     });
 
