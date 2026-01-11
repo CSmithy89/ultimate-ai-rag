@@ -206,6 +206,8 @@ A2A_ENABLED=true
 # Delegation behavior
 A2A_TASK_DEFAULT_TIMEOUT_SECONDS=300
 A2A_TASK_MAX_RETRIES=3
+A2A_SIGNING_SECRET=  # Optional shared secret for agent-to-agent signing
+A2A_SIGNING_TTL_SECONDS=300
 
 # Resource limits
 A2A_SESSION_LIMIT_PER_TENANT=100
@@ -301,6 +303,16 @@ def is_safe_endpoint_url(url: str) -> bool:
     - Link-local and reserved addresses
     """
 ```
+
+### Request Signing
+
+If `A2A_SIGNING_SECRET` is configured, incoming `POST /a2a/execute` requests must
+include signed headers:
+
+- `X-A2A-Timestamp`: Unix timestamp (seconds)
+- `X-A2A-Signature`: HMAC-SHA256 of `{timestamp}.{canonical_json_body}`
+
+Requests are rejected when the timestamp skew exceeds `A2A_SIGNING_TTL_SECONDS`.
 
 ### Tenant Isolation
 

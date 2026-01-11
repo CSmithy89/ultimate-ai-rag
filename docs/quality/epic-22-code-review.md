@@ -41,22 +41,22 @@ Scope: A2A middleware + resource limits, AG-UI metrics/errors, MCP-UI, Open-JSON
 - [x] Remove unused Redis Lua SHA attributes or implement script caching (EVALSHA). `backend/src/agentic_rag_backend/protocols/a2a_resource_limits.py`
 
 ## Testing & Quality Notes
-- [ ] Replace real sleeps in tests with time mocking to avoid flakiness.
-- [ ] Isolate Prometheus CollectorRegistry per test to prevent cross-test pollution.
+- [x] Replace real sleeps in tests with time mocking to avoid flakiness.
+- [x] Isolate Prometheus CollectorRegistry per test to prevent cross-test pollution.
 - [x] Avoid asserting on Prometheus internal attributes (`_name`, `_labelnames`).
-- [ ] Add E2E test for A2A delegation → MCP-UI rendering.
-- [ ] Add frontend edge-case tests for network failures and malformed UI payloads.
+- [x] Add E2E test for A2A delegation → MCP-UI rendering.
+- [x] Add frontend edge-case tests for network failures and malformed UI payloads.
 
 ## Performance & Operational Watchlist
-- [ ] Monitor SSE stream memory usage for long-running streams.
-- [ ] Redis Lua scripts are atomic but block; monitor execution time under load.
-- [ ] Prometheus tenant_id label cardinality should be monitored in production.
+- [x] Monitor SSE stream memory usage for long-running streams.
+- [x] Redis Lua scripts are atomic but block; monitor execution time under load.
+- [x] Prometheus tenant_id label cardinality should be monitored in production.
 
 ## Security Review Recommendations
-- [ ] Add API gateway rate limiting in addition to in-app limits.
+- [x] Add API gateway rate limiting in addition to in-app limits.
 - [x] Add CSP headers for MCP-UI iframe responses.
-- [ ] Add request signing for A2A agent-to-agent communication.
-- [ ] Log security events (blocked origins, SSRF attempts) to SIEM.
+- [x] Add request signing for A2A agent-to-agent communication.
+- [x] Log security events (blocked origins, SSRF attempts) to SIEM.
 
 ## Investigation Notes (Resolved Questions)
 ### Canonical A2A Middleware API
