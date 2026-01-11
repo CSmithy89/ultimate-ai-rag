@@ -1,6 +1,7 @@
 # Story 22-TD6: Prepare for CopilotKit 2.x Migration
 
-Status: backlog
+Status: blocked
+Blocked-Reason: CopilotKit 2.x not yet released as stable (current: 1.50.1)
 
 Epic: 22 - Advanced Protocol Integration
 Priority: P1 - MEDIUM (When CopilotKit 2.x stable)
