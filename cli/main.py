@@ -4,6 +4,7 @@ import typer
 
 from cli.commands.install import run_install
 from cli.commands.setup import run_setup
+from cli.commands.doctor import run_doctor
 
 app = typer.Typer(add_completion=False)
 
@@ -38,6 +39,16 @@ def setup(
     yes: bool = typer.Option(False, "--yes"),
 ) -> None:
     run_setup(category=category, profile=profile, yes=yes)
+
+
+@app.command("doctor")
+def doctor(
+    quick: bool = typer.Option(False, "--quick"),
+    json_output: bool = typer.Option(False, "--json"),
+    service: str | None = typer.Option(None, "--service"),
+    fix: bool = typer.Option(False, "--fix"),
+) -> None:
+    run_doctor(quick=quick, json_output=json_output, service=service, fix=fix)
 
 
 if __name__ == "__main__":

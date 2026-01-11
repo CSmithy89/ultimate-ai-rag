@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>17-15</story-id>
+    <story-title>Implement CLI Doctor Validate Command</story-title>
+    <epic>17 - Developer Experience, CLI &amp; Framework Integration</epic>
+    <generated>2026-01-12</generated>
+  </metadata>
+
+  <objective>
+    Add a doctor command that validates config and service health.
+  </objective>
+
+  <files-to-update>
+    <file path="cli/commands/doctor.py">doctor command implementation</file>
+    <file path="cli/main.py">wire doctor command</file>
+  </files-to-update>
+
+  <references>
+    <ref path=".env.example">expected config file</ref>
+    <ref path="config/profiles">profile files</ref>
+  </references>
+</story-context>
