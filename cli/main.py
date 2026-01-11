@@ -3,6 +3,7 @@ from __future__ import annotations
 import typer
 
 from cli.commands.install import run_install
+from cli.commands.setup import run_setup
 
 app = typer.Typer(add_completion=False)
 
@@ -28,6 +29,15 @@ def rag_install(
         dry_run=dry_run,
         with_skills=with_skills,
     )
+
+
+@app.command("setup")
+def setup(
+    category: str | None = typer.Option(None, "--category"),
+    profile: str | None = typer.Option(None, "--profile"),
+    yes: bool = typer.Option(False, "--yes"),
+) -> None:
+    run_setup(category=category, profile=profile, yes=yes)
 
 
 if __name__ == "__main__":

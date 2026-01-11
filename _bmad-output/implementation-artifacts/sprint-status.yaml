@@ -257,7 +257,7 @@ development_status:
   # NEW (2026-01-11): Profile-based configuration and comprehensive CLI coverage
   17-8-implement-profile-based-config-architecture: done
   # Foundation story: YAML profiles (minimal/standard/enterprise), config loader, schema validation
-  17-9-implement-cli-ingestion-source-config: backlog
+  17-9-implement-cli-ingestion-source-config: done
   # Crawl4AI, PDF/Docling, YouTube, External Sync, Codebase indexing
   17-10-implement-cli-memory-graph-config: backlog
   # Memory scopes, consolidation, community detection, LazyRAG, query routing
