@@ -1,0 +1,328 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>13-2</story-id>
+    <title>Implement YouTube Transcript API Ingestion</title>
+    <epic>13 - Enterprise Ingestion</epic>
+    <created>2026-01-04</created>
+    <agent-model>Claude Opus 4.5</agent-model>
+  </metadata>
+
+  <project-conventions>
+    <naming>
+      <python>snake_case for functions, PascalCase for classes, SCREAMING_SNAKE for constants</python>
+      <files>snake_case.py for Python modules</files>
+    </naming>
+    <patterns>
+      <validation>Pydantic models for all data structures</validation>
+      <logging>structlog for structured logging</logging>
+      <errors>Raise domain-specific exceptions with clear messages</errors>
+      <async>Use asyncio.to_thread for blocking I/O operations</async>
+    </patterns>
+  </project-conventions>
+
+  <dependencies>
+    <existing>
+      <dependency name="structlog" version=">=24.0.0">Structured logging</dependency>
+      <dependency name="pydantic" version=">=2.0.0">Data validation</dependency>
+      <dependency name="asyncio">Async support (stdlib)</dependency>
+    </existing>
+    <new>
+      <dependency name="youtube-transcript-api" version=">=0.6.0">YouTube transcript fetching</dependency>
+    </new>
+  </dependencies>
+
+  <implementation-scope>
+    <in-scope>
+      <item>Create youtube_ingestion.py module with Pydantic models</item>
+      <item>Implement video ID extraction from various URL formats</item>
+      <item>Implement async transcript fetching using youtube-transcript-api</item>
+      <item>Implement duration-based chunking with timestamp metadata</item>
+      <item>Add configuration settings for preferred languages and chunk duration</item>
+      <item>Handle transcript errors with clear error messages</item>
+      <item>Write comprehensive unit tests with mocked API calls</item>
+    </in-scope>
+    <out-of-scope>
+      <item>Full video download and Whisper transcription</item>
+      <item>YouTube Data API integration for video metadata</item>
+      <item>Database storage of transcripts (handled by indexing pipeline)</item>
+      <item>GraphQL or REST API endpoints (existing indexing API handles this)</item>
+    </out-of-scope>
+  </implementation-scope>
+
+  <file-locations>
+    <source>
+      <file path="backend/src/agentic_rag_backend/indexing/youtube_ingestion.py" action="CREATE">Main YouTube ingestion module</file>
+      <file path="backend/src/agentic_rag_backend/config.py" action="MODIFY">Add YouTube configuration settings</file>
+      <file path="backend/src/agentic_rag_backend/indexing/__init__.py" action="MODIFY">Add exports</file>
+      <file path="backend/pyproject.toml" action="MODIFY">Add youtube-transcript-api dependency</file>
+    </source>
+    <tests>
+      <file path="backend/tests/test_youtube_ingestion.py" action="CREATE">Unit tests for YouTube ingestion</file>
+    </tests>
+    <reference>
+      <file path="backend/src/agentic_rag_backend/indexing/chunker.py">Reference for ChunkData pattern</file>
+      <file path="backend/src/agentic_rag_backend/indexing/fallback_providers.py">Reference for Pydantic patterns</file>
+      <file path="_bmad-output/epics/epic-13-tech-spec.md">Technical specification</file>
+    </reference>
+  </file-locations>
+
+  <technical-requirements>
+    <url-patterns>
+      <pattern regex="youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})">Standard watch URL</pattern>
+      <pattern regex="youtu\.be/([a-zA-Z0-9_-]{11})">Short URL</pattern>
+      <pattern regex="youtube\.com/embed/([a-zA-Z0-9_-]{11})">Embed URL</pattern>
+    </url-patterns>
+
+    <config-settings>
+      <setting name="youtube_preferred_languages" type="list[str]" default='["en", "en-US"]' env="YOUTUBE_PREFERRED_LANGUAGES"/>
+      <setting name="youtube_chunk_duration_seconds" type="int" default="120" env="YOUTUBE_CHUNK_DURATION_SECONDS"/>
+    </config-settings>
+
+    <error-handling>
+      <error type="TranscriptsDisabled" message="Subtitles are disabled for this video"/>
+      <error type="NoTranscriptFound" message="No transcript found in languages: {languages}"/>
+      <error type="VideoUnavailable" message="Video is unavailable"/>
+      <error type="ValueError" message="Could not extract video ID from: {url}"/>
+    </error-handling>
+
+    <performance>
+      <requirement>Ingestion completes in under 30 seconds for typical videos</requirement>
+      <requirement>Use asyncio.to_thread for blocking youtube-transcript-api calls</requirement>
+    </performance>
+  </technical-requirements>
+
+  <pydantic-models>
+    <model name="TranscriptSegment">
+      <field name="text" type="str" description="Transcript text for this segment"/>
+      <field name="start" type="float" description="Start time in seconds"/>
+      <field name="duration" type="float" description="Duration in seconds"/>
+    </model>
+
+    <model name="YouTubeTranscriptResult">
+      <field name="video_id" type="str" description="YouTube video ID"/>
+      <field name="title" type="Optional[str]" description="Video title (if available)"/>
+      <field name="language" type="str" description="Transcript language code"/>
+      <field name="is_generated" type="bool" description="Whether transcript is auto-generated"/>
+      <field name="segments" type="list[TranscriptSegment]" description="Transcript segments"/>
+      <field name="full_text" type="str" description="Complete transcript text"/>
+      <field name="duration_seconds" type="float" description="Total video duration"/>
+    </model>
+
+    <model name="TranscriptChunk">
+      <field name="content" type="str" description="Chunk text content"/>
+      <field name="start_time" type="float" description="Start time in seconds"/>
+      <field name="end_time" type="float" description="End time in seconds"/>
+      <field name="video_id" type="str" description="YouTube video ID"/>
+      <field name="chunk_index" type="int" description="Index of this chunk"/>
+    </model>
+
+    <model name="YouTubeIngestionResult">
+      <field name="video_id" type="str" description="YouTube video ID"/>
+      <field name="source_url" type="str" description="Original YouTube URL"/>
+      <field name="language" type="str" description="Transcript language"/>
+      <field name="is_generated" type="bool" description="Whether transcript is auto-generated"/>
+      <field name="chunks" type="list[TranscriptChunk]" description="Transcript chunks for indexing"/>
+      <field name="duration_seconds" type="float" description="Total video duration"/>
+      <field name="full_text" type="str" description="Complete transcript text"/>
+    </model>
+  </pydantic-models>
+
+  <test-cases>
+    <test-group name="Video ID Extraction">
+      <test name="test_extract_video_id_standard_watch_url">Extract from youtube.com/watch?v=X</test>
+      <test name="test_extract_video_id_short_url">Extract from youtu.be/X</test>
+      <test name="test_extract_video_id_embed_url">Extract from youtube.com/embed/X</test>
+      <test name="test_extract_video_id_with_timestamp">Extract with t=120 parameter</test>
+      <test name="test_extract_video_id_with_playlist">Extract with list=Y parameter</test>
+      <test name="test_extract_video_id_invalid_url">Raise ValueError for invalid URL</test>
+    </test-group>
+
+    <test-group name="Transcript Fetching">
+      <test name="test_fetch_transcript_success">Mock successful transcript fetch</test>
+      <test name="test_fetch_transcript_disabled">Mock TranscriptsDisabled error</test>
+      <test name="test_fetch_transcript_not_found">Mock NoTranscriptFound error</test>
+      <test name="test_fetch_transcript_unavailable">Mock VideoUnavailable error</test>
+      <test name="test_fetch_transcript_language_fallback">Fallback to available language</test>
+    </test-group>
+
+    <test-group name="Transcript Chunking">
+      <test name="test_chunk_transcript_by_duration">Chunk 6-minute video into 3 chunks (2-min each)</test>
+      <test name="test_chunk_transcript_metadata">Verify start_time and end_time in chunks</test>
+      <test name="test_chunk_transcript_short_video">Single chunk for video under chunk_duration</test>
+      <test name="test_chunk_transcript_includes_video_id">Verify video_id in chunk metadata</test>
+    </test-group>
+
+    <test-group name="Ingestion Workflow">
+      <test name="test_ingest_youtube_video_success">Full workflow with mocked API</test>
+      <test name="test_ingest_youtube_video_error_handling">Error propagation and logging</test>
+    </test-group>
+  </test-cases>
+
+  <code-examples>
+    <example name="Video ID Extraction">
+```python
+import re
+from typing import Optional
+
+VIDEO_ID_PATTERNS = [
+    r'(?:v=|/embed/|youtu\.be/)([a-zA-Z0-9_-]{11})',
+]
+
+def extract_video_id(url: str) -> str:
+    """Extract YouTube video ID from various URL formats.
+
+    Args:
+        url: YouTube URL in any supported format
+
+    Returns:
+        11-character video ID
+
+    Raises:
+        ValueError: If video ID cannot be extracted
+    """
+    for pattern in VIDEO_ID_PATTERNS:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    raise ValueError(f"Could not extract video ID from: {url}")
+```
+    </example>
+
+    <example name="Async Transcript Fetching">
+```python
+import asyncio
+from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api._errors import (
+    TranscriptsDisabled,
+    NoTranscriptFound,
+    VideoUnavailable,
+)
+
+async def fetch_transcript(
+    video_id: str,
+    languages: list[str],
+) -> YouTubeTranscriptResult:
+    """Fetch transcript for a YouTube video.
+
+    Args:
+        video_id: YouTube video ID
+        languages: Preferred languages in order
+
+    Returns:
+        YouTubeTranscriptResult with transcript data
+
+    Raises:
+        YouTubeIngestionError: If transcript cannot be fetched
+    """
+    try:
+        # Run blocking API call in thread pool
+        transcript_list = await asyncio.to_thread(
+            YouTubeTranscriptApi.list_transcripts,
+            video_id,
+        )
+
+        # Find transcript in preferred language
+        transcript = transcript_list.find_transcript(languages)
+        segments_data = await asyncio.to_thread(transcript.fetch)
+
+        # Convert to Pydantic models
+        segments = [
+            TranscriptSegment(
+                text=seg["text"],
+                start=seg["start"],
+                duration=seg["duration"],
+            )
+            for seg in segments_data
+        ]
+
+        full_text = " ".join(seg.text for seg in segments)
+        duration = max(s.start + s.duration for s in segments) if segments else 0.0
+
+        return YouTubeTranscriptResult(
+            video_id=video_id,
+            language=transcript.language_code,
+            is_generated=transcript.is_generated,
+            segments=segments,
+            full_text=full_text,
+            duration_seconds=duration,
+        )
+
+    except TranscriptsDisabled:
+        raise YouTubeIngestionError(
+            video_id=video_id,
+            reason="Subtitles are disabled for this video",
+        )
+    except NoTranscriptFound:
+        raise YouTubeIngestionError(
+            video_id=video_id,
+            reason=f"No transcript found in languages: {languages}",
+        )
+    except VideoUnavailable:
+        raise YouTubeIngestionError(
+            video_id=video_id,
+            reason="Video is unavailable",
+        )
+```
+    </example>
+
+    <example name="Duration-Based Chunking">
+```python
+def chunk_transcript(
+    result: YouTubeTranscriptResult,
+    chunk_duration_seconds: int = 120,
+) -> list[TranscriptChunk]:
+    """Chunk transcript by time duration.
+
+    Args:
+        result: YouTube transcript result
+        chunk_duration_seconds: Target chunk duration (default 2 minutes)
+
+    Returns:
+        List of transcript chunks with timestamp metadata
+    """
+    chunks = []
+    current_texts = []
+    current_start = 0.0
+    chunk_index = 0
+
+    for segment in result.segments:
+        current_texts.append(segment.text)
+        segment_end = segment.start + segment.duration
+
+        # Check if we've exceeded chunk duration
+        if segment_end - current_start >= chunk_duration_seconds:
+            chunks.append(TranscriptChunk(
+                content=" ".join(current_texts),
+                start_time=current_start,
+                end_time=segment_end,
+                video_id=result.video_id,
+                chunk_index=chunk_index,
+            ))
+            current_texts = []
+            current_start = segment_end
+            chunk_index += 1
+
+    # Don't forget the last chunk
+    if current_texts:
+        chunks.append(TranscriptChunk(
+            content=" ".join(current_texts),
+            start_time=current_start,
+            end_time=result.duration_seconds,
+            video_id=result.video_id,
+            chunk_index=chunk_index,
+        ))
+
+    return chunks
+```
+    </example>
+  </code-examples>
+
+  <acceptance-verification>
+    <criterion id="1" verification="Unit test: test_fetch_transcript_success mocks API and verifies transcript fetching"/>
+    <criterion id="2" verification="Unit tests: test_fetch_transcript_disabled, test_fetch_transcript_not_found, test_fetch_transcript_unavailable verify error handling"/>
+    <criterion id="3" verification="Unit tests: test_chunk_transcript_metadata, test_chunk_transcript_includes_video_id verify chunk metadata"/>
+    <criterion id="4" verification="Performance is inherent to youtube-transcript-api (no video download); verify with timing assertion in test"/>
+    <criterion id="5" verification="Unit tests for all URL formats: watch, short, embed, with parameters"/>
+  </acceptance-verification>
+</story-context>

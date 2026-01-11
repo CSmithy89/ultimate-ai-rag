@@ -1,5 +1,75 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- Consolidated BMAD artifacts under `_bmad-output/` (epics, stories, retrospectives, reviews) and updated references; `docs/` now focuses on user/developer guidance.
+
+## [Epic 21] - CopilotKit Full Integration - 2026-01-06
+
+### Added
+- A2UI widget rendering (card, table, form, chart, image, list)
+- MCP client tool bridge with retry logic
+- CopilotKit backend action handlers for tool execution
+- Source validation tooling with Zod schemas
+- Voice I/O: speech-to-text (Whisper) and text-to-speech (OpenAI/ElevenLabs/pyttsx3)
+- Telemetry endpoint with PII sanitization and Prometheus metrics
+
+### Changed
+- None
+
+### Fixed
+- None
+
+## [Epic 20] - Advanced Retrieval Intelligence - 2026-01-05
+
+### Added
+- Memory scopes (user/session/agent/global) with hierarchical inheritance
+- Memory consolidation with deduplication, decay, and cleanup
+- Community detection with Louvain algorithm for graph summaries
+- Query routing (global vs local retrieval based on query type)
+- Graph rerankers (episode recency, distance-based, hybrid)
+- Hierarchical chunking and dual-level retrieval
+- Prometheus metrics for retrieval quality monitoring
+
+### Changed
+- None
+
+### Fixed
+- None
+
+## [Epic 19] - Quality Foundation & Tech Debt Resolution - 2026-01-04
+
+### Added
+- Externalized crawl profile mappings with YAML config and tuning guides
+- Configurable user-agent rotation strategies for crawling
+- Deprecated crawler aliases with migration guidance
+- Async HTML parsing for large documents and crawl-many error recovery
+- Bloom filter visited sets and enforced crawl rate limiting
+- Strict crawl config and fallback credential validation
+- Docling-based MCP PDF ingestion with page-level chunking
+- Crawler operational guides (profiles, memory, parsing)
+
+### Changed
+- None
+
+### Fixed
+- None
+
+## [Epic 14] - Connectivity (MCP Wrapper Architecture) - 2026-01-04
+
+### Added
+- MCP server wrapper over Graphiti with RAG-specific tools
+- RAG tool extensions for vector search, ingestion, and reranking
+- A2A protocol enhancements for discovery and task delegation
+- External client integrations via MCP stdio/HTTP transports
+
+### Changed
+- None
+
+### Fixed
+- None
+
 ## [Epic 15] - Codebase Intelligence - 2026-01-04
 
 ### Added
@@ -8,6 +78,34 @@
 - Codebase API endpoints for validation, indexing, search, and cache management (`/api/v1/codebase/...`)
 - CODEBASE_* configuration flags for detection, indexing, and chunking behavior
 - Dependency-aware import validation via repo manifests (pyproject/requirements/package.json)
+
+### Changed
+- None
+
+### Fixed
+- None
+
+## [Epic 13] - Enterprise Ingestion - 2026-01-04
+
+### Added
+- Crawl4AI migration for JavaScript rendering and parallel crawling
+- YouTube transcript API ingestion for video content
+- Apify/Brightdata fallback for anti-bot protected sites
+- Crawl configuration profiles (fast/thorough/stealth) with auto-detection
+
+### Changed
+- None
+
+### Fixed
+- None
+
+## [Epic 12] - Advanced Retrieval (Archon Upgrade) - 2026-01-04
+
+### Added
+- Cross-encoder reranking with Cohere and FlashRank providers
+- Contextual retrieval chunking with prompt caching for cost reduction
+- Corrective RAG (CRAG) grader agent with web search fallback (Tavily)
+- Config flags: `RERANKER_ENABLED`, `CONTEXTUAL_RETRIEVAL_ENABLED`, `GRADER_ENABLED`
 
 ### Changed
 - None

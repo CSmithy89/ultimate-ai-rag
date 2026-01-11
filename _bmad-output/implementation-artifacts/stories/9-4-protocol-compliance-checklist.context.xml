@@ -1,0 +1,22 @@
+<storyContext>
+  <story id="9.4" title="Protocol Compliance Checklist" epic="9" />
+
+  <summary>
+    Publish a protocol compliance checklist for API routes and
+    embed it in the PR workflow.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Checklist covers rate limiting, tenant isolation, validation, and error format.</acceptanceCriteria>
+    <acceptanceCriteria>PR template references the checklist for API changes.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Checklist must be concise and actionable.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="_bmad-output/epics/epic-9-tech-spec.md" section="Story Breakdown" />
+    <reference path="_bmad-output/epics/epic-9-process-quality-foundation.md" section="Story 9.4" />
+  </references>
+</storyContext>

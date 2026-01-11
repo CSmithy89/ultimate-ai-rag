@@ -1,0 +1,1850 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>4.3</story-id>
+    <story-name>Agentic Entity Extraction</story-name>
+    <epic>Epic 4: Knowledge Ingestion Pipeline</epic>
+    <status>ready-for-dev</status>
+    <generated>2025-12-28</generated>
+    <depends-on>Story 4.1 (URL Documentation Crawling), Story 4.2 (PDF Document Parsing)</depends-on>
+  </metadata>
+
+  <summary>
+    <description>
+      Implement an Agentic Indexer using Agno that autonomously extracts entities and
+      relationships from document chunks using LLM-based extraction. Build a dual storage
+      architecture with Neo4j for knowledge graph (entities/relationships) and pgvector
+      for semantic embeddings. Includes semantic chunking, embedding generation, and
+      entity deduplication to prevent graph fragmentation.
+    </description>
+    <user-story>
+      As a data engineer,
+      I want an agent to autonomously extract entities and relationships from text,
+      So that the knowledge graph is built without manual schema mapping.
+    </user-story>
+  </summary>
+
+  <acceptance-criteria>
+    <criterion id="AC1">
+      Given document chunks are ready for indexing, when the Agentic Indexer processes them,
+      then it identifies named entities including people, organizations, technologies, concepts,
+      and locations with appropriate type labels.
+    </criterion>
+    <criterion id="AC2">
+      Given entities have been identified in a chunk, when the Agentic Indexer analyzes the context,
+      then it extracts relationships between entities with relationship types (MENTIONS, AUTHORED_BY,
+      PART_OF, USES, RELATED_TO) and confidence scores.
+    </criterion>
+    <criterion id="AC3">
+      Given entities have been extracted, when the graph builder processes them, then Neo4j nodes
+      are created with appropriate labels (Entity, Person, Organization, Technology, Concept, Location)
+      and properties including tenant_id, name, type, description, and source_chunks.
+    </criterion>
+    <criterion id="AC4">
+      Given relationships have been extracted, when the graph builder processes them, then Neo4j
+      edges are created with relationship types, confidence scores, and source chunk references.
+    </criterion>
+    <criterion id="AC5">
+      Given document chunks are processed, when the embedding generator runs, then chunk embeddings
+      are stored in pgvector with proper tenant_id isolation and document_id references.
+    </criterion>
+    <criterion id="AC6">
+      Given the Agentic Indexer is processing chunks, when it makes extraction decisions, then each
+      thought, action, and observation is logged using Agno's trajectory logging patterns
+      (agent.log_thought, agent.log_action, agent.log_observation).
+    </criterion>
+    <criterion id="AC7">
+      Given entities are being created, when duplicate or similar entities are detected, then entity
+      deduplication is performed using name matching and embedding similarity to prevent graph
+      fragmentation.
+    </criterion>
+  </acceptance-criteria>
+
+  <architecture-decisions>
+    <decision id="AD1" category="agent-framework">
+      <title>Agno-based Agentic Indexer</title>
+      <description>
+        Use Agno v2.3.21 for the Agentic Indexer agent. Configure with OpenAI GPT-4o model
+        and structured JSON output mode for reliable entity extraction parsing.
+      </description>
+      <code-example>
+        <![CDATA[
+from agno.agent import Agent
+from agno.models.openai import OpenAIChat
+
+indexer_agent = Agent(
+    name="IndexerAgent",
+    model=OpenAIChat(id="gpt-4o"),
+    instructions=[
+        "Extract named entities (people, organizations, concepts, technologies, locations)",
+        "Identify relationships between entities",
+        "Output structured JSON following the EntityGraph schema",
+        "Assign confidence scores (0.0-1.0) based on extraction certainty"
+    ],
+    structured_output=True  # Enable JSON mode
+)
+        ]]>
+      </code-example>
+    </decision>
+
+    <decision id="AD2" category="dual-storage">
+      <title>Dual Storage Architecture</title>
+      <description>
+        Implement dual storage pattern:
+        - Chunks with embeddings stored in pgvector (for semantic search)
+        - Entities and relationships stored in Neo4j (for graph traversal)
+        - Cross-reference via chunk_id in entity's source_chunks array
+      </description>
+    </decision>
+
+    <decision id="AD3" category="chunking">
+      <title>Semantic Chunking Strategy</title>
+      <description>
+        Use overlapping semantic chunks with:
+        - Chunk size: 512 tokens
+        - Chunk overlap: 64 tokens
+        - Token counting via tiktoken cl100k_base encoding (GPT-4 compatible)
+        - Preserve section boundaries where possible
+      </description>
+    </decision>
+
+    <decision id="AD4" category="embedding">
+      <title>Embedding Model Selection</title>
+      <description>
+        Use OpenAI text-embedding-ada-002 (1536 dimensions) for chunk embeddings.
+        Implement batch processing for efficiency with exponential backoff retry.
+      </description>
+    </decision>
+
+    <decision id="AD5" category="entity-extraction">
+      <title>LLM-Based Entity Extraction</title>
+      <description>
+        Entity types: Person, Organization, Technology, Concept, Location
+        Relationship types: MENTIONS, AUTHORED_BY, PART_OF, USES, RELATED_TO
+        Use structured JSON output with confidence scores (0.0-1.0).
+      </description>
+    </decision>
+
+    <decision id="AD6" category="graph-operations">
+      <title>Idempotent Neo4j Operations</title>
+      <description>
+        Use MERGE operations for node creation to ensure idempotency.
+        All nodes and relationships must include tenant_id property.
+        Create indexes on entity_id, tenant_id, and type for performance.
+      </description>
+    </decision>
+
+    <decision id="AD7" category="deduplication">
+      <title>Entity Deduplication Strategy</title>
+      <description>
+        1. Name normalization: Lowercase, trim whitespace, handle common variations
+        2. Type matching: Only dedupe entities of the same type
+        3. Embedding similarity: Use cosine similarity threshold (0.95) for fuzzy matching
+        4. Merge strategy: When duplicates detected, merge source_chunks arrays and keep richest description
+      </description>
+    </decision>
+
+    <decision id="AD8" category="multi-tenancy">
+      <title>Multi-Tenancy Isolation</title>
+      <description>
+        Every database operation MUST include tenant_id filtering:
+        - All Neo4j nodes have tenant_id property
+        - All Neo4j queries filter by tenant_id
+        - All pgvector queries filter by tenant_id
+        - Entities are namespaced per tenant
+      </description>
+    </decision>
+
+    <decision id="AD9" category="trajectory-logging">
+      <title>Trajectory Logging Requirements</title>
+      <description>
+        All agent decisions must use Agno trajectory logging:
+        - agent.log_thought() for reasoning steps
+        - agent.log_action() for tool/action calls
+        - agent.log_observation() for results and observations
+      </description>
+    </decision>
+  </architecture-decisions>
+
+  <technology-stack>
+    <technology name="Agno" version="2.3.21" purpose="Agent orchestration framework"/>
+    <technology name="OpenAI GPT-4o" purpose="Entity extraction LLM"/>
+    <technology name="OpenAI text-embedding-ada-002" purpose="Chunk embeddings (1536 dimensions)"/>
+    <technology name="Neo4j" version="5.x Community" purpose="Knowledge graph storage"/>
+    <technology name="pgvector" purpose="Vector embeddings storage"/>
+    <technology name="tiktoken" version=">=0.5.0" purpose="Token counting for chunking"/>
+    <technology name="tenacity" version=">=8.0.0" purpose="Retry logic with exponential backoff"/>
+    <technology name="Redis" version="7.x" purpose="Job queue via Redis Streams (index.jobs)"/>
+    <technology name="PostgreSQL" version="16.x" purpose="Chunk storage with pgvector"/>
+    <technology name="Python" version="3.11+" purpose="Backend runtime"/>
+  </technology-stack>
+
+  <database-schema>
+    <postgresql>
+      <table name="chunks">
+        <description>Document chunks with embeddings for semantic search</description>
+        <sql>
+          <![CDATA[
+-- Chunks table with pgvector embedding
+CREATE TABLE IF NOT EXISTS chunks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    token_count INTEGER NOT NULL,
+    embedding vector(1536), -- OpenAI ada-002 dimension
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Indexes for chunks table
+CREATE INDEX IF NOT EXISTS idx_chunks_tenant_id ON chunks(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id);
+
+-- IVFFlat index for vector similarity search
+CREATE INDEX IF NOT EXISTS idx_chunks_embedding ON chunks
+USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+          ]]>
+        </sql>
+      </table>
+    </postgresql>
+
+    <neo4j>
+      <description>Neo4j node labels and relationships for knowledge graph</description>
+      <schema>
+        <![CDATA[
+// Node Labels and Properties
+
+// Entity node (base for all entity types)
+(:Entity {
+    id: String,           // UUID
+    tenant_id: String,    // UUID for multi-tenancy
+    name: String,
+    type: String,         // Person | Organization | Technology | Concept | Location
+    description: String,
+    properties: Map,
+    source_chunks: [String], // Array of chunk IDs
+    embedding: [Float],   // Optional entity embedding for deduplication
+    created_at: DateTime,
+    updated_at: DateTime
+})
+
+// Document node (represents ingested documents)
+(:Document {
+    id: String,
+    tenant_id: String,
+    title: String,
+    source_url: String,
+    source_type: String,
+    content_hash: String,
+    created_at: DateTime
+})
+
+// Chunk node (for graph-based chunk navigation)
+(:Chunk {
+    id: String,
+    tenant_id: String,
+    document_id: String,
+    chunk_index: Integer,
+    preview: String,      // First 200 chars
+    created_at: DateTime
+})
+
+// Relationship Types
+(:Entity)-[:MENTIONS {confidence: Float, chunk_id: String}]->(:Entity)
+(:Entity)-[:AUTHORED_BY {confidence: Float}]->(:Entity)
+(:Entity)-[:PART_OF {confidence: Float}]->(:Entity)
+(:Entity)-[:USES {confidence: Float}]->(:Entity)
+(:Entity)-[:RELATED_TO {confidence: Float, description: String}]->(:Entity)
+
+// Document-Entity relationships
+(:Document)-[:CONTAINS]->(:Chunk)
+(:Chunk)-[:MENTIONS {confidence: Float}]->(:Entity)
+(:Chunk)-[:NEXT]->(:Chunk)  // Sequential chunk ordering
+
+// Neo4j Indexes for Performance
+CREATE INDEX entity_id FOR (e:Entity) ON (e.id);
+CREATE INDEX entity_tenant FOR (e:Entity) ON (e.tenant_id);
+CREATE INDEX entity_type FOR (e:Entity) ON (e.type);
+CREATE INDEX entity_name FOR (e:Entity) ON (e.name);
+CREATE INDEX document_id FOR (d:Document) ON (d.id);
+CREATE INDEX document_tenant FOR (d:Document) ON (d.tenant_id);
+CREATE INDEX chunk_id FOR (c:Chunk) ON (c.id);
+CREATE INDEX chunk_tenant FOR (c:Chunk) ON (c.tenant_id);
+        ]]>
+      </schema>
+    </neo4j>
+  </database-schema>
+
+  <existing-code-patterns>
+    <pattern name="models-structure" source="Story 4.1/4.2">
+      <description>Follow existing Pydantic model patterns from models/documents.py and models/ingest.py</description>
+      <existing-models>
+        <model file="models/documents.py">
+          <![CDATA[
+# Existing models to use/extend:
+class UnifiedDocument(BaseModel): ...
+class ParsedDocument(BaseModel): ...
+class DocumentSection(BaseModel): ...
+class DocumentMetadata(BaseModel): ...
+
+# Source types available:
+class SourceType(str, Enum):
+    URL = "url"
+    PDF = "pdf"
+    TEXT = "text"
+
+# Document status values:
+class DocumentStatus(str, Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+          ]]>
+        </model>
+        <model file="models/ingest.py">
+          <![CDATA[
+# Existing job types to use:
+class JobType(str, Enum):
+    CRAWL = "crawl"
+    PARSE = "parse"
+    INDEX = "index"  # Use this for indexing jobs
+
+class JobStatusEnum(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+          ]]>
+        </model>
+      </existing-models>
+    </pattern>
+
+    <pattern name="db-client-pattern" source="Story 4.1/4.2">
+      <description>Follow PostgresClient pattern from db/postgres.py</description>
+      <example>
+        <![CDATA[
+class PostgresClient:
+    """Async PostgreSQL client with multi-tenancy support."""
+
+    async def create_document(
+        self,
+        tenant_id: UUID,
+        source_type: str,
+        content_hash: str,
+        ...
+    ) -> UUID:
+        # All queries include tenant_id filtering
+        # Use ON CONFLICT for idempotent upserts
+
+    async def update_job_status(
+        self,
+        job_id: UUID,
+        tenant_id: UUID,
+        status: JobStatusEnum,
+        ...
+    ) -> bool:
+        # Always filter by tenant_id
+        ]]>
+      </example>
+    </pattern>
+
+    <pattern name="redis-streams-pattern" source="Story 4.1/4.2">
+      <description>Follow Redis Streams pattern from db/redis.py</description>
+      <existing-streams>
+        <stream name="crawl.jobs" group="crawl-workers">For URL crawling (Story 4.1)</stream>
+        <stream name="parse.jobs" group="parse-workers">For PDF parsing (Story 4.2)</stream>
+        <stream name="index.jobs" group="index-workers">For indexing (Story 4.3 - use this)</stream>
+      </existing-streams>
+      <example>
+        <![CDATA[
+# Constants from db/redis.py
+CRAWL_JOBS_STREAM = "crawl.jobs"
+PARSE_JOBS_STREAM = "parse.jobs"
+INDEX_JOBS_STREAM = "index.jobs"  # Use this for Story 4.3
+
+# Publishing to stream
+await redis.publish_job(
+    stream=INDEX_JOBS_STREAM,
+    job_data={
+        "job_id": str(job_id),
+        "tenant_id": str(tenant_id),
+        "document_id": str(doc_id),
+        ...
+    },
+)
+
+# Consuming from stream
+async for job_data in redis.consume_jobs(
+    stream=INDEX_JOBS_STREAM,
+    group=INDEX_CONSUMER_GROUP,
+    consumer=f"index-worker-{worker_id}",
+):
+    await process_index_job(job_data)
+        ]]>
+      </example>
+    </pattern>
+
+    <pattern name="api-response-pattern" source="Story 4.1">
+      <description>Follow success_response wrapper from api/routes/ingest.py</description>
+      <example>
+        <![CDATA[
+from datetime import datetime
+from uuid import uuid4
+
+def success_response(data: Any) -> dict[str, Any]:
+    """Wrap data in standard success response format."""
+    return {
+        "data": data,
+        "meta": {
+            "requestId": str(uuid4()),
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        },
+    }
+        ]]>
+      </example>
+    </pattern>
+
+    <pattern name="error-handling-pattern" source="Story 4.1/4.2">
+      <description>Follow RFC 7807 error pattern from core/errors.py</description>
+      <existing-error-codes>
+        <![CDATA[
+class ErrorCode(str, Enum):
+    # Existing codes
+    VALIDATION_ERROR = "validation_error"
+    DATABASE_ERROR = "database_error"
+    REDIS_ERROR = "redis_error"
+    PARSE_FAILED = "parse_failed"
+
+    # Add new codes for Story 4.3
+    EXTRACTION_FAILED = "extraction_failed"
+    EMBEDDING_FAILED = "embedding_failed"
+    GRAPH_BUILD_FAILED = "graph_build_failed"
+    NEO4J_ERROR = "neo4j_error"
+    DEDUPLICATION_FAILED = "deduplication_failed"
+        ]]>
+      </existing-error-codes>
+    </pattern>
+
+    <pattern name="config-pattern" source="Story 4.1/4.2">
+      <description>Follow Settings pattern from config.py</description>
+      <existing-config>
+        <![CDATA[
+@dataclass(frozen=True)
+class Settings:
+    # Existing settings
+    openai_api_key: str
+    database_url: str
+    neo4j_uri: str
+    neo4j_user: str
+    neo4j_password: str
+    redis_url: str
+    # ... other existing settings
+
+    # Add new settings for Story 4.3
+    entity_extraction_model: str  # default: gpt-4o
+    embedding_model: str          # default: text-embedding-ada-002
+    chunk_size: int               # default: 512
+    chunk_overlap: int            # default: 64
+    entity_similarity_threshold: float  # default: 0.95
+        ]]>
+      </existing-config>
+    </pattern>
+  </existing-code-patterns>
+
+  <files-to-create>
+    <file path="backend/src/agentic_rag_backend/agents/__init__.py">
+      <purpose>Agents package init</purpose>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/agents/indexer.py">
+      <purpose>Agentic Indexer agent using Agno with GPT-4o for entity extraction</purpose>
+      <key-components>
+        <component name="IndexerAgent">Agno Agent with structured JSON output</component>
+        <component name="extract_entities_from_chunk">Entity extraction with trajectory logging</component>
+        <component name="ENTITY_EXTRACTION_PROMPT">LLM prompt template for extraction</component>
+      </key-components>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/db/neo4j.py">
+      <purpose>Neo4j async driver client for graph operations</purpose>
+      <key-functions>
+        <function name="Neo4jClient.__init__">Initialize with URI, user, password</function>
+        <function name="connect/disconnect">Connection lifecycle</function>
+        <function name="create_entity">MERGE entity node with tenant_id</function>
+        <function name="create_relationship">Create relationship between entities</function>
+        <function name="find_similar_entity">Find similar entities for deduplication</function>
+        <function name="create_indexes">Create Neo4j indexes</function>
+        <function name="get_entity">Get entity by ID with tenant filtering</function>
+      </key-functions>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/indexing/chunker.py">
+      <purpose>Semantic chunking with tiktoken token counting</purpose>
+      <key-functions>
+        <function name="chunk_document" returns="list[DocumentChunk]">Split document into semantic chunks</function>
+        <function name="count_tokens" returns="int">Count tokens using tiktoken</function>
+        <function name="find_section_boundary" returns="int">Find natural break points</function>
+      </key-functions>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/indexing/embeddings.py">
+      <purpose>OpenAI embedding generation with batch processing</purpose>
+      <key-functions>
+        <function name="generate_embeddings" returns="list[list[float]]">Batch embed texts</function>
+        <function name="generate_embedding" returns="list[float]">Single text embedding</function>
+      </key-functions>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/indexing/entity_extractor.py">
+      <purpose>Entity and relationship extraction logic using the IndexerAgent</purpose>
+      <key-functions>
+        <function name="extract_entities" returns="list[ExtractedEntity]">Extract entities from chunk</function>
+        <function name="extract_relationships" returns="list[ExtractedRelationship]">Extract relationships</function>
+        <function name="normalize_entity_name" returns="str">Normalize for deduplication</function>
+      </key-functions>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/indexing/graph_builder.py">
+      <purpose>Neo4j graph construction with deduplication</purpose>
+      <key-functions>
+        <function name="build_graph">Orchestrate entity/relationship creation</function>
+        <function name="deduplicate_entity">Check for and merge duplicate entities</function>
+        <function name="create_entity_node">Create Neo4j entity node</function>
+        <function name="create_relationship_edge">Create Neo4j relationship</function>
+        <function name="link_chunk_to_entities">Create chunk-entity relationships</function>
+      </key-functions>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/indexing/workers/index_worker.py">
+      <purpose>Async index worker consuming from Redis Streams (index.jobs)</purpose>
+      <key-functions>
+        <function name="run_index_worker">Main worker loop</function>
+        <function name="process_index_job">Process single indexing job</function>
+        <function name="index_document">Full indexing pipeline: chunk -> embed -> extract -> build</function>
+      </key-functions>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/models/graphs.py">
+      <purpose>Pydantic models for entities, relationships, and graph structures</purpose>
+      <key-models>
+        <model name="EntityType">Enum: Person, Organization, Technology, Concept, Location</model>
+        <model name="RelationshipType">Enum: MENTIONS, AUTHORED_BY, PART_OF, USES, RELATED_TO</model>
+        <model name="ExtractedEntity">Entity extracted from text with type and description</model>
+        <model name="ExtractedRelationship">Relationship with source, target, type, confidence</model>
+        <model name="EntityGraph">Collection of entities and relationships</model>
+        <model name="DocumentChunk">Chunk with content, index, token count, embedding</model>
+        <model name="Neo4jEntity">Entity as stored in Neo4j</model>
+        <model name="Neo4jRelationship">Relationship as stored in Neo4j</model>
+      </key-models>
+    </file>
+
+    <file path="backend/tests/agents/__init__.py">
+      <purpose>Agents tests package init</purpose>
+    </file>
+
+    <file path="backend/tests/agents/test_indexer.py">
+      <purpose>Unit tests for IndexerAgent (mocked LLM)</purpose>
+    </file>
+
+    <file path="backend/tests/indexing/test_entity_extractor.py">
+      <purpose>Unit tests for entity extraction logic</purpose>
+    </file>
+
+    <file path="backend/tests/indexing/test_graph_builder.py">
+      <purpose>Unit tests for graph builder (mocked Neo4j)</purpose>
+    </file>
+
+    <file path="backend/tests/indexing/test_chunker.py">
+      <purpose>Unit tests for semantic chunking</purpose>
+    </file>
+
+    <file path="backend/tests/indexing/test_embeddings.py">
+      <purpose>Unit tests for embedding generation (mocked OpenAI)</purpose>
+    </file>
+
+    <file path="backend/tests/db/__init__.py">
+      <purpose>DB tests package init</purpose>
+    </file>
+
+    <file path="backend/tests/db/test_neo4j.py">
+      <purpose>Unit tests for Neo4j client (mocked driver)</purpose>
+    </file>
+
+    <file path="backend/tests/integration/test_indexing_pipeline.py">
+      <purpose>Integration tests for end-to-end indexing pipeline</purpose>
+    </file>
+  </files-to-create>
+
+  <files-to-modify>
+    <file path="backend/src/agentic_rag_backend/models/__init__.py">
+      <purpose>Export new graph models</purpose>
+      <changes>Add exports for graphs.py models</changes>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/db/__init__.py">
+      <purpose>Export Neo4j client</purpose>
+      <changes>Add exports for neo4j.py</changes>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/db/postgres.py">
+      <purpose>Add chunk storage methods</purpose>
+      <changes>
+        <![CDATA[
+# Add methods for chunks table:
+async def create_chunk(
+    self,
+    tenant_id: UUID,
+    document_id: UUID,
+    content: str,
+    chunk_index: int,
+    token_count: int,
+    embedding: list[float],
+    metadata: Optional[dict[str, Any]] = None,
+) -> UUID: ...
+
+async def get_chunks_by_document(
+    self,
+    document_id: UUID,
+    tenant_id: UUID,
+) -> list[dict[str, Any]]: ...
+
+async def search_similar_chunks(
+    self,
+    tenant_id: UUID,
+    embedding: list[float],
+    limit: int = 10,
+) -> list[dict[str, Any]]: ...
+        ]]>
+      </changes>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/core/errors.py">
+      <purpose>Add Story 4.3 error types</purpose>
+      <changes>
+        <![CDATA[
+# Add new error codes to ErrorCode enum:
+EXTRACTION_FAILED = "extraction_failed"
+EMBEDDING_FAILED = "embedding_failed"
+GRAPH_BUILD_FAILED = "graph_build_failed"
+NEO4J_ERROR = "neo4j_error"
+DEDUPLICATION_FAILED = "deduplication_failed"
+
+# Add new error classes:
+class ExtractionError(AppError): ...
+class EmbeddingError(AppError): ...
+class GraphBuildError(AppError): ...
+class Neo4jError(AppError): ...
+class DeduplicationError(AppError): ...
+        ]]>
+      </changes>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/config.py">
+      <purpose>Add Story 4.3 configuration settings</purpose>
+      <changes>
+        <![CDATA[
+@dataclass(frozen=True)
+class Settings:
+    # ... existing settings ...
+
+    # Story 4.3 - Agentic Entity Extraction settings
+    entity_extraction_model: str  # default: gpt-4o
+    embedding_model: str          # default: text-embedding-ada-002
+    chunk_size: int               # default: 512 (tokens)
+    chunk_overlap: int            # default: 64 (tokens)
+    entity_similarity_threshold: float  # default: 0.95
+
+# In load_settings():
+entity_extraction_model=os.getenv("ENTITY_EXTRACTION_MODEL", "gpt-4o"),
+embedding_model=os.getenv("EMBEDDING_MODEL", "text-embedding-ada-002"),
+chunk_size=int(os.getenv("CHUNK_SIZE", "512")),
+chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "64")),
+entity_similarity_threshold=float(os.getenv("ENTITY_SIMILARITY_THRESHOLD", "0.95")),
+        ]]>
+      </changes>
+    </file>
+
+    <file path="backend/pyproject.toml">
+      <purpose>Add new dependencies</purpose>
+      <changes>
+        <![CDATA[
+dependencies = [
+    # ... existing dependencies ...
+    "neo4j>=5.0.0",           # Neo4j Python driver
+    "tiktoken>=0.5.0",        # Token counting for chunking
+    "tenacity>=8.0.0",        # Retry logic (may already exist)
+]
+        ]]>
+      </changes>
+    </file>
+
+    <file path="backend/src/agentic_rag_backend/indexing/workers/parse_worker.py">
+      <purpose>Update to queue to index.jobs after parsing</purpose>
+      <changes>Ensure parsed documents are queued to INDEX_JOBS_STREAM</changes>
+    </file>
+  </files-to-modify>
+
+  <environment-variables>
+    <variable name="NEO4J_URI" required="true" description="Neo4j connection URI (bolt://localhost:7687)"/>
+    <variable name="NEO4J_USER" required="true" description="Neo4j username"/>
+    <variable name="NEO4J_PASSWORD" required="true" description="Neo4j password"/>
+    <variable name="ENTITY_EXTRACTION_MODEL" default="gpt-4o" description="LLM model for entity extraction"/>
+    <variable name="EMBEDDING_MODEL" default="text-embedding-ada-002" description="OpenAI embedding model"/>
+    <variable name="CHUNK_SIZE" default="512" description="Target chunk size in tokens"/>
+    <variable name="CHUNK_OVERLAP" default="64" description="Overlap between chunks in tokens"/>
+    <variable name="ENTITY_SIMILARITY_THRESHOLD" default="0.95" description="Cosine similarity threshold for deduplication"/>
+  </environment-variables>
+
+  <code-patterns>
+    <pattern name="agno-indexer-agent">
+      <![CDATA[
+from agno.agent import Agent
+from agno.models.openai import OpenAIChat
+from typing import Optional
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+ENTITY_EXTRACTION_PROMPT = """You are an expert at extracting structured information from text.
+
+Given the following text chunk, extract:
+1. Named entities (people, organizations, technologies, concepts, locations)
+2. Relationships between entities
+
+Output format (JSON):
+{
+  "entities": [
+    {"name": "...", "type": "Person|Organization|Technology|Concept|Location", "description": "..."}
+  ],
+  "relationships": [
+    {"source": "entity_name", "target": "entity_name", "type": "MENTIONS|AUTHORED_BY|USES|PART_OF|RELATED_TO", "confidence": 0.0-1.0}
+  ]
+}
+
+Text chunk:
+{chunk_content}"""
+
+
+class IndexerAgent:
+    """Agentic Indexer for entity and relationship extraction."""
+
+    def __init__(self, model_id: str = "gpt-4o") -> None:
+        self.agent = Agent(
+            name="IndexerAgent",
+            model=OpenAIChat(id=model_id),
+            instructions=[
+                "Extract named entities (people, organizations, concepts, technologies, locations)",
+                "Identify relationships between entities",
+                "Output structured JSON following the EntityGraph schema",
+                "Assign confidence scores (0.0-1.0) based on extraction certainty"
+            ],
+            structured_output=True,
+        )
+
+    async def extract_from_chunk(
+        self,
+        chunk_content: str,
+        chunk_id: str,
+        tenant_id: str,
+    ) -> dict:
+        """
+        Extract entities and relationships from a chunk.
+
+        Uses trajectory logging for all decisions.
+        """
+        # Log thought process
+        self.agent.log_thought(f"Analyzing chunk {chunk_id} for entities and relationships")
+
+        prompt = ENTITY_EXTRACTION_PROMPT.format(chunk_content=chunk_content)
+
+        # Log action
+        self.agent.log_action("entity_extraction", {
+            "chunk_id": chunk_id,
+            "content_length": len(chunk_content),
+        })
+
+        response = await self.agent.arun(prompt)
+
+        # Parse response
+        result = response.content
+
+        # Log observation
+        entities_count = len(result.get("entities", []))
+        relationships_count = len(result.get("relationships", []))
+        self.agent.log_observation(
+            f"Extracted {entities_count} entities with {relationships_count} relationships"
+        )
+
+        logger.info(
+            "extraction_complete",
+            chunk_id=chunk_id,
+            entities=entities_count,
+            relationships=relationships_count,
+        )
+
+        return result
+      ]]>
+    </pattern>
+
+    <pattern name="neo4j-client">
+      <![CDATA[
+from neo4j import AsyncGraphDatabase
+from typing import Any, Optional
+from uuid import UUID
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+
+class Neo4jClient:
+    """Async Neo4j client for knowledge graph operations."""
+
+    def __init__(self, uri: str, user: str, password: str) -> None:
+        self.uri = uri
+        self.user = user
+        self.password = password
+        self._driver = None
+
+    async def connect(self) -> None:
+        """Establish connection to Neo4j."""
+        self._driver = AsyncGraphDatabase.driver(
+            self.uri,
+            auth=(self.user, self.password),
+        )
+        logger.info("neo4j_connected", uri=self.uri)
+
+    async def disconnect(self) -> None:
+        """Close Neo4j connection."""
+        if self._driver:
+            await self._driver.close()
+            self._driver = None
+            logger.info("neo4j_disconnected")
+
+    @property
+    def driver(self):
+        if self._driver is None:
+            raise Neo4jError("connection", "Neo4j driver not connected")
+        return self._driver
+
+    async def create_indexes(self) -> None:
+        """Create required indexes for performance."""
+        async with self.driver.session() as session:
+            # Entity indexes
+            await session.run("CREATE INDEX entity_id IF NOT EXISTS FOR (e:Entity) ON (e.id)")
+            await session.run("CREATE INDEX entity_tenant IF NOT EXISTS FOR (e:Entity) ON (e.tenant_id)")
+            await session.run("CREATE INDEX entity_type IF NOT EXISTS FOR (e:Entity) ON (e.type)")
+            await session.run("CREATE INDEX entity_name IF NOT EXISTS FOR (e:Entity) ON (e.name)")
+            # Document and Chunk indexes
+            await session.run("CREATE INDEX document_id IF NOT EXISTS FOR (d:Document) ON (d.id)")
+            await session.run("CREATE INDEX chunk_id IF NOT EXISTS FOR (c:Chunk) ON (c.id)")
+            logger.info("neo4j_indexes_created")
+
+    async def create_entity(
+        self,
+        entity_id: str,
+        tenant_id: str,
+        name: str,
+        entity_type: str,
+        description: Optional[str] = None,
+        source_chunk_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """
+        Create or merge an entity node.
+
+        Uses MERGE for idempotent creation.
+        """
+        async with self.driver.session() as session:
+            result = await session.run(
+                """
+                MERGE (e:Entity {id: $id})
+                SET e.tenant_id = $tenant_id,
+                    e.name = $name,
+                    e.type = $type,
+                    e.description = COALESCE($description, e.description),
+                    e.source_chunks = CASE
+                        WHEN $chunk_id IS NOT NULL
+                        THEN COALESCE(e.source_chunks, []) + $chunk_id
+                        ELSE e.source_chunks
+                    END,
+                    e.updated_at = datetime()
+                ON CREATE SET e.created_at = datetime()
+                RETURN e
+                """,
+                id=entity_id,
+                tenant_id=tenant_id,
+                name=name,
+                type=entity_type,
+                description=description,
+                chunk_id=source_chunk_id,
+            )
+            record = await result.single()
+            logger.info("entity_created", entity_id=entity_id, name=name, type=entity_type)
+            return dict(record["e"]) if record else {}
+
+    async def create_relationship(
+        self,
+        source_id: str,
+        target_id: str,
+        relationship_type: str,
+        tenant_id: str,
+        confidence: float,
+        chunk_id: Optional[str] = None,
+    ) -> bool:
+        """Create a relationship between two entities."""
+        async with self.driver.session() as session:
+            # Dynamic relationship type requires string interpolation
+            # Use parameterized query for safety where possible
+            query = f"""
+            MATCH (source:Entity {{id: $source_id, tenant_id: $tenant_id}})
+            MATCH (target:Entity {{id: $target_id, tenant_id: $tenant_id}})
+            MERGE (source)-[r:{relationship_type}]->(target)
+            SET r.confidence = $confidence,
+                r.source_chunk = $chunk_id,
+                r.created_at = datetime()
+            RETURN r
+            """
+            result = await session.run(
+                query,
+                source_id=source_id,
+                target_id=target_id,
+                tenant_id=tenant_id,
+                confidence=confidence,
+                chunk_id=chunk_id,
+            )
+            record = await result.single()
+            logger.info(
+                "relationship_created",
+                source=source_id,
+                target=target_id,
+                type=relationship_type,
+            )
+            return record is not None
+
+    async def find_similar_entity(
+        self,
+        tenant_id: str,
+        name: str,
+        entity_type: str,
+    ) -> Optional[dict[str, Any]]:
+        """
+        Find an existing entity by normalized name and type.
+
+        Used for deduplication before creating new entities.
+        """
+        async with self.driver.session() as session:
+            result = await session.run(
+                """
+                MATCH (e:Entity {tenant_id: $tenant_id, type: $type})
+                WHERE toLower(trim(e.name)) = toLower(trim($name))
+                RETURN e
+                LIMIT 1
+                """,
+                tenant_id=tenant_id,
+                name=name,
+                type=entity_type,
+            )
+            record = await result.single()
+            return dict(record["e"]) if record else None
+      ]]>
+    </pattern>
+
+    <pattern name="semantic-chunker">
+      <![CDATA[
+import tiktoken
+from typing import Optional
+from dataclasses import dataclass
+
+# Use cl100k_base encoding for GPT-4 compatibility
+ENCODING = tiktoken.get_encoding("cl100k_base")
+
+
+@dataclass
+class DocumentChunk:
+    """A chunk of document content."""
+    content: str
+    chunk_index: int
+    token_count: int
+    start_char: int
+    end_char: int
+
+
+def count_tokens(text: str) -> int:
+    """Count tokens in text using tiktoken."""
+    return len(ENCODING.encode(text))
+
+
+def chunk_document(
+    content: str,
+    chunk_size: int = 512,
+    chunk_overlap: int = 64,
+) -> list[DocumentChunk]:
+    """
+    Split document content into overlapping semantic chunks.
+
+    Args:
+        content: Document text content
+        chunk_size: Target chunk size in tokens
+        chunk_overlap: Overlap between chunks in tokens
+
+    Returns:
+        List of DocumentChunk objects
+    """
+    tokens = ENCODING.encode(content)
+    chunks = []
+    chunk_index = 0
+    start = 0
+
+    while start < len(tokens):
+        # Calculate end position
+        end = min(start + chunk_size, len(tokens))
+
+        # Extract tokens for this chunk
+        chunk_tokens = tokens[start:end]
+
+        # Decode back to text
+        chunk_text = ENCODING.decode(chunk_tokens)
+
+        # Find character positions (approximate)
+        start_char = len(ENCODING.decode(tokens[:start]))
+        end_char = start_char + len(chunk_text)
+
+        chunks.append(DocumentChunk(
+            content=chunk_text,
+            chunk_index=chunk_index,
+            token_count=len(chunk_tokens),
+            start_char=start_char,
+            end_char=end_char,
+        ))
+
+        # Move start position (with overlap)
+        start = end - chunk_overlap
+        chunk_index += 1
+
+        # Ensure we make progress
+        if start >= len(tokens) - chunk_overlap:
+            break
+
+    return chunks
+      ]]>
+    </pattern>
+
+    <pattern name="embedding-generator">
+      <![CDATA[
+from openai import AsyncOpenAI
+from tenacity import retry, stop_after_attempt, wait_exponential_jitter
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+
+class EmbeddingGenerator:
+    """OpenAI embedding generation with batch processing."""
+
+    def __init__(self, api_key: str, model: str = "text-embedding-ada-002") -> None:
+        self.client = AsyncOpenAI(api_key=api_key)
+        self.model = model
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential_jitter(initial=1, max=60),
+    )
+    async def generate_embeddings(
+        self,
+        texts: list[str],
+        batch_size: int = 100,
+    ) -> list[list[float]]:
+        """
+        Generate embeddings for multiple texts with batching.
+
+        Args:
+            texts: List of text strings to embed
+            batch_size: Maximum texts per API call
+
+        Returns:
+            List of embedding vectors (1536 dimensions each)
+        """
+        embeddings = []
+
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+
+            response = await self.client.embeddings.create(
+                model=self.model,
+                input=batch,
+            )
+
+            batch_embeddings = [item.embedding for item in response.data]
+            embeddings.extend(batch_embeddings)
+
+            logger.debug(
+                "embeddings_generated",
+                batch_start=i,
+                batch_size=len(batch),
+            )
+
+        logger.info("embeddings_complete", total=len(texts))
+        return embeddings
+
+    async def generate_embedding(self, text: str) -> list[float]:
+        """Generate embedding for a single text."""
+        embeddings = await self.generate_embeddings([text])
+        return embeddings[0]
+      ]]>
+    </pattern>
+
+    <pattern name="graph-builder">
+      <![CDATA[
+from uuid import uuid4
+from typing import Optional
+import structlog
+
+from agentic_rag_backend.db.neo4j import Neo4jClient
+from agentic_rag_backend.indexing.embeddings import EmbeddingGenerator
+from agentic_rag_backend.models.graphs import ExtractedEntity, ExtractedRelationship
+
+logger = structlog.get_logger(__name__)
+
+
+class GraphBuilder:
+    """Builds Neo4j knowledge graph from extracted entities and relationships."""
+
+    def __init__(
+        self,
+        neo4j_client: Neo4jClient,
+        embedding_generator: EmbeddingGenerator,
+        similarity_threshold: float = 0.95,
+    ) -> None:
+        self.neo4j = neo4j_client
+        self.embeddings = embedding_generator
+        self.similarity_threshold = similarity_threshold
+        # Cache for entity ID lookups during processing
+        self._entity_cache: dict[str, str] = {}
+
+    async def build_graph(
+        self,
+        tenant_id: str,
+        chunk_id: str,
+        entities: list[ExtractedEntity],
+        relationships: list[ExtractedRelationship],
+    ) -> dict:
+        """
+        Build graph from extracted entities and relationships.
+
+        Performs deduplication and creates Neo4j nodes/edges.
+        """
+        created_entities = 0
+        created_relationships = 0
+        deduplicated = 0
+
+        # Process entities first
+        for entity in entities:
+            entity_id = await self._process_entity(
+                tenant_id=tenant_id,
+                entity=entity,
+                chunk_id=chunk_id,
+            )
+            if entity_id:
+                # Cache name -> ID mapping for relationship creation
+                self._entity_cache[entity.name.lower()] = entity_id
+                created_entities += 1
+
+        # Process relationships
+        for rel in relationships:
+            success = await self._process_relationship(
+                tenant_id=tenant_id,
+                relationship=rel,
+                chunk_id=chunk_id,
+            )
+            if success:
+                created_relationships += 1
+
+        logger.info(
+            "graph_built",
+            tenant_id=tenant_id,
+            chunk_id=chunk_id,
+            entities=created_entities,
+            relationships=created_relationships,
+            deduplicated=deduplicated,
+        )
+
+        return {
+            "entities_created": created_entities,
+            "relationships_created": created_relationships,
+            "deduplicated": deduplicated,
+        }
+
+    async def _process_entity(
+        self,
+        tenant_id: str,
+        entity: ExtractedEntity,
+        chunk_id: str,
+    ) -> Optional[str]:
+        """Process a single entity with deduplication."""
+        # Check for existing similar entity (deduplication)
+        existing = await self.neo4j.find_similar_entity(
+            tenant_id=tenant_id,
+            name=entity.name,
+            entity_type=entity.type,
+        )
+
+        if existing:
+            # Update existing entity with new chunk reference
+            entity_id = existing["id"]
+            await self.neo4j.create_entity(
+                entity_id=entity_id,
+                tenant_id=tenant_id,
+                name=entity.name,
+                entity_type=entity.type,
+                description=entity.description,
+                source_chunk_id=chunk_id,
+            )
+            logger.debug("entity_deduplicated", name=entity.name, existing_id=entity_id)
+            return entity_id
+
+        # Create new entity
+        entity_id = str(uuid4())
+        await self.neo4j.create_entity(
+            entity_id=entity_id,
+            tenant_id=tenant_id,
+            name=entity.name,
+            entity_type=entity.type,
+            description=entity.description,
+            source_chunk_id=chunk_id,
+        )
+        return entity_id
+
+    async def _process_relationship(
+        self,
+        tenant_id: str,
+        relationship: ExtractedRelationship,
+        chunk_id: str,
+    ) -> bool:
+        """Process a single relationship."""
+        # Look up entity IDs from cache
+        source_id = self._entity_cache.get(relationship.source.lower())
+        target_id = self._entity_cache.get(relationship.target.lower())
+
+        if not source_id or not target_id:
+            logger.warning(
+                "relationship_skipped",
+                source=relationship.source,
+                target=relationship.target,
+                reason="entity_not_found",
+            )
+            return False
+
+        return await self.neo4j.create_relationship(
+            source_id=source_id,
+            target_id=target_id,
+            relationship_type=relationship.type,
+            tenant_id=tenant_id,
+            confidence=relationship.confidence,
+            chunk_id=chunk_id,
+        )
+      ]]>
+    </pattern>
+
+    <pattern name="index-worker">
+      <![CDATA[
+import asyncio
+import time
+from uuid import UUID
+import structlog
+
+from agentic_rag_backend.db.redis import (
+    RedisClient,
+    INDEX_JOBS_STREAM,
+    INDEX_CONSUMER_GROUP,
+)
+from agentic_rag_backend.db.postgres import PostgresClient
+from agentic_rag_backend.db.neo4j import Neo4jClient
+from agentic_rag_backend.agents.indexer import IndexerAgent
+from agentic_rag_backend.indexing.chunker import chunk_document
+from agentic_rag_backend.indexing.embeddings import EmbeddingGenerator
+from agentic_rag_backend.indexing.graph_builder import GraphBuilder
+from agentic_rag_backend.models.ingest import JobStatusEnum
+
+logger = structlog.get_logger(__name__)
+
+
+async def process_index_job(
+    job_data: dict,
+    postgres: PostgresClient,
+    neo4j: Neo4jClient,
+    indexer: IndexerAgent,
+    embeddings: EmbeddingGenerator,
+    graph_builder: GraphBuilder,
+) -> None:
+    """
+    Process a single indexing job.
+
+    Pipeline:
+    1. Chunk document content
+    2. Generate embeddings for chunks
+    3. Extract entities and relationships
+    4. Build knowledge graph
+    """
+    job_id = UUID(job_data["job_id"])
+    tenant_id = job_data["tenant_id"]
+    document_id = UUID(job_data["document_id"])
+
+    start_time = time.perf_counter()
+
+    try:
+        # Update job status to running
+        await postgres.update_job_status(
+            job_id=job_id,
+            tenant_id=UUID(tenant_id),
+            status=JobStatusEnum.RUNNING,
+        )
+
+        # Get document content (from parsed sections or unified content)
+        content = job_data.get("content", "")
+        if not content:
+            # Fetch from document record if not in job data
+            doc = await postgres.get_document(document_id, UUID(tenant_id))
+            content = doc.get("content", "") if doc else ""
+
+        # Step 1: Chunk the document
+        chunks = chunk_document(content)
+        logger.info("chunking_complete", document_id=str(document_id), chunks=len(chunks))
+
+        # Step 2: Generate embeddings
+        chunk_texts = [c.content for c in chunks]
+        chunk_embeddings = await embeddings.generate_embeddings(chunk_texts)
+
+        # Step 3 & 4: For each chunk, extract entities and build graph
+        total_entities = 0
+        total_relationships = 0
+
+        for i, chunk in enumerate(chunks):
+            chunk_id = str(uuid4())
+
+            # Store chunk with embedding in pgvector
+            await postgres.create_chunk(
+                tenant_id=UUID(tenant_id),
+                document_id=document_id,
+                content=chunk.content,
+                chunk_index=chunk.chunk_index,
+                token_count=chunk.token_count,
+                embedding=chunk_embeddings[i],
+            )
+
+            # Extract entities and relationships
+            extraction_result = await indexer.extract_from_chunk(
+                chunk_content=chunk.content,
+                chunk_id=chunk_id,
+                tenant_id=tenant_id,
+            )
+
+            # Build graph
+            from agentic_rag_backend.models.graphs import ExtractedEntity, ExtractedRelationship
+
+            entities = [
+                ExtractedEntity(**e) for e in extraction_result.get("entities", [])
+            ]
+            relationships = [
+                ExtractedRelationship(**r) for r in extraction_result.get("relationships", [])
+            ]
+
+            graph_result = await graph_builder.build_graph(
+                tenant_id=tenant_id,
+                chunk_id=chunk_id,
+                entities=entities,
+                relationships=relationships,
+            )
+
+            total_entities += graph_result["entities_created"]
+            total_relationships += graph_result["relationships_created"]
+
+        # Calculate processing time
+        processing_time_ms = int((time.perf_counter() - start_time) * 1000)
+
+        # Update job status to completed
+        await postgres.update_job_status(
+            job_id=job_id,
+            tenant_id=UUID(tenant_id),
+            status=JobStatusEnum.COMPLETED,
+            progress={
+                "chunks_processed": len(chunks),
+                "entities_extracted": total_entities,
+                "relationships_extracted": total_relationships,
+                "processing_time_ms": processing_time_ms,
+            },
+        )
+
+        logger.info(
+            "indexing_complete",
+            job_id=str(job_id),
+            chunks=len(chunks),
+            entities=total_entities,
+            relationships=total_relationships,
+            processing_time_ms=processing_time_ms,
+        )
+
+    except Exception as e:
+        logger.error("indexing_failed", job_id=str(job_id), error=str(e))
+        await postgres.update_job_status(
+            job_id=job_id,
+            tenant_id=UUID(tenant_id),
+            status=JobStatusEnum.FAILED,
+            error_message=str(e),
+        )
+        raise
+
+
+async def run_index_worker(
+    redis: RedisClient,
+    postgres: PostgresClient,
+    neo4j: Neo4jClient,
+    indexer: IndexerAgent,
+    embeddings: EmbeddingGenerator,
+    graph_builder: GraphBuilder,
+    worker_id: str = "worker-1",
+) -> None:
+    """Main index worker loop consuming from Redis Streams."""
+    logger.info("index_worker_started", worker_id=worker_id)
+
+    async for job_data in redis.consume_jobs(
+        stream=INDEX_JOBS_STREAM,
+        group=INDEX_CONSUMER_GROUP,
+        consumer=f"index-{worker_id}",
+    ):
+        try:
+            await process_index_job(
+                job_data=job_data,
+                postgres=postgres,
+                neo4j=neo4j,
+                indexer=indexer,
+                embeddings=embeddings,
+                graph_builder=graph_builder,
+            )
+        except Exception as e:
+            logger.error(
+                "job_processing_error",
+                job_id=job_data.get("job_id"),
+                error=str(e),
+            )
+            # Job will be retried based on Redis Streams retry mechanism
+      ]]>
+    </pattern>
+
+    <pattern name="pydantic-graph-models">
+      <![CDATA[
+"""Pydantic models for graph entities and relationships."""
+
+from datetime import datetime
+from enum import Enum
+from typing import Optional
+from uuid import UUID
+
+from pydantic import BaseModel, Field
+
+
+class EntityType(str, Enum):
+    """Types of entities that can be extracted."""
+    PERSON = "Person"
+    ORGANIZATION = "Organization"
+    TECHNOLOGY = "Technology"
+    CONCEPT = "Concept"
+    LOCATION = "Location"
+
+
+class RelationshipType(str, Enum):
+    """Types of relationships between entities."""
+    MENTIONS = "MENTIONS"
+    AUTHORED_BY = "AUTHORED_BY"
+    PART_OF = "PART_OF"
+    USES = "USES"
+    RELATED_TO = "RELATED_TO"
+
+
+class ExtractedEntity(BaseModel):
+    """Entity extracted from text by the IndexerAgent."""
+    name: str = Field(..., description="Entity name")
+    type: EntityType = Field(..., description="Entity type")
+    description: Optional[str] = Field(None, description="Brief description of the entity")
+
+    model_config = {"json_schema_extra": {"examples": [
+        {
+            "name": "OpenAI",
+            "type": "Organization",
+            "description": "AI research company that developed GPT-4"
+        }
+    ]}}
+
+
+class ExtractedRelationship(BaseModel):
+    """Relationship extracted from text by the IndexerAgent."""
+    source: str = Field(..., description="Source entity name")
+    target: str = Field(..., description="Target entity name")
+    type: RelationshipType = Field(..., description="Relationship type")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
+
+    model_config = {"json_schema_extra": {"examples": [
+        {
+            "source": "GPT-4",
+            "target": "OpenAI",
+            "type": "AUTHORED_BY",
+            "confidence": 0.95
+        }
+    ]}}
+
+
+class EntityGraph(BaseModel):
+    """Collection of entities and relationships from extraction."""
+    entities: list[ExtractedEntity] = Field(default_factory=list)
+    relationships: list[ExtractedRelationship] = Field(default_factory=list)
+
+
+class DocumentChunk(BaseModel):
+    """A chunk of document content with embedding."""
+    id: UUID = Field(..., description="Unique chunk identifier")
+    tenant_id: UUID = Field(..., description="Tenant identifier")
+    document_id: UUID = Field(..., description="Parent document ID")
+    content: str = Field(..., description="Chunk text content")
+    chunk_index: int = Field(..., ge=0, description="Position in document")
+    token_count: int = Field(..., ge=0, description="Number of tokens")
+    embedding: Optional[list[float]] = Field(None, description="1536-dim embedding vector")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Neo4jEntity(BaseModel):
+    """Entity as stored in Neo4j."""
+    id: str = Field(..., description="UUID string")
+    tenant_id: str = Field(..., description="Tenant UUID string")
+    name: str = Field(..., description="Entity name")
+    type: EntityType = Field(..., description="Entity type")
+    description: Optional[str] = Field(None, description="Entity description")
+    source_chunks: list[str] = Field(default_factory=list, description="Chunk IDs where entity appears")
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class Neo4jRelationship(BaseModel):
+    """Relationship as stored in Neo4j."""
+    source_id: str = Field(..., description="Source entity ID")
+    target_id: str = Field(..., description="Target entity ID")
+    type: RelationshipType = Field(..., description="Relationship type")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
+    source_chunk: Optional[str] = Field(None, description="Chunk ID where relationship found")
+    created_at: Optional[datetime] = None
+
+
+class IndexProgress(BaseModel):
+    """Progress metrics for an indexing job."""
+    chunks_processed: int = Field(default=0, ge=0)
+    total_chunks: int = Field(default=0, ge=0)
+    entities_extracted: int = Field(default=0, ge=0)
+    relationships_extracted: int = Field(default=0, ge=0)
+    processing_time_ms: Optional[int] = Field(None, ge=0)
+      ]]>
+    </pattern>
+  </code-patterns>
+
+  <testing-patterns>
+    <pattern name="indexer-agent-tests">
+      <![CDATA[
+# backend/tests/agents/test_indexer.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+@pytest.fixture
+def mock_openai_response():
+    """Mock OpenAI response for entity extraction."""
+    return {
+        "entities": [
+            {"name": "Python", "type": "Technology", "description": "Programming language"},
+            {"name": "FastAPI", "type": "Technology", "description": "Web framework"},
+        ],
+        "relationships": [
+            {"source": "FastAPI", "target": "Python", "type": "USES", "confidence": 0.95}
+        ]
+    }
+
+
+@pytest.mark.asyncio
+async def test_indexer_extracts_entities(mock_openai_response):
+    """Test that IndexerAgent extracts entities from text."""
+    with patch("agentic_rag_backend.agents.indexer.Agent") as MockAgent:
+        mock_agent = MagicMock()
+        mock_agent.arun = AsyncMock(return_value=MagicMock(content=mock_openai_response))
+        mock_agent.log_thought = MagicMock()
+        mock_agent.log_action = MagicMock()
+        mock_agent.log_observation = MagicMock()
+        MockAgent.return_value = mock_agent
+
+        from agentic_rag_backend.agents.indexer import IndexerAgent
+
+        indexer = IndexerAgent()
+        result = await indexer.extract_from_chunk(
+            chunk_content="FastAPI is a modern Python web framework.",
+            chunk_id="test-chunk-1",
+            tenant_id="test-tenant",
+        )
+
+        assert len(result["entities"]) == 2
+        assert len(result["relationships"]) == 1
+        mock_agent.log_thought.assert_called()
+        mock_agent.log_action.assert_called()
+        mock_agent.log_observation.assert_called()
+      ]]>
+    </pattern>
+
+    <pattern name="neo4j-client-tests">
+      <![CDATA[
+# backend/tests/db/test_neo4j.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+@pytest.fixture
+def mock_neo4j_driver():
+    """Mock Neo4j driver for testing."""
+    driver = MagicMock()
+    session = AsyncMock()
+    driver.session.return_value.__aenter__.return_value = session
+    driver.session.return_value.__aexit__.return_value = None
+    return driver, session
+
+
+@pytest.mark.asyncio
+async def test_create_entity(mock_neo4j_driver):
+    """Test entity creation with MERGE."""
+    driver, session = mock_neo4j_driver
+
+    mock_record = MagicMock()
+    mock_record.__getitem__.return_value = {
+        "id": "test-id",
+        "name": "Python",
+        "type": "Technology",
+    }
+    session.run.return_value.single = AsyncMock(return_value=mock_record)
+
+    with patch("agentic_rag_backend.db.neo4j.AsyncGraphDatabase") as MockDB:
+        MockDB.driver.return_value = driver
+
+        from agentic_rag_backend.db.neo4j import Neo4jClient
+
+        client = Neo4jClient("bolt://localhost:7687", "neo4j", "password")
+        client._driver = driver
+
+        result = await client.create_entity(
+            entity_id="test-id",
+            tenant_id="tenant-1",
+            name="Python",
+            entity_type="Technology",
+            description="Programming language",
+        )
+
+        assert result["name"] == "Python"
+        session.run.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_find_similar_entity_returns_match(mock_neo4j_driver):
+    """Test finding similar entity for deduplication."""
+    driver, session = mock_neo4j_driver
+
+    mock_record = MagicMock()
+    mock_record.__getitem__.return_value = {"id": "existing-id", "name": "Python"}
+    session.run.return_value.single = AsyncMock(return_value=mock_record)
+
+    with patch("agentic_rag_backend.db.neo4j.AsyncGraphDatabase"):
+        from agentic_rag_backend.db.neo4j import Neo4jClient
+
+        client = Neo4jClient("bolt://localhost:7687", "neo4j", "password")
+        client._driver = driver
+
+        result = await client.find_similar_entity(
+            tenant_id="tenant-1",
+            name="python",  # lowercase test
+            entity_type="Technology",
+        )
+
+        assert result is not None
+        assert result["id"] == "existing-id"
+      ]]>
+    </pattern>
+
+    <pattern name="chunker-tests">
+      <![CDATA[
+# backend/tests/indexing/test_chunker.py
+import pytest
+
+
+def test_chunk_document_basic():
+    """Test basic document chunking."""
+    from agentic_rag_backend.indexing.chunker import chunk_document
+
+    content = "This is a test document. " * 100  # Create longer content
+
+    chunks = chunk_document(content, chunk_size=50, chunk_overlap=10)
+
+    assert len(chunks) > 1
+    assert all(c.token_count <= 60 for c in chunks)  # Allow some flexibility
+    assert chunks[0].chunk_index == 0
+
+
+def test_chunk_document_preserves_content():
+    """Test that chunking preserves all content."""
+    from agentic_rag_backend.indexing.chunker import chunk_document
+
+    content = "Word " * 200
+
+    chunks = chunk_document(content, chunk_size=50, chunk_overlap=10)
+
+    # Reconstruct content (accounting for overlap)
+    # At minimum, all unique content should be present
+    all_content = " ".join(c.content for c in chunks)
+    assert "Word" in all_content
+
+
+def test_count_tokens():
+    """Test token counting."""
+    from agentic_rag_backend.indexing.chunker import count_tokens
+
+    text = "Hello, world!"
+    tokens = count_tokens(text)
+
+    assert tokens > 0
+    assert tokens < 10  # This simple text should be few tokens
+      ]]>
+    </pattern>
+
+    <pattern name="graph-builder-tests">
+      <![CDATA[
+# backend/tests/indexing/test_graph_builder.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+
+
+@pytest.fixture
+def mock_neo4j_client():
+    """Mock Neo4j client."""
+    client = MagicMock()
+    client.create_entity = AsyncMock(return_value={"id": "entity-1"})
+    client.create_relationship = AsyncMock(return_value=True)
+    client.find_similar_entity = AsyncMock(return_value=None)
+    return client
+
+
+@pytest.fixture
+def mock_embedding_generator():
+    """Mock embedding generator."""
+    generator = MagicMock()
+    generator.generate_embedding = AsyncMock(return_value=[0.1] * 1536)
+    return generator
+
+
+@pytest.mark.asyncio
+async def test_build_graph_creates_entities(mock_neo4j_client, mock_embedding_generator):
+    """Test that build_graph creates entities in Neo4j."""
+    from agentic_rag_backend.indexing.graph_builder import GraphBuilder
+    from agentic_rag_backend.models.graphs import ExtractedEntity, ExtractedRelationship
+
+    builder = GraphBuilder(mock_neo4j_client, mock_embedding_generator)
+
+    entities = [
+        ExtractedEntity(name="Python", type="Technology", description="Language"),
+        ExtractedEntity(name="FastAPI", type="Technology", description="Framework"),
+    ]
+    relationships = [
+        ExtractedRelationship(source="FastAPI", target="Python", type="USES", confidence=0.9),
+    ]
+
+    result = await builder.build_graph(
+        tenant_id="tenant-1",
+        chunk_id="chunk-1",
+        entities=entities,
+        relationships=relationships,
+    )
+
+    assert result["entities_created"] == 2
+    assert mock_neo4j_client.create_entity.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_build_graph_deduplicates_entities(mock_neo4j_client, mock_embedding_generator):
+    """Test that duplicate entities are merged."""
+    mock_neo4j_client.find_similar_entity = AsyncMock(
+        return_value={"id": "existing-id", "name": "Python"}
+    )
+
+    from agentic_rag_backend.indexing.graph_builder import GraphBuilder
+    from agentic_rag_backend.models.graphs import ExtractedEntity
+
+    builder = GraphBuilder(mock_neo4j_client, mock_embedding_generator)
+
+    entities = [
+        ExtractedEntity(name="Python", type="Technology", description="Language"),
+    ]
+
+    result = await builder.build_graph(
+        tenant_id="tenant-1",
+        chunk_id="chunk-1",
+        entities=entities,
+        relationships=[],
+    )
+
+    # Entity should still be "created" (updated) but with existing ID
+    assert result["entities_created"] == 1
+    mock_neo4j_client.find_similar_entity.assert_called_once()
+      ]]>
+    </pattern>
+  </testing-patterns>
+
+  <implementation-notes>
+    <note priority="critical">
+      All database queries MUST filter by tenant_id for multi-tenancy isolation.
+    </note>
+    <note priority="critical">
+      All agent decisions MUST use trajectory logging (log_thought, log_action, log_observation).
+    </note>
+    <note priority="critical">
+      Use MERGE operations in Neo4j for idempotent entity/relationship creation.
+    </note>
+    <note priority="critical">
+      Entity deduplication must check name + type before creating new entities.
+    </note>
+    <note priority="high">
+      Use async/await throughout - no blocking I/O in the main thread.
+    </note>
+    <note priority="high">
+      Implement retry logic with exponential backoff for LLM and embedding API calls.
+    </note>
+    <note priority="high">
+      Chunk embeddings must be stored in pgvector with proper indexes.
+    </note>
+    <note priority="medium">
+      Use tiktoken cl100k_base encoding for accurate GPT-4 token counting.
+    </note>
+    <note priority="medium">
+      Batch embedding requests (up to 100 texts) for efficiency.
+    </note>
+    <note priority="medium">
+      Cache entity name -> ID mappings during graph building to resolve relationships.
+    </note>
+    <note priority="low">
+      Consider implementing embedding-based deduplication (cosine similarity > 0.95) for future enhancement.
+    </note>
+  </implementation-notes>
+
+  <references>
+    <reference type="story" path="_bmad-output/implementation-artifacts/stories/4-3-agentic-entity-extraction.md"/>
+    <reference type="tech-spec" path="_bmad-output/epics/epic-4-tech-spec.md#33-story-43-agentic-entity-extraction"/>
+    <reference type="architecture" path="_bmad-output/architecture.md#data-architecture"/>
+    <reference type="database-schema" path="_bmad-output/epics/epic-4-tech-spec.md#4-database-schema"/>
+    <reference type="story-4-1" path="_bmad-output/implementation-artifacts/stories/4-1-url-documentation-crawling.md"/>
+    <reference type="story-4-1-context" path="_bmad-output/implementation-artifacts/stories/4-1-url-documentation-crawling.context.xml"/>
+    <reference type="story-4-2" path="_bmad-output/implementation-artifacts/stories/4-2-pdf-document-parsing.md"/>
+    <reference type="story-4-2-context" path="_bmad-output/implementation-artifacts/stories/4-2-pdf-document-parsing.context.xml"/>
+    <reference type="agno-docs" url="https://docs.agno.com/"/>
+    <reference type="neo4j-python" url="https://neo4j.com/docs/python-manual/current/"/>
+    <reference type="tiktoken" url="https://github.com/openai/tiktoken"/>
+    <reference type="openai-embeddings" url="https://platform.openai.com/docs/guides/embeddings"/>
+  </references>
+</story-context>

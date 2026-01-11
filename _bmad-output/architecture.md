@@ -1327,7 +1327,7 @@ GET /api/v1/knowledge/entity/{id}/history
 
 - [Graphiti GitHub](https://github.com/getzep/graphiti)
 - [Zep: Temporal Knowledge Graph Architecture (arXiv)](https://arxiv.org/abs/2501.13956)
-- [Epic 5 Tech Spec](docs/epics/epic-5-tech-spec.md)
+- [Epic 5 Tech Spec](_bmad-output/epics/epic-5-tech-spec.md)
 
 ---
 

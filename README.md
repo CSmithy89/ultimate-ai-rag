@@ -89,7 +89,14 @@ async def example() -> None:
 - Graphiti migration: `docs/runbooks/graphiti-migration.md`
 - Persistence + usage: `docs/runbooks/persistence-and-usage.md`
 
+## Documentation Map
+
+- `docs/` houses user/developer guidance (guides, runbooks, testing, observability, quality checklists, retrospective templates, roadmap/todo).
+- `_bmad-output/` houses BMAD method artifacts (PRD/architecture/project-context, project planning artifacts, epics, implementation artifacts such as stories, retrospectives, reviews, and sprint status).
+
 ## Epic Progress
+
+Detailed epic specs and reports live in `_bmad-output/epics/`.
 
 ### Epic 1: Foundation & Developer Quick Start
 - Status: Complete
@@ -225,6 +232,14 @@ async def example() -> None:
   - Apify/Brightdata fallback for anti-bot protected sites
   - Crawl configuration profiles (fast/thorough/stealth)
 
+### Epic 14: Connectivity (MCP Wrapper Architecture)
+- Status: Complete
+- Stories: 2/2 completed
+- Key Features:
+  - MCP server wrapper over Graphiti with RAG-specific tools
+  - A2A protocol enhancements for discovery, delegation, and sessions
+  - External client integrations via MCP stdio/HTTP transports
+
 ### Epic 15: Codebase Intelligence
 - Status: Complete
 - Stories: 2/2 completed
@@ -236,7 +251,7 @@ async def example() -> None:
 
 ### Epic 19: Quality Foundation & Tech Debt Resolution
 - Status: Complete
-- Stories: 13/13 completed
+- Stories: 26/26 completed
 - Key Features:
   - Externalized crawl profile mappings with YAML config and tuning guides
   - Configurable user-agent rotation strategies for crawling
@@ -247,9 +262,9 @@ async def example() -> None:
   - Docling-based MCP PDF ingestion with page-level chunking
   - New crawler operational guides (profiles, memory, parsing)
 
-### Epic 20: Memory Platform & Graph Intelligence
+### Epic 20: Advanced Retrieval Intelligence
 - Status: Complete
-- Stories: 12/12 completed
+- Stories: 18/18 completed
 - Key Features:
   - Memory scopes (user/session/agent/global) with hierarchical inheritance
   - Memory consolidation with deduplication, decay, and cleanup
@@ -262,7 +277,7 @@ async def example() -> None:
 
 ### Epic 21: CopilotKit Full Integration
 - Status: Complete
-- Stories: 19/19 completed (6 groups: A-F)
+- Stories: 8/8 completed
 - Key Features:
   - A2UI widget rendering (card, table, form, chart, image, list)
   - MCP client tool bridge with retry logic
@@ -273,19 +288,23 @@ async def example() -> None:
   - Prometheus metrics for telemetry events
 - Documentation: `docs/guides/voice-io-configuration.md`
 
+### Epic 22: Advanced Protocol Integration
+- Status: In progress
+- Stories: 9/12 done
+- Key Features:
+  - A2A middleware agent for agent-to-agent collaboration
+  - AG-UI telemetry and error event handling
+  - Multi-tenant A2A resource limits
+  - MCP-UI and Open-JSON-UI renderers
+
 ## Roadmap
 
-### Upcoming Epics
+### Backlog Epics
 
 | Epic | Focus | Status |
 |------|-------|--------|
 | **Epic 17** | Developer Experience, CLI & Framework Integration | Backlog |
 | **Epic 18** | Enhanced Documentation & DevOps | Backlog |
-| **Epic 20** | Advanced Retrieval Intelligence | Backlog |
 
-Epic 20 includes competitive features from analysis of Mem0, Zep, GraphRAG, LightRAG, Cognee, and RAGFlow:
-- Memory scopes (user/session/agent)
-- Community detection for graph intelligence
-- Dual-level retrieval (low/high)
-- Parent-child chunk hierarchy
-- Retrieval quality benchmarks and Prometheus metrics
+### Deprecated Epics
+- Epic 16: Framework Agnosticism (merged into Epic 17)

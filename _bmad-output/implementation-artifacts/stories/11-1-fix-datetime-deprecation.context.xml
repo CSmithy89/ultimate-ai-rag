@@ -1,0 +1,22 @@
+<storyContext>
+  <story id="11.1" title="Fix datetime deprecation" epic="11" />
+
+  <summary>
+    Replace deprecated datetime.utcnow usage with timezone-aware UTC alternatives
+    to keep Python 3.12+ compatibility.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Remove deprecated datetime.utcnow usage.</acceptanceCriteria>
+    <acceptanceCriteria>Preserve UTC semantics with timezone-aware values.</acceptanceCriteria>
+    <acceptanceCriteria>Existing tests remain green.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Prefer timezone-aware UTC datetime values.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="_bmad-output/epics/epic-11-tech-spec.md" section="Story Breakdown" />
+  </references>
+</storyContext>

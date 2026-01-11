@@ -1,0 +1,21 @@
+<storyContext>
+  <story id="11.8" title="Add LLM token usage monitoring" epic="11" />
+
+  <summary>
+    Extend token usage tracking to embedding generation and propagate tenant context.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Token usage logged for LLM/embedding requests.</acceptanceCriteria>
+    <acceptanceCriteria>Ops metrics endpoints surface totals and alerts.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Telemetry must be non-blocking to core workflows.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="_bmad-output/epics/epic-11-tech-spec.md" section="Story Breakdown" />
+    <reference path="_bmad-output/epics/epic-11-code-cleanup-migration.md" section="Story 11.8" />
+  </references>
+</storyContext>

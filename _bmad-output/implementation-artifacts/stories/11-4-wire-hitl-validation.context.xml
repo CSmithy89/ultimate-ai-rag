@@ -1,0 +1,24 @@
+<storyContext>
+  <story id="11.4" title="Wire HITL validation endpoint" epic="11" />
+
+  <summary>
+    Connect HITL validation to AG-UI streaming with persistence and
+    retrieval endpoints for validation history.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Checkpoints persisted and retrievable.</acceptanceCriteria>
+    <acceptanceCriteria>AG-UI bridge receives validation decisions.</acceptanceCriteria>
+    <acceptanceCriteria>Timeout fallback applies default behavior.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Preserve tenant isolation for checkpoints.</constraint>
+    <constraint>Keep AG-UI stream responsive during waits.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="_bmad-output/epics/epic-11-tech-spec.md" section="Story Breakdown" />
+    <reference path="_bmad-output/epics/epic-11-code-cleanup-migration.md" section="Story 11.4" />
+  </references>
+</storyContext>
