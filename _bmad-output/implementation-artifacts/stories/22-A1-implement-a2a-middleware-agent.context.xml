@@ -10,7 +10,7 @@
     <key-deliverables>
       <deliverable>A2AMiddlewareAgent class with registration, discovery, and delegation methods</deliverable>
       <deliverable>A2AAgentCapability and A2AAgentInfo Pydantic models</deliverable>
-      <deliverable>New API endpoints: POST /a2a/agents/register, GET /a2a/agents, GET /a2a/capabilities</deliverable>
+      <deliverable>New API endpoints: POST /a2a/middleware/agents/register, GET /a2a/middleware/agents, GET /a2a/middleware/capabilities</deliverable>
       <deliverable>Tenant-scoped agent ID validation (agent_id must be prefixed with tenant_id)</deliverable>
       <deliverable>AG-UI SSE streaming for task delegation responses</deliverable>
       <deliverable>Unit and integration tests with >90% coverage</deliverable>
@@ -18,10 +18,10 @@
 
     <acceptance-criteria-summary>
       <criterion id="AC1">A2AMiddlewareAgent initializes with agent_id, name, capabilities, and empty registry</criterion>
-      <criterion id="AC2">POST /a2a/agents/register validates tenant_id prefix in agent_id</criterion>
+      <criterion id="AC2">POST /a2a/middleware/agents/register validates tenant_id prefix in agent_id</criterion>
       <criterion id="AC3">403 Forbidden with RFC 7807 format for mismatched tenant prefix</criterion>
-      <criterion id="AC4">GET /a2a/agents returns tenant-scoped agent list</criterion>
-      <criterion id="AC5">GET /a2a/capabilities supports filter query param</criterion>
+      <criterion id="AC4">GET /a2a/middleware/agents returns tenant-scoped agent list</criterion>
+      <criterion id="AC5">GET /a2a/middleware/capabilities supports filter query param</criterion>
       <criterion id="AC6">delegate_task() invokes target agent's AG-UI endpoint with streaming</criterion>
       <criterion id="AC7">A2AAgentNotFoundError for non-existent agents</criterion>
       <criterion id="AC8">A2ACapabilityNotFoundError for non-existent capabilities</criterion>
@@ -344,13 +344,13 @@ Classes to implement:
         <changes>
           <![CDATA[
 Add new endpoints:
-1. POST /a2a/agents/register with tenant prefix validation
+1. POST /a2a/middleware/agents/register with tenant prefix validation
    - Validate agent_id.startswith(f"{tenant_id}:")
    - Return 403 RFC 7807 error on mismatch
 
-2. GET /a2a/agents - already exists but verify tenant-scoping
+2. GET /a2a/middleware/agents - already exists but verify tenant-scoping
 
-3. GET /a2a/capabilities?filter=xxx - already exists but add filter param if missing
+3. GET /a2a/middleware/capabilities?filter=xxx - already exists but add filter param if missing
 
 Add new dependency:
 - get_a2a_middleware(request: Request) -> A2AMiddlewareAgent
@@ -603,7 +603,7 @@ def get_a2a_middleware(request: Request) -> "A2AMiddlewareAgent":
 
 
 # Update register endpoint to validate tenant prefix
-@router.post("/a2a/agents/register", response_model=AgentResponse)
+@router.post("/a2a/middleware/agents/register", response_model=AgentResponse)
 async def register_agent(
     request_body: RegisterAgentRequest,
     tenant_id: str = Header(..., alias="X-Tenant-ID"),
@@ -703,10 +703,10 @@ if hasattr(app.state, "a2a_middleware") and app.state.a2a_middleware:
     <integration-tests>
       <test-file>tests/integration/test_a2a_middleware_endpoints.py</test-file>
       <test-cases>
-        <case name="test_register_valid_tenant_prefix">POST /a2a/agents/register with matching prefix returns 200</case>
+        <case name="test_register_valid_tenant_prefix">POST /a2a/middleware/agents/register with matching prefix returns 200</case>
         <case name="test_register_invalid_tenant_prefix">POST with mismatched prefix returns 403 RFC 7807</case>
-        <case name="test_list_agents_tenant_scoped">GET /a2a/agents only returns tenant's agents</case>
-        <case name="test_capabilities_filter">GET /a2a/capabilities?filter=search works</case>
+        <case name="test_list_agents_tenant_scoped">GET /a2a/middleware/agents only returns tenant's agents</case>
+        <case name="test_capabilities_filter">GET /a2a/middleware/capabilities?filter=search works</case>
         <case name="test_rate_limiting_enforced">Verify 429 after limit exceeded</case>
       </test-cases>
     </integration-tests>
@@ -762,7 +762,7 @@ if hasattr(app.state, "a2a_middleware") and app.state.a2a_middleware:
   "title": "A2A Permission Denied",
   "status": 403,
   "detail": "Agent ID must be prefixed with tenant ID",
-  "instance": "/api/v1/a2a/agents/register",
+  "instance": "/api/v1/a2a/middleware/agents/register",
   "errors": {
     "resource_id": "invalid-agent-id"
   }

@@ -1,7 +1,7 @@
 # Epic 22 Tech Spec: Advanced Protocol Integration
 
 **Date:** 2026-01-06
-**Status:** Backlog
+**Status:** In Progress
 **Epic Owner:** Platform Engineering
 **Origin:** Party Mode Deep Dive Analysis (2026-01-06)
 **Depends On:** Epic 21 (CopilotKit Full Integration)
@@ -90,14 +90,14 @@ Analysis of the CopilotKit Feature Gap Roadmap identified several advanced proto
 
 ### A2A Registration Security
 
-All `/a2a/agents/*` endpoints require:
+All `/a2a/middleware/agents/*` endpoints require:
 1. **Authentication**: Valid API key in `Authorization: Bearer {key}` header
 2. **Tenant scoping**: `X-Tenant-ID` header must match the API key's tenant
 3. **Rate limiting**: Max 10 registrations per minute per tenant
 
 ```python
 # backend/src/agentic_rag_backend/api/routes/a2a.py (update)
-@router.post("/a2a/agents/register")
+@router.post("/a2a/middleware/agents/register")
 async def register_agent(
     agent_info: A2AAgentInfo,
     tenant_id: str = Depends(get_tenant_id),  # From X-Tenant-ID header
@@ -419,7 +419,7 @@ from agentic_rag_backend.protocols.a2a_middleware import (
     A2AAgentInfo,
 )
 
-@router.post("/a2a/agents/register")
+@router.post("/a2a/middleware/agents/register")
 async def register_agent(
     agent_info: A2AAgentInfo,
     middleware: A2AMiddlewareAgent = Depends(get_a2a_middleware),
@@ -428,14 +428,14 @@ async def register_agent(
     middleware.register_agent(agent_info)
     return {"status": "registered", "agent_id": agent_info.agent_id}
 
-@router.get("/a2a/agents")
+@router.get("/a2a/middleware/agents")
 async def list_agents(
     middleware: A2AMiddlewareAgent = Depends(get_a2a_middleware),
 ) -> list[A2AAgentInfo]:
     """List all registered A2A agents."""
     return list(middleware._registered_agents.values())
 
-@router.get("/a2a/capabilities")
+@router.get("/a2a/middleware/capabilities")
 async def discover_capabilities(
     filter: str | None = None,
     middleware: A2AMiddlewareAgent = Depends(get_a2a_middleware),

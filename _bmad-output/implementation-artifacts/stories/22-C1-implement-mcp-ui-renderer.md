@@ -1,6 +1,6 @@
 # Story 22-C1: Implement MCP-UI Renderer
 
-Status: in-progress
+Status: done
 
 Epic: 22 - Advanced Protocol Integration
 Priority: P1 - MEDIUM
@@ -26,7 +26,7 @@ Epic 22 extends protocol integration with cross-platform UI capabilities. MCP-UI
 
 The MCP-UI protocol allows MCP tools to return UI payloads that render interactive interfaces:
 - External tool providers host web UIs at designated endpoints
-- Iframes are sandboxed with minimal permissions (allow-scripts, allow-same-origin)
+- Iframes are sandboxed with minimal permissions (allow-scripts by default; allow-same-origin is not included)
 - PostMessage API enables resize events, results, and error reporting
 - Origins must be pre-approved via allowlist configuration
 
@@ -45,7 +45,7 @@ The MCP-UI protocol allows MCP tools to return UI payloads that render interacti
 
 2. **Given** a `GET /mcp/ui/config` request, **when** called with valid tenant_id, **then** the endpoint returns the allowed origins list for that tenant.
 
-3. **Given** an MCP-UI payload with a `ui_url`, **when** rendered in MCPUIRenderer, **then** an iframe is created with `sandbox="allow-scripts allow-same-origin"` attributes.
+3. **Given** an MCP-UI payload with a `ui_url`, **when** rendered in MCPUIRenderer, **then** an iframe is created with `sandbox="allow-scripts"` and optional allowlist flags (no `allow-same-origin` by default).
 
 4. **Given** an MCP-UI payload with a URL not in the allowlist, **when** MCPUIRenderer attempts to render, **then** the component displays a security warning instead of the iframe.
 
@@ -71,61 +71,60 @@ The MCP-UI protocol allows MCP tools to return UI payloads that render interacti
 
 ## Security Checklist
 
-- [ ] **Origin allowlist enforced**: All iframe URLs validated against MCP_UI_ALLOWED_ORIGINS
-- [ ] **Sandbox attributes applied**: iframe uses minimal sandbox permissions
-- [ ] **PostMessage origin validated**: All incoming messages checked against allowlist
-- [ ] **CSP headers configured**: frame-src includes only allowed origins
-- [ ] **No parent DOM access**: Iframe cannot access parent document
-- [ ] **Zod schema validation**: PostMessage data validated before processing
+- [x] **Origin allowlist enforced**: All iframe URLs validated against MCP_UI_ALLOWED_ORIGINS
+- [x] **Sandbox attributes applied**: iframe uses minimal sandbox permissions
+- [x] **PostMessage origin validated**: All incoming messages checked against allowlist
+- [x] **CSP headers configured**: frame-src includes only allowed origins
+- [x] **No parent DOM access**: Iframe cannot access parent document
+- [x] **Zod schema validation**: PostMessage data validated before processing
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Create Backend MCP-UI Configuration Models** (AC: 1, 2)
-  - [ ] Create `backend/src/agentic_rag_backend/models/mcp_ui.py`
-  - [ ] Define `MCPUIConfig` Pydantic model (allowed_origins, signing_secret, enabled)
-  - [ ] Add `mcp_ui_enabled` and `mcp_ui_allowed_origins` to Settings dataclass
-  - [ ] Add `mcp_ui_signing_secret` to Settings dataclass
+- [x] **Task 1: Create Backend MCP-UI Configuration Models** (AC: 1, 2)
+  - [x] Create `backend/src/agentic_rag_backend/models/mcp_ui.py`
+  - [x] Define `MCPUIConfig` Pydantic model (allowed_origins, signing_secret, enabled)
+  - [x] Add `mcp_ui_enabled` and `mcp_ui_allowed_origins` to Settings dataclass
+  - [x] Add `mcp_ui_signing_secret` to Settings dataclass
 
-- [ ] **Task 2: Create MCP-UI Config API Endpoint** (AC: 2)
-  - [ ] Create `backend/src/agentic_rag_backend/api/routes/mcp_ui.py`
-  - [ ] Implement `GET /mcp/ui/config` endpoint returning allowed origins
-  - [ ] Add router to main.py
+- [x] **Task 2: Create MCP-UI Config API Endpoint** (AC: 2)
+  - [x] Implement `GET /mcp/ui/config` endpoint in `backend/src/agentic_rag_backend/api/routes/mcp.py`
+  - [x] Return allowed origins for the tenant
 
-- [ ] **Task 3: Create Frontend Security Utilities** (AC: 4, 5, 9)
-  - [ ] Create `frontend/lib/mcp-ui-security.ts`
-  - [ ] Implement `loadAllowedOrigins()` function to fetch from backend
-  - [ ] Implement `isAllowedOrigin(origin)` validation function
-  - [ ] Implement Zod schema for postMessage validation
+- [x] **Task 3: Create Frontend Security Utilities** (AC: 4, 5, 9)
+  - [x] Create `frontend/lib/mcp-ui-security.ts`
+  - [x] Implement `loadAllowedOrigins()` function to fetch from backend
+  - [x] Implement `isAllowedOrigin(origin)` validation function
+  - [x] Implement Zod schema for postMessage validation
 
-- [ ] **Task 4: Create MCPUIRenderer Component** (AC: 3, 4)
-  - [ ] Create `frontend/components/mcp-ui/MCPUIRenderer.tsx`
-  - [ ] Implement sandboxed iframe with proper attributes
-  - [ ] Implement origin validation before rendering
-  - [ ] Display security warning for blocked origins
+- [x] **Task 4: Create MCPUIRenderer Component** (AC: 3, 4)
+  - [x] Create `frontend/components/mcp-ui/MCPUIRenderer.tsx`
+  - [x] Implement sandboxed iframe with safe allowlist attributes
+  - [x] Implement origin validation before rendering
+  - [x] Display security warning for blocked origins
 
-- [ ] **Task 5: Create MCPUIBridge Component** (AC: 5, 6, 7, 8)
-  - [ ] Create `frontend/components/mcp-ui/MCPUIBridge.tsx`
-  - [ ] Implement postMessage listener with origin validation
-  - [ ] Handle `mcp_ui_resize` messages
-  - [ ] Handle `mcp_ui_result` messages
-  - [ ] Handle `mcp_ui_error` messages
+- [x] **Task 5: Create MCPUIBridge Component** (AC: 5, 6, 7, 8)
+  - [x] Create `frontend/components/mcp-ui/MCPUIBridge.tsx`
+  - [x] Implement postMessage listener with origin validation
+  - [x] Handle `mcp_ui_resize` messages
+  - [x] Handle `mcp_ui_result` messages
+  - [x] Handle `mcp_ui_error` messages
 
-- [ ] **Task 6: Add Backend Unit Tests** (AC: 10)
-  - [ ] Create `backend/tests/unit/models/test_mcp_ui.py`
-  - [ ] Test MCPUIConfig model validation
-  - [ ] Test origin parsing logic
+- [x] **Task 6: Add Backend Unit Tests** (AC: 10)
+  - [x] Create `backend/tests/unit/models/test_mcp_ui.py`
+  - [x] Test MCPUIConfig model validation
+  - [x] Test origin parsing logic
 
-- [ ] **Task 7: Add Backend Integration Tests** (AC: 2)
-  - [ ] Create `backend/tests/integration/test_mcp_ui_api.py`
-  - [ ] Test `/mcp/ui/config` endpoint
+- [x] **Task 7: Add Backend Integration Tests** (AC: 2)
+  - [x] Create `backend/tests/integration/test_mcp_ui_api.py`
+  - [x] Test `/mcp/ui/config` endpoint
 
-- [ ] **Task 8: Add Frontend Tests** (AC: 10)
-  - [ ] Create `frontend/__tests__/components/mcp-ui/MCPUIRenderer.test.tsx`
-  - [ ] Create `frontend/__tests__/components/mcp-ui/MCPUIBridge.test.tsx`
-  - [ ] Create `frontend/__tests__/lib/mcp-ui-security.test.ts`
-  - [ ] Test origin validation
-  - [ ] Test postMessage handling
-  - [ ] Test renderer blocking for invalid origins
+- [x] **Task 8: Add Frontend Tests** (AC: 10)
+  - [x] Create `frontend/__tests__/components/mcp-ui/MCPUIRenderer.test.tsx`
+  - [x] Create `frontend/__tests__/components/mcp-ui/MCPUIBridge.test.tsx`
+  - [x] Create `frontend/__tests__/lib/mcp-ui-security.test.ts`
+  - [x] Test origin validation
+  - [x] Test postMessage handling
+  - [x] Test renderer blocking for invalid origins
 
 ## Technical Notes
 
@@ -181,7 +180,7 @@ function useMCPUIBridge(
 | File | Action | Description |
 |------|--------|-------------|
 | `backend/src/agentic_rag_backend/models/mcp_ui.py` | Create | MCP-UI Pydantic models |
-| `backend/src/agentic_rag_backend/api/routes/mcp_ui.py` | Create | Config endpoint |
+| `backend/src/agentic_rag_backend/api/routes/mcp.py` | Modify | Config endpoint |
 | `backend/src/agentic_rag_backend/config.py` | Modify | Add MCP-UI settings |
 | `frontend/lib/mcp-ui-security.ts` | Create | Security utilities |
 | `frontend/components/mcp-ui/MCPUIRenderer.tsx` | Create | Iframe renderer |
@@ -234,7 +233,7 @@ Implemented MCP-UI renderer with sandboxed iframes and secure postMessage commun
 5. **MCPUIRenderer Component**:
    - Shows loading state while fetching config
    - Blocks untrusted origins with security warning
-   - Renders sandboxed iframe with `allow-scripts allow-same-origin`
+   - Renders sandboxed iframe with `allow-scripts` (additional flags allowlisted)
    - Sends `mcp_ui_init` message on iframe load
 
 ### Security Controls
