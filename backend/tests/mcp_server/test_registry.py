@@ -24,7 +24,7 @@ async def dummy_handler(args):
 
 async def slow_handler(args):
     """Handler that takes time."""
-    await asyncio.sleep(0.5)
+    await asyncio.Event().wait()
     return {"result": "done"}
 
 
@@ -170,7 +170,7 @@ class TestMCPServerRegistry:
     @pytest.mark.asyncio
     async def test_call_tool_timeout(self):
         """Test tool timeout handling."""
-        registry = MCPServerRegistry(default_timeout_seconds=0.1)
+        registry = MCPServerRegistry(default_timeout_seconds=0.01)
         tool = MCPToolSpec(
             name="test.slow",
             description="Slow tool",

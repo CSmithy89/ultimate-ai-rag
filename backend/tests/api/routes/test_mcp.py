@@ -62,7 +62,7 @@ class DummyNeo4j:
 
 class SlowOrchestrator:
     async def run(self, query: str, tenant_id: str, session_id: str | None = None) -> OrchestratorResult:
-        await asyncio.sleep(0.05)
+        await asyncio.Event().wait()
         return OrchestratorResult(
             answer="slow",
             plan=[PlanStep(step="Step", status="completed")],
