@@ -1,7 +1,7 @@
 # Epic 17 Tech Spec: Developer Experience, CLI & Framework Integration
 
 **Date:** 2025-12-31
-**Updated:** 2026-01-05 (Merged Epic 16 Framework Integration)
+**Updated:** 2026-01-12 (CLI UX Design - Party Mode Consensus)
 **Status:** Backlog
 **Epic Owner:** Product and Engineering
 
@@ -62,15 +62,153 @@ Following party mode analysis, we adopted "Vision A" where:
 
 ---
 
+## CLI UX Design (Party Mode Consensus - 2026-01-12)
+
+### Design Philosophy: Progressive Disclosure
+
+The CLI uses a **funnel model** to minimize cognitive load while preserving power-user access:
+
+```
+                    ┌─────────────────┐
+  STAGE 1: Fast     │  4-5 questions  │  ← Profile + Provider + API Key + Framework
+                    └────────┬────────┘
+                             │
+                    ┌────────▼────────┐
+  STAGE 2: Expand   │  [c] Customize  │  ← Profile-specific options only
+                    └────────┬────────┘
+                             │
+                    ┌────────▼────────┐
+  STAGE 3: Deep     │  rag-cli setup  │  ← Full configuration wizard
+                    └─────────────────┘
+```
+
+**Key Principles:**
+- **Auto-detect and recommend** - Don't ask if we can infer from hardware
+- **Smart defaults that just work** - Every profile is valid out of the box
+- **Escape hatch for power users** - `--customize` or `rag-cli setup` for deep config
+- **15-minute target** - Fast path must complete in under 3 minutes of user time
+
+### The 5-Question Fast Path
+
+Default `rag-install` flow (no flags):
+
+```
+╔══════════════════════════════════════════════════════════════════════════╗
+║  RAG SYSTEM INSTALLER                                                     ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║                                                                           ║
+║  ✓ System detected: 16GB RAM, Apple M2, Metal GPU                         ║
+║  ✓ Recommended: Standard Profile                                          ║
+║                                                                           ║
+║  ─────────────────────────────────────────────────────────────────────── ║
+║                                                                           ║
+║  ? [1/4] Accept recommended profile? (Standard)                           ║
+║    ❯ Yes, use Standard profile                                            ║
+║      No, let me choose (Minimal / Enterprise / Custom)                    ║
+║                                                                           ║
+║  ? [2/4] LLM Provider:                                                    ║
+║    ❯ OpenAI (recommended for most users)                                  ║
+║      Anthropic Claude                                                     ║
+║      Ollama (local, requires GPU)                                         ║
+║      More options...                                                      ║
+║                                                                           ║
+║  ? [3/4] Enter OpenAI API Key: sk-****************************XXXX        ║
+║                                                                           ║
+║  ? [4/4] Generate framework starter? (for external agents)                ║
+║    ❯ No starter needed                                                    ║
+║      PydanticAI                                                           ║
+║      CrewAI                                                               ║
+║      LangGraph                                                            ║
+║      Anthropic SDK                                                        ║
+║                                                                           ║
+║  ─────────────────────────────────────────────────────────────────────── ║
+║                                                                           ║
+║  Ready to install! This will:                                             ║
+║  • Generate .env with your configuration                                  ║
+║  • Start Docker services (PostgreSQL, Neo4j, Redis, Backend, Frontend)   ║
+║                                                                           ║
+║  [Enter] Install now   [c] Customize more   [Esc] Cancel                  ║
+╚══════════════════════════════════════════════════════════════════════════╝
+```
+
+### Profile Feature Matrix
+
+Each profile is a **complete, working configuration**. Features are pre-configured based on target use case:
+
+| Category | Feature | Minimal | Standard | Enterprise |
+|----------|---------|:-------:|:--------:|:----------:|
+| **LLM** | Default Provider | OpenAI | OpenAI | OpenRouter |
+| | Model | gpt-4o-mini | gpt-4o | claude-3.5-sonnet |
+| **Embedding** | Provider | OpenAI | OpenAI | Voyage AI |
+| | Model | text-embedding-3-small | text-embedding-3-small | voyage-code-3 |
+| **Retrieval** | Reranking | ❌ | ❌ (opt-in) | ✅ Cohere |
+| | Contextual Retrieval | ❌ | ❌ | ✅ |
+| | CRAG Grader | ❌ | ❌ | ✅ |
+| | Sparse Vectors (BM42) | ❌ | ❌ | ✅ |
+| | ColBERT | ❌ | ❌ | ✅ |
+| | Hierarchical Chunks | ❌ | ✅ | ✅ |
+| **Memory** | Scopes Enabled | ❌ | ✅ | ✅ |
+| | Default Scope | session | session | user |
+| | Consolidation | ❌ | ❌ | ✅ |
+| **Graph** | Community Detection | ❌ | ❌ | ✅ Louvain |
+| | LazyRAG | ❌ | ❌ | ✅ |
+| | Query Routing | ✅ (rule) | ✅ (rule) | ✅ (LLM) |
+| | Graph Reranker | ❌ | ❌ | ✅ Hybrid |
+| **Ingestion** | URL Crawling | ✅ Fast | ✅ Thorough | ✅ Stealth |
+| | Crawl Fallback | ❌ | ❌ | ✅ Apify/BrightData |
+| | PDF Processing | ✅ Fast | ✅ Accurate | ✅ Enhanced |
+| | YouTube | ✅ | ✅ | ✅ |
+| | External Sync (S3, etc) | ❌ | ❌ | ✅ |
+| | Codebase RAG | ❌ | ❌ | ✅ |
+| **Voice** | STT (Whisper) | ❌ | ❌ (opt-in) | ✅ base |
+| | TTS | ❌ | ❌ (opt-in) | ✅ OpenAI |
+| **Observability** | Prometheus | ✅ | ✅ | ✅ |
+| | Cost Tracking | ✅ | ✅ | ✅ |
+| | Tenant Label Mode | global | global | hash |
+| | Trace Encryption | ❌ | ❌ | ✅ |
+| **Protocols** | A2A Enabled | ✅ | ✅ | ✅ |
+| | A2A Sessions/Tenant | 50 | 100 | 500 |
+| | A2A Messages/Session | 500 | 1000 | 5000 |
+| | MCP Enabled | ✅ | ✅ | ✅ |
+| | MCP-UI Rendering | ❌ | ✅ | ✅ |
+
+**Legend:** ✅ = Enabled by default | ❌ = Disabled | (opt-in) = Shown in customize mode
+
+### CLI Command Structure
+
+| Command | Purpose | Questions Asked |
+|---------|---------|-----------------|
+| `rag-install` | Fast path installation | 4-5 (profile, LLM, API key, framework) |
+| `rag-install --customize` | Installation with all options | Profile-appropriate subset |
+| `rag-install --profile <name> --yes` | Non-interactive installation | 0 (uses profile defaults) |
+| `rag-cli setup` | Deep configuration wizard | All options for current profile |
+| `rag-cli doctor` | Validate configuration | 0 (diagnostic only) |
+| `rag-cli doctor --fix` | Auto-fix issues | Prompts only for fixes |
+
+### Time Budget (15-Minute Goal)
+
+| Activity | Target | Fast Path Design |
+|----------|--------|------------------|
+| Download/clone | 2 min | — |
+| `rag-install` prompts | **3 min** | 4-5 questions only |
+| Docker image pull | 5 min | Background during prompts |
+| Services startup | 3 min | ~13s actual (Story 17-4) |
+| First query | 2 min | — |
+| **TOTAL** | **15 min** | ✅ Achievable |
+
+---
+
 ## Stories
 
 ### Story 17-1: Create rag-install CLI Tool
 
-**Objective:** Build a guided CLI that walks users through setup with intelligent defaults.
+**Objective:** Build a guided CLI that walks users through setup with intelligent defaults using the **5-Question Fast Path** (see CLI UX Design section above).
 
 **Technology:** Python with `rich` for TUI and `typer` for CLI framework.
 
-**CLI Flow:**
+**CLI Flow (Fast Path - Default):**
+
+The default `rag-install` asks only 4-5 questions to achieve the 15-minute first-response goal:
 
 ```
 $ rag-install
@@ -83,56 +221,40 @@ Detecting hardware...
   ✓ CPU: 8 cores (Apple M2)
   ✓ RAM: 16 GB
   ✓ GPU: Apple Metal (MPS)
+  ✓ Recommended: Standard Profile
 
-Recommended profile: STANDARD
+? [1/4] Accept recommended profile? (Standard)
+  ❯ Yes, use Standard profile
+    No, let me choose
 
-? Select installation profile:
-  ❯ Minimal   - CPU only, local models, minimal resources
-    Standard  - Balanced, cloud LLMs, moderate resources (Recommended)
-    Enterprise - Full features, all providers, maximum resources
-
-? Select LLM provider:
-  ❯ OpenAI (Recommended for Standard)
-    Anthropic
-    Google Gemini
-    OpenRouter (access to 100+ models)
-    Ollama (local, requires GPU)
-
-? Select embedding provider:
-  ❯ OpenAI text-embedding-3-small (Recommended)
-    Voyage AI (best for code)
-    Google Gemini
+? [2/4] LLM Provider:
+  ❯ OpenAI (recommended)
+    Anthropic Claude
     Ollama (local)
+    More options...
 
-? Which framework will you build your agents in?
-  ❯ None (use built-in orchestrator only)
-    PydanticAI (type-safe agents)
-    CrewAI (multi-agent crews)
-    LangGraph (stateful workflows)
-    Anthropic SDK (Claude-native + Agent Skills)
+? [3/4] Enter OpenAI API Key: sk-********************************XXXX
 
-? Enable advanced retrieval features?
-  ☐ Cross-encoder reranking (+latency, +precision)
-  ☐ Contextual retrieval (+cost during ingestion, +relevance)
-  ☐ Corrective RAG grader (+fallback capability)
+? [4/4] Generate framework starter?
+  ❯ No starter needed
+    PydanticAI
+    CrewAI
+    LangGraph
+    Anthropic SDK
 
-? Enter your API keys:
-  OpenAI API Key: sk-...
-  (Keys are stored in .env, never transmitted)
+Ready to install!
+  • Profile: Standard
+  • LLM: OpenAI (gpt-4o)
+  • Embedding: OpenAI (text-embedding-3-small)
 
-Generating configuration...
-  ✓ Created .env
-  ✓ Backed up existing .env to .env.bak
-  ✓ Generated framework starter template (if selected)
-
-? Start services now? [Y/n]
+[Enter] Install now   [c] Customize more   [Esc] Cancel
 
 Starting docker compose...
-  ✓ PostgreSQL (pgvector) - healthy
-  ✓ Neo4j - healthy
-  ✓ Redis - healthy
-  ✓ Backend - healthy (http://localhost:8000)
-  ✓ Frontend - healthy (http://localhost:3000)
+  ✓ PostgreSQL (pgvector) - healthy (2.1s)
+  ✓ Neo4j - healthy (4.3s)
+  ✓ Redis - healthy (0.8s)
+  ✓ Backend - healthy (3.2s)
+  ✓ Frontend - healthy (2.5s)
 
 ╔══════════════════════════════════════════════════════════════╗
 ║  SUCCESS! Your RAG system is running.                         ║
@@ -144,8 +266,34 @@ Starting docker compose...
 ║  1. Open http://localhost:3000 in your browser                 ║
 ║  2. Try: "What can you help me with?"                          ║
 ║  3. Ingest your first document via the UI                      ║
-║  4. See examples/ for framework integration                    ║
+║                                                                ║
+║  Run 'rag-cli setup' to customize advanced features.           ║
 ╚══════════════════════════════════════════════════════════════╝
+```
+
+**CLI Flow (Customize Mode - `--customize` or [c] key):**
+
+When user presses [c] or runs `rag-install --customize`, show profile-appropriate additional options:
+
+```
+──────────────────────────────────────────────────────────────
+CUSTOMIZE: Standard Profile Options
+──────────────────────────────────────────────────────────────
+
+? Embedding provider:
+  ❯ OpenAI text-embedding-3-small (default)
+    Voyage AI (best for code)
+    Google Gemini
+
+? Enable optional retrieval features?
+  ☐ Cross-encoder reranking (+latency, +precision)
+  ☐ Contextual retrieval (+cost during ingestion)
+
+? Enable voice I/O?
+  ☐ Speech-to-text (Whisper)
+  ☐ Text-to-speech (OpenAI)
+
+[Enter] Continue with selections   [Esc] Back to fast path
 ```
 
 **Configuration Options:**
@@ -155,16 +303,28 @@ Starting docker compose...
 | **LLM Provider** | openai, anthropic, gemini, openrouter, ollama | openai |
 | **Embedding Provider** | openai, voyage, gemini, ollama | openai |
 | **Framework Template** | none, pydanticai, crewai, langgraph, anthropic | none |
-| **Reranking** | cohere, flashrank, disabled | disabled |
+| **Reranking** | cohere, flashrank, disabled | disabled (profile-based) |
 | **Database** | postgresql+neo4j (fixed) | - |
 | **Profile** | minimal, standard, enterprise | standard |
 
 **Acceptance Criteria**
-- Running `rag-install` starts an interactive setup wizard with `rich` TUI.
-- Users can select providers, frameworks, and optional features.
+- Running `rag-install` starts the **fast path** (4-5 questions max) with `rich` TUI.
+- Hardware detection runs automatically and recommends appropriate profile.
+- Users can accept recommended profile or choose manually.
+- [c] key or `--customize` flag shows profile-appropriate additional options.
 - CLI validates API keys format before proceeding.
 - CLI writes configuration into `.env` with comments explaining each setting.
 - Non-interactive mode supported: `rag-install --profile standard --llm openai --yes`
+- All profile configurations are valid out of the box (per Profile Feature Matrix).
+- Fast path completes in under 3 minutes of user interaction time.
+
+**Files to Create:**
+- `cli/main.py` - Main CLI entry point with typer
+- `cli/commands/install.py` - rag-install command implementation
+- `cli/prompts/fast_path.py` - 5-question fast path prompt flow
+- `cli/prompts/customize.py` - Profile-appropriate customize prompts
+- `cli/ui/panels.py` - Rich TUI panel components
+- `tests/cli/test_install.py` - CLI installation tests
 
 ### Story 17-2: Implement Auto Hardware Detection
 
