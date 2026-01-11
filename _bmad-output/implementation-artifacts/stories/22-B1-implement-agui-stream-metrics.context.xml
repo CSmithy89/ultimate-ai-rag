@@ -1,0 +1,583 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story Context File: 22-B1 Implement AG-UI Stream Metrics
+  Generated: 2026-01-11
+  Purpose: Comprehensive implementation context for AG-UI Prometheus metrics
+-->
+<story-context>
+  <metadata>
+    <story-id>22-B1</story-id>
+    <story-title>Implement AG-UI Stream Metrics</story-title>
+    <epic>22 - Advanced Protocol Integration</epic>
+    <priority>P0 - HIGH</priority>
+    <story-points>5</story-points>
+    <owner>Backend</owner>
+    <status>ready-for-dev</status>
+    <generated>2026-01-11</generated>
+  </metadata>
+
+  <summary>
+    Implement comprehensive Prometheus metrics for AG-UI stream health and performance.
+    This enables production observability for CopilotKit streaming operations including
+    stream lifecycle tracking, event latency, throughput monitoring, and active stream gauges.
+    All metrics must include tenant_id labels with optional cardinality control via bucket normalization.
+  </summary>
+
+  <objectives>
+    <objective>Create ag_ui_metrics.py module with Prometheus Counter, Histogram, and Gauge definitions</objective>
+    <objective>Implement AGUIMetricsCollector class for stream lifecycle tracking</objective>
+    <objective>Add tenant ID normalization to prevent cardinality explosion</objective>
+    <objective>Create track_agui_stream async context manager for automatic metrics collection</objective>
+    <objective>Integrate metrics into AGUIBridge.process_request method</objective>
+    <objective>Provide Grafana dashboard template for AG-UI observability</objective>
+  </objectives>
+
+  <acceptance-criteria>
+    <criterion id="AC1">When a stream starts, agui_stream_started_total{tenant_id="..."} counter is incremented</criterion>
+    <criterion id="AC2">When stream completes successfully, agui_stream_completed_total{tenant_id="...", status="success"} counter is incremented</criterion>
+    <criterion id="AC3">When stream fails, agui_stream_completed_total{tenant_id="...", status="error"} counter is incremented</criterion>
+    <criterion id="AC4">When an event is emitted, agui_event_emitted_total{tenant_id="...", event_type="..."} counter is incremented</criterion>
+    <criterion id="AC5">Time between events is measured in agui_event_latency_seconds{tenant_id="..."} histogram</criterion>
+    <criterion id="AC6">Total stream time is recorded in agui_stream_duration_seconds{tenant_id="..."} histogram</criterion>
+    <criterion id="AC7">Event count per stream is recorded in agui_stream_event_count{tenant_id="..."} histogram</criterion>
+    <criterion id="AC8">agui_active_streams{tenant_id="..."} gauge accurately reflects currently active stream count</criterion>
+    <criterion id="AC9">agui_stream_bytes_total{tenant_id="..."} counter accumulates total bytes streamed</criterion>
+    <criterion id="AC10">When METRICS_TENANT_SAMPLING_ENABLED=true, tenant IDs are normalized to bucket format</criterion>
+    <criterion id="AC11">track_agui_stream context manager collects all metrics automatically throughout stream lifecycle</criterion>
+    <criterion id="AC12">All AG-UI metrics are available at /metrics endpoint for Prometheus scraping</criterion>
+  </acceptance-criteria>
+
+  <files-to-create>
+    <file>
+      <path>backend/src/agentic_rag_backend/protocols/ag_ui_metrics.py</path>
+      <purpose>AG-UI Prometheus metrics module with collectors and context manager</purpose>
+      <dependencies>prometheus_client, time, contextlib, typing</dependencies>
+    </file>
+    <file>
+      <path>backend/tests/protocols/test_ag_ui_metrics.py</path>
+      <purpose>Unit tests for AGUIMetricsCollector and all metric scenarios</purpose>
+    </file>
+    <file>
+      <path>backend/tests/integration/test_ag_ui_metrics_integration.py</path>
+      <purpose>Integration tests for stream lifecycle and /metrics endpoint</purpose>
+    </file>
+    <file>
+      <path>docs/monitoring/grafana-agui-dashboard.json</path>
+      <purpose>Grafana dashboard template for AG-UI metrics visualization</purpose>
+    </file>
+  </files-to-create>
+
+  <files-to-modify>
+    <file>
+      <path>backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py</path>
+      <purpose>Integrate track_agui_stream context manager into process_request method</purpose>
+      <integration-point>Wrap request processing loop with context manager and call metrics.event_emitted() for each event</integration-point>
+    </file>
+    <file>
+      <path>backend/src/agentic_rag_backend/protocols/__init__.py</path>
+      <purpose>Export new metrics classes: AGUIMetricsCollector, track_agui_stream</purpose>
+    </file>
+    <file>
+      <path>.env.example</path>
+      <purpose>Add METRICS_TENANT_SAMPLING_ENABLED and METRICS_TENANT_BUCKET_COUNT variables</purpose>
+    </file>
+  </files-to-modify>
+
+  <existing-code-patterns>
+    <pattern name="Prometheus Metrics Definition">
+      <location>backend/src/agentic_rag_backend/observability/metrics.py</location>
+      <description>
+        Established pattern for defining Prometheus metrics with tenant_id labels.
+        Uses prometheus_client Counter, Histogram, Gauge with REGISTRY.
+        Includes normalize_tenant_label() function for cardinality control.
+      </description>
+      <example><![CDATA[
+from prometheus_client import (
+    Counter,
+    Histogram,
+    Gauge,
+    CollectorRegistry,
+    REGISTRY,
+)
+
+# Default registry (can be overridden for testing)
+_registry: CollectorRegistry = REGISTRY
+
+def normalize_tenant_label(tenant_id: str) -> str:
+    """Normalize tenant_id label to reduce cardinality."""
+    if not tenant_id:
+        return "unknown"
+
+    mode = _get_tenant_label_mode()
+    if mode == "full":
+        return tenant_id
+    if mode == "hash":
+        bucket_count = _get_tenant_label_bucket_count()
+        digest = hashlib.sha256(tenant_id.encode("utf-8")).hexdigest()
+        bucket = int(digest[:8], 16) % bucket_count
+        return f"bucket-{bucket}"
+    return "global"
+
+RETRIEVAL_REQUESTS_TOTAL = Counter(
+    "retrieval_requests_total",
+    "Total number of retrieval requests",
+    labelnames=["strategy", "tenant_id"],
+    registry=_registry,
+)
+      ]]></example>
+    </pattern>
+
+    <pattern name="Existing Telemetry Counter">
+      <location>backend/src/agentic_rag_backend/observability/metrics.py:405-416</location>
+      <description>
+        Story 22-TD1 added TELEMETRY_EVENTS_TOTAL counter pattern.
+        Follow same structure for AG-UI metrics.
+      </description>
+      <example><![CDATA[
+TELEMETRY_EVENTS_TOTAL = Counter(
+    "telemetry_events_total",
+    "Total frontend telemetry events received",
+    labelnames=["event", "tenant_id"],
+    registry=_registry,
+)
+
+def record_telemetry_event(event: str, tenant_id: str) -> None:
+    """Record a frontend telemetry event."""
+    tenant_label = normalize_tenant_label(tenant_id)
+    TELEMETRY_EVENTS_TOTAL.labels(event=event, tenant_id=tenant_label).inc()
+      ]]></example>
+    </pattern>
+
+    <pattern name="Context Manager for Active Operations">
+      <location>backend/src/agentic_rag_backend/observability/metrics.py:630-645</location>
+      <description>
+        Pattern for context manager tracking active operations with gauge increment/decrement.
+      </description>
+      <example><![CDATA[
+@contextmanager
+def track_active_retrieval(tenant_id: str) -> Generator[None, None, None]:
+    """Context manager to track active retrieval operations."""
+    tenant_label = normalize_tenant_label(tenant_id)
+    ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_label).inc()
+    try:
+        yield
+    finally:
+        ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_label).dec()
+      ]]></example>
+    </pattern>
+
+    <pattern name="Histogram Bucket Definitions">
+      <location>backend/src/agentic_rag_backend/observability/metrics.py:120-175</location>
+      <description>
+        Pattern for defining appropriate histogram buckets based on expected value ranges.
+      </description>
+      <example><![CDATA[
+# Latency buckets in seconds
+LATENCY_BUCKETS = (0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
+
+RETRIEVAL_LATENCY_SECONDS = Histogram(
+    "retrieval_latency_seconds",
+    "Retrieval operation latency in seconds",
+    labelnames=["strategy", "phase", "tenant_id"],
+    buckets=LATENCY_BUCKETS,
+    registry=_registry,
+)
+      ]]></example>
+    </pattern>
+  </existing-code-patterns>
+
+  <ag-ui-bridge-integration>
+    <current-implementation>
+      <location>backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py</location>
+      <description>
+        AGUIBridge.process_request is an async generator that yields AGUIEvent instances.
+        Currently extracts tenant_id from request config but does not track metrics.
+        Events emitted: RunStartedEvent, StateSnapshotEvent, TextMessageStartEvent,
+        TextDeltaEvent, TextMessageEndEvent, RunFinishedEvent.
+      </description>
+      <key-lines>
+        <line number="109-111">async def process_request(self, request: CopilotRequest) -> AsyncIterator[AGUIEvent]:</line>
+        <line number="128">tenant_id = config.get("tenant_id")</line>
+        <line number="153">yield RunStartedEvent()</line>
+        <line number="193">yield TextMessageStartEvent()</line>
+        <line number="194">yield TextDeltaEvent(content=result.answer)</line>
+        <line number="195">yield TextMessageEndEvent()</line>
+        <line number="205">yield RunFinishedEvent()</line>
+      </key-lines>
+    </current-implementation>
+
+    <integration-approach>
+      <step number="1">Import track_agui_stream from ag_ui_metrics module</step>
+      <step number="2">Wrap the entire process_request body with async with track_agui_stream(tenant_id) as metrics</step>
+      <step number="3">Call metrics.event_emitted(event.event.value, len(event_sse_data)) before each yield</step>
+      <step number="4">Handle the case where tenant_id is missing (use "unknown" as fallback)</step>
+      <step number="5">Exception handling already exists - context manager will call stream_completed("error")</step>
+    </integration-approach>
+
+    <event-types-to-track>
+      <event>RUN_STARTED</event>
+      <event>RUN_FINISHED</event>
+      <event>RUN_ERROR</event>
+      <event>TEXT_MESSAGE_START</event>
+      <event>TEXT_MESSAGE_CONTENT</event>
+      <event>TEXT_MESSAGE_END</event>
+      <event>TOOL_CALL_START</event>
+      <event>TOOL_CALL_ARGS</event>
+      <event>TOOL_CALL_END</event>
+      <event>STATE_SNAPSHOT</event>
+      <event>STATE_DELTA</event>
+      <event>MESSAGES_SNAPSHOT</event>
+    </event-types-to-track>
+  </ag-ui-bridge-integration>
+
+  <configuration>
+    <existing-variables>
+      <variable name="METRICS_TENANT_LABEL_MODE" default="global" description="Mode for tenant ID normalization: full | hash | global" />
+      <variable name="METRICS_TENANT_LABEL_BUCKETS" default="100" description="Number of hash buckets when mode=hash" />
+    </existing-variables>
+    <new-variables>
+      <variable name="METRICS_TENANT_SAMPLING_ENABLED" default="false" description="Enable tenant ID bucketing for AG-UI metrics" />
+      <variable name="METRICS_TENANT_BUCKET_COUNT" default="100" description="Number of tenant buckets when sampling enabled" />
+    </new-variables>
+    <notes>
+      The story specifies new variables METRICS_TENANT_SAMPLING_ENABLED and METRICS_TENANT_BUCKET_COUNT,
+      but the codebase already has METRICS_TENANT_LABEL_MODE and METRICS_TENANT_LABEL_BUCKETS.
+      DECISION: Reuse the existing normalize_tenant_label() function from observability/metrics.py
+      rather than creating duplicate logic. This maintains consistency across all metrics.
+    </notes>
+  </configuration>
+
+  <implementation-skeleton>
+    <file path="backend/src/agentic_rag_backend/protocols/ag_ui_metrics.py"><![CDATA[
+"""Prometheus metrics for AG-UI stream monitoring.
+
+This module defines all Prometheus metrics for tracking AG-UI stream health,
+performance, and throughput. All metrics include tenant_id label for multi-tenant
+analysis with optional cardinality control via bucket normalization.
+
+Metrics defined:
+- agui_stream_started_total: Counter for stream starts
+- agui_stream_completed_total: Counter for stream completions (success/error)
+- agui_event_emitted_total: Counter for events by type
+- agui_stream_bytes_total: Counter for bytes streamed
+- agui_active_streams: Gauge for currently active streams
+- agui_stream_duration_seconds: Histogram for stream duration
+- agui_event_latency_seconds: Histogram for inter-event latency
+- agui_stream_event_count: Histogram for events per stream
+
+Usage:
+    async with track_agui_stream(tenant_id) as metrics:
+        for event in generate_events():
+            metrics.event_emitted(event.event.value, len(event.to_sse()))
+            yield event
+"""
+
+from __future__ import annotations
+
+import time
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
+
+from prometheus_client import Counter, Histogram, Gauge
+
+from ..observability.metrics import normalize_tenant_label, get_metrics_registry
+
+# Get the shared registry for consistency with other metrics
+_registry = get_metrics_registry()
+
+# =============================================================================
+# Counter Metrics
+# =============================================================================
+
+STREAM_STARTED = Counter(
+    "agui_stream_started_total",
+    "Total AG-UI streams started",
+    labelnames=["tenant_id"],
+    registry=_registry,
+)
+
+STREAM_COMPLETED = Counter(
+    "agui_stream_completed_total",
+    "Total AG-UI streams completed",
+    labelnames=["tenant_id", "status"],  # status: success, error
+    registry=_registry,
+)
+
+EVENT_EMITTED = Counter(
+    "agui_event_emitted_total",
+    "Total AG-UI events emitted",
+    labelnames=["tenant_id", "event_type"],
+    registry=_registry,
+)
+
+STREAM_BYTES = Counter(
+    "agui_stream_bytes_total",
+    "Total bytes streamed via AG-UI",
+    labelnames=["tenant_id"],
+    registry=_registry,
+)
+
+# =============================================================================
+# Gauge Metrics
+# =============================================================================
+
+ACTIVE_STREAMS = Gauge(
+    "agui_active_streams",
+    "Currently active AG-UI streams",
+    labelnames=["tenant_id"],
+    registry=_registry,
+)
+
+# =============================================================================
+# Histogram Metrics
+# =============================================================================
+
+# Stream duration buckets: 0.1s to 60s (typical stream durations)
+STREAM_DURATION_BUCKETS = (0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0)
+
+STREAM_DURATION = Histogram(
+    "agui_stream_duration_seconds",
+    "AG-UI stream duration",
+    labelnames=["tenant_id"],
+    buckets=STREAM_DURATION_BUCKETS,
+    registry=_registry,
+)
+
+# Event latency buckets: 10ms to 1s (token-level latency)
+EVENT_LATENCY_BUCKETS = (0.01, 0.05, 0.1, 0.25, 0.5, 1.0)
+
+EVENT_LATENCY = Histogram(
+    "agui_event_latency_seconds",
+    "Time between AG-UI events",
+    labelnames=["tenant_id"],
+    buckets=EVENT_LATENCY_BUCKETS,
+    registry=_registry,
+)
+
+# Event count buckets: 1 to 250 events per stream
+STREAM_EVENT_COUNT_BUCKETS = (1, 5, 10, 25, 50, 100, 250)
+
+STREAM_EVENT_COUNT = Histogram(
+    "agui_stream_event_count",
+    "Events per AG-UI stream",
+    labelnames=["tenant_id"],
+    buckets=STREAM_EVENT_COUNT_BUCKETS,
+    registry=_registry,
+)
+
+
+# =============================================================================
+# Metrics Collector Class
+# =============================================================================
+
+
+class AGUIMetricsCollector:
+    """Collects metrics for AG-UI streams.
+
+    This class tracks metrics throughout a stream's lifecycle:
+    - stream_started(): Called when stream begins (increments started counter and active gauge)
+    - event_emitted(): Called for each event (tracks event type, bytes, and latency)
+    - stream_completed(): Called when stream ends (records duration, event count, status)
+
+    Example:
+        collector = AGUIMetricsCollector(tenant_id)
+        collector.stream_started()
+        for event in events:
+            collector.event_emitted(event.event.value, len(event.to_sse()))
+        collector.stream_completed("success")
+    """
+
+    def __init__(self, tenant_id: str) -> None:
+        """Initialize collector with tenant ID.
+
+        Args:
+            tenant_id: Tenant identifier (will be normalized for cardinality control)
+        """
+        self.tenant_id = normalize_tenant_label(tenant_id or "unknown")
+        self.start_time: float = 0.0
+        self.last_event_time: float = 0.0
+        self.event_count: int = 0
+        self.total_bytes: int = 0
+
+    def stream_started(self) -> None:
+        """Record stream start.
+
+        Increments the started counter and active streams gauge.
+        Initializes timing for duration and latency tracking.
+        """
+        self.start_time = time.time()
+        self.last_event_time = self.start_time
+        STREAM_STARTED.labels(tenant_id=self.tenant_id).inc()
+        ACTIVE_STREAMS.labels(tenant_id=self.tenant_id).inc()
+
+    def event_emitted(self, event_type: str, event_bytes: int = 0) -> None:
+        """Record event emission.
+
+        Args:
+            event_type: The AG-UI event type (e.g., "TEXT_MESSAGE_CONTENT")
+            event_bytes: Size of the SSE-serialized event in bytes
+        """
+        now = time.time()
+
+        # Increment event counter
+        EVENT_EMITTED.labels(
+            tenant_id=self.tenant_id,
+            event_type=event_type,
+        ).inc()
+
+        # Record inter-event latency (skip first event)
+        if self.last_event_time > 0 and self.event_count > 0:
+            latency = now - self.last_event_time
+            EVENT_LATENCY.labels(tenant_id=self.tenant_id).observe(latency)
+
+        self.last_event_time = now
+        self.event_count += 1
+        self.total_bytes += event_bytes
+
+        # Emit bytes counter
+        if event_bytes > 0:
+            STREAM_BYTES.labels(tenant_id=self.tenant_id).inc(event_bytes)
+
+    def stream_completed(self, status: str = "success") -> None:
+        """Record stream completion.
+
+        Args:
+            status: Completion status ("success" or "error")
+        """
+        duration = time.time() - self.start_time
+
+        # Increment completion counter
+        STREAM_COMPLETED.labels(
+            tenant_id=self.tenant_id,
+            status=status,
+        ).inc()
+
+        # Record duration histogram
+        STREAM_DURATION.labels(tenant_id=self.tenant_id).observe(duration)
+
+        # Record event count histogram
+        STREAM_EVENT_COUNT.labels(tenant_id=self.tenant_id).observe(self.event_count)
+
+        # Decrement active streams gauge
+        ACTIVE_STREAMS.labels(tenant_id=self.tenant_id).dec()
+
+
+# =============================================================================
+# Context Manager
+# =============================================================================
+
+
+@asynccontextmanager
+async def track_agui_stream(tenant_id: str) -> AsyncIterator[AGUIMetricsCollector]:
+    """Context manager for tracking AG-UI stream metrics.
+
+    Automatically records stream start on entry, and completion on exit.
+    Handles both success and error cases.
+
+    Args:
+        tenant_id: Tenant identifier for metric labeling
+
+    Yields:
+        AGUIMetricsCollector instance for tracking events during the stream
+
+    Example:
+        async with track_agui_stream(tenant_id) as metrics:
+            async for event in generate_events():
+                metrics.event_emitted(event.event.value, len(event.to_sse()))
+                yield event
+    """
+    collector = AGUIMetricsCollector(tenant_id)
+    collector.stream_started()
+
+    try:
+        yield collector
+        collector.stream_completed("success")
+    except Exception:
+        collector.stream_completed("error")
+        raise
+]]></file>
+  </implementation-skeleton>
+
+  <testing-requirements>
+    <unit-tests>
+      <test name="test_collector_initialization">Verify AGUIMetricsCollector initializes with normalized tenant_id</test>
+      <test name="test_stream_started_increments_counters">Verify stream_started() increments started counter and active gauge</test>
+      <test name="test_event_emitted_tracks_type_and_bytes">Verify event_emitted() tracks event type and byte count</test>
+      <test name="test_event_latency_histogram">Verify inter-event latency is recorded in histogram</test>
+      <test name="test_stream_completed_success">Verify stream_completed("success") records success status</test>
+      <test name="test_stream_completed_error">Verify stream_completed("error") records error status</test>
+      <test name="test_stream_duration_histogram">Verify duration is recorded in histogram</test>
+      <test name="test_stream_event_count_histogram">Verify event count is recorded in histogram</test>
+      <test name="test_active_streams_gauge_accuracy">Verify active streams gauge increments on start, decrements on complete</test>
+      <test name="test_tenant_id_normalization">Verify tenant IDs are normalized when sampling enabled</test>
+      <test name="test_context_manager_success_path">Verify context manager calls stream_completed("success") on normal exit</test>
+      <test name="test_context_manager_error_path">Verify context manager calls stream_completed("error") on exception and re-raises</test>
+      <test name="test_unknown_tenant_handling">Verify empty/None tenant_id becomes "unknown"</test>
+    </unit-tests>
+    <integration-tests>
+      <test name="test_metrics_at_metrics_endpoint">Verify all AG-UI metrics are exposed at /metrics endpoint</test>
+      <test name="test_stream_lifecycle_emits_correct_metrics">Verify full stream lifecycle emits expected metric values</test>
+      <test name="test_tenant_isolation_in_metrics">Verify different tenants have separate metric label values</test>
+      <test name="test_ag_ui_bridge_integration">Verify AGUIBridge.process_request emits metrics correctly</test>
+    </integration-tests>
+  </testing-requirements>
+
+  <grafana-dashboard-panels>
+    <panel name="Stream Success Rate">Query: sum(rate(agui_stream_completed_total{status="success"}[5m])) / sum(rate(agui_stream_started_total[5m]))</panel>
+    <panel name="Active Streams by Tenant">Query: sum by (tenant_id) (agui_active_streams)</panel>
+    <panel name="Stream Duration Percentiles">Query: histogram_quantile(0.50, rate(agui_stream_duration_seconds_bucket[5m])), p95, p99</panel>
+    <panel name="Event Latency Distribution">Query: histogram_quantile(0.50, rate(agui_event_latency_seconds_bucket[5m]))</panel>
+    <panel name="Event Type Distribution">Query: sum by (event_type) (rate(agui_event_emitted_total[5m]))</panel>
+    <panel name="Bytes Streamed Over Time">Query: sum(rate(agui_stream_bytes_total[5m]))</panel>
+    <panel name="Error Rate">Query: sum(rate(agui_stream_completed_total{status="error"}[5m])) / sum(rate(agui_stream_completed_total[5m]))</panel>
+    <panel name="Events Per Stream">Query: histogram_quantile(0.50, rate(agui_stream_event_count_bucket[5m]))</panel>
+  </grafana-dashboard-panels>
+
+  <dependencies>
+    <dependency name="prometheus_client" version="^0.x" installed="true" note="Already available via Epic 8 observability foundation" />
+    <dependency name="Epic 21" status="completed" note="AG-UI transport (ag_ui_bridge.py) is available" />
+    <dependency name="Story 22-TD1" status="completed" note="Telemetry counter pattern established in observability/metrics.py" />
+  </dependencies>
+
+  <security-checklist>
+    <item status="addressed">Cross-tenant isolation: Metrics labeled by tenant_id, no cross-tenant data exposure</item>
+    <item status="n/a">Authorization: Metrics endpoint protected by existing Prometheus auth</item>
+    <item status="addressed">No information leakage: Tenant IDs optionally bucketed to prevent enumeration</item>
+    <item status="n/a">Redis keys: No Redis in this story</item>
+    <item status="n/a">RFC 7807 error responses: No API endpoints added</item>
+  </security-checklist>
+
+  <definition-of-done>
+    <item>AGUIMetricsCollector class implemented with all metric methods</item>
+    <item>All 8 Prometheus metrics defined and exported</item>
+    <item>track_agui_stream() context manager implemented</item>
+    <item>Reuse normalize_tenant_label() from observability/metrics.py</item>
+    <item>AGUIBridge.process_request() integrated with metrics</item>
+    <item>.env.example updated with configuration documentation</item>
+    <item>Unit tests for all metric scenarios (>85% coverage)</item>
+    <item>Integration tests for stream lifecycle</item>
+    <item>Grafana dashboard template created</item>
+    <item>Metrics visible at /metrics endpoint</item>
+    <item>Code review approved</item>
+    <item>Story file updated with Dev Notes</item>
+  </definition-of-done>
+
+  <notes>
+    <note type="design-decision">
+      Reuse existing normalize_tenant_label() from observability/metrics.py instead of
+      implementing new METRICS_TENANT_SAMPLING_ENABLED logic. This maintains consistency
+      with existing retrieval metrics and avoids duplicate cardinality control code.
+      The existing METRICS_TENANT_LABEL_MODE=hash with METRICS_TENANT_LABEL_BUCKETS
+      provides the same functionality as the story's proposed tenant sampling.
+    </note>
+    <note type="implementation">
+      Event bytes can be calculated by calling event.model_dump_json().__len__() or
+      by tracking the SSE-formatted output length. The latter is more accurate for
+      actual network throughput measurement.
+    </note>
+    <note type="testing">
+      Use prometheus_client.REGISTRY.get_sample_value() in tests to verify metric values.
+      Consider creating a separate CollectorRegistry for unit tests to avoid pollution.
+    </note>
+  </notes>
+</story-context>

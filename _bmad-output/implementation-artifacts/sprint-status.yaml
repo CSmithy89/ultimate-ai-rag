@@ -488,7 +488,7 @@ development_status:
   # Per-tenant session/message caps, rate limiting
 
   # --- Group B: AG-UI Telemetry & Error Handling ---
-  22-B1-implement-agui-stream-metrics: backlog
+  22-B1-implement-agui-stream-metrics: done
   # Prometheus metrics: stream_started, completed, event_emitted, duration, latency
   22-B2-implement-extended-agui-error-events: backlog
   # Full error taxonomy: RATE_LIMITED, TIMEOUT, CAPABILITY_NOT_FOUND, etc.
