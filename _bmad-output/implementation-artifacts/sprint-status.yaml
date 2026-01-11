@@ -502,6 +502,20 @@ development_status:
   # --- Group D: Protocol Polish & Documentation ---
   22-D1-create-protocol-integration-guide: backlog
   # Comprehensive docs: AG-UI, A2A, MCP, A2UI, MCP-UI, Open-JSON-UI
+
+  # --- Tech Debt (from Epic 21 Retrospective) ---
+  22-TD1-add-prometheus-telemetry-metrics: done
+  # Add TELEMETRY_EVENTS_TOTAL counter, record_telemetry_event helper
+  22-TD2-create-frontend-security-checklist: done
+  # docs/checklists/frontend-security-checklist.md, PR template update
+  22-TD3-document-voice-io-configuration: done
+  # docs/guides/voice-io-configuration.md, .env.example, README update
+  22-TD4-add-coverage-threshold-ci: done
+  # 80% coverage threshold in pyproject.toml, jest.config.js, CI workflows
+  22-TD5-telemetry-tenant-rate-limiting: done
+  # Composite rate key: telemetry:{tenant_id}:{ip}
+  22-TD6-copilotkit-2x-migration-prep: backlog
+  # Future: migrate to native Zod schemas when CopilotKit 2.x is stable
   22-D2-implement-protocol-compliance-tests: backlog
   # Contract tests for all protocol interfaces
 

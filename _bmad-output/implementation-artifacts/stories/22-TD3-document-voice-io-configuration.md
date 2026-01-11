@@ -1,6 +1,6 @@
 # Story 22-TD3: Document Voice I/O Configuration
 
-Status: backlog
+Status: done
 
 Epic: 22 - Advanced Protocol Integration
 Priority: P0 - HIGH

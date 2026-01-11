@@ -1,6 +1,6 @@
 # Story 22-TD1: Add Prometheus Metrics to Telemetry Endpoint
 
-Status: backlog
+Status: done
 
 Epic: 22 - Advanced Protocol Integration
 Priority: P0 - HIGH (Pre-Epic 22 Blocker)

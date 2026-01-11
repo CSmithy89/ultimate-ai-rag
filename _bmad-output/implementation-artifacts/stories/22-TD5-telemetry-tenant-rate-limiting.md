@@ -1,6 +1,6 @@
 # Story 22-TD5: Enhance Telemetry Rate Limiting with Tenant Awareness
 
-Status: backlog
+Status: done
 
 Epic: 22 - Advanced Protocol Integration
 Priority: P1 - MEDIUM

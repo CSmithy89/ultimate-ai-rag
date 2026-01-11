@@ -1,6 +1,6 @@
 # Story 22-TD4: Add Test Coverage Threshold to CI
 
-Status: backlog
+Status: done
 
 Epic: 22 - Advanced Protocol Integration
 Priority: P1 - MEDIUM
