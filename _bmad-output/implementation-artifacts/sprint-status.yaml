@@ -242,7 +242,7 @@ development_status:
   epic-17: in-progress
   17-1-create-rag-install-cli-tool: done
   # Guided setup: LLM provider, database, framework template, features
-  17-2-implement-auto-hardware-detection: backlog
+  17-2-implement-auto-hardware-detection: done
   # GPU for local LLM/Whisper, RAM for model selection
   17-3-implement-env-generation-logic: backlog
   # Generate complete .env, validate all combinations

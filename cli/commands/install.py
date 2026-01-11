@@ -50,9 +50,36 @@ def _read_total_memory_gb() -> float | None:
     return None
 
 
+def _detect_gpu() -> str:
+    if sys.platform.startswith("linux"):
+        try:
+            import subprocess
+
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return f"NVIDIA ({result.stdout.strip()})"
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if sys.platform == "darwin":
+        try:
+            import torch
+
+            if torch.backends.mps.is_available():
+                return "Apple MPS"
+        except (ImportError, AttributeError):
+            pass
+    return "not detected"
+
+
 def _recommend_profile() -> tuple[str, list[str]]:
     cpu_count = os.cpu_count() or 1
     ram_gb = _read_total_memory_gb()
+    gpu_info = _detect_gpu()
     profile = "standard"
     if ram_gb is not None:
         if ram_gb < 16:
@@ -64,7 +91,7 @@ def _recommend_profile() -> tuple[str, list[str]]:
         summary_lines.append("RAM: unknown")
     else:
         summary_lines.append(f"RAM: {ram_gb:.1f} GB")
-    summary_lines.append("GPU: not detected")
+    summary_lines.append(f"GPU: {gpu_info}")
     return profile, summary_lines
 
 

@@ -5,6 +5,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from cli.main import app
+from cli.commands import install as install_module
 
 
 def _write_env_example(root: Path) -> None:
@@ -40,3 +41,22 @@ def test_non_interactive_install_writes_env_and_template() -> None:
         assert "LLM_PROVIDER=openai" in env_output
         assert "OPENAI_API_KEY=sk-test-1234567890" in env_output
         assert (root / "examples" / "pydanticai" / "README.md").exists()
+
+
+def test_profile_mapping_from_ram(monkeypatch) -> None:
+    monkeypatch.setattr(install_module, "_detect_gpu", lambda: "not detected")
+    monkeypatch.setattr(install_module, "_read_total_memory_gb", lambda: 8)
+    profile, _ = install_module._recommend_profile()
+    assert profile == "minimal"
+
+    monkeypatch.setattr(install_module, "_read_total_memory_gb", lambda: 24)
+    profile, _ = install_module._recommend_profile()
+    assert profile == "standard"
+
+    monkeypatch.setattr(install_module, "_read_total_memory_gb", lambda: 64)
+    profile, _ = install_module._recommend_profile()
+    assert profile == "enterprise"
+
+    monkeypatch.setattr(install_module, "_read_total_memory_gb", lambda: None)
+    profile, _ = install_module._recommend_profile()
+    assert profile == "standard"
