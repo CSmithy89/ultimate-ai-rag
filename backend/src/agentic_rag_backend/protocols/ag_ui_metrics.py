@@ -397,7 +397,7 @@ def record_stream_completed(tenant_id: str, status: str = "success") -> None:
     """
     tenant_label = normalize_tenant_label(tenant_id or "")
     STREAM_COMPLETED.labels(tenant_id=tenant_label, status=status).inc()
-    ACTIVE_STREAMS.labels(tenant_id=tenant_label).dec()
+    # Do not adjust ACTIVE_STREAMS here; this helper records only completion events.
 
 
 def record_event_emitted(tenant_id: str, event_type: str, event_bytes: int = 0) -> None:

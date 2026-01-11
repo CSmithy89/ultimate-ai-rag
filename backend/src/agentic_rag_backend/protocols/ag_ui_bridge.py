@@ -152,7 +152,16 @@ class AGUIBridge:
                 event = RunStartedEvent()
                 metrics.event_emitted(event.event.value)
                 yield event
+                from ..config import get_settings, is_development_env
+                from ..core.errors import TenantRequiredError
 
+                settings = get_settings()
+                is_debug = is_development_env(settings.app_env)
+                error_event = create_error_event(TenantRequiredError(), is_debug=is_debug)
+                metrics.event_emitted(error_event.event.value)
+                yield error_event
+
+                # Emit a plain-text fallback for legacy clients
                 event = TextMessageStartEvent()
                 metrics.event_emitted(event.event.value)
                 yield event
@@ -179,6 +188,10 @@ class AGUIBridge:
                     break
 
             if not user_message:
+                event = RunStartedEvent()
+                metrics.event_emitted(event.event.value)
+                yield event
+
                 event = RunFinishedEvent()
                 metrics.event_emitted(event.event.value)
                 yield event

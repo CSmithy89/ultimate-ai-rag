@@ -22,7 +22,7 @@ Example:
 
 from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
 
 
 class OpenJSONUIText(BaseModel):
@@ -67,7 +67,7 @@ class OpenJSONUIImage(BaseModel):
     """Image component for displaying images with alt text."""
 
     type: Literal["image"] = "image"
-    src: str = Field(..., description="Image source URL (must be http/https)")
+    src: HttpUrl = Field(..., description="Image source URL (must be http/https)")
     alt: str = Field(..., description="Alt text for accessibility")
     width: int | None = Field(None, description="Optional image width")
     height: int | None = Field(None, description="Optional image height")
@@ -98,8 +98,8 @@ class OpenJSONUILink(BaseModel):
 
     type: Literal["link"] = "link"
     text: str = Field(..., description="Link text")
-    href: str = Field(..., description="Link URL (must be http/https)")
-    target: str | None = Field(
+    href: HttpUrl = Field(..., description="Link URL (must be http/https)")
+    target: Literal["_self", "_blank"] | None = Field(
         None, description="Link target: _self or _blank"
     )
 
@@ -131,7 +131,8 @@ class OpenJSONUIAlert(BaseModel):
 
 
 # Union type of all components
-OpenJSONUIComponent = Union[
+OpenJSONUIComponent = Annotated[
+    Union[
     OpenJSONUIText,
     OpenJSONUIHeading,
     OpenJSONUICode,
@@ -143,6 +144,8 @@ OpenJSONUIComponent = Union[
     OpenJSONUIDivider,
     OpenJSONUIProgress,
     OpenJSONUIAlert,
+    ],
+    Field(discriminator="type"),
 ]
 
 
@@ -150,12 +153,12 @@ class OpenJSONUIPayload(BaseModel):
     """Full Open-JSON-UI payload wrapper."""
 
     type: Literal["open_json_ui"] = "open_json_ui"
-    components: list[dict] = Field(
+    components: list[OpenJSONUIComponent] = Field(
         ..., description="Array of UI components to render"
     )
 
 
-def create_open_json_ui(components: list[BaseModel]) -> OpenJSONUIPayload:
+def create_open_json_ui(components: list[OpenJSONUIComponent]) -> OpenJSONUIPayload:
     """
     Create an Open-JSON-UI payload from component models.
 
@@ -181,9 +184,7 @@ def create_open_json_ui(components: list[BaseModel]) -> OpenJSONUIPayload:
             "components": [...]
         }
     """
-    return OpenJSONUIPayload(
-        components=[c.model_dump() for c in components]
-    )
+    return OpenJSONUIPayload(components=components)
 
 
 def create_text(

@@ -21,6 +21,15 @@ from agentic_rag_backend.db.redis import RedisClient
 
 logger = structlog.get_logger(__name__)
 
+
+class A2ASessionNotFoundError(KeyError):
+    """Raised when a requested A2A session does not exist."""
+
+    def __init__(self, session_id: str) -> None:
+        self.session_id = session_id
+        super().__init__(f"session not found: {session_id}")
+
+
 @dataclass
 class A2AMessage:
     sender: str
@@ -212,6 +221,23 @@ class A2ASessionManager:
             logger.warning("a2a_session_load_failed", error=str(exc))
             return None
 
+    async def delete_session(self, session_id: str) -> None:
+        """Delete a session from memory and persistence (best effort)."""
+        async with self._lock:
+            self._sessions.pop(session_id, None)
+
+        redis = self._get_redis()
+        if not redis:
+            return
+        try:
+            await redis.delete(self._session_key(session_id))
+        except Exception as exc:  # pragma: no cover - non-critical cleanup
+            logger.warning(
+                "a2a_session_delete_failed",
+                session_id=session_id,
+                error=str(exc),
+            )
+
     def _prune_expired_locked(self) -> None:
         if self._session_ttl_seconds <= 0:
             return
@@ -316,7 +342,7 @@ class A2ASessionManager:
             self._maybe_prune_locked()
             session = self._sessions.get(session_id)
             if session is None:
-                raise KeyError("session not found")
+                raise A2ASessionNotFoundError(session_id)
             if session.tenant_id != tenant_id:
                 raise PermissionError("tenant mismatch")
             if (

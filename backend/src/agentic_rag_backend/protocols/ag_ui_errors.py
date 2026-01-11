@@ -167,7 +167,7 @@ def create_error_event(
     - TenantRequiredError -> TENANT_REQUIRED (401)
     - A2APermissionError -> TENANT_UNAUTHORIZED (403)
     - ValidationError -> INVALID_REQUEST (400)
-    - KeyError (for session lookups) -> SESSION_NOT_FOUND (404)
+    - A2ASessionNotFoundError -> SESSION_NOT_FOUND (404)
     - A2AServiceUnavailableError -> SERVICE_UNAVAILABLE (503)
     - Other exceptions -> AGENT_EXECUTION_ERROR (500)
 
@@ -197,6 +197,7 @@ def create_error_event(
         TenantRequiredError,
         ValidationError,
     )
+    from .a2a import A2ASessionNotFoundError
 
     # Also check for protocol-level errors from a2a_middleware
     from .a2a_middleware import (
@@ -209,7 +210,11 @@ def create_error_event(
     # =========================================================================
     if isinstance(exception, A2ARateLimitExceededError):
         # Extract retry_after from the AppError details if available
-        retry_after = exception.details.get("retry_after", 60)
+        retry_after = exception.details.get("retry_after")
+        if retry_after is None and hasattr(exception, "retry_after"):
+            retry_after = getattr(exception, "retry_after")
+        if retry_after is None:
+            retry_after = 60
         return AGUIErrorEvent(
             code=AGUIErrorCode.RATE_LIMITED,
             message="Request rate limit exceeded. Please wait before retrying.",
@@ -298,8 +303,7 @@ def create_error_event(
     # =========================================================================
     # Session not found (404)
     # =========================================================================
-    if isinstance(exception, KeyError):
-        # KeyError is typically raised when a session ID is not found
+    if isinstance(exception, A2ASessionNotFoundError):
         return AGUIErrorEvent(
             code=AGUIErrorCode.SESSION_NOT_FOUND,
             message="Session not found. Please start a new session.",
@@ -335,5 +339,3 @@ def create_error_event(
         http_status=500,
         details=details,
     )
-
-

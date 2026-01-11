@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import socket
 from typing import Any, AsyncIterator
 from urllib.parse import urlparse
 
@@ -82,8 +83,51 @@ def is_safe_endpoint_url(url: str) -> bool:
                 )
                 return False
         except ValueError:
-            # Not an IP address, likely a domain name - that's fine
-            pass
+            # Not an IP address, resolve hostname and validate all results
+            try:
+                addrinfo = socket.getaddrinfo(hostname, None)
+            except socket.gaierror as exc:
+                logger.warning(
+                    "ssrf_blocked_unresolvable_host",
+                    url=url,
+                    hostname=hostname,
+                    error=str(exc),
+                )
+                return False
+
+            resolved = {info[4][0] for info in addrinfo if info[4]}
+            if not resolved:
+                logger.warning(
+                    "ssrf_blocked_no_resolved_ips",
+                    url=url,
+                    hostname=hostname,
+                )
+                return False
+
+            for addr in resolved:
+                try:
+                    ip = ipaddress.ip_address(addr)
+                except ValueError:
+                    logger.warning(
+                        "ssrf_blocked_invalid_resolved_ip",
+                        url=url,
+                        hostname=hostname,
+                        resolved_ip=addr,
+                    )
+                    return False
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                    logger.warning(
+                        "ssrf_blocked_private_ip",
+                        url=url,
+                        hostname=hostname,
+                        ip_type=(
+                            "private" if ip.is_private
+                            else "loopback" if ip.is_loopback
+                            else "link_local" if ip.is_link_local
+                            else "reserved"
+                        ),
+                    )
+                    return False
 
         return True
     except Exception as e:
@@ -385,10 +429,36 @@ class A2AMiddlewareAgent:
                 headers={"Accept": "text/event-stream"},
             ) as response:
                 response.raise_for_status()
+                data_lines: list[str] = []
                 async for line in response.aiter_lines():
-                    if line.startswith("data: "):
+                    if line == "":
+                        if not data_lines:
+                            continue
+                        data_str = "\n".join(data_lines).strip()
+                        data_lines = []
+                        if not data_str or data_str == "[DONE]":
+                            continue
                         try:
-                            yield json.loads(line[6:])
+                            yield json.loads(data_str)
+                        except json.JSONDecodeError as e:
+                            logger.warning(
+                                "a2a_sse_parse_error",
+                                endpoint=endpoint,
+                                error=str(e),
+                            )
+                        continue
+
+                    if line.startswith("data:"):
+                        data_lines.append(line[5:].lstrip())
+                        continue
+
+                    # Ignore other SSE fields (event, id, retry) and comments
+
+                if data_lines:
+                    data_str = "\n".join(data_lines).strip()
+                    if data_str and data_str != "[DONE]":
+                        try:
+                            yield json.loads(data_str)
                         except json.JSONDecodeError as e:
                             logger.warning(
                                 "a2a_sse_parse_error",
@@ -423,7 +493,7 @@ class A2AMiddlewareAgent:
             if self._http_client is None:
                 self._http_client = httpx.AsyncClient(
                     limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
-                    timeout=httpx.Timeout(30.0, connect=5.0),
+                    timeout=httpx.Timeout(None, connect=5.0),
                 )
             return self._http_client
 

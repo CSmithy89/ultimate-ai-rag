@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from time import time
 from typing import TYPE_CHECKING, Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
+from redis.exceptions import NoScriptError
 import structlog
 
 if TYPE_CHECKING:
@@ -110,7 +112,7 @@ class SessionUsage(BaseModel):
     message_count: int = 0
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_message_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    message_timestamps: list[float] = Field(default_factory=list)
+    message_timestamps: deque[float] = Field(default_factory=deque)
 
 
 class A2AResourceMetrics(BaseModel):
@@ -314,6 +316,8 @@ class InMemoryA2AResourceManager(A2AResourceManager):
         self._session_usage: dict[str, SessionUsage] = {}
         self._cleanup_task: Optional[asyncio.Task[None]] = None
         self._running = False
+        # Keep a bounded buffer for rate-limit timestamps (5-minute window)
+        self._message_timestamp_maxlen = max(1, self.limits.message_rate_limit * 5)
 
     async def check_session_limit(self, tenant_id: str) -> bool:
         """Check if tenant can create a new session."""
@@ -374,6 +378,7 @@ class InMemoryA2AResourceManager(A2AResourceManager):
             self._session_usage[session_id] = SessionUsage(
                 session_id=session_id,
                 tenant_id=tenant_id,
+                message_timestamps=deque(maxlen=self._message_timestamp_maxlen),
             )
 
             active_sessions = self._tenant_usage[tenant_id].active_sessions
@@ -432,9 +437,8 @@ class InMemoryA2AResourceManager(A2AResourceManager):
             usage.message_timestamps.append(now)
 
             # Clean old timestamps (keep only last 5 minutes)
-            usage.message_timestamps = [
-                ts for ts in usage.message_timestamps if ts > five_minutes_ago
-            ]
+            while usage.message_timestamps and usage.message_timestamps[0] <= five_minutes_ago:
+                usage.message_timestamps.popleft()
 
             # Update tenant total messages
             tenant_id = usage.tenant_id
@@ -618,6 +622,7 @@ class RedisA2AResourceManager(A2AResourceManager):
     redis.call('HSET', session_key, 'session_id', session_id, 'tenant_id', tenant_id,
                'message_count', '0', 'created_at', now, 'last_message_at', now)
     redis.call('EXPIRE', session_key, ttl)
+    redis.call('EXPIRE', tenant_key, ttl)
     return 1  -- success
     """
 
@@ -634,6 +639,7 @@ class RedisA2AResourceManager(A2AResourceManager):
     local message_id = ARGV[5]
     local minute_ago = now - 60
     local five_minutes_ago = now - 300
+    local ttl = tonumber(ARGV[6])
 
     -- Check if session exists
     local tenant_id = redis.call('HGET', session_key, 'tenant_id')
@@ -661,6 +667,7 @@ class RedisA2AResourceManager(A2AResourceManager):
     redis.call('EXPIRE', rate_key, 300)
     redis.call('HINCRBY', tenant_key, 'total_messages', 1)
     redis.call('HSET', tenant_key, 'last_activity', now_iso)
+    redis.call('EXPIRE', tenant_key, ttl)
     return 1  -- success
     """
 
@@ -682,9 +689,28 @@ class RedisA2AResourceManager(A2AResourceManager):
         self._key_prefix = key_prefix
         self._cleanup_task: Optional[asyncio.Task[None]] = None
         self._running = False
-        # Register Lua scripts (will be done lazily on first use)
+        # Cache Lua script SHAs for EVALSHA to reduce per-call overhead
         self._register_session_sha: Optional[str] = None
         self._record_message_sha: Optional[str] = None
+
+    async def _eval_script(
+        self,
+        script: str,
+        key_count: int,
+        *args: object,
+        sha_attr: str,
+    ) -> int:
+        """Evaluate a Lua script using cached SHA when possible."""
+        sha = getattr(self, sha_attr)
+        if sha:
+            try:
+                return await self._redis.evalsha(sha, key_count, *args)
+            except NoScriptError:
+                setattr(self, sha_attr, None)
+
+        sha = await self._redis.script_load(script)
+        setattr(self, sha_attr, sha)
+        return await self._redis.evalsha(sha, key_count, *args)
 
     def _tenant_key(self, tenant_id: str) -> str:
         """Get Redis key for tenant usage."""
@@ -736,7 +762,7 @@ class RedisA2AResourceManager(A2AResourceManager):
         ttl_seconds = self.limits.session_ttl_hours * 3600
 
         # Execute Lua script for atomic check-and-register
-        result = await self._redis.eval(
+        result = await self._eval_script(
             self._REGISTER_SESSION_SCRIPT,
             2,  # number of keys
             tenant_key,
@@ -746,6 +772,7 @@ class RedisA2AResourceManager(A2AResourceManager):
             tenant_id,
             now,
             ttl_seconds,
+            sha_attr="_register_session_sha",
         )
 
         if result == 0:
@@ -790,7 +817,8 @@ class RedisA2AResourceManager(A2AResourceManager):
         message_id = str(uuid4())
 
         # Execute Lua script for atomic check-and-record
-        result = await self._redis.eval(
+        ttl_seconds = self.limits.session_ttl_hours * 3600
+        result = await self._eval_script(
             self._RECORD_MESSAGE_SCRIPT,
             3,  # number of keys
             session_key,
@@ -801,6 +829,8 @@ class RedisA2AResourceManager(A2AResourceManager):
             now,
             now_iso,
             message_id,
+            ttl_seconds,
+            sha_attr="_record_message_sha",
         )
 
         if result == 0:
@@ -858,6 +888,7 @@ class RedisA2AResourceManager(A2AResourceManager):
         pipeline.delete(rate_key)
         pipeline.hincrby(tenant_key, "active_sessions", -1)
         pipeline.hset(tenant_key, "last_activity", now)
+        pipeline.expire(tenant_key, self.limits.session_ttl_hours * 3600)
         await pipeline.execute()
 
         logger.info(
@@ -954,18 +985,44 @@ class RedisA2AResourceManager(A2AResourceManager):
                 )
 
     async def _cleanup_negative_counts(self) -> None:
-        """Fix any negative active session counts."""
-        # This is a safety measure; normally counts should never go negative
-        # We scan for tenant keys and fix any negative values
-        pattern = f"{self._key_prefix}:tenant:*"
-        async for key in self._redis.scan_iter(match=pattern):
+        """Fix negative or inconsistent active session counts."""
+        tenant_pattern = f"{self._key_prefix}:tenant:*"
+        session_pattern = f"{self._key_prefix}:session:*:info"
+
+        session_counts: dict[str, int] = {}
+        async for session_key in self._redis.scan_iter(match=session_pattern, count=100):
+            session_tenant_id = await self._redis.hget(session_key, "tenant_id")
+            if not session_tenant_id:
+                continue
+            if isinstance(session_tenant_id, bytes):
+                session_tenant_id = session_tenant_id.decode("utf-8")
+            session_counts[session_tenant_id] = session_counts.get(session_tenant_id, 0) + 1
+
+        async for key in self._redis.scan_iter(match=tenant_pattern, count=100):
             active = await self._redis.hget(key, "active_sessions")
-            if active is not None and int(active) < 0:
-                await self._redis.hset(key, "active_sessions", 0)
+            if active is None:
+                continue
+            try:
+                active_int = int(active)
+            except (TypeError, ValueError):
+                active_int = 0
+
+            tenant_key_str = key.decode("utf-8") if isinstance(key, bytes) else str(key)
+            tenant_id = tenant_key_str.split(":")[-1]
+            actual_count = session_counts.get(tenant_id, 0)
+            corrected_count = max(0, actual_count)
+
+            if active_int < 0 or active_int != corrected_count:
+                await self._redis.hset(key, "active_sessions", corrected_count)
                 logger.warning(
-                    "a2a_fixed_negative_session_count",
+                    "a2a_fixed_inconsistent_session_count",
                     key=key,
+                    old_value=active_int,
+                    new_value=corrected_count,
                 )
+
+            if corrected_count == 0:
+                await self._redis.expire(key, self.limits.session_ttl_hours * 3600)
 
 
 # -----------------------------------------------------------------------------
