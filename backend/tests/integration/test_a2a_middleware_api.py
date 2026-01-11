@@ -15,6 +15,9 @@ Security tests:
 
 from __future__ import annotations
 
+import json
+
+import httpx
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -437,6 +440,71 @@ class TestDelegateTask:
             )
 
             assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delegate_task_streams_mcp_ui_event(
+        self,
+        client: AsyncClient,
+        middleware: A2AMiddlewareAgent,
+    ) -> None:
+        """Test delegation streams MCP-UI events end-to-end."""
+        agent_id = f"{TENANT_UUID_1}:agent1"
+        agent = A2AAgentInfo(
+            agent_id=agent_id,
+            name="Agent 1",
+            description="Test agent",
+            capabilities=[
+                A2AAgentCapability(
+                    name="vector_search",
+                    description="Vector search",
+                )
+            ],
+            endpoint="http://agent.example.com:8001/ag-ui",
+        )
+        middleware.register_agent(agent)
+
+        async def handler(_: httpx.Request) -> httpx.Response:
+            event = {
+                "type": "mcp_ui",
+                "tool_name": "demo-ui",
+                "ui_url": "https://example.com/ui",
+                "ui_type": "iframe",
+                "sandbox": ["allow-scripts"],
+                "size": {"width": 600, "height": 400},
+                "allow": [],
+                "data": {},
+            }
+            content = f"data: {json.dumps(event, ensure_ascii=True)}\n\n"
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "text/event-stream"},
+                content=content,
+            )
+
+        transport = httpx.MockTransport(handler)
+        downstream_client = httpx.AsyncClient(transport=transport)
+        middleware._http_client = downstream_client
+        try:
+            async with client.stream(
+                "POST",
+                f"/a2a/middleware/agents/{agent_id}/delegate",
+                json={
+                    "capability_name": "vector_search",
+                    "input_data": {"query": "test"},
+                },
+                headers={"X-Tenant-ID": f"{TENANT_UUID_1}"},
+            ) as response:
+                assert response.status_code == 200
+                lines = [
+                    line
+                    async for line in response.aiter_lines()
+                    if line.startswith("data:")
+                ]
+            assert lines
+            payload = json.loads(lines[0].removeprefix("data:").strip())
+            assert payload["type"] == "mcp_ui"
+        finally:
+            await downstream_client.aclose()
 
 
 class TestRateLimiting:
