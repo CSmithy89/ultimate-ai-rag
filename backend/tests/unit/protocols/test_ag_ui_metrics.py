@@ -109,8 +109,6 @@ class TestAGUIMetricsCollector:
 
         first_time = collector.last_event_time
 
-        # Small delay to ensure time difference
-        time.sleep(0.01)
         collector.event_emitted("RUN_STARTED")
 
         assert collector.last_event_time >= first_time
@@ -267,43 +265,50 @@ class TestMetricsRegistration:
     def test_stream_started_counter_exists(self):
         """Verify agui_stream_started_total counter is registered."""
         assert STREAM_STARTED is not None
-        # Note: prometheus_client strips _total suffix from counter names internally
-        assert "agui_stream_started" in STREAM_STARTED._name
+        metric = next(iter(STREAM_STARTED.collect()))
+        assert metric.name == "agui_stream_started_total"
 
     def test_stream_completed_counter_exists(self):
         """Verify agui_stream_completed_total counter is registered."""
         assert STREAM_COMPLETED is not None
-        assert "agui_stream_completed" in STREAM_COMPLETED._name
+        metric = next(iter(STREAM_COMPLETED.collect()))
+        assert metric.name == "agui_stream_completed_total"
 
     def test_event_emitted_counter_exists(self):
         """Verify agui_event_emitted_total counter is registered."""
         assert EVENT_EMITTED is not None
-        assert "agui_event_emitted" in EVENT_EMITTED._name
+        metric = next(iter(EVENT_EMITTED.collect()))
+        assert metric.name == "agui_event_emitted_total"
 
     def test_stream_bytes_counter_exists(self):
         """Verify agui_stream_bytes_total counter is registered."""
         assert STREAM_BYTES is not None
-        assert "agui_stream_bytes" in STREAM_BYTES._name
+        metric = next(iter(STREAM_BYTES.collect()))
+        assert metric.name == "agui_stream_bytes_total"
 
     def test_active_streams_gauge_exists(self):
         """Verify agui_active_streams gauge is registered."""
         assert ACTIVE_STREAMS is not None
-        assert ACTIVE_STREAMS._name == "agui_active_streams"
+        metric = next(iter(ACTIVE_STREAMS.collect()))
+        assert metric.name == "agui_active_streams"
 
     def test_stream_duration_histogram_exists(self):
         """Verify agui_stream_duration_seconds histogram is registered."""
         assert STREAM_DURATION is not None
-        assert STREAM_DURATION._name == "agui_stream_duration_seconds"
+        metric = next(iter(STREAM_DURATION.collect()))
+        assert metric.name == "agui_stream_duration_seconds"
 
     def test_event_latency_histogram_exists(self):
         """Verify agui_event_latency_seconds histogram is registered."""
         assert EVENT_LATENCY is not None
-        assert EVENT_LATENCY._name == "agui_event_latency_seconds"
+        metric = next(iter(EVENT_LATENCY.collect()))
+        assert metric.name == "agui_event_latency_seconds"
 
     def test_stream_event_count_histogram_exists(self):
         """Verify agui_stream_event_count histogram is registered."""
         assert STREAM_EVENT_COUNT is not None
-        assert STREAM_EVENT_COUNT._name == "agui_stream_event_count"
+        metric = next(iter(STREAM_EVENT_COUNT.collect()))
+        assert metric.name == "agui_stream_event_count"
 
 
 class TestHistogramBuckets:
@@ -336,17 +341,23 @@ class TestMetricLabels:
 
     def test_stream_started_has_tenant_label(self):
         """Verify agui_stream_started_total has tenant_id label."""
-        assert "tenant_id" in STREAM_STARTED._labelnames
+        STREAM_STARTED.labels(tenant_id="label-test").inc()
+        metric = next(iter(STREAM_STARTED.collect()))
+        assert "tenant_id" in metric.samples[0].labels
 
     def test_stream_completed_has_status_label(self):
         """Verify agui_stream_completed_total has status label."""
-        assert "status" in STREAM_COMPLETED._labelnames
-        assert "tenant_id" in STREAM_COMPLETED._labelnames
+        STREAM_COMPLETED.labels(tenant_id="label-test", status="success").inc()
+        metric = next(iter(STREAM_COMPLETED.collect()))
+        assert "status" in metric.samples[0].labels
+        assert "tenant_id" in metric.samples[0].labels
 
     def test_event_emitted_has_event_type_label(self):
         """Verify agui_event_emitted_total has event_type label."""
-        assert "event_type" in EVENT_EMITTED._labelnames
-        assert "tenant_id" in EVENT_EMITTED._labelnames
+        EVENT_EMITTED.labels(tenant_id="label-test", event_type="RUN_STARTED").inc()
+        metric = next(iter(EVENT_EMITTED.collect()))
+        assert "event_type" in metric.samples[0].labels
+        assert "tenant_id" in metric.samples[0].labels
 
 
 class TestEventLatencyTracking:
@@ -369,7 +380,6 @@ class TestEventLatencyTracking:
         collector.stream_started()
 
         collector.event_emitted("RUN_STARTED")
-        time.sleep(0.01)  # Small delay
         collector.event_emitted("TEXT_MESSAGE_CONTENT")
 
         # Both events should be counted

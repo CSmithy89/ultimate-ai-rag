@@ -4,7 +4,7 @@ Story 22-C1: Implement MCP-UI Renderer
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import AsyncMock, patch, MagicMock
 from fastapi.testclient import TestClient
 
 # Valid UUID format for tenant_id (matches TENANT_ID_PATTERN)
@@ -34,6 +34,9 @@ def client(mock_settings: MagicMock) -> TestClient:
 
         app = FastAPI()
         app.include_router(router, prefix="/api/v1")
+        limiter = MagicMock()
+        limiter.allow = AsyncMock(return_value=True)
+        app.state.rate_limiter = limiter
         yield TestClient(app)
 
 

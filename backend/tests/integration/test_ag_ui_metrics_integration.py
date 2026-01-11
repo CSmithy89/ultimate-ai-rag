@@ -308,7 +308,7 @@ class TestActiveStreamsGauge:
         async def run_stream(tenant_id: str, delay: float):
             async with track_agui_stream(tenant_id) as metrics:
                 metrics.event_emitted("RUN_STARTED")
-                await asyncio.sleep(delay)
+                await asyncio.sleep(0)
                 metrics.event_emitted("RUN_FINISHED")
             return metrics
 

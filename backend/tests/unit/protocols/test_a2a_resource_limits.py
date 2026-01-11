@@ -100,7 +100,7 @@ class TestSessionUsageModel:
         assert usage.session_id == "session-abc"
         assert usage.tenant_id == "tenant-123"
         assert usage.message_count == 0
-        assert usage.message_timestamps == []
+        assert list(usage.message_timestamps) == []
 
 
 class TestA2AResourceMetrics:
@@ -510,6 +510,8 @@ class TestRedisA2AResourceManager:
         mock.zcount = AsyncMock(return_value=0)
         mock.zadd = AsyncMock()
         mock.zremrangebyscore = AsyncMock()
+        mock.script_load = AsyncMock(return_value="sha-test")
+        mock.evalsha = AsyncMock(return_value=1)
 
         # Mock pipeline
         pipeline_mock = MagicMock()
@@ -598,12 +600,12 @@ class TestRedisA2AResourceManager:
     ) -> None:
         """Test successful session registration with Lua script."""
         # Lua script returns 1 (success)
-        mock_redis.eval = AsyncMock(return_value=1)
+        mock_redis.evalsha = AsyncMock(return_value=1)
 
         await manager.register_session("session-abc", "tenant-123")
 
         # Verify eval was called with the Lua script
-        mock_redis.eval.assert_called_once()
+        mock_redis.evalsha.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_register_session_limit_exceeded(
@@ -613,7 +615,7 @@ class TestRedisA2AResourceManager:
     ) -> None:
         """Test session limit exceeded with Lua script."""
         # Lua script returns 0 (limit exceeded)
-        mock_redis.eval = AsyncMock(return_value=0)
+        mock_redis.evalsha = AsyncMock(return_value=0)
 
         with pytest.raises(A2ASessionLimitExceeded):
             await manager.register_session("session-abc", "tenant-123")
@@ -660,12 +662,12 @@ class TestRedisA2AResourceManager:
         # Session exists
         mock_redis.hget.return_value = "tenant-123"
         # Lua script returns 1 (success)
-        mock_redis.eval = AsyncMock(return_value=1)
+        mock_redis.evalsha = AsyncMock(return_value=1)
 
         await manager.record_message("session-abc")
 
         # Verify eval was called with the Lua script
-        mock_redis.eval.assert_called_once()
+        mock_redis.evalsha.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_record_message_limit_exceeded(
@@ -677,7 +679,7 @@ class TestRedisA2AResourceManager:
         # Session exists
         mock_redis.hget.return_value = "tenant-123"
         # Lua script returns 0 (message limit exceeded)
-        mock_redis.eval = AsyncMock(return_value=0)
+        mock_redis.evalsha = AsyncMock(return_value=0)
 
         with pytest.raises(A2AMessageLimitExceeded):
             await manager.record_message("session-abc")
@@ -692,7 +694,7 @@ class TestRedisA2AResourceManager:
         # Session exists
         mock_redis.hget.return_value = "tenant-123"
         # Lua script returns -1 (rate limit exceeded)
-        mock_redis.eval = AsyncMock(return_value=-1)
+        mock_redis.evalsha = AsyncMock(return_value=-1)
 
         with pytest.raises(A2ARateLimitExceeded):
             await manager.record_message("session-abc")
@@ -718,12 +720,12 @@ class TestRedisA2AResourceManager:
     ) -> None:
         """Test session registration uses Lua script for atomicity."""
         # Lua script returns 1 (success)
-        mock_redis.eval = AsyncMock(return_value=1)
+        mock_redis.evalsha = AsyncMock(return_value=1)
 
         await manager.register_session("session-abc", "tenant-123")
 
         # Verify eval was called with the Lua script
-        mock_redis.eval.assert_called_once()
+        mock_redis.evalsha.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_register_session_limit_exceeded_lua_script(
@@ -733,7 +735,7 @@ class TestRedisA2AResourceManager:
     ) -> None:
         """Test session limit exceeded with Lua script."""
         # Lua script returns 0 (limit exceeded)
-        mock_redis.eval = AsyncMock(return_value=0)
+        mock_redis.evalsha = AsyncMock(return_value=0)
 
         with pytest.raises(A2ASessionLimitExceeded):
             await manager.register_session("session-abc", "tenant-123")

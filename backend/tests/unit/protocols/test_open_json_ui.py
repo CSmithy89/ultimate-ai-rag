@@ -170,7 +170,7 @@ class TestOpenJSONUIImage:
             alt="Example image",
         )
         assert image.type == "image"
-        assert image.src == "https://example.com/image.png"
+        assert str(image.src) == "https://example.com/image.png"
         assert image.alt == "Example image"
         assert image.width is None
         assert image.height is None
@@ -264,7 +264,7 @@ class TestOpenJSONUILink:
         link = OpenJSONUILink(text="Click here", href="https://example.com")
         assert link.type == "link"
         assert link.text == "Click here"
-        assert link.href == "https://example.com"
+        assert str(link.href) == "https://example.com"
         assert link.target is None
 
     def test_link_with_target(self) -> None:
@@ -520,7 +520,7 @@ class TestIndividualFactoryFunctions:
             height=200,
         )
         assert image.type == "image"
-        assert image.src == "https://example.com/img.png"
+        assert str(image.src) == "https://example.com/img.png"
         assert image.alt == "Test image"
         assert image.width == 300
         assert image.height == 200
@@ -572,12 +572,13 @@ class TestIndividualFactoryFunctions:
         )
         assert link.type == "link"
         assert link.text == "Click here"
-        assert link.href == "https://example.com"
+        assert str(link.href) == "https://example.com"
         assert link.target == "_blank"
 
     def test_create_link_minimal(self) -> None:
         """create_link should work with minimal parameters."""
         link = create_link(text="Link", href="https://example.com")
+        assert str(link.href) == "https://example.com"
         assert link.target is None
 
     def test_create_divider(self) -> None:

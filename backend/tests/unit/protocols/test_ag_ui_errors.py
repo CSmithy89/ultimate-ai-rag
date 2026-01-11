@@ -305,9 +305,11 @@ class TestCreateErrorEvent:
         assert event.data["code"] == "INVALID_REQUEST"
         assert event.data["http_status"] == 400
 
-    def test_create_error_event_key_error(self) -> None:
-        """Test KeyError maps to SESSION_NOT_FOUND."""
-        exc = KeyError("session-123")
+    def test_create_error_event_session_not_found(self) -> None:
+        """Test A2ASessionNotFoundError maps to SESSION_NOT_FOUND."""
+        from agentic_rag_backend.protocols.a2a import A2ASessionNotFoundError
+
+        exc = A2ASessionNotFoundError("session-123")
 
         event = create_error_event(exc)
 

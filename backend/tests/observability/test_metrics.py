@@ -30,64 +30,112 @@ from agentic_rag_backend.observability.metrics import (
 )
 
 
+def assert_metric_accepts_labels(
+    metric,
+    labels: dict[str, str],
+    update_fn,
+) -> None:
+    """Assert metric accepts labels via public API and emits samples."""
+    update_fn(metric.labels(**labels))
+    samples = metric.collect()[0].samples
+    assert any(
+        all(sample.labels.get(key) == value for key, value in labels.items())
+        for sample in samples
+    )
+
+
+def get_sample_value(metric, labels: dict[str, str]) -> float:
+    """Return the sample value matching the provided label set."""
+    samples = metric.collect()[0].samples
+    for sample in samples:
+        if all(sample.labels.get(key) == value for key, value in labels.items()):
+            return float(sample.value)
+    raise AssertionError(f"No sample found for labels: {labels}")
+
+
 class TestMetricDefinitions:
     """Tests for metric definitions."""
 
     def test_retrieval_requests_total_exists(self) -> None:
         """Test that RETRIEVAL_REQUESTS_TOTAL counter is defined."""
         assert RETRIEVAL_REQUESTS_TOTAL is not None
-        # Verify labels
-        assert "strategy" in RETRIEVAL_REQUESTS_TOTAL._labelnames
-        assert "tenant_id" in RETRIEVAL_REQUESTS_TOTAL._labelnames
+        assert_metric_accepts_labels(
+            RETRIEVAL_REQUESTS_TOTAL,
+            {"strategy": "vector", "tenant_id": "test-tenant"},
+            lambda child: child.inc(),
+        )
 
     def test_retrieval_fallback_triggered_total_exists(self) -> None:
         """Test that RETRIEVAL_FALLBACK_TRIGGERED_TOTAL counter is defined."""
         assert RETRIEVAL_FALLBACK_TRIGGERED_TOTAL is not None
-        assert "reason" in RETRIEVAL_FALLBACK_TRIGGERED_TOTAL._labelnames
-        assert "tenant_id" in RETRIEVAL_FALLBACK_TRIGGERED_TOTAL._labelnames
+        assert_metric_accepts_labels(
+            RETRIEVAL_FALLBACK_TRIGGERED_TOTAL,
+            {"reason": "timeout", "tenant_id": "test-tenant"},
+            lambda child: child.inc(),
+        )
 
     def test_grader_evaluations_total_exists(self) -> None:
         """Test that GRADER_EVALUATIONS_TOTAL counter is defined."""
         assert GRADER_EVALUATIONS_TOTAL is not None
-        assert "result" in GRADER_EVALUATIONS_TOTAL._labelnames
-        assert "tenant_id" in GRADER_EVALUATIONS_TOTAL._labelnames
+        assert_metric_accepts_labels(
+            GRADER_EVALUATIONS_TOTAL,
+            {"result": "pass", "tenant_id": "test-tenant"},
+            lambda child: child.inc(),
+        )
 
     def test_retrieval_latency_seconds_exists(self) -> None:
         """Test that RETRIEVAL_LATENCY_SECONDS histogram is defined."""
         assert RETRIEVAL_LATENCY_SECONDS is not None
-        assert "strategy" in RETRIEVAL_LATENCY_SECONDS._labelnames
-        assert "phase" in RETRIEVAL_LATENCY_SECONDS._labelnames
-        assert "tenant_id" in RETRIEVAL_LATENCY_SECONDS._labelnames
+        assert_metric_accepts_labels(
+            RETRIEVAL_LATENCY_SECONDS,
+            {"strategy": "vector", "phase": "search", "tenant_id": "test-tenant"},
+            lambda child: child.observe(0.1),
+        )
 
     def test_reranking_improvement_ratio_exists(self) -> None:
         """Test that RERANKING_IMPROVEMENT_RATIO histogram is defined."""
         assert RERANKING_IMPROVEMENT_RATIO is not None
-        assert "tenant_id" in RERANKING_IMPROVEMENT_RATIO._labelnames
+        assert_metric_accepts_labels(
+            RERANKING_IMPROVEMENT_RATIO,
+            {"tenant_id": "test-tenant"},
+            lambda child: child.observe(0.5),
+        )
 
     def test_grader_score_exists(self) -> None:
         """Test that GRADER_SCORE histogram is defined."""
         assert GRADER_SCORE is not None
-        assert "model" in GRADER_SCORE._labelnames
-        assert "tenant_id" in GRADER_SCORE._labelnames
+        assert_metric_accepts_labels(
+            GRADER_SCORE,
+            {"model": "heuristic", "tenant_id": "test-tenant"},
+            lambda child: child.observe(0.7),
+        )
 
     def test_retrieval_precision_exists(self) -> None:
         """Test that RETRIEVAL_PRECISION gauge is defined."""
         assert RETRIEVAL_PRECISION is not None
-        assert "strategy" in RETRIEVAL_PRECISION._labelnames
-        assert "k" in RETRIEVAL_PRECISION._labelnames
-        assert "tenant_id" in RETRIEVAL_PRECISION._labelnames
+        assert_metric_accepts_labels(
+            RETRIEVAL_PRECISION,
+            {"strategy": "vector", "k": "10", "tenant_id": "test-tenant"},
+            lambda child: child.set(0.8),
+        )
 
     def test_retrieval_recall_exists(self) -> None:
         """Test that RETRIEVAL_RECALL gauge is defined."""
         assert RETRIEVAL_RECALL is not None
-        assert "strategy" in RETRIEVAL_RECALL._labelnames
-        assert "k" in RETRIEVAL_RECALL._labelnames
-        assert "tenant_id" in RETRIEVAL_RECALL._labelnames
+        assert_metric_accepts_labels(
+            RETRIEVAL_RECALL,
+            {"strategy": "vector", "k": "10", "tenant_id": "test-tenant"},
+            lambda child: child.set(0.7),
+        )
 
     def test_active_retrieval_operations_exists(self) -> None:
         """Test that ACTIVE_RETRIEVAL_OPERATIONS gauge is defined."""
         assert ACTIVE_RETRIEVAL_OPERATIONS is not None
-        assert "tenant_id" in ACTIVE_RETRIEVAL_OPERATIONS._labelnames
+        assert_metric_accepts_labels(
+            ACTIVE_RETRIEVAL_OPERATIONS,
+            {"tenant_id": "test-tenant"},
+            lambda child: child.set(0),
+        )
 
 
 class TestHelperFunctions:
@@ -213,16 +261,22 @@ class TestTrackActiveRetrieval:
         tenant_id = "test-tenant-active"
         tenant_label = normalize_tenant_label(tenant_id)
 
-        # Get initial value
-        initial = ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_label)._value.get()
+        ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_label).set(0)
+        initial = get_sample_value(
+            ACTIVE_RETRIEVAL_OPERATIONS, {"tenant_id": tenant_label}
+        )
 
         with track_active_retrieval(tenant_id):
             # Value should be incremented inside context
-            inside = ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_label)._value.get()
+            inside = get_sample_value(
+                ACTIVE_RETRIEVAL_OPERATIONS, {"tenant_id": tenant_label}
+            )
             assert inside == initial + 1
 
         # Value should be decremented after context
-        after = ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_label)._value.get()
+        after = get_sample_value(
+            ACTIVE_RETRIEVAL_OPERATIONS, {"tenant_id": tenant_label}
+        )
         assert after == initial
 
     def test_track_active_retrieval_decrements_on_exception(self) -> None:
@@ -230,17 +284,24 @@ class TestTrackActiveRetrieval:
         tenant_id = "test-tenant-exception"
         tenant_label = normalize_tenant_label(tenant_id)
 
-        initial = ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_label)._value.get()
+        ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_label).set(0)
+        initial = get_sample_value(
+            ACTIVE_RETRIEVAL_OPERATIONS, {"tenant_id": tenant_label}
+        )
 
         with pytest.raises(ValueError):
             with track_active_retrieval(tenant_id):
                 # Verify incremented
-                inside = ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_label)._value.get()
+                inside = get_sample_value(
+                    ACTIVE_RETRIEVAL_OPERATIONS, {"tenant_id": tenant_label}
+                )
                 assert inside == initial + 1
                 raise ValueError("Test exception")
 
         # Should still be decremented
-        after = ACTIVE_RETRIEVAL_OPERATIONS.labels(tenant_id=tenant_label)._value.get()
+        after = get_sample_value(
+            ACTIVE_RETRIEVAL_OPERATIONS, {"tenant_id": tenant_label}
+        )
         assert after == initial
 
 
