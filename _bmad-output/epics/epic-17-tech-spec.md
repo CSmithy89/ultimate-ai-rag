@@ -174,12 +174,61 @@ Each profile is a **complete, working configuration**. Features are pre-configur
 
 **Legend:** ✅ = Enabled by default | ❌ = Disabled | (opt-in) = Shown in customize mode
 
+### Custom Profile: Build Your Own
+
+The **Custom** profile is for power users who want complete control. Unlike the preset profiles, Custom walks through ALL configuration categories:
+
+```
+╔══════════════════════════════════════════════════════════════════════════╗
+║  CUSTOM PROFILE: Full Configuration                                       ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║                                                                           ║
+║  You've selected Custom profile. This will walk through all options.      ║
+║  Estimated time: 5-10 minutes                                             ║
+║                                                                           ║
+║  Categories to configure:                                                 ║
+║    1. LLM Provider & Model                                                ║
+║    2. Embedding Provider & Model                                          ║
+║    3. Retrieval Features (reranking, contextual, CRAG)                    ║
+║    4. Memory Platform (scopes, consolidation)                             ║
+║    5. Graph Intelligence (LazyRAG, community detection, routing)          ║
+║    6. Ingestion Sources (crawling, PDF, YouTube, external sync)           ║
+║    7. Voice I/O (STT, TTS)                                                ║
+║    8. Observability (metrics, cost tracking, encryption)                  ║
+║    9. Protocols (A2A limits, MCP-UI)                                      ║
+║                                                                           ║
+║  [Enter] Start configuration   [b] Back to profile selection              ║
+╚══════════════════════════════════════════════════════════════════════════╝
+```
+
+**Custom Profile Behavior:**
+- Starts with **no defaults** - every feature must be explicitly enabled
+- Walks through each category sequentially (can skip with defaults)
+- Generates `config/profiles/custom.yaml` for reuse
+- Ideal for: DevOps teams, specific compliance requirements, edge deployments
+
+**Custom Profile Fast-Skip:**
+```
+? [1/9] LLM Provider & Model
+  ❯ Configure manually
+    Use Standard defaults (OpenAI gpt-4o)
+    Use Enterprise defaults (OpenRouter claude-3.5-sonnet)
+
+? [2/9] Embedding Provider & Model
+  ❯ Configure manually
+    Use Standard defaults (OpenAI text-embedding-3-small)
+    Use Enterprise defaults (Voyage AI voyage-code-3)
+
+[... continues for each category ...]
+```
+
 ### CLI Command Structure
 
 | Command | Purpose | Questions Asked |
 |---------|---------|-----------------|
 | `rag-install` | Fast path installation | 4-5 (profile, LLM, API key, framework) |
 | `rag-install --customize` | Installation with all options | Profile-appropriate subset |
+| `rag-install --profile custom` | Custom profile (full wizard) | 9 categories, ~20-30 questions |
 | `rag-install --profile <name> --yes` | Non-interactive installation | 0 (uses profile defaults) |
 | `rag-cli setup` | Deep configuration wizard | All options for current profile |
 | `rag-cli doctor` | Validate configuration | 0 (diagnostic only) |
