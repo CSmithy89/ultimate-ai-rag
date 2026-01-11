@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>17-4</story-id>
+    <story-title>Verify Docker Compose Startup</story-title>
+    <epic>17 - Developer Experience, CLI &amp; Framework Integration</epic>
+    <generated>2026-01-12</generated>
+  </metadata>
+
+  <objective>
+    Run docker compose startup and validate service health with
+    actionable error messages and a dry-run option.
+  </objective>
+
+  <requirements>
+    <item>docker compose up -d execution</item>
+    <item>health checks for backend (http://localhost:8000/health)</item>
+    <item>health checks for frontend (http://localhost:3000)</item>
+    <item>dry-run option to print actions only</item>
+  </requirements>
+
+  <files-to-update>
+    <file path="cli/commands/install.py">Startup + health checks</file>
+  </files-to-update>
+
+  <references>
+    <ref path="docker-compose.yml">Service definitions</ref>
+    <ref path="_bmad-output/epics/epic-17-tech-spec.md">Story 17-4</ref>
+  </references>
+</story-context>

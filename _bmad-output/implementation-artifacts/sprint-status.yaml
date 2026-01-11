@@ -246,7 +246,7 @@ development_status:
   # GPU for local LLM/Whisper, RAM for model selection
   17-3-implement-env-generation-logic: done
   # Generate complete .env, validate all combinations
-  17-4-verify-docker-compose-startup: backlog
+  17-4-verify-docker-compose-startup: done
   # Health checks for selected stack
   17-5-create-framework-starter-templates: backlog
   # NEW (from Epic 16): PydanticAI, CrewAI, LangGraph, Anthropic examples

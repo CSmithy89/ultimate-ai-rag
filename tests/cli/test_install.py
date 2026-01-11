@@ -35,6 +35,7 @@ def test_non_interactive_install_writes_env_and_template() -> None:
                 "sk-test-1234567890",
                 "--framework",
                 "pydanticai",
+                "--dry-run",
                 "--yes",
             ],
         )
@@ -72,6 +73,7 @@ def test_env_backup_created() -> None:
                 "openai",
                 "--api-key",
                 "sk-test-1234567890",
+                "--dry-run",
                 "--yes",
             ],
         )
@@ -98,6 +100,7 @@ def test_invalid_neo4j_uri_fails() -> None:
                 "openai",
                 "--api-key",
                 "sk-test-1234567890",
+                "--dry-run",
                 "--yes",
             ],
         )

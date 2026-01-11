@@ -5,6 +5,9 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from time import monotonic, sleep
+from urllib.error import URLError
+from urllib.request import urlopen
 
 import typer
 from rich.console import Console
@@ -132,7 +135,46 @@ def _mask_secret(value: str) -> str:
     if not value:
         return ""
     tail = value[-4:]
-    return f\"{'*' * max(0, len(value) - 4)}{tail}\"
+    return f"{'*' * max(0, len(value) - 4)}{tail}"
+
+
+def _run_docker_compose(console: Console, dry_run: bool) -> None:
+    command = ["docker", "compose", "up", "-d"]
+    if dry_run:
+        console.print(f"[dry-run] {' '.join(command)}")
+        return
+    try:
+        import subprocess
+
+        result = subprocess.run(command, check=False, capture_output=True, text=True)
+        if result.returncode != 0:
+            output = result.stderr.strip() or result.stdout.strip()
+            message = output or "Docker compose failed"
+            if "Cannot connect to the Docker daemon" in message:
+                raise typer.BadParameter("Docker daemon not running. Start Docker Desktop")
+            raise typer.BadParameter(message)
+    except FileNotFoundError:
+        raise typer.BadParameter("Docker not installed. Install Docker Desktop or engine")
+
+
+def _check_url(url: str, timeout: float) -> bool:
+    try:
+        with urlopen(url, timeout=timeout) as response:
+            return 200 <= response.status < 500
+    except (URLError, TimeoutError):
+        return False
+
+
+def _wait_for_service(console: Console, name: str, url: str, timeout_s: float = 30.0) -> None:
+    start = monotonic()
+    while monotonic() - start < timeout_s:
+        if _check_url(url, timeout=2.0):
+            elapsed = monotonic() - start
+            console.print(f"  ✓ {name} - healthy ({elapsed:.1f}s)")
+            return
+        sleep(1.0)
+    raise typer.BadParameter(
+        f"{name} failed to become healthy. Check for port conflicts or docker logs.")
 
 
 def _write_env(selections: InstallSelections, template_path: Path, output_path: Path) -> None:
@@ -277,6 +319,7 @@ def run_install(
     framework: str | None = typer.Option(None, "--framework"),
     customize: bool = typer.Option(False, "--customize"),
     yes: bool = typer.Option(False, "--yes"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
 ) -> None:
     console = Console()
     recommended_profile, hardware_lines = _recommend_profile()
@@ -309,13 +352,19 @@ def run_install(
     template_path = Path(".env.example")
     output_path = Path(".env")
     if not template_path.exists():
-        console.print(\"Missing .env.example template. Run from the repo root.\")
+        console.print("Missing .env.example template. Run from the repo root.")
         raise typer.Exit(code=1)
 
     _write_env(selections, template_path, output_path)
 
     if selections.framework != "none":
         _generate_framework_template(selections.framework, Path("examples"))
+
+    _run_docker_compose(console, dry_run)
+    if not dry_run:
+        console.print("Starting services...")
+        _wait_for_service(console, "Backend", "http://localhost:8000/health")
+        _wait_for_service(console, "Frontend", "http://localhost:3000")
 
     success_lines = [
         "Your RAG system configuration is ready.",

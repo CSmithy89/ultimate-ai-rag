@@ -15,6 +15,7 @@ def rag_install(
     framework: str | None = typer.Option(None, "--framework"),
     customize: bool = typer.Option(False, "--customize"),
     yes: bool = typer.Option(False, "--yes"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
 ) -> None:
     run_install(
         profile=profile,
@@ -23,6 +24,7 @@ def rag_install(
         framework=framework,
         customize=customize,
         yes=yes,
+        dry_run=dry_run,
     )
 
 
