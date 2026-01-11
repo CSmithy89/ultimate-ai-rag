@@ -21,7 +21,6 @@ from __future__ import annotations
 import asyncio
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
-from threading import Lock
 from time import time
 from typing import TYPE_CHECKING, Optional
 from uuid import uuid4
@@ -310,7 +309,7 @@ class InMemoryA2AResourceManager(A2AResourceManager):
             limits: Configuration for resource limits
         """
         super().__init__(limits)
-        self._lock = Lock()
+        self._lock = asyncio.Lock()
         self._tenant_usage: dict[str, TenantUsage] = {}
         self._session_usage: dict[str, SessionUsage] = {}
         self._cleanup_task: Optional[asyncio.Task[None]] = None
@@ -318,7 +317,7 @@ class InMemoryA2AResourceManager(A2AResourceManager):
 
     async def check_session_limit(self, tenant_id: str) -> bool:
         """Check if tenant can create a new session."""
-        with self._lock:
+        async with self._lock:
             usage = self._tenant_usage.get(tenant_id)
             if usage is None:
                 return True
@@ -326,7 +325,7 @@ class InMemoryA2AResourceManager(A2AResourceManager):
 
     async def check_message_limit(self, session_id: str) -> bool:
         """Check if session can send another message."""
-        with self._lock:
+        async with self._lock:
             usage = self._session_usage.get(session_id)
             if usage is None:
                 return True
@@ -337,7 +336,7 @@ class InMemoryA2AResourceManager(A2AResourceManager):
         now = time()
         minute_ago = now - 60
 
-        with self._lock:
+        async with self._lock:
             usage = self._session_usage.get(session_id)
             if usage is None:
                 return True
@@ -347,16 +346,23 @@ class InMemoryA2AResourceManager(A2AResourceManager):
             return recent_count < self.limits.message_rate_limit
 
     async def register_session(self, session_id: str, tenant_id: str) -> None:
-        """Register a new session."""
-        if not await self.check_session_limit(tenant_id):
-            logger.warning(
-                "a2a_session_limit_exceeded",
-                tenant_id=tenant_id,
-                limit=self.limits.session_limit_per_tenant,
-            )
-            raise A2ASessionLimitExceeded(tenant_id, self.limits.session_limit_per_tenant)
+        """Register a new session.
 
-        with self._lock:
+        Note: The session limit check is performed inside the lock to prevent
+        TOCTOU (Time-of-Check-Time-of-Use) race conditions where multiple
+        concurrent requests could exceed the limit.
+        """
+        async with self._lock:
+            # Check session limit inside the lock to prevent race conditions
+            usage = self._tenant_usage.get(tenant_id)
+            if usage is not None and usage.active_sessions >= self.limits.session_limit_per_tenant:
+                logger.warning(
+                    "a2a_session_limit_exceeded",
+                    tenant_id=tenant_id,
+                    limit=self.limits.session_limit_per_tenant,
+                )
+                raise A2ASessionLimitExceeded(tenant_id, self.limits.session_limit_per_tenant)
+
             # Create or update tenant usage
             if tenant_id not in self._tenant_usage:
                 self._tenant_usage[tenant_id] = TenantUsage(tenant_id=tenant_id)
@@ -370,38 +376,27 @@ class InMemoryA2AResourceManager(A2AResourceManager):
                 tenant_id=tenant_id,
             )
 
+            active_sessions = self._tenant_usage[tenant_id].active_sessions
+
         logger.info(
             "a2a_session_registered",
             session_id=session_id,
             tenant_id=tenant_id,
-            active_sessions=self._tenant_usage[tenant_id].active_sessions,
+            active_sessions=active_sessions,
         )
 
     async def record_message(self, session_id: str) -> None:
-        """Record a message for a session."""
-        # Check message limit first
-        if not await self.check_message_limit(session_id):
-            logger.warning(
-                "a2a_message_limit_exceeded",
-                session_id=session_id,
-                limit=self.limits.message_limit_per_session,
-            )
-            raise A2AMessageLimitExceeded(session_id, self.limits.message_limit_per_session)
+        """Record a message for a session.
 
-        # Check rate limit
-        if not await self.check_rate_limit(session_id):
-            logger.warning(
-                "a2a_rate_limit_exceeded",
-                session_id=session_id,
-                limit=self.limits.message_rate_limit,
-            )
-            raise A2ARateLimitExceeded(session_id, self.limits.message_rate_limit)
-
+        Note: All limit checks and message recording are performed inside the lock
+        to prevent TOCTOU race conditions.
+        """
         now = time()
         now_dt = datetime.now(timezone.utc)
+        minute_ago = now - 60
         five_minutes_ago = now - 300
 
-        with self._lock:
+        async with self._lock:
             usage = self._session_usage.get(session_id)
             if usage is None:
                 logger.warning(
@@ -409,6 +404,25 @@ class InMemoryA2AResourceManager(A2AResourceManager):
                     session_id=session_id,
                 )
                 return
+
+            # Check message limit inside lock to prevent race conditions
+            if usage.message_count >= self.limits.message_limit_per_session:
+                logger.warning(
+                    "a2a_message_limit_exceeded",
+                    session_id=session_id,
+                    limit=self.limits.message_limit_per_session,
+                )
+                raise A2AMessageLimitExceeded(session_id, self.limits.message_limit_per_session)
+
+            # Check rate limit inside lock to prevent race conditions
+            recent_count = sum(1 for ts in usage.message_timestamps if ts > minute_ago)
+            if recent_count >= self.limits.message_rate_limit:
+                logger.warning(
+                    "a2a_rate_limit_exceeded",
+                    session_id=session_id,
+                    limit=self.limits.message_rate_limit,
+                )
+                raise A2ARateLimitExceeded(session_id, self.limits.message_rate_limit)
 
             # Increment message count
             usage.message_count += 1
@@ -428,15 +442,17 @@ class InMemoryA2AResourceManager(A2AResourceManager):
                 self._tenant_usage[tenant_id].total_messages += 1
                 self._tenant_usage[tenant_id].last_activity = now_dt
 
+            message_count = usage.message_count
+
         logger.debug(
             "a2a_message_recorded",
             session_id=session_id,
-            message_count=usage.message_count,
+            message_count=message_count,
         )
 
     async def close_session(self, session_id: str) -> None:
         """Close a session and update limits."""
-        with self._lock:
+        async with self._lock:
             usage = self._session_usage.pop(session_id, None)
             if usage is None:
                 logger.debug(
@@ -460,7 +476,7 @@ class InMemoryA2AResourceManager(A2AResourceManager):
 
     async def get_tenant_metrics(self, tenant_id: str) -> A2AResourceMetrics:
         """Get resource usage metrics for a tenant."""
-        with self._lock:
+        async with self._lock:
             usage = self._tenant_usage.get(tenant_id)
             if usage is None:
                 return A2AResourceMetrics(
@@ -507,8 +523,24 @@ class InMemoryA2AResourceManager(A2AResourceManager):
         logger.info("a2a_resource_manager_stopped", backend="memory")
 
     async def _cleanup_loop(self) -> None:
-        """Background task to clean up expired sessions."""
+        """Background task to clean up expired sessions.
+
+        Runs cleanup immediately on startup, then at regular intervals.
+        This ensures expired sessions are cleaned up quickly after server restart.
+        """
         interval = self.limits.cleanup_interval_minutes * 60
+
+        # Run initial cleanup immediately on startup
+        if self._running:
+            try:
+                await self._cleanup_expired_sessions()
+            except Exception as e:
+                logger.exception(
+                    "a2a_initial_cleanup_error",
+                    error=str(e),
+                )
+
+        # Then run at regular intervals
         while self._running:
             try:
                 await asyncio.sleep(interval)
@@ -528,7 +560,7 @@ class InMemoryA2AResourceManager(A2AResourceManager):
         ttl = timedelta(hours=self.limits.session_ttl_hours)
         expired_sessions: list[str] = []
 
-        with self._lock:
+        async with self._lock:
             for session_id, usage in list(self._session_usage.items()):
                 if now - usage.created_at > ttl:
                     expired_sessions.append(session_id)
@@ -560,6 +592,76 @@ class RedisA2AResourceManager(A2AResourceManager):
     - HSET for tenant and session metadata
     - ZADD for rate limiting with sorted sets
     - EXPIRE for automatic TTL enforcement
+    - Lua scripts for atomic check-and-increment operations
+    """
+
+    # Lua script for atomic session registration with limit check
+    # Returns 1 if session registered successfully, 0 if limit exceeded
+    _REGISTER_SESSION_SCRIPT = """
+    local tenant_key = KEYS[1]
+    local session_key = KEYS[2]
+    local limit = tonumber(ARGV[1])
+    local session_id = ARGV[2]
+    local tenant_id = ARGV[3]
+    local now = ARGV[4]
+    local ttl = tonumber(ARGV[5])
+
+    -- Check current session count
+    local current = redis.call('HGET', tenant_key, 'active_sessions')
+    if current and tonumber(current) >= limit then
+        return 0  -- limit exceeded
+    end
+
+    -- Atomically increment and register session
+    redis.call('HINCRBY', tenant_key, 'active_sessions', 1)
+    redis.call('HSET', tenant_key, 'last_activity', now)
+    redis.call('HSET', session_key, 'session_id', session_id, 'tenant_id', tenant_id,
+               'message_count', '0', 'created_at', now, 'last_message_at', now)
+    redis.call('EXPIRE', session_key, ttl)
+    return 1  -- success
+    """
+
+    # Lua script for atomic message recording with limit and rate checks
+    # Returns 1 if message recorded, 0 if message limit exceeded, -1 if rate limit exceeded
+    _RECORD_MESSAGE_SCRIPT = """
+    local session_key = KEYS[1]
+    local rate_key = KEYS[2]
+    local tenant_key = KEYS[3]
+    local message_limit = tonumber(ARGV[1])
+    local rate_limit = tonumber(ARGV[2])
+    local now = tonumber(ARGV[3])
+    local now_iso = ARGV[4]
+    local message_id = ARGV[5]
+    local minute_ago = now - 60
+    local five_minutes_ago = now - 300
+
+    -- Check if session exists
+    local tenant_id = redis.call('HGET', session_key, 'tenant_id')
+    if not tenant_id then
+        return -2  -- session not found
+    end
+
+    -- Check message limit
+    local message_count = redis.call('HGET', session_key, 'message_count')
+    if message_count and tonumber(message_count) >= message_limit then
+        return 0  -- message limit exceeded
+    end
+
+    -- Check rate limit
+    local rate_count = redis.call('ZCOUNT', rate_key, minute_ago, now)
+    if rate_count >= rate_limit then
+        return -1  -- rate limit exceeded
+    end
+
+    -- Record message atomically
+    redis.call('HINCRBY', session_key, 'message_count', 1)
+    redis.call('HSET', session_key, 'last_message_at', now_iso)
+    redis.call('ZADD', rate_key, now, message_id)
+    redis.call('ZREMRANGEBYSCORE', rate_key, 0, five_minutes_ago)
+    redis.call('EXPIRE', rate_key, 300)
+    redis.call('HINCRBY', tenant_key, 'total_messages', 1)
+    redis.call('HSET', tenant_key, 'last_activity', now_iso)
+    return 1  -- success
     """
 
     def __init__(
@@ -580,6 +682,9 @@ class RedisA2AResourceManager(A2AResourceManager):
         self._key_prefix = key_prefix
         self._cleanup_task: Optional[asyncio.Task[None]] = None
         self._running = False
+        # Register Lua scripts (will be done lazily on first use)
+        self._register_session_sha: Optional[str] = None
+        self._record_message_sha: Optional[str] = None
 
     def _tenant_key(self, tenant_id: str) -> str:
         """Get Redis key for tenant usage."""
@@ -620,36 +725,36 @@ class RedisA2AResourceManager(A2AResourceManager):
         return count < self.limits.message_rate_limit
 
     async def register_session(self, session_id: str, tenant_id: str) -> None:
-        """Register a new session with atomic Redis operations."""
-        if not await self.check_session_limit(tenant_id):
+        """Register a new session with atomic Redis Lua script.
+
+        Uses a Lua script to atomically check the session limit and register
+        the session, preventing TOCTOU race conditions across multiple workers.
+        """
+        tenant_key = self._tenant_key(tenant_id)
+        session_key = self._session_key(session_id)
+        now = datetime.now(timezone.utc).isoformat()
+        ttl_seconds = self.limits.session_ttl_hours * 3600
+
+        # Execute Lua script for atomic check-and-register
+        result = await self._redis.eval(
+            self._REGISTER_SESSION_SCRIPT,
+            2,  # number of keys
+            tenant_key,
+            session_key,
+            self.limits.session_limit_per_tenant,
+            session_id,
+            tenant_id,
+            now,
+            ttl_seconds,
+        )
+
+        if result == 0:
             logger.warning(
                 "a2a_session_limit_exceeded",
                 tenant_id=tenant_id,
                 limit=self.limits.session_limit_per_tenant,
             )
             raise A2ASessionLimitExceeded(tenant_id, self.limits.session_limit_per_tenant)
-
-        tenant_key = self._tenant_key(tenant_id)
-        session_key = self._session_key(session_id)
-        now = datetime.now(timezone.utc).isoformat()
-        ttl_seconds = self.limits.session_ttl_hours * 3600
-
-        # Use pipeline for atomic operations
-        pipeline = self._redis.pipeline()
-        pipeline.hincrby(tenant_key, "active_sessions", 1)
-        pipeline.hset(tenant_key, "last_activity", now)
-        pipeline.hset(
-            session_key,
-            mapping={
-                "session_id": session_id,
-                "tenant_id": tenant_id,
-                "message_count": "0",
-                "created_at": now,
-                "last_message_at": now,
-            },
-        )
-        pipeline.expire(session_key, ttl_seconds)
-        await pipeline.execute()
 
         logger.info(
             "a2a_session_registered",
@@ -658,32 +763,15 @@ class RedisA2AResourceManager(A2AResourceManager):
         )
 
     async def record_message(self, session_id: str) -> None:
-        """Record a message with atomic Redis operations."""
-        # Check message limit first
-        if not await self.check_message_limit(session_id):
-            logger.warning(
-                "a2a_message_limit_exceeded",
-                session_id=session_id,
-                limit=self.limits.message_limit_per_session,
-            )
-            raise A2AMessageLimitExceeded(session_id, self.limits.message_limit_per_session)
+        """Record a message with atomic Redis Lua script.
 
-        # Check rate limit
-        if not await self.check_rate_limit(session_id):
-            logger.warning(
-                "a2a_rate_limit_exceeded",
-                session_id=session_id,
-                limit=self.limits.message_rate_limit,
-            )
-            raise A2ARateLimitExceeded(session_id, self.limits.message_rate_limit)
-
+        Uses a Lua script to atomically check limits and record the message,
+        preventing TOCTOU race conditions across multiple workers.
+        """
         session_key = self._session_key(session_id)
         rate_key = self._rate_key(session_id)
-        now = time()
-        now_iso = datetime.now(timezone.utc).isoformat()
-        five_minutes_ago = now - 300
 
-        # Get tenant_id from session
+        # Get tenant_id from session first (needed for tenant_key)
         tenant_id = await self._redis.hget(session_key, "tenant_id")
         if tenant_id is None:
             logger.warning(
@@ -697,17 +785,46 @@ class RedisA2AResourceManager(A2AResourceManager):
             tenant_id = tenant_id.decode("utf-8")
 
         tenant_key = self._tenant_key(tenant_id)
+        now = time()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        message_id = str(uuid4())
 
-        # Use pipeline for atomic operations
-        pipeline = self._redis.pipeline()
-        pipeline.hincrby(session_key, "message_count", 1)
-        pipeline.hset(session_key, "last_message_at", now_iso)
-        pipeline.zadd(rate_key, {str(uuid4()): now})
-        pipeline.zremrangebyscore(rate_key, 0, five_minutes_ago)
-        pipeline.expire(rate_key, 300)  # 5 minute TTL
-        pipeline.hincrby(tenant_key, "total_messages", 1)
-        pipeline.hset(tenant_key, "last_activity", now_iso)
-        await pipeline.execute()
+        # Execute Lua script for atomic check-and-record
+        result = await self._redis.eval(
+            self._RECORD_MESSAGE_SCRIPT,
+            3,  # number of keys
+            session_key,
+            rate_key,
+            tenant_key,
+            self.limits.message_limit_per_session,
+            self.limits.message_rate_limit,
+            now,
+            now_iso,
+            message_id,
+        )
+
+        if result == 0:
+            logger.warning(
+                "a2a_message_limit_exceeded",
+                session_id=session_id,
+                limit=self.limits.message_limit_per_session,
+            )
+            raise A2AMessageLimitExceeded(session_id, self.limits.message_limit_per_session)
+
+        if result == -1:
+            logger.warning(
+                "a2a_rate_limit_exceeded",
+                session_id=session_id,
+                limit=self.limits.message_rate_limit,
+            )
+            raise A2ARateLimitExceeded(session_id, self.limits.message_rate_limit)
+
+        if result == -2:
+            logger.warning(
+                "a2a_record_message_unknown_session",
+                session_id=session_id,
+            )
+            return
 
         logger.debug(
             "a2a_message_recorded",
@@ -803,8 +920,24 @@ class RedisA2AResourceManager(A2AResourceManager):
         logger.info("a2a_resource_manager_stopped", backend="redis")
 
     async def _cleanup_loop(self) -> None:
-        """Background task for cleanup (Redis TTL handles most expiry)."""
+        """Background task for cleanup (Redis TTL handles most expiry).
+
+        Runs cleanup immediately on startup, then at regular intervals.
+        This ensures any negative counts are fixed quickly after server restart.
+        """
         interval = self.limits.cleanup_interval_minutes * 60
+
+        # Run initial cleanup immediately on startup
+        if self._running:
+            try:
+                await self._cleanup_negative_counts()
+            except Exception as e:
+                logger.exception(
+                    "a2a_initial_cleanup_error",
+                    error=str(e),
+                )
+
+        # Then run at regular intervals
         while self._running:
             try:
                 await asyncio.sleep(interval)

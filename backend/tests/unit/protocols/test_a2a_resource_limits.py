@@ -14,17 +14,13 @@ Tests cover:
 
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timezone
-from time import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from agentic_rag_backend.protocols.a2a_resource_limits import (
     A2AResourceLimits,
     A2AResourceMetrics,
-    A2AResourceManager,
     A2AResourceManagerFactory,
     A2ASessionLimitExceeded,
     A2AMessageLimitExceeded,
@@ -600,14 +596,14 @@ class TestRedisA2AResourceManager:
         manager: RedisA2AResourceManager,
         mock_redis: MagicMock,
     ) -> None:
-        """Test successful session registration."""
-        # Under limit
-        mock_redis.hget.return_value = None
+        """Test successful session registration with Lua script."""
+        # Lua script returns 1 (success)
+        mock_redis.eval = AsyncMock(return_value=1)
 
         await manager.register_session("session-abc", "tenant-123")
 
-        # Verify pipeline was executed
-        mock_redis.pipeline.return_value.execute.assert_called_once()
+        # Verify eval was called with the Lua script
+        mock_redis.eval.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_register_session_limit_exceeded(
@@ -615,9 +611,9 @@ class TestRedisA2AResourceManager:
         manager: RedisA2AResourceManager,
         mock_redis: MagicMock,
     ) -> None:
-        """Test session limit exceeded."""
-        # At limit
-        mock_redis.hget.return_value = "3"
+        """Test session limit exceeded with Lua script."""
+        # Lua script returns 0 (limit exceeded)
+        mock_redis.eval = AsyncMock(return_value=0)
 
         with pytest.raises(A2ASessionLimitExceeded):
             await manager.register_session("session-abc", "tenant-123")
@@ -653,6 +649,94 @@ class TestRedisA2AResourceManager:
 
         assert metrics.active_sessions == 5
         assert metrics.total_messages == 100
+
+    @pytest.mark.asyncio
+    async def test_record_message_success(
+        self,
+        manager: RedisA2AResourceManager,
+        mock_redis: MagicMock,
+    ) -> None:
+        """Test successful message recording with Lua script."""
+        # Session exists
+        mock_redis.hget.return_value = "tenant-123"
+        # Lua script returns 1 (success)
+        mock_redis.eval = AsyncMock(return_value=1)
+
+        await manager.record_message("session-abc")
+
+        # Verify eval was called with the Lua script
+        mock_redis.eval.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_record_message_limit_exceeded(
+        self,
+        manager: RedisA2AResourceManager,
+        mock_redis: MagicMock,
+    ) -> None:
+        """Test message limit exceeded during message recording."""
+        # Session exists
+        mock_redis.hget.return_value = "tenant-123"
+        # Lua script returns 0 (message limit exceeded)
+        mock_redis.eval = AsyncMock(return_value=0)
+
+        with pytest.raises(A2AMessageLimitExceeded):
+            await manager.record_message("session-abc")
+
+    @pytest.mark.asyncio
+    async def test_record_message_rate_limit_exceeded(
+        self,
+        manager: RedisA2AResourceManager,
+        mock_redis: MagicMock,
+    ) -> None:
+        """Test rate limit exceeded during message recording."""
+        # Session exists
+        mock_redis.hget.return_value = "tenant-123"
+        # Lua script returns -1 (rate limit exceeded)
+        mock_redis.eval = AsyncMock(return_value=-1)
+
+        with pytest.raises(A2ARateLimitExceeded):
+            await manager.record_message("session-abc")
+
+    @pytest.mark.asyncio
+    async def test_record_message_unknown_session(
+        self,
+        manager: RedisA2AResourceManager,
+        mock_redis: MagicMock,
+    ) -> None:
+        """Test recording message for unknown session."""
+        # Session does not exist
+        mock_redis.hget.return_value = None
+
+        # Should not raise, just return early
+        await manager.record_message("session-abc")
+
+    @pytest.mark.asyncio
+    async def test_register_session_with_lua_script(
+        self,
+        manager: RedisA2AResourceManager,
+        mock_redis: MagicMock,
+    ) -> None:
+        """Test session registration uses Lua script for atomicity."""
+        # Lua script returns 1 (success)
+        mock_redis.eval = AsyncMock(return_value=1)
+
+        await manager.register_session("session-abc", "tenant-123")
+
+        # Verify eval was called with the Lua script
+        mock_redis.eval.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_register_session_limit_exceeded_lua_script(
+        self,
+        manager: RedisA2AResourceManager,
+        mock_redis: MagicMock,
+    ) -> None:
+        """Test session limit exceeded with Lua script."""
+        # Lua script returns 0 (limit exceeded)
+        mock_redis.eval = AsyncMock(return_value=0)
+
+        with pytest.raises(A2ASessionLimitExceeded):
+            await manager.register_session("session-abc", "tenant-123")
 
     @pytest.mark.asyncio
     async def test_start_stop_lifecycle(

@@ -332,6 +332,8 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     FastAPI exception handler for AppError.
 
     Converts AppError to RFC 7807 Problem Details JSON response.
+    For 429 responses with retry_after in details, adds the Retry-After header
+    per RFC 6585.
 
     Args:
         request: The FastAPI request object
@@ -340,9 +342,16 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     Returns:
         JSONResponse with Problem Details format
     """
+    headers: dict[str, str] = {}
+
+    # Add Retry-After header for 429 responses per RFC 6585
+    if exc.status == 429 and exc.details.get("retry_after"):
+        headers["Retry-After"] = str(exc.details["retry_after"])
+
     return JSONResponse(
         status_code=exc.status,
         content=exc.to_problem_detail(str(request.url.path)),
+        headers=headers if headers else None,
     )
 
 
