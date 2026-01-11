@@ -480,18 +480,25 @@ Ensure the backend is running before using this skill.
 
 ### Story 17-7: Document Protocol Integration Guide
 
+**Status:** ✅ COMPLETED via Epic 22-D1 (2026-01-11)
+
 **Objective:** Create comprehensive documentation for connecting external agents via A2A, MCP, and AG-UI.
 
 **Origin:** Replaces Epic 16 adapter stories with documentation-first approach.
 
-**Documentation Structure:**
+**Completion Note:** Epic 22 Story 22-D1 delivered comprehensive protocol integration documentation covering all protocols. The documentation structure differs slightly from the original plan but provides superior coverage.
+
+**Actual Documentation Created (by 22-D1):**
 
 ```
-docs/guides/
-├── protocol-integration.md          # Main integration guide
-├── a2a-connection-patterns.md       # A2A examples for each framework
-├── mcp-tool-reference.md            # All MCP tools with schemas
-└── ag-ui-streaming-format.md        # AG-UI event format reference
+docs/guides/protocol-integration/
+├── overview.md                      # High-level architecture + protocol summary
+├── ag-ui-protocol.md                # AG-UI events, metrics, errors
+├── a2a-protocol.md                  # A2A middleware, delegation, resource limits
+├── mcp-integration.md               # MCP tool registration and invocation
+├── a2ui-widgets.md                  # A2UI widget types and rendering
+├── mcp-ui-rendering.md              # MCP-UI iframe security + postMessage
+└── open-json-ui.md                  # Open-JSON-UI component types
 ```
 
 **protocol-integration.md Content:**
@@ -557,6 +564,690 @@ from anthropic import Client
 - All MCP tools are documented with input/output schemas.
 - AG-UI event format is documented for custom UI implementations.
 - Documentation is linked from README and CLI output.
+
+---
+
+## NEW STORIES (Added 2026-01-11 - Comprehensive Audit)
+
+The following stories were added after a comprehensive system audit revealed 200+ environment variables across 10 major feature categories that the CLI must support.
+
+### Story 17-8: Implement Profile-Based Configuration Architecture
+
+**Objective:** Refactor configuration system from flat .env to profile-based architecture for simplified CLI experience.
+
+**Problem:** Current system has 200+ environment variables, making manual configuration error-prone and overwhelming.
+
+**Solution:** Profile-based configuration with three tiers:
+
+```
+config/
+├── profiles/
+│   ├── minimal.yaml      # CPU-only, basic features, low resource
+│   ├── standard.yaml     # Cloud LLM, core features, balanced
+│   ├── enterprise.yaml   # All features enabled, full capabilities
+│   └── custom.yaml       # User overrides (gitignored)
+├── schema.json           # JSON Schema for validation
+└── README.md             # Profile documentation
+```
+
+**Profile Definitions:**
+
+**minimal.yaml:**
+```yaml
+# Minimal Profile - Low resource, basic RAG
+# Target: Development, testing, resource-constrained environments
+
+llm:
+  provider: openai
+  model: gpt-4o-mini
+
+embedding:
+  provider: openai
+  model: text-embedding-3-small
+  dimension: 1536
+
+retrieval:
+  strategy: vector  # Vector-only, no graph
+  reranker:
+    enabled: false
+  contextual_retrieval:
+    enabled: false
+  grader:
+    enabled: false
+
+memory:
+  scopes_enabled: false
+  consolidation_enabled: false
+
+community:
+  detection_enabled: false
+
+ingestion:
+  crawl_profile: fast
+  fallback_enabled: false
+  youtube_enabled: true
+  pdf_enabled: true
+  codebase_enabled: false
+  external_sync_enabled: false
+
+voice:
+  enabled: false
+
+graph_intelligence:
+  lazy_rag_enabled: false
+  query_routing_enabled: false
+  graph_reranker_enabled: false
+
+observability:
+  prometheus_enabled: false
+  cost_tracking_enabled: true
+
+protocols:
+  a2a:
+    enabled: true
+    max_sessions_per_tenant: 10
+    max_messages_per_session: 100
+  mcp:
+    enabled: true
+```
+
+**standard.yaml:**
+```yaml
+# Standard Profile - Balanced features, cloud LLM
+# Target: Production deployments, small-medium teams
+
+llm:
+  provider: openai  # or anthropic
+  model: gpt-4o
+
+embedding:
+  provider: openai
+  model: text-embedding-3-small
+  dimension: 1536
+
+retrieval:
+  strategy: hybrid
+  reranker:
+    enabled: true
+    provider: flashrank
+    top_k: 10
+  contextual_retrieval:
+    enabled: false  # Cost consideration
+  grader:
+    enabled: true
+    model: heuristic
+    threshold: 0.5
+    fallback_enabled: true
+    fallback_strategy: web_search
+
+memory:
+  scopes_enabled: true
+  default_scope: session
+  consolidation_enabled: false
+
+community:
+  detection_enabled: false
+
+ingestion:
+  crawl_profile: thorough
+  fallback_enabled: false
+  youtube_enabled: true
+  pdf_enabled: true
+  codebase_enabled: false
+  external_sync_enabled: false
+
+voice:
+  enabled: false
+
+graph_intelligence:
+  lazy_rag_enabled: false
+  query_routing_enabled: true
+  query_routing_use_llm: false
+  graph_reranker_enabled: false
+
+observability:
+  prometheus_enabled: true
+  cost_tracking_enabled: true
+
+protocols:
+  a2a:
+    enabled: true
+    max_sessions_per_tenant: 100
+    max_messages_per_session: 1000
+  mcp:
+    enabled: true
+```
+
+**enterprise.yaml:**
+```yaml
+# Enterprise Profile - All features enabled
+# Target: Large deployments, maximum capabilities
+
+llm:
+  provider: openrouter  # Access to 100+ models
+  model: anthropic/claude-3.5-sonnet
+
+embedding:
+  provider: voyage  # Best for code
+  model: voyage-code-3
+  dimension: 1536
+
+retrieval:
+  strategy: hybrid
+  reranker:
+    enabled: true
+    provider: cohere
+    top_k: 10
+    cache_enabled: true
+    cache_ttl_seconds: 300
+  contextual_retrieval:
+    enabled: true
+    model: claude-3-haiku-20240307
+    prompt_caching: true
+  grader:
+    enabled: true
+    model: cross-encoder/ms-marco-MiniLM-L-12-v2
+    threshold: 0.5
+    fallback_enabled: true
+    fallback_strategy: web_search
+    preload_model: true
+  sparse_vectors:
+    enabled: true
+    model: Qdrant/bm42-all-minilm-l6-v2-attentions
+  colbert:
+    enabled: true
+    model: colbert-ir/colbertv2.0
+  hierarchical_chunks:
+    enabled: true
+    levels: [256, 512, 1024, 2048]
+  dual_level:
+    enabled: true
+
+memory:
+  scopes_enabled: true
+  default_scope: user
+  include_parent_scopes: true
+  consolidation_enabled: true
+  consolidation_schedule: "0 2 * * *"
+  similarity_threshold: 0.9
+  decay_half_life_days: 30
+
+community:
+  detection_enabled: true
+  algorithm: louvain
+  min_size: 3
+  max_levels: 3
+  refresh_schedule: "0 3 * * 0"
+
+ingestion:
+  crawl_profile: stealth
+  fallback_enabled: true
+  fallback_providers: [apify, brightdata]
+  youtube_enabled: true
+  pdf_enabled: true
+  enhanced_docling: true
+  codebase_enabled: true
+  codebase_languages: [python, typescript, javascript]
+  external_sync_enabled: true
+
+voice:
+  enabled: true
+  whisper_model: base
+  tts_provider: openai
+  tts_voice: alloy
+
+graph_intelligence:
+  lazy_rag_enabled: true
+  lazy_rag_max_entities: 50
+  lazy_rag_max_hops: 2
+  query_routing_enabled: true
+  query_routing_use_llm: true
+  graph_reranker_enabled: true
+  graph_reranker_type: hybrid
+
+observability:
+  prometheus_enabled: true
+  prometheus_path: /metrics
+  cost_tracking_enabled: true
+  metrics_tenant_label_mode: hash
+
+protocols:
+  a2a:
+    enabled: true
+    max_sessions_per_tenant: 500
+    max_messages_per_session: 5000
+    session_ttl_hours: 48
+    message_rate_limit: 120
+  mcp:
+    enabled: true
+    tool_timeout_seconds: 60
+```
+
+**Implementation Requirements:**
+
+1. **Config Loader Module:**
+```python
+# backend/src/agentic_rag_backend/core/config_loader.py
+from pydantic import BaseModel
+from pydantic_settings import BaseSettings
+import yaml
+from pathlib import Path
+from typing import Any
+
+class ConfigLoader:
+    """Load configuration from profile + environment overrides."""
+
+    PROFILE_DIR = Path("config/profiles")
+
+    def __init__(self, profile: str = "standard"):
+        self.profile = profile
+        self._config: dict[str, Any] = {}
+
+    def load(self) -> dict[str, Any]:
+        """Load profile and merge with env overrides."""
+        profile_path = self.PROFILE_DIR / f"{self.profile}.yaml"
+        if not profile_path.exists():
+            raise ValueError(f"Profile not found: {self.profile}")
+
+        with open(profile_path) as f:
+            self._config = yaml.safe_load(f)
+
+        # Apply environment variable overrides
+        self._apply_env_overrides()
+        return self._config
+
+    def _apply_env_overrides(self) -> None:
+        """Environment variables override profile defaults."""
+        # Pattern: LLM_PROVIDER overrides config.llm.provider
+        import os
+        env_mappings = {
+            "LLM_PROVIDER": ("llm", "provider"),
+            "LLM_MODEL_ID": ("llm", "model"),
+            "EMBEDDING_PROVIDER": ("embedding", "provider"),
+            "RERANKER_ENABLED": ("retrieval", "reranker", "enabled"),
+            # ... complete mapping
+        }
+        for env_var, path in env_mappings.items():
+            if value := os.getenv(env_var):
+                self._set_nested(path, value)
+```
+
+2. **Settings Integration:**
+```python
+# Update backend/src/agentic_rag_backend/core/settings.py
+class Settings(BaseSettings):
+    # Profile selection
+    config_profile: str = "standard"
+
+    # Core secrets (always from env)
+    openai_api_key: str | None = None
+    anthropic_api_key: str | None = None
+    database_url: str
+    neo4j_uri: str
+    redis_url: str
+
+    # All other settings loaded from profile
+    # with env override capability
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        loader = ConfigLoader(self.config_profile)
+        profile_config = loader.load()
+        # Merge profile into settings
+        self._apply_profile(profile_config)
+```
+
+3. **Schema Validation:**
+```json
+// config/schema.json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["llm", "embedding", "retrieval"],
+  "properties": {
+    "llm": {
+      "type": "object",
+      "properties": {
+        "provider": {"enum": ["openai", "anthropic", "gemini", "openrouter", "ollama"]},
+        "model": {"type": "string"}
+      }
+    }
+    // ... complete schema
+  }
+}
+```
+
+**Acceptance Criteria:**
+- Profile loader reads YAML configuration files.
+- Environment variables override profile defaults.
+- Schema validation rejects invalid configurations.
+- CLI `--profile` flag selects configuration profile.
+- Custom profile support for advanced users.
+- Migration guide from flat .env to profile-based config.
+- Backward compatibility: existing .env files still work.
+
+**Files to Create:**
+- `backend/src/agentic_rag_backend/core/config_loader.py`
+- `config/profiles/minimal.yaml`
+- `config/profiles/standard.yaml`
+- `config/profiles/enterprise.yaml`
+- `config/profiles/custom.yaml.template`
+- `config/schema.json`
+- `config/README.md`
+- `docs/guides/configuration-profiles.md`
+
+---
+
+### Story 17-9: CLI Ingestion Source Configuration
+
+**Objective:** Add CLI prompts for configuring all ingestion sources with profile-aware defaults.
+
+**Ingestion Sources to Configure:**
+
+| Source | Variables | Profile Default |
+|--------|-----------|-----------------|
+| **URL Crawling** | CRAWL4AI_PROFILE, CRAWL4AI_HEADLESS, CRAWL4AI_MAX_CONCURRENT | Profile-based |
+| **Crawl Fallback** | CRAWL_FALLBACK_ENABLED, APIFY_API_TOKEN, BRIGHTDATA_* | Enterprise only |
+| **PDF Processing** | DOCLING_TABLE_MODE, ENHANCED_DOCLING_ENABLED | All profiles |
+| **YouTube** | YOUTUBE_PREFERRED_LANGUAGES, YOUTUBE_CHUNK_DURATION_SECONDS | All profiles |
+| **External Sync** | EXTERNAL_SYNC_ENABLED, S3_*, CONFLUENCE_*, NOTION_* | Enterprise only |
+| **Codebase** | CODEBASE_RAG_ENABLED, CODEBASE_LANGUAGES | Enterprise only |
+
+**CLI Flow Addition:**
+
+```
+? Configure ingestion sources? [Y/n]
+
+URL Crawling (enabled by default):
+  ? Select crawl profile:
+    ❯ Fast (quick crawls, minimal JS wait)
+      Thorough (full rendering, moderate wait)
+      Stealth (anti-bot evasion, proxy support)
+
+  ? Enable crawl fallback providers? (Apify/BrightData) [y/N]
+  (If yes, prompt for API tokens)
+
+Document Processing:
+  ? PDF processing mode:
+    ❯ Accurate (better tables, slower)
+      Fast (quick processing)
+
+  ? Enable enhanced table/layout extraction? [Y/n]
+
+YouTube:
+  ? Preferred transcript languages (comma-separated) [en,en-US]:
+  ? Chunk duration (seconds) [120]:
+
+External Data Sources (Enterprise profile only):
+  ? Enable external data source sync? [y/N]
+  (If yes, show sub-menu for S3, Confluence, Notion)
+
+Codebase Intelligence (Enterprise profile only):
+  ? Enable codebase RAG indexing? [y/N]
+  ? Supported languages [python,typescript,javascript]:
+  ? Enable hallucination detection? [Y/n]
+```
+
+**Acceptance Criteria:**
+- CLI prompts for all ingestion sources based on selected profile.
+- Minimal profile skips advanced ingestion prompts.
+- Enterprise profile shows all options.
+- API keys validated before proceeding.
+- Generated config includes all ingestion settings.
+
+---
+
+### Story 17-10: CLI Memory & Graph Intelligence Configuration
+
+**Objective:** Add CLI prompts for memory platform and graph intelligence features.
+
+**Features to Configure:**
+
+| Feature | Variables | Description |
+|---------|-----------|-------------|
+| **Memory Scopes** | MEMORY_SCOPES_ENABLED, MEMORY_DEFAULT_SCOPE | Session/User/Agent/Global scopes |
+| **Memory Consolidation** | MEMORY_CONSOLIDATION_ENABLED, schedule, thresholds | Dedup, decay, cleanup |
+| **Community Detection** | COMMUNITY_DETECTION_ENABLED, COMMUNITY_ALGORITHM | Graph clustering |
+| **LazyRAG** | LAZY_RAG_ENABLED, max_entities, max_hops | Deferred summarization |
+| **Query Routing** | QUERY_ROUTING_ENABLED, QUERY_ROUTING_USE_LLM | Global vs local queries |
+| **Graph Rerankers** | GRAPH_RERANKER_ENABLED, GRAPH_RERANKER_TYPE | Episode/distance/hybrid |
+
+**CLI Flow Addition:**
+
+```
+? Configure memory & graph intelligence? [Y/n]
+
+Memory Platform:
+  ? Enable memory scopes? [Y/n]
+  ? Default memory scope:
+    ❯ Session (per conversation)
+      User (per user, across sessions)
+      Agent (per agent type)
+      Global (shared across all)
+
+  ? Enable memory consolidation? [y/N]
+  (If yes, show schedule and threshold options)
+
+Graph Intelligence:
+  ? Enable community detection? [y/N]
+  ? Detection algorithm:
+    ❯ Louvain (fast, good quality)
+      Leiden (slower, better quality)
+
+  ? Enable LazyRAG pattern? [y/N]
+  (Defers summarization to query time - 99% indexing cost reduction)
+
+  ? Enable query routing? [Y/n]
+  ? Use LLM for query classification? [y/N]
+
+  ? Enable graph-based rerankers? [y/N]
+  ? Reranker type:
+    ❯ Hybrid (recommended)
+      Episode recency
+      Graph distance
+```
+
+**Acceptance Criteria:**
+- CLI prompts for memory and graph features based on profile.
+- Minimal profile disables all advanced features.
+- Standard profile enables basic memory scopes.
+- Enterprise profile shows all options.
+- Generated config reflects all selections.
+
+---
+
+### Story 17-11: CLI Voice I/O Configuration
+
+**Objective:** Add CLI prompts for voice input/output capabilities.
+
+**Features to Configure:**
+
+| Feature | Variables | Options |
+|---------|-----------|---------|
+| **Voice Enable** | VOICE_IO_ENABLED | true/false |
+| **STT Model** | WHISPER_MODEL | tiny, base, small, medium, large |
+| **TTS Provider** | TTS_PROVIDER | openai, elevenlabs, pyttsx3 |
+| **TTS Voice** | TTS_VOICE | Provider-specific voice IDs |
+| **TTS Speed** | TTS_SPEED | 0.25 to 4.0 |
+
+**CLI Flow Addition:**
+
+```
+? Enable voice input/output? [y/N]
+
+Speech-to-Text (STT):
+  ? Whisper model size:
+    ❯ Base (recommended, balanced)
+      Tiny (fastest, lowest accuracy)
+      Small (good accuracy)
+      Medium (high accuracy)
+      Large (best accuracy, slowest)
+
+Text-to-Speech (TTS):
+  ? TTS provider:
+    ❯ OpenAI (high quality, cloud)
+      ElevenLabs (premium voices, cloud)
+      pyttsx3 (free, local, basic)
+
+  ? Voice selection:
+    ❯ Alloy (neutral)
+      Echo (male)
+      Fable (British)
+      Onyx (deep)
+      Nova (female)
+      Shimmer (soft)
+
+  ? Speech speed [1.0]:
+```
+
+**Acceptance Criteria:**
+- Voice features only shown if user opts in.
+- Model size recommendations based on hardware detection.
+- ElevenLabs requires API key prompt.
+- pyttsx3 noted as offline-capable.
+- Generated config includes voice settings.
+
+---
+
+### Story 17-12: CLI Observability Configuration
+
+**Objective:** Add CLI prompts for monitoring and observability features.
+
+**Features to Configure:**
+
+| Feature | Variables | Description |
+|---------|-----------|-------------|
+| **Prometheus** | PROMETHEUS_ENABLED, PROMETHEUS_PATH | Metrics endpoint |
+| **Metrics Labeling** | METRICS_TENANT_LABEL_MODE | Tenant label strategy |
+| **Cost Tracking** | MODEL_PRICING_JSON | Per-model cost tracking |
+| **Model Routing** | ROUTING_*_MODEL, thresholds | Cost-optimized routing |
+| **Trace Encryption** | TRACE_ENCRYPTION_KEY | Encrypted trajectory storage |
+
+**CLI Flow Addition:**
+
+```
+? Configure observability & monitoring? [Y/n]
+
+Prometheus Metrics:
+  ? Enable Prometheus metrics endpoint? [Y/n]
+  ? Metrics path [/metrics]:
+  ? Tenant label mode:
+    ❯ Global (no tenant labels, lowest cardinality)
+      Hash (hashed tenant IDs, medium cardinality)
+      Full (full tenant IDs, highest cardinality)
+
+Cost Tracking:
+  ? Enable LLM cost tracking? [Y/n]
+  ? Configure cost-optimized model routing? [y/N]
+  (If yes, show routing model selection)
+
+Trajectory Logging:
+  ? Enable encrypted trajectory storage? [Y/n]
+  (If yes, generate or prompt for encryption key)
+
+  ⚠️  TRACE_ENCRYPTION_KEY will be auto-generated.
+  Store this key securely - existing traces cannot be
+  decrypted if the key is lost.
+```
+
+**Acceptance Criteria:**
+- Observability prompts shown based on profile.
+- Prometheus enabled by default in standard/enterprise.
+- Encryption key auto-generated with secure random bytes.
+- Warning displayed about key storage.
+- Generated config includes observability settings.
+
+---
+
+### Story 17-13: CLI Codebase Intelligence Configuration
+
+**Objective:** Add CLI prompts for codebase RAG and hallucination detection.
+
+**Features to Configure:**
+
+| Feature | Variables | Description |
+|---------|-----------|-------------|
+| **Codebase RAG** | CODEBASE_RAG_ENABLED | Index codebase as knowledge |
+| **Languages** | CODEBASE_LANGUAGES | Supported programming languages |
+| **Hallucination Detection** | CODEBASE_HALLUCINATION_THRESHOLD | Validation threshold |
+| **Detector Mode** | CODEBASE_DETECTOR_MODE | warn or block |
+| **Indexing** | CODEBASE_INCREMENTAL_INDEXING | Incremental vs full |
+
+**CLI Flow Addition:**
+
+```
+? Enable codebase intelligence? [y/N]
+
+Codebase RAG Indexing:
+  ? Supported languages (comma-separated) [python,typescript,javascript]:
+  ? Enable incremental indexing? [Y/n]
+  ? Include class/function context? [Y/n]
+  ? Maximum chunk size [1000]:
+
+Hallucination Detection:
+  ? Enable code hallucination detection? [Y/n]
+  ? Detection threshold (0.0-1.0) [0.3]:
+  ? Detection mode:
+    ❯ Warn (log warnings, don't block)
+      Block (reject invalid code references)
+
+Rate Limiting:
+  ? Max indexing requests per hour [10]:
+  ? Index cache TTL (seconds) [86400]:
+```
+
+**Acceptance Criteria:**
+- Codebase features only shown in enterprise profile or if opted in.
+- Language selection with common defaults.
+- Threshold explanation provided.
+- Block mode warning displayed.
+- Generated config includes codebase settings.
+
+---
+
+### Story 17-14: CLI Protocol Configuration
+
+**Objective:** Add CLI prompts for A2A and MCP protocol settings.
+
+**Features to Configure:**
+
+| Feature | Variables | Description |
+|---------|-----------|-------------|
+| **A2A Enable** | A2A_ENABLED | Agent-to-agent protocol |
+| **A2A Limits** | A2A_MAX_SESSIONS_*, A2A_MAX_MESSAGES_* | Resource limits |
+| **A2A Persistence** | A2A_LIMITS_BACKEND | memory, redis, postgres |
+| **MCP Enable** | MCP_TOOL_TIMEOUT_SECONDS | Tool execution timeout |
+| **MCP-UI** | MCP_UI_ENABLED, MCP_UI_ALLOWED_ORIGINS | Iframe rendering |
+
+**CLI Flow Addition:**
+
+```
+? Configure protocol settings? [Y/n]
+
+A2A (Agent-to-Agent) Protocol:
+  ? Enable A2A collaboration? [Y/n]
+  ? Max sessions per tenant [100]:
+  ? Max messages per session [1000]:
+  ? Session TTL (hours) [24]:
+  ? Message rate limit (per minute) [60]:
+  ? Persistence backend:
+    ❯ Memory (fast, non-persistent)
+      Redis (persistent, recommended)
+      Postgres (fully persistent)
+
+MCP (Model Context Protocol):
+  ? Default tool timeout (seconds) [30]:
+  ? Max tool timeout (seconds) [300]:
+  ? Enable MCP-UI iframe rendering? [y/N]
+  (If yes, prompt for allowed origins)
+```
+
+**Acceptance Criteria:**
+- Protocol settings shown based on profile.
+- Resource limits have sensible defaults.
+- Persistence backend options explained.
+- MCP-UI security implications noted.
+- Generated config includes protocol settings.
 
 ---
 

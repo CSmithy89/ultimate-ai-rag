@@ -289,13 +289,22 @@ Detailed epic specs and reports live in `_bmad-output/epics/`.
 - Documentation: `docs/guides/voice-io-configuration.md`
 
 ### Epic 22: Advanced Protocol Integration
-- Status: In progress
-- Stories: 9/12 done
+- Status: Complete (1 story blocked awaiting CopilotKit 2.x stable)
+- Stories: 11/12 done
 - Key Features:
   - A2A middleware agent for agent-to-agent collaboration
-  - AG-UI telemetry and error event handling
-  - Multi-tenant A2A resource limits
-  - MCP-UI and Open-JSON-UI renderers
+  - A2A session resource limits with per-tenant caps and rate limiting
+  - AG-UI stream metrics (Prometheus: started, completed, duration, latency)
+  - Extended AG-UI error taxonomy (RATE_LIMITED, TIMEOUT, CAPABILITY_NOT_FOUND)
+  - MCP-UI renderer with iframe sandbox and postMessage bridge
+  - Open-JSON-UI renderer for declarative UI components
+  - Protocol Integration Guide documentation
+  - Protocol compliance tests (157 tests: 79 backend, 78 frontend)
+  - Prometheus telemetry metrics with PII sanitization
+  - Frontend security checklist and PR template updates
+  - Voice I/O configuration documentation
+  - 80% coverage thresholds enforced in CI
+  - Composite tenant rate limiting for telemetry endpoints
 
 ## Roadmap
 

@@ -5,6 +5,32 @@
 ### Changed
 - Consolidated BMAD artifacts under `_bmad-output/` (epics, stories, retrospectives, reviews) and updated references; `docs/` now focuses on user/developer guidance.
 
+## [Epic 22] - Advanced Protocol Integration - 2026-01-11
+
+### Added
+- A2A middleware agent for agent-to-agent delegation and discovery
+- A2A session resource limits with per-tenant session/message caps and rate limiting
+- AG-UI stream metrics: stream_started, stream_completed, event_emitted, duration, latency
+- Extended AG-UI error taxonomy: RATE_LIMITED, TIMEOUT, CAPABILITY_NOT_FOUND, INVALID_STATE, etc.
+- MCP-UI renderer with iframe sandbox, origin allowlist, and postMessage bridge
+- Open-JSON-UI renderer for declarative UI components (text, heading, code, table, image, button)
+- Protocol Integration Guide documentation (`docs/guides/protocol-integration.md`)
+- Protocol compliance tests (157 tests: 79 backend, 78 frontend)
+- Prometheus telemetry metrics with TELEMETRY_EVENTS_TOTAL counter
+- Frontend security checklist (`docs/checklists/frontend-security-checklist.md`)
+- Voice I/O configuration guide (`docs/guides/voice-io-configuration.md`)
+- 80% coverage thresholds enforced in CI (pyproject.toml, jest.config.js)
+- Composite tenant rate limiting for telemetry: `telemetry:{tenant_id}:{ip}`
+
+### Changed
+- PR template updated with frontend security checklist reference
+
+### Fixed
+- None
+
+### Blocked
+- 22-TD6: CopilotKit 2.x migration prep (awaiting CopilotKit 2.x stable release)
+
 ## [Epic 21] - CopilotKit Full Integration - 2026-01-06
 
 ### Added
