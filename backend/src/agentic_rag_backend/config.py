@@ -6,13 +6,81 @@ import secrets
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from dotenv import load_dotenv
 import structlog
+import yaml
 
 # Initialize logger early for use in helper functions
 _config_logger = structlog.get_logger("agentic_rag_backend.config")
+
+_PROFILE_ENV_MAPPING: dict[tuple[str, ...], str] = {
+    ("llm", "provider"): "LLM_PROVIDER",
+    ("llm", "model"): "LLM_MODEL_ID",
+    ("embedding", "provider"): "EMBEDDING_PROVIDER",
+    ("embedding", "model"): "EMBEDDING_MODEL",
+    ("embedding", "dimension"): "EMBEDDING_DIMENSION",
+    ("retrieval", "reranker", "enabled"): "RERANKER_ENABLED",
+    ("retrieval", "reranker", "provider"): "RERANKER_PROVIDER",
+    ("retrieval", "contextual_retrieval", "enabled"): "CONTEXTUAL_RETRIEVAL_ENABLED",
+    ("retrieval", "grader", "enabled"): "GRADER_ENABLED",
+    ("memory", "scopes_enabled"): "MEMORY_SCOPES_ENABLED",
+    ("memory", "default_scope"): "MEMORY_DEFAULT_SCOPE",
+    ("memory", "consolidation_enabled"): "MEMORY_CONSOLIDATION_ENABLED",
+    ("community", "detection_enabled"): "COMMUNITY_DETECTION_ENABLED",
+    ("ingestion", "crawl_profile"): "CRAWL4AI_PROFILE",
+    ("ingestion", "fallback_enabled"): "CRAWL_FALLBACK_ENABLED",
+    ("ingestion", "codebase_enabled"): "CODEBASE_RAG_ENABLED",
+    ("ingestion", "external_sync_enabled"): "EXTERNAL_SYNC_ENABLED",
+    ("voice", "enabled"): "VOICE_IO_ENABLED",
+    ("graph_intelligence", "lazy_rag_enabled"): "LAZY_RAG_ENABLED",
+    ("graph_intelligence", "query_routing_enabled"): "QUERY_ROUTING_ENABLED",
+    ("graph_intelligence", "graph_reranker_enabled"): "GRAPH_RERANKER_ENABLED",
+    ("observability", "prometheus_enabled"): "PROMETHEUS_ENABLED",
+    ("protocols", "a2a", "enabled"): "A2A_ENABLED",
+    ("protocols", "a2a", "max_sessions_per_tenant"): "A2A_MAX_SESSIONS_PER_TENANT",
+    ("protocols", "a2a", "max_messages_per_session"): "A2A_MAX_MESSAGES_PER_SESSION",
+}
+
+
+class ConfigLoader:
+    """Load configuration from profile files with environment overrides."""
+
+    PROFILE_DIR = Path(__file__).resolve().parents[3] / "config" / "profiles"
+
+    def __init__(self, profile: str = "standard"):
+        self.profile = profile
+        self._config: dict[str, Any] = {}
+
+    def load(self) -> dict[str, Any]:
+        profile_path = self.PROFILE_DIR / f"{self.profile}.yaml"
+        if not profile_path.exists():
+            raise ValueError(f"Profile not found: {self.profile}")
+        with profile_path.open("r", encoding="utf-8") as handle:
+            self._config = yaml.safe_load(handle) or {}
+        return self._config
+
+
+def _get_nested_value(config: dict[str, Any], path: tuple[str, ...]) -> Any:
+    current: Any = config
+    for key in path:
+        if not isinstance(current, dict) or key not in current:
+            return None
+        current = current[key]
+    return current
+
+
+def _apply_profile_defaults(profile_config: dict[str, Any]) -> None:
+    for path, env_key in _PROFILE_ENV_MAPPING.items():
+        value = _get_nested_value(profile_config, path)
+        if value is None:
+            continue
+        if env_key not in os.environ:
+            if isinstance(value, bool):
+                os.environ[env_key] = "true" if value else "false"
+            else:
+                os.environ[env_key] = str(value)
 
 
 def get_bool_env(key: str, default: str = "false") -> bool:
@@ -144,6 +212,7 @@ logger = structlog.get_logger(__name__)
 class Settings:
     """Application settings loaded from environment variables."""
 
+    config_profile: str
     app_env: str
     llm_provider: str
     llm_api_key: Optional[str]
@@ -427,6 +496,9 @@ def load_settings() -> Settings:
         RuntimeError: If required environment variables are missing
     """
     load_dotenv()
+    config_profile = os.getenv("CONFIG_PROFILE", "standard").strip().lower()
+    profile_config = ConfigLoader(config_profile).load()
+    _apply_profile_defaults(profile_config)
 
     app_env = os.getenv("APP_ENV", "development").strip().lower()
     llm_provider = os.getenv("LLM_PROVIDER", "openai").strip().lower()
@@ -1390,6 +1462,7 @@ def load_settings() -> Settings:
         mcp_ui_signing_secret = secrets.token_hex(32)
 
     return Settings(
+        config_profile=config_profile,
         app_env=app_env,
         llm_provider=llm_provider,
         llm_api_key=llm_api_key,

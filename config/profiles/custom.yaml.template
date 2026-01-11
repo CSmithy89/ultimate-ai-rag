@@ -1,0 +1,11 @@
+# Custom Profile Overrides
+# Base profile: standard
+
+llm:
+  provider: openai
+  model: gpt-4o
+
+embedding:
+  provider: openai
+  model: text-embedding-3-small
+  dimension: 1536

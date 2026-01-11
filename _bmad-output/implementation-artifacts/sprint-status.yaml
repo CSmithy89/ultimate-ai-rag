@@ -255,7 +255,7 @@ development_status:
   17-7-document-protocol-integration-guide: done  # Completed via Epic 22-D1
   # COMPLETED (2026-01-11): Delivered via Epic 22-D1 with comprehensive protocol-integration/ folder
   # NEW (2026-01-11): Profile-based configuration and comprehensive CLI coverage
-  17-8-implement-profile-based-config-architecture: backlog
+  17-8-implement-profile-based-config-architecture: done
   # Foundation story: YAML profiles (minimal/standard/enterprise), config loader, schema validation
   17-9-implement-cli-ingestion-source-config: backlog
   # Crawl4AI, PDF/Docling, YouTube, External Sync, Codebase indexing

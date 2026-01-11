@@ -1,0 +1,52 @@
+# Standard Profile - Balanced features, cloud LLM
+# Target: Production deployments, small-medium teams
+
+llm:
+  provider: openai
+  model: gpt-4o
+
+embedding:
+  provider: openai
+  model: text-embedding-3-small
+  dimension: 1536
+
+retrieval:
+  strategy: hybrid
+  reranker:
+    enabled: true
+    provider: flashrank
+  contextual_retrieval:
+    enabled: false
+  grader:
+    enabled: false
+
+memory:
+  scopes_enabled: true
+  default_scope: session
+  consolidation_enabled: false
+
+community:
+  detection_enabled: false
+
+ingestion:
+  crawl_profile: thorough
+  fallback_enabled: false
+  codebase_enabled: false
+  external_sync_enabled: false
+
+voice:
+  enabled: false
+
+graph_intelligence:
+  lazy_rag_enabled: false
+  query_routing_enabled: true
+  graph_reranker_enabled: false
+
+observability:
+  prometheus_enabled: true
+
+protocols:
+  a2a:
+    enabled: true
+    max_sessions_per_tenant: 100
+    max_messages_per_session: 1000

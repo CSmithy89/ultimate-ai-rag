@@ -1,0 +1,52 @@
+# Enterprise Profile - Full capabilities
+# Target: Large teams, advanced retrieval, enterprise ingestion
+
+llm:
+  provider: openrouter
+  model: claude-3.5-sonnet
+
+embedding:
+  provider: voyage
+  model: voyage-code-3
+  dimension: 1024
+
+retrieval:
+  strategy: hybrid
+  reranker:
+    enabled: true
+    provider: cohere
+  contextual_retrieval:
+    enabled: true
+  grader:
+    enabled: true
+
+memory:
+  scopes_enabled: true
+  default_scope: user
+  consolidation_enabled: true
+
+community:
+  detection_enabled: true
+
+ingestion:
+  crawl_profile: stealth
+  fallback_enabled: true
+  codebase_enabled: true
+  external_sync_enabled: true
+
+voice:
+  enabled: true
+
+graph_intelligence:
+  lazy_rag_enabled: true
+  query_routing_enabled: true
+  graph_reranker_enabled: true
+
+observability:
+  prometheus_enabled: true
+
+protocols:
+  a2a:
+    enabled: true
+    max_sessions_per_tenant: 500
+    max_messages_per_session: 5000
