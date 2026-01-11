@@ -191,7 +191,7 @@ class TestHITLManager:
 
         # Simulate response in background
         async def respond_later():
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0)
             await manager.receive_validation_response(
                 checkpoint_id="test-123",
                 approved_source_ids=["source-1"],
