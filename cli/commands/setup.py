@@ -26,7 +26,23 @@ def run_setup(
         raise typer.BadParameter(str(exc)) from exc
 
     custom_config = load_custom_profile()
-    target_category = category or "all"
+    if category is None and not yes:
+        target_category = Prompt.ask(
+            "Select setup category",
+            choices=[
+                "all",
+                "ingestion",
+                "memory-graph",
+                "voice",
+                "observability",
+                "codebase",
+                "protocols",
+            ],
+            default="all",
+            console=console,
+        )
+    else:
+        target_category = category or "all"
 
     if target_category in {"ingestion", "all"}:
         ingestion_defaults = base_config.get("ingestion", {})

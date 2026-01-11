@@ -272,7 +272,7 @@ development_status:
   # NEW (2026-01-11): CLI operational commands and framework template details
   17-15-implement-cli-doctor-validate-command: done
   # Diagnostic command: connectivity, config, health checks
-  17-16-implement-cli-interactive-setup-mode: backlog
+  17-16-implement-cli-interactive-setup-mode: done
   # Guided wizard for first-time users
   17-17-implement-profile-migration-script: backlog
   # Automated migration between configuration profiles

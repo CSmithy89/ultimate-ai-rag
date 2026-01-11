@@ -168,3 +168,17 @@ def test_setup_protocols_writes_custom_profile() -> None:
         assert custom_path.exists()
         contents = custom_path.read_text(encoding="utf-8")
         assert "protocols" in contents
+
+
+def test_setup_interactive_defaults_all() -> None:
+    runner = CliRunner()
+    with runner.isolated_filesystem() as root_str:
+        root = Path(root_str)
+        profile_dir = root / "config" / "profiles"
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        (profile_dir / "standard.yaml").write_text("ingestion:\\n  crawl_profile: thorough\\n", encoding="utf-8")
+
+        result = runner.invoke(app, ["setup", "--profile", "standard", "--yes"])
+        assert result.exit_code == 0
+        custom_path = profile_dir / "custom.yaml"
+        assert custom_path.exists()
