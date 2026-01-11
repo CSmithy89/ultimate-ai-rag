@@ -1652,6 +1652,1383 @@ OPENAI_API_KEY=sk-...
 
 ---
 
+## ADDITIONAL STORIES (Added 2026-01-11 - Party Mode Critical Audit)
+
+The following stories were added after a comprehensive party mode audit revealed critical documentation gaps that affect user success.
+
+### Story 18-20: Create Advanced Retrieval Deep Dive Guide
+
+**Objective:** Create comprehensive documentation covering all retrieval enhancements in depth.
+
+**Why Needed:** Story 18-5 provides tuning tips but lacks deep technical documentation for:
+- Reranking implementations (Cohere, FlashRank, ColBERT)
+- CRAG grader patterns and fallback strategies
+- Contextual retrieval chunking
+- Sparse vectors (BM42) and hybrid search
+- Cross-language query support
+- Normalization strategies
+
+**Priority:** HIGH
+
+**Document Structure:**
+
+```markdown
+# Advanced Retrieval Deep Dive
+
+## Reranking Implementations
+
+### Architecture
+```
+Query → Initial Retrieval → Reranking → Final Results
+                           ↓
+                    [Cohere|FlashRank|ColBERT]
+```
+
+### Cohere Reranker
+- Model: `rerank-v3.5`
+- 100+ languages supported
+- 32K context window
+- Best for: Production, multilingual
+
+**Configuration:**
+```bash
+RERANKER_ENABLED=true
+RERANKER_PROVIDER=cohere
+COHERE_API_KEY=...
+RERANKER_TOP_K=10
+RERANKER_CACHE_ENABLED=true
+RERANKER_CACHE_TTL_SECONDS=300
+```
+
+### FlashRank Reranker
+- Model: Local CPU-optimized
+- No API costs
+- Fast inference
+- Best for: Development, cost-sensitive
+
+**Configuration:**
+```bash
+RERANKER_PROVIDER=flashrank
+RERANKER_PRELOAD_MODEL=true  # Eager loading
+```
+
+### ColBERT Reranker
+- Model: `colbert-ir/colbertv2.0`
+- Token-level embeddings (late interaction)
+- MaxSim scoring algorithm
+- Best for: Precision-critical use cases
+
+**Configuration:**
+```bash
+COLBERT_ENABLED=true
+COLBERT_MODEL=colbert-ir/colbertv2.0
+COLBERT_MAX_LENGTH=512
+```
+
+---
+
+## CRAG (Corrective RAG) Pattern
+
+### How It Works
+```
+Query → Retrieve → Grade → [Pass: Return | Fail: Fallback]
+                   ↓
+         [Heuristic|CrossEncoder]
+                   ↓
+         [WebSearch|ExpandedQuery]
+```
+
+### Grader Types
+
+| Grader | Speed | Accuracy | Cost | Use Case |
+|--------|-------|----------|------|----------|
+| Heuristic | Fast | Moderate | Free | Default |
+| CrossEncoder | Slower | High | Free (local) | Precision |
+
+### CrossEncoder Models
+| Model | Size | Accuracy | Speed |
+|-------|------|----------|-------|
+| ms-marco-MiniLM-L-6-v2 | 22M | Good | Fast |
+| ms-marco-MiniLM-L-12-v2 | 33M | Better | Medium |
+| bge-reranker-base | 278M | High | Slower |
+| bge-reranker-large | 560M | Highest | Slowest |
+
+**Configuration:**
+```bash
+GRADER_ENABLED=true
+GRADER_MODEL=cross-encoder/ms-marco-MiniLM-L-12-v2
+GRADER_THRESHOLD=0.5
+GRADER_PRELOAD_MODEL=true
+GRADER_NORMALIZATION_STRATEGY=min_max  # min_max|z_score|softmax|percentile
+
+# Fallback configuration
+GRADER_FALLBACK_ENABLED=true
+GRADER_FALLBACK_STRATEGY=web_search  # web_search|expanded_query
+TAVILY_API_KEY=tvly-...
+```
+
+---
+
+## Sparse Vectors & Hybrid Search
+
+### BM42 Sparse Encoding
+- Model: `Qdrant/bm42-all-minilm-l6-v2-attentions`
+- Lexical matching via sparse vectors
+- Complements dense embeddings
+
+### Reciprocal Rank Fusion (RRF)
+Combines dense and sparse results:
+```
+RRF(d) = Σ 1/(k + rank(d))
+```
+where k=60 (default)
+
+**Configuration:**
+```bash
+SPARSE_VECTORS_ENABLED=true
+SPARSE_MODEL=Qdrant/bm42-all-minilm-l6-v2-attentions
+RRF_K=60
+DENSE_WEIGHT=0.7
+SPARSE_WEIGHT=0.3
+```
+
+---
+
+## Cross-Language Query Support
+
+### Language Detection
+- Unicode-based detection for non-Latin scripts
+- Word marker detection for Latin languages
+- Confidence scoring
+
+### Multilingual Embeddings
+- Model: `intfloat/multilingual-e5-base`
+- Unified vector space across languages
+
+### Query Translation
+- LLM-based translation with caching
+- LRU cache (1000 entries)
+
+**Configuration:**
+```bash
+CROSS_LANGUAGE_ENABLED=true
+CROSS_LANGUAGE_MODEL=intfloat/multilingual-e5-base
+CROSS_LANGUAGE_TRANSLATE=true
+CROSS_LANGUAGE_TARGET=en
+```
+
+---
+
+## Normalization Strategies
+
+### Available Strategies
+| Strategy | Formula | Best For |
+|----------|---------|----------|
+| MIN_MAX | (x-min)/(max-min) | Default |
+| Z_SCORE | (x-μ)/σ → sigmoid | Statistical |
+| SOFTMAX | exp(x/T)/Σexp | Probability |
+| PERCENTILE | rank/count | Rank-based |
+
+### Aggregation Methods
+- mean, max, min, median, weighted_mean
+```
+
+**Acceptance Criteria:**
+- All 6 reranking/grading implementations documented.
+- Architecture diagrams included.
+- Configuration examples for each component.
+- Performance comparison tables.
+- Integration patterns explained.
+
+**File to Create:** `docs/guides/advanced-retrieval-deep-dive.md`
+
+---
+
+### Story 18-21: Create Troubleshooting Guide
+
+**Objective:** Create a comprehensive troubleshooting guide for common issues.
+
+**Why Needed:** Users need a central resource for debugging issues. Currently, troubleshooting is scattered or missing.
+
+**Priority:** HIGH
+
+**Document Structure:**
+
+```markdown
+# Troubleshooting Guide
+
+## Quick Diagnostic Commands
+
+```bash
+# Check system health
+rag-cli doctor
+
+# Check service status
+docker compose ps
+
+# View backend logs
+docker compose logs backend --tail=100
+
+# View Neo4j logs
+docker compose logs neo4j --tail=100
+```
+
+---
+
+## Common Issues
+
+### Installation & Setup
+
+#### Docker not running
+**Symptom:** `Cannot connect to Docker daemon`
+**Fix:**
+```bash
+# macOS/Windows
+open -a Docker  # or start Docker Desktop
+
+# Linux
+sudo systemctl start docker
+```
+
+#### Port already in use
+**Symptom:** `Bind for 0.0.0.0:8000 failed: port already in use`
+**Fix:**
+```bash
+# Find process using port
+lsof -i :8000
+
+# Kill process or change port
+BACKEND_PORT=8001 docker compose up
+```
+
+#### Out of memory
+**Symptom:** `Killed` or services crash
+**Fix:**
+- Increase Docker memory allocation
+- Use `--profile minimal`
+- Reduce Neo4j heap: `NEO4J_HEAP_SIZE=512M`
+
+---
+
+### Database Issues
+
+#### PostgreSQL connection refused
+**Symptom:** `Connection refused to localhost:5432`
+**Diagnosis:**
+```bash
+docker compose logs postgres
+psql -h localhost -U postgres -d agentic_rag -c "\conninfo"
+```
+**Fixes:**
+- Check DATABASE_URL format
+- Verify PostgreSQL is running
+- Check pg_hba.conf for allowed connections
+
+#### Neo4j authentication failed
+**Symptom:** `Neo.ClientError.Security.Unauthorized`
+**Fixes:**
+- Verify NEO4J_PASSWORD matches docker-compose.yml
+- Reset password via Neo4j browser (http://localhost:7474)
+
+#### Redis connection timeout
+**Symptom:** `Redis connection timeout`
+**Fixes:**
+- Check REDIS_URL format
+- Verify Redis is running
+- Check Redis memory limits
+
+---
+
+### API Errors
+
+#### 401 Unauthorized
+**Symptom:** API returns 401
+**Diagnosis:**
+```bash
+# Test with curl
+curl -H "X-API-Key: your-key" http://localhost:8000/health
+```
+**Fixes:**
+- Verify API key is set
+- Check rate limiting (may be temporarily blocked)
+
+#### 429 Too Many Requests
+**Symptom:** Rate limited
+**Response includes:** `Retry-After` header
+**Fixes:**
+- Wait for Retry-After period
+- Increase rate limits: `RATE_LIMIT_PER_MINUTE=120`
+- Use Redis backend for distributed limiting
+
+#### 500 Internal Server Error
+**Diagnosis:**
+```bash
+docker compose logs backend --tail=200 | grep ERROR
+```
+**Common causes:**
+- Database connection issues
+- Invalid API keys for providers
+- Configuration errors
+
+---
+
+### LLM Provider Issues
+
+#### OpenAI rate limited
+**Symptom:** `Rate limit exceeded`
+**Fixes:**
+- Implement backoff (SDK handles this)
+- Upgrade OpenAI tier
+- Switch to OpenRouter for failover
+
+#### Anthropic context length exceeded
+**Symptom:** `max_tokens exceeds context window`
+**Fix:** Reduce CHUNK_SIZE or use different model
+
+#### Ollama model not found
+**Symptom:** `model not found`
+**Fix:**
+```bash
+ollama pull llama3.2
+```
+
+---
+
+### Retrieval Issues
+
+#### Empty search results
+**Diagnosis:**
+```bash
+# Check ingestion status
+curl http://localhost:8000/ingest/jobs
+
+# Check vector count
+curl http://localhost:8000/knowledge/stats
+```
+**Fixes:**
+- Verify content was ingested
+- Check tenant_id matches
+- Try different retrieval strategy
+
+#### Slow retrieval
+**Diagnosis:**
+```bash
+# Check trajectory logs
+curl http://localhost:8000/trajectories?limit=10
+```
+**Fixes:**
+- Enable reranker caching
+- Check database indexes
+- Reduce TOP_K values
+
+---
+
+### Ingestion Issues
+
+#### Crawl failures
+**Symptom:** URLs fail to crawl
+**Diagnosis:**
+```bash
+curl http://localhost:8000/ingest/jobs/{job_id}
+```
+**Fixes:**
+- Try different crawl profile (thorough, stealth)
+- Enable fallback providers
+- Check URL accessibility
+
+#### PDF parsing errors
+**Symptom:** PDF fails to parse
+**Fixes:**
+- Check PDF is not encrypted
+- Try different DOCLING_TABLE_MODE
+- Verify MAX_UPLOAD_SIZE_MB
+
+---
+
+## Debug Mode
+
+### Enable verbose logging
+```bash
+LOG_LEVEL=DEBUG docker compose up backend
+```
+
+### Enable trajectory debugging
+```bash
+TRAJECTORY_DEBUG_ENABLED=true
+```
+
+### View trajectory details
+```bash
+curl http://localhost:8000/trajectories/{id}
+```
+
+---
+
+## Getting Help
+
+1. Check this guide
+2. Search GitHub issues
+3. Enable debug logging and capture logs
+4. Open new issue with:
+   - Error message
+   - Relevant logs
+   - Configuration (redact secrets)
+   - Steps to reproduce
+```
+
+**Acceptance Criteria:**
+- Common issues categorized and documented.
+- Diagnostic commands provided.
+- Step-by-step fixes for each issue.
+- Debug mode instructions.
+- Clear escalation path.
+
+**File to Create:** `docs/guides/troubleshooting.md`
+
+---
+
+### Story 18-22: Create Quickstart Tutorial
+
+**Objective:** Create a step-by-step tutorial for users to achieve their first successful query in 10 minutes.
+
+**Why Needed:** README provides setup commands but no guided tutorial. Users need a hands-on walkthrough.
+
+**Priority:** HIGH
+
+**Document Structure:**
+
+```markdown
+# Quickstart Tutorial
+
+**Goal:** Get your first RAG query working in 10 minutes.
+
+## Prerequisites
+
+- Docker Desktop installed
+- OpenAI API key (or alternative provider)
+- Terminal/command line access
+
+---
+
+## Step 1: Clone and Configure (2 minutes)
+
+```bash
+# Clone the repository
+git clone https://github.com/example/agentic-rag
+cd agentic-rag
+
+# Copy environment template
+cp .env.example .env
+```
+
+Edit `.env` and set your API key:
+```bash
+OPENAI_API_KEY=sk-your-key-here
+```
+
+---
+
+## Step 2: Start Services (3 minutes)
+
+```bash
+# Start all services
+docker compose up -d
+
+# Wait for services to be ready (about 30 seconds)
+docker compose ps  # All should show "healthy"
+```
+
+**Expected output:**
+```
+NAME                STATUS
+agentic-rag-backend   running (healthy)
+agentic-rag-frontend  running (healthy)
+agentic-rag-postgres  running (healthy)
+agentic-rag-neo4j     running (healthy)
+agentic-rag-redis     running (healthy)
+```
+
+---
+
+## Step 3: Ingest Your First Document (3 minutes)
+
+Let's ingest a sample URL to create some knowledge:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ingest/url \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://graphiti.dev/",
+    "tenant_id": "demo",
+    "max_depth": 1
+  }'
+```
+
+**Expected response:**
+```json
+{
+  "job_id": "abc123...",
+  "status": "processing"
+}
+```
+
+Check progress:
+```bash
+curl http://localhost:8000/api/v1/ingest/jobs/abc123
+```
+
+Wait until `status` is `completed`.
+
+---
+
+## Step 4: Run Your First Query (2 minutes)
+
+Now query the knowledge base:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What is Graphiti and how does it work?",
+    "tenant_id": "demo"
+  }'
+```
+
+**Expected response:**
+```json
+{
+  "answer": "Graphiti is a temporal knowledge graph...",
+  "sources": [...],
+  "trajectory_id": "..."
+}
+```
+
+🎉 **Congratulations!** You've completed your first RAG query!
+
+---
+
+## Step 5: Try the UI (Optional)
+
+Open http://localhost:3000 in your browser.
+
+1. Click on the chat sidebar
+2. Type your question
+3. See the response with source citations
+
+---
+
+## Next Steps
+
+- [Configure providers](./provider-configuration.md)
+- [Enable advanced retrieval](./advanced-retrieval-configuration.md)
+- [Ingest more content](./ingestion-pipeline.md)
+- [Connect external agents](./protocol-integration/overview.md)
+
+---
+
+## Troubleshooting
+
+**Services not starting?**
+```bash
+docker compose logs
+```
+
+**Query returns empty results?**
+- Ensure ingestion completed successfully
+- Check tenant_id matches
+
+**See the full [Troubleshooting Guide](./troubleshooting.md)**
+```
+
+**Acceptance Criteria:**
+- Can be completed in 10 minutes or less.
+- Every step has copy-pasteable commands.
+- Expected outputs shown for validation.
+- Clear success criteria ("You've completed...").
+- Links to next steps.
+
+**File to Create:** `docs/tutorials/quickstart.md`
+
+---
+
+### Story 18-23: Create Architecture Decision Records
+
+**Objective:** Document key architectural decisions with rationale for future reference.
+
+**Why Needed:** Decisions like "Graphiti over custom graph" and "Profile-based config" need documented rationale.
+
+**Priority:** MEDIUM
+
+**Document Structure:**
+
+```markdown
+# Architecture Decision Records
+
+## ADR Index
+
+| ID | Title | Status | Date |
+|----|-------|--------|------|
+| ADR-001 | Use Graphiti for Knowledge Graph | Accepted | 2025-12-29 |
+| ADR-002 | Use Crawl4AI for Web Crawling | Accepted | 2026-01-04 |
+| ADR-003 | Vision A: RAG as Service | Accepted | 2026-01-05 |
+| ADR-004 | Profile-Based Configuration | Accepted | 2026-01-11 |
+
+---
+
+## ADR-001: Use Graphiti for Knowledge Graph
+
+### Status
+Accepted
+
+### Context
+We need a temporal knowledge graph for episodic memory and entity relationships.
+Options considered:
+1. Custom implementation with Neo4j
+2. LangChain graph features
+3. Graphiti library
+
+### Decision
+Use Graphiti library for knowledge graph.
+
+### Rationale
+- **Temporal awareness:** Built-in episode tracking and time-based queries
+- **Entity extraction:** Automatic entity and relationship extraction
+- **Maintenance:** Community-maintained, reducing our maintenance burden
+- **Integration:** Native Neo4j support matches our stack
+
+### Consequences
+- Positive: Faster development, temporal features out-of-box
+- Negative: Dependency on external library, less control
+- Neutral: Must track Graphiti versions for compatibility
+
+---
+
+## ADR-002: Use Crawl4AI for Web Crawling
+
+### Status
+Accepted
+
+### Context
+Need to crawl JavaScript-heavy documentation sites.
+Options considered:
+1. Custom httpx implementation (existing)
+2. Playwright direct
+3. Crawl4AI library
+4. Scrapy + Splash
+
+### Decision
+Migrate to Crawl4AI library.
+
+### Rationale
+- **JavaScript rendering:** Built-in browser automation
+- **Parallel crawling:** Efficient concurrent crawling
+- **Profiles:** Pre-configured stealth/fast/thorough profiles
+- **Community:** Active development and anti-bot updates
+
+### Consequences
+- Positive: JS rendering, better success rate on modern sites
+- Negative: Larger dependency, browser overhead
+- Neutral: Must manage browser installation
+
+---
+
+## ADR-003: Vision A - RAG as Service
+
+### Status
+Accepted
+
+### Context
+How should external frameworks (PydanticAI, CrewAI, LangGraph) integrate?
+Options considered:
+- Vision A: RAG as Service (connect via A2A/MCP)
+- Vision B: Internal adapters for each framework
+
+### Decision
+Adopt Vision A: RAG as Service.
+
+### Rationale
+- **Native support:** PydanticAI, CrewAI, LangGraph all have native A2A/MCP
+- **Maintenance:** No adapters to maintain per framework
+- **Standards:** Leverages open protocols
+- **Flexibility:** Works with any A2A/MCP client
+
+### Consequences
+- Positive: Reduced maintenance, standards-based
+- Negative: No deep framework integration
+- Neutral: Templates replace adapters
+
+---
+
+## ADR-004: Profile-Based Configuration
+
+### Status
+Accepted
+
+### Context
+System has 200+ environment variables. Manual configuration is error-prone.
+
+### Decision
+Implement profile-based configuration (minimal/standard/enterprise).
+
+### Rationale
+- **Simplicity:** Single profile selection vs 200 variables
+- **Validation:** Pre-tested configurations
+- **Override:** Environment variables still override profiles
+- **Migration:** Backward compatible with existing .env
+
+### Consequences
+- Positive: Easier setup, fewer misconfigurations
+- Negative: Additional abstraction layer
+- Neutral: Must document profile contents clearly
+```
+
+**Acceptance Criteria:**
+- All major architectural decisions documented.
+- Context, decision, rationale, and consequences for each.
+- ADR index for navigation.
+- Template for future ADRs.
+
+**File to Create:** `docs/architecture/decisions.md`
+
+---
+
+### Story 18-24: Create Glossary and Terminology Reference
+
+**Objective:** Create a glossary defining all domain-specific terms used in the system.
+
+**Why Needed:** Terms like "episode", "community", "LazyRAG", "CRAG" need clear definitions.
+
+**Priority:** MEDIUM
+
+**Document Structure:**
+
+```markdown
+# Glossary
+
+## A
+
+### A2A (Agent-to-Agent)
+Protocol for agent-to-agent communication and task delegation.
+See: [A2A Protocol Guide](./guides/protocol-integration/a2a-protocol.md)
+
+### A2UI (Agent-to-UI)
+Protocol for agents to emit UI widgets directly to the frontend.
+See: [A2UI Widgets Guide](./guides/protocol-integration/a2ui-widgets.md)
+
+### AG-UI
+CopilotKit's protocol for frontend state synchronization via Server-Sent Events.
+
+## C
+
+### Chunk
+A segment of text created during document processing. Default size: 512 characters.
+
+### ColBERT
+A reranking model using token-level late interaction scoring.
+
+### Community
+A cluster of related entities detected via graph algorithms (Louvain/Leiden).
+
+### Contextual Retrieval
+Technique that enriches chunks with surrounding context during ingestion.
+
+### CRAG (Corrective RAG)
+Pattern that grades retrieval quality and falls back to web search if needed.
+
+### Cross-Encoder
+A model that jointly encodes query and document for relevance scoring.
+
+## D
+
+### Dual-Level Retrieval
+Retrieval that combines low-level (entity) and high-level (theme) results.
+
+## E
+
+### Embedding
+A vector representation of text, typically 1536 dimensions.
+
+### Entity
+A named concept extracted from documents (person, concept, API, etc.).
+
+### Episode
+A document or conversation turn stored in the temporal knowledge graph.
+
+## G
+
+### Graph Reranker
+Reranking using graph signals (episode recency, node distance).
+
+### Graphiti
+Library for temporal knowledge graphs with episode-based storage.
+
+## H
+
+### HITL (Human-in-the-Loop)
+User validation step before accepting agent actions or sources.
+
+### Hybrid Retrieval
+Combining vector similarity search with graph traversal.
+
+## L
+
+### LazyRAG
+Pattern that defers entity summarization to query time (99% cost reduction).
+
+## M
+
+### MCP (Model Context Protocol)
+Protocol for AI tool execution, developed by Anthropic.
+
+### Memory Scope
+Persistence level: session, user, agent, or global.
+
+## N
+
+### NDCG (Normalized Discounted Cumulative Gain)
+Metric for ranking quality, accounts for position relevance.
+
+## O
+
+### Open-JSON-UI
+Protocol for declarative UI components (text, code, table, etc.).
+
+## P
+
+### pgvector
+PostgreSQL extension for vector similarity search.
+
+### Profile
+Pre-configured settings bundle (minimal, standard, enterprise).
+
+## Q
+
+### Query Routing
+Automatic selection of global vs local retrieval strategy.
+
+## R
+
+### Reranking
+Second-pass scoring of retrieved results for improved relevance.
+
+### RRF (Reciprocal Rank Fusion)
+Algorithm combining multiple ranked lists.
+
+## S
+
+### Sparse Vector
+Lexical matching representation (BM42 encoding).
+
+## T
+
+### Tenant
+Isolated data namespace for multi-tenant deployments.
+
+### Trajectory
+Log of agent decision-making steps for debugging.
+
+## V
+
+### Vector Search
+Similarity search using embedding vectors.
+```
+
+**Acceptance Criteria:**
+- All domain-specific terms defined.
+- Terms linked to relevant documentation.
+- Alphabetically organized.
+- Easy to search/navigate.
+
+**File to Create:** `docs/reference/glossary.md`
+
+---
+
+### Story 18-25: Create Feature Discovery Matrix
+
+**Objective:** Create a visual matrix showing all features, their requirements, and when to use them.
+
+**Why Needed:** Users don't know ColBERT reranking exists. Need feature discovery and comparison.
+
+**Priority:** MEDIUM
+
+**Document Structure:**
+
+```markdown
+# Feature Discovery Matrix
+
+## Overview
+
+This matrix helps you discover and compare features across the platform.
+
+## Retrieval Features
+
+| Feature | Profile | Config | Cost Impact | Latency Impact | Best For |
+|---------|---------|--------|-------------|----------------|----------|
+| **Vector Search** | All | Default | Base | Base | All queries |
+| **Graph Traversal** | Standard+ | Default | Base | +10% | Relationship queries |
+| **Hybrid Search** | Standard+ | Default | Base | +15% | Best overall |
+| **FlashRank Reranking** | Standard+ | RERANKER_ENABLED | Free | +50ms | Cost-sensitive |
+| **Cohere Reranking** | Enterprise | RERANKER_PROVIDER=cohere | $1/1K | +100ms | Production |
+| **ColBERT Reranking** | Enterprise | COLBERT_ENABLED | Free (local) | +200ms | Precision |
+| **CRAG Grading** | Standard+ | GRADER_ENABLED | Free-$$ | +100ms | Quality control |
+| **Contextual Retrieval** | Enterprise | CONTEXTUAL_ENABLED | +90% ingestion | None | High relevance |
+| **Sparse Vectors (BM42)** | Enterprise | SPARSE_ENABLED | Free | +30ms | Keyword matching |
+| **Cross-Language** | Enterprise | CROSS_LANG_ENABLED | Free-$ | +50ms | Multilingual |
+
+## Memory Features
+
+| Feature | Profile | Config | Impact | Best For |
+|---------|---------|--------|--------|----------|
+| **Session Memory** | All | Default | Low | Conversation context |
+| **User Memory** | Standard+ | MEMORY_SCOPE=user | Medium | Personalization |
+| **Agent Memory** | Standard+ | MEMORY_SCOPE=agent | Medium | Agent specialization |
+| **Global Memory** | Enterprise | MEMORY_SCOPE=global | High | Organization knowledge |
+| **Consolidation** | Enterprise | CONSOLIDATION_ENABLED | Low | Memory cleanup |
+| **Decay** | Enterprise | DECAY_ENABLED | Low | Relevance management |
+
+## Graph Intelligence
+
+| Feature | Profile | Config | Impact | Best For |
+|---------|---------|--------|--------|----------|
+| **Community Detection** | Enterprise | COMMUNITY_ENABLED | Medium | Theme discovery |
+| **LazyRAG** | Enterprise | LAZY_RAG_ENABLED | Low query, -99% index | Cost reduction |
+| **Query Routing** | Standard+ | ROUTING_ENABLED | Low | Query optimization |
+| **Graph Rerankers** | Enterprise | GRAPH_RERANKER | Medium | Relationship context |
+
+## Ingestion Sources
+
+| Source | Profile | Requires | Best For |
+|--------|---------|----------|----------|
+| **URL Crawling** | All | Default | Documentation |
+| **PDF** | All | Default | Documents |
+| **YouTube** | All | Default | Video content |
+| **Codebase** | Enterprise | CODEBASE_ENABLED | Developer context |
+| **S3 Sync** | Enterprise | AWS credentials | Cloud documents |
+| **Confluence** | Enterprise | Atlassian token | Wiki content |
+| **Notion** | Enterprise | Notion API key | Team docs |
+
+## Feature Combinations
+
+### Development Setup
+- Vector search only
+- FlashRank reranking
+- Session memory
+- Fast crawl profile
+
+### Production Setup
+- Hybrid search
+- Cohere reranking + CRAG
+- User memory + consolidation
+- Query routing
+- Thorough crawl profile
+
+### Maximum Capability
+- All retrieval features
+- Enterprise memory
+- Community detection + LazyRAG
+- All ingestion sources
+- Voice I/O
+- Codebase intelligence
+```
+
+**Acceptance Criteria:**
+- All features listed with profile requirements.
+- Cost and latency impact documented.
+- Use case guidance provided.
+- Common combinations suggested.
+
+**File to Create:** `docs/reference/feature-matrix.md`
+
+---
+
+### Story 18-26: Create Testing Framework Documentation
+
+**Objective:** Document the testing infrastructure for contributors and operators.
+
+**Why Needed:** 129 backend test files + 42 frontend test files exist but lack documentation on usage and patterns.
+
+**Priority:** MEDIUM
+
+**Document Structure:**
+
+```markdown
+# Testing Framework Documentation
+
+## Overview
+
+The testing infrastructure includes:
+- **Unit tests:** Fast, isolated component tests
+- **Integration tests:** Real service tests (PostgreSQL, Neo4j, Redis)
+- **Compliance tests:** Protocol conformance validation
+- **Security tests:** Tenant isolation and attack simulation
+- **Benchmarks:** Performance measurement and CI gating
+
+---
+
+## Running Tests
+
+### Backend Tests
+
+```bash
+cd backend
+
+# Run all unit tests
+uv run pytest
+
+# Run with coverage
+uv run pytest --cov=agentic_rag_backend --cov-report=html
+
+# Run specific test file
+uv run pytest tests/unit/test_retrieval.py
+
+# Run tests matching pattern
+uv run pytest -k "test_reranker"
+```
+
+### Integration Tests
+
+```bash
+# Requires running services
+export INTEGRATION_TESTS=1
+export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/test
+export NEO4J_URI=bolt://localhost:7687
+export REDIS_URL=redis://localhost:6379
+
+uv run pytest tests/integration/
+```
+
+### Frontend Tests
+
+```bash
+cd frontend
+
+# Run all tests
+pnpm test
+
+# Run with coverage
+pnpm test --coverage
+
+# Run in watch mode
+pnpm test --watch
+```
+
+---
+
+## Test Categories
+
+### Unit Tests (`tests/unit/`)
+- Fast, no external dependencies
+- Mock all external services
+- Target: 80% coverage
+
+### Integration Tests (`tests/integration/`)
+- Require real PostgreSQL, Neo4j, Redis
+- Gated by `INTEGRATION_TESTS=1`
+- Test full retrieval pipelines
+
+### Compliance Tests (`tests/compliance/`)
+- Protocol conformance (MCP, A2A, AG-UI)
+- Marked with `@pytest.mark.compliance`
+
+### Security Tests (`tests/security/`)
+- Tenant isolation validation
+- Attack simulation (SQL injection, etc.)
+- Marked with `@pytest.mark.security`
+
+### Benchmarks (`tests/benchmarks/`)
+- Performance measurement
+- Run with `benchmark-retrieval` CLI
+- Output to JSONL for CI
+
+---
+
+## Writing Tests
+
+### Backend Test Pattern
+
+```python
+import pytest
+from unittest.mock import AsyncMock, patch
+
+@pytest.fixture
+def mock_client():
+    """Create mock database client."""
+    client = AsyncMock()
+    client.search.return_value = [{"id": "1", "content": "test"}]
+    return client
+
+async def test_retrieval_returns_results(mock_client):
+    """Test that retrieval returns expected results."""
+    # Arrange
+    service = RetrievalService(mock_client)
+
+    # Act
+    results = await service.search("test query")
+
+    # Assert
+    assert len(results) == 1
+    mock_client.search.assert_called_once()
+```
+
+### Frontend Test Pattern
+
+```typescript
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+describe('SearchInput', () => {
+  it('calls onSearch when submitted', async () => {
+    const onSearch = jest.fn();
+    render(<SearchInput onSearch={onSearch} />);
+
+    await userEvent.type(screen.getByRole('textbox'), 'test query');
+    await userEvent.click(screen.getByRole('button', { name: /search/i }));
+
+    expect(onSearch).toHaveBeenCalledWith('test query');
+  });
+});
+```
+
+---
+
+## CI Integration
+
+Tests run automatically on:
+- Pull requests
+- Push to main/epic branches
+
+### Coverage Requirements
+- Backend: 80% minimum
+- Frontend: 80% minimum
+
+### Benchmark Gating
+- Ingestion: >10 docs/minute
+- Query latency: p95 <3s
+
+---
+
+## Fixtures Reference
+
+### Backend Fixtures (`tests/conftest.py`)
+- `sample_tenant_id` - UUID fixture
+- `mock_redis` - AsyncMock Redis
+- `mock_postgres_client` - Mock PostgreSQL
+- `mock_neo4j_client` - Mock Neo4j
+- `mock_graphiti_search_result` - Graphiti mock
+- `client` - FastAPI TestClient
+
+### Security Fixtures (`tests/security/conftest.py`)
+- `sql_injection_payloads` - 7 OWASP patterns
+- `cypher_injection_payloads` - Neo4j patterns
+- `tenant_a_id`, `tenant_b_id` - Cross-tenant testing
+```
+
+**Acceptance Criteria:**
+- Test execution commands documented.
+- Test categories explained.
+- Fixture reference included.
+- CI integration described.
+- Test patterns with examples.
+
+**File to Create:** `docs/testing/framework.md`
+
+---
+
+### Story 18-27: Create Security Best Practices Guide
+
+**Objective:** Document security best practices for deployment and operation.
+
+**Why Needed:** Frontend security checklist exists but backend security guidance is missing.
+
+**Priority:** MEDIUM
+
+**Document Structure:**
+
+```markdown
+# Security Best Practices Guide
+
+## Overview
+
+This guide covers security best practices for deploying and operating the RAG platform.
+
+---
+
+## Authentication & Authorization
+
+### API Key Management
+```bash
+# Generate secure API key
+openssl rand -hex 32
+
+# Store in environment (not .env in production)
+export API_KEY=your-generated-key
+```
+
+### Tenant Isolation
+- **CRITICAL:** Every query MUST include tenant_id
+- Database queries filter by tenant
+- Neo4j queries scope by tenant
+- Cross-tenant access blocked
+
+**Testing Tenant Isolation:**
+```bash
+# This should fail
+curl -X POST /query \
+  -d '{"query": "test", "tenant_id": "other-tenant"}'
+```
+
+---
+
+## Secrets Management
+
+### Required Production Secrets
+| Secret | Purpose | Generation |
+|--------|---------|------------|
+| `TRACE_ENCRYPTION_KEY` | Encrypt trajectories | `openssl rand -hex 32` |
+| `SHARE_SECRET` | Share link signing | `openssl rand -hex 16` |
+| Database passwords | DB access | Strong random |
+| API keys | Provider access | From provider |
+
+### DO NOT
+- Commit secrets to git
+- Use .env files in production
+- Share API keys
+- Use default passwords
+
+### DO
+- Use secrets manager (Vault, AWS Secrets Manager)
+- Rotate keys periodically
+- Use different keys per environment
+- Audit secret access
+
+---
+
+## Network Security
+
+### Backend Access
+```nginx
+# Reverse proxy only - no direct access
+location /api/ {
+    proxy_pass http://backend:8000;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+```
+
+### CORS Configuration
+```bash
+# Restrict to known origins
+CORS_ORIGINS=["https://app.example.com"]
+```
+
+### Rate Limiting
+```bash
+RATE_LIMIT_BACKEND=redis  # Not memory in production
+RATE_LIMIT_PER_MINUTE=60
+RATE_LIMIT_BURST=10
+```
+
+---
+
+## Input Validation
+
+### SQL Injection Prevention
+- All queries use parameterized statements
+- Never interpolate user input into SQL
+
+### Cypher Injection Prevention
+- Neo4j queries use parameters
+- User input never in query strings
+
+### File Upload Security
+```bash
+MAX_UPLOAD_SIZE_MB=100
+ALLOWED_FILE_TYPES=["pdf", "txt", "md"]
+```
+
+---
+
+## Data Protection
+
+### Encryption at Rest
+- PostgreSQL: Enable TDE or disk encryption
+- Neo4j: Enable encryption
+- Redis: Enable encryption if persisting
+
+### Encryption in Transit
+- TLS everywhere
+- Minimum TLS 1.2
+- Valid certificates
+
+### PII Handling
+- Telemetry sanitizes PII before storage
+- User data scoped to tenant
+- Implement data retention policies
+
+---
+
+## Trajectory Security
+
+### Encryption
+```bash
+# Required in production
+TRACE_ENCRYPTION_KEY=<64-char-hex>
+```
+
+### Access Control
+- Trajectories encrypted with AES-256-GCM
+- Only decryptable with key
+- Key rotation requires re-encryption
+
+---
+
+## Security Checklist
+
+### Pre-Deployment
+- [ ] All secrets in secrets manager
+- [ ] TLS configured
+- [ ] CORS restricted
+- [ ] Rate limiting enabled
+- [ ] Default passwords changed
+- [ ] Debug mode disabled
+
+### Ongoing
+- [ ] Dependencies updated (Dependabot)
+- [ ] Security scans passing (CodeQL)
+- [ ] Access logs reviewed
+- [ ] Keys rotated quarterly
+- [ ] Penetration testing annually
+
+---
+
+## Incident Response
+
+### If API Key Compromised
+1. Revoke compromised key immediately
+2. Generate new key
+3. Update all clients
+4. Review access logs
+5. Report to provider if third-party
+
+### If Data Breach Suspected
+1. Isolate affected systems
+2. Preserve logs
+3. Assess scope
+4. Notify affected parties
+5. Document and remediate
+```
+
+**Acceptance Criteria:**
+- Authentication and authorization documented.
+- Secrets management best practices.
+- Network security guidance.
+- Input validation patterns.
+- Security checklist provided.
+- Incident response procedures.
+
+**File to Create:** `docs/security/best-practices.md`
+
+---
+
 ## Technical Notes
 
 ### Documentation Standards

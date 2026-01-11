@@ -269,6 +269,17 @@ development_status:
   # AST validation, symbol extraction, hallucination detection
   17-14-implement-cli-protocol-config: backlog
   # A2A, MCP, AG-UI, MCP-UI, Open-JSON-UI protocol settings
+  # NEW (2026-01-11): CLI operational commands and framework template details
+  17-15-implement-cli-doctor-validate-command: backlog
+  # Diagnostic command: connectivity, config, health checks
+  17-16-implement-cli-interactive-setup-mode: backlog
+  # Guided wizard for first-time users
+  17-17-implement-profile-migration-script: backlog
+  # Automated migration between configuration profiles
+  17-18-implement-cli-upgrade-self-update: backlog
+  # Version checking and self-update mechanism
+  17-19-create-framework-template-details-testing: backlog
+  # Complete examples for PydanticAI, CrewAI, LangGraph, Anthropic SDK
   epic-17-retrospective: optional
 
   # Epic 18: Enhanced Documentation & DevOps (The Manual)
@@ -311,6 +322,23 @@ development_status:
   # Docker Compose, Kubernetes, scaling, security hardening
   18-19-create-configuration-profiles-documentation: backlog
   # DEPENDS ON 17-8: Document minimal/standard/enterprise profiles
+  # NEW (2026-01-11): Comprehensive documentation coverage for all 200+ features
+  18-20-create-advanced-retrieval-deep-dive: backlog
+  # Cohere/FlashRank/ColBERT reranking, CRAG, sparse vectors, cross-language
+  18-21-create-troubleshooting-guide: backlog
+  # Common issues, diagnostic commands, debug mode
+  18-22-create-quickstart-tutorial: backlog
+  # 10-minute first query experience
+  18-23-create-architecture-decision-records: backlog
+  # ADR-001 through ADR-004: GraphRAG, Protocols, Graphiti, CopilotKit
+  18-24-create-glossary-terminology-reference: backlog
+  # A-Z domain term definitions
+  18-25-create-feature-discovery-matrix: backlog
+  # All features with profile requirements and config flags
+  18-26-create-testing-framework-documentation: backlog
+  # Test categories, patterns, fixtures, coverage requirements
+  18-27-create-security-best-practices-guide: backlog
+  # Authentication, secrets, network, incident response
   epic-18-retrospective: optional
 
   # ==========================================

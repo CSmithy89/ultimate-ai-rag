@@ -1251,6 +1251,720 @@ MCP (Model Context Protocol):
 
 ---
 
+### Story 17-15: CLI Doctor/Validate Command
+
+**Objective:** Provide a diagnostic command that validates configuration and checks system health.
+
+**Problem:** Users will misconfigure settings. Without a validation tool, debugging is difficult and support requests increase.
+
+**Command Interface:**
+
+```bash
+# Validate configuration and system health
+$ rag-cli doctor
+
+╔══════════════════════════════════════════════════════════════╗
+║                    RAG SYSTEM DIAGNOSTICS                     ║
+╚══════════════════════════════════════════════════════════════╝
+
+Configuration Validation:
+  ✓ Profile: standard (valid)
+  ✓ LLM Provider: openai (configured)
+  ✓ Embedding Provider: openai (configured)
+  ✓ Database URL: valid PostgreSQL connection string
+  ✓ Neo4j URI: valid bolt:// connection string
+  ✓ Redis URL: valid redis:// connection string
+  ⚠ RERANKER_ENABLED=true but RERANKER_PROVIDER not set (defaulting to flashrank)
+  ✗ TAVILY_API_KEY not set but GRADER_FALLBACK_ENABLED=true
+
+Service Connectivity:
+  ✓ PostgreSQL: connected (pgvector extension installed)
+  ✓ Neo4j: connected (v5.15.0)
+  ✓ Redis: connected (v7.2.4)
+  ✗ Backend: not running (expected at http://localhost:8000)
+  ✗ Frontend: not running (expected at http://localhost:3000)
+
+API Key Validation:
+  ✓ OPENAI_API_KEY: valid format (sk-...)
+  ✓ OPENAI_API_KEY: rate limit check passed
+  ⚠ ANTHROPIC_API_KEY: not configured (optional)
+
+Feature Availability:
+  ✓ Reranking: ready (flashrank)
+  ✓ Contextual Retrieval: disabled
+  ✗ CRAG Grader: missing Tavily API key for web fallback
+  ✓ Memory Scopes: enabled
+  ✗ Voice I/O: Whisper model not downloaded
+
+Recommendations:
+  1. Set TAVILY_API_KEY for CRAG web fallback
+  2. Run 'docker compose up -d' to start services
+  3. Run 'rag-cli download-models' to install Whisper
+
+╔══════════════════════════════════════════════════════════════╗
+║  STATUS: 2 errors, 2 warnings                                 ║
+║  Run 'rag-cli doctor --fix' to auto-fix correctable issues    ║
+╚══════════════════════════════════════════════════════════════╝
+```
+
+**Validation Categories:**
+
+| Category | Checks | Auto-Fix |
+|----------|--------|----------|
+| **Config Syntax** | YAML/env file parsing, schema validation | No |
+| **Required Variables** | API keys, database URLs, required settings | Prompt user |
+| **Variable Formats** | API key prefixes, URL formats, value ranges | Suggest correction |
+| **Service Connectivity** | PostgreSQL, Neo4j, Redis, Backend, Frontend | No |
+| **API Key Validity** | Format check, optional rate limit test | No |
+| **Feature Dependencies** | Cross-feature requirements (CRAG needs Tavily) | Warn only |
+| **Model Availability** | Local models downloaded (Whisper, FlashRank) | Offer download |
+
+**Command Options:**
+
+```bash
+rag-cli doctor                    # Full diagnostics
+rag-cli doctor --quick            # Config validation only (no service checks)
+rag-cli doctor --fix              # Attempt to auto-fix issues
+rag-cli doctor --json             # Output as JSON for CI/CD
+rag-cli doctor --service backend  # Check specific service only
+```
+
+**Acceptance Criteria:**
+- `rag-cli doctor` runs full system diagnostics.
+- Clear status indicators (✓ ✗ ⚠) for each check.
+- Actionable recommendations for each issue.
+- `--quick` mode completes in under 5 seconds.
+- `--json` output parseable by CI/CD systems.
+- `--fix` mode prompts before making changes.
+- Exit code 0 for healthy, 1 for warnings, 2 for errors.
+
+---
+
+### Story 17-16: CLI Interactive Setup Mode
+
+**Objective:** Provide a guided, interactive setup experience beyond the basic `rag-install` flow.
+
+**Problem:** Story 17-1 defines `rag-install` but advanced users need deeper configuration options without editing files manually.
+
+**Command Interface:**
+
+```bash
+# Start interactive setup wizard
+$ rag-cli setup
+
+╔══════════════════════════════════════════════════════════════╗
+║                    RAG SETUP WIZARD                           ║
+╚══════════════════════════════════════════════════════════════╝
+
+Welcome! This wizard will guide you through complete configuration.
+
+? What would you like to configure?
+  ❯ Full Setup (all options)
+    Quick Start (profile-based defaults)
+    Provider Configuration
+    Retrieval Features
+    Ingestion Sources
+    Memory & Graph
+    Observability
+    Protocols
+    Voice I/O
+
+? Select configuration profile:
+  ❯ Minimal - Development/testing, low resources
+    Standard - Production, balanced (Recommended)
+    Enterprise - All features, maximum capabilities
+    Custom - Start from scratch
+
+[Proceeds through category-specific prompts based on selection]
+
+? Review configuration changes?
+
+╔══════════════════════════════════════════════════════════════╗
+║  Configuration Changes                                        ║
+╠══════════════════════════════════════════════════════════════╣
+║  + LLM_PROVIDER=openai                                        ║
+║  + EMBEDDING_PROVIDER=openai                                  ║
+║  ~ RERANKER_ENABLED=true (was: false)                         ║
+║  + TAVILY_API_KEY=tvly-...                                    ║
+╚══════════════════════════════════════════════════════════════╝
+
+? Apply these changes? [Y/n]
+? Backup existing configuration? [Y/n]
+
+✓ Configuration saved to .env
+✓ Backup saved to .env.bak.2026-01-11T12-30-00
+
+? Start services now? [Y/n]
+```
+
+**Setup Modes:**
+
+| Mode | Description | Target User |
+|------|-------------|-------------|
+| **Full Setup** | All configuration categories | First-time users |
+| **Quick Start** | Profile-based with minimal prompts | Experienced users |
+| **Category-Specific** | Configure single area | Updating specific feature |
+| **Reconfigure** | Modify existing configuration | Changing settings |
+
+**Acceptance Criteria:**
+- `rag-cli setup` starts interactive wizard.
+- Category selection allows targeted configuration.
+- Configuration diff shown before applying.
+- Backup offered before overwriting.
+- Non-interactive: `rag-cli setup --category providers --llm anthropic --yes`
+- Navigation: Can go back, skip, or cancel at any prompt.
+
+---
+
+### Story 17-17: Profile Migration Script
+
+**Objective:** Migrate existing flat .env configurations to profile-based YAML format.
+
+**Problem:** Users with existing .env files need a clear migration path to the new profile-based system.
+
+**Command Interface:**
+
+```bash
+# Analyze current configuration
+$ rag-cli migrate analyze
+
+╔══════════════════════════════════════════════════════════════╗
+║                    CONFIGURATION ANALYSIS                     ║
+╚══════════════════════════════════════════════════════════════╝
+
+Analyzing .env file...
+
+Detected Settings:
+  LLM Provider:        openai (gpt-4o)
+  Embedding Provider:  openai (text-embedding-3-small)
+  Retrieval:           hybrid + reranking (flashrank)
+  Memory:              scopes enabled (session)
+  Graph:               community detection disabled
+  Ingestion:           crawl4ai (thorough profile)
+  Voice:               disabled
+  Observability:       prometheus enabled
+  Protocols:           a2a + mcp enabled
+
+Closest Profile Match: STANDARD (87% match)
+
+Differences from Standard Profile:
+  + RERANKER_ENABLED=true (enterprise feature)
+  + MEMORY_SCOPES_ENABLED=true (enterprise feature)
+  - CONTEXTUAL_RETRIEVAL_ENABLED=false (standard default)
+
+Recommendation: Start with 'standard' profile and add overrides.
+
+$ rag-cli migrate execute
+
+? Select base profile:
+  ❯ Standard (87% match - recommended)
+    Enterprise (92% match)
+    Minimal (45% match)
+    Custom (keep all as overrides)
+
+Generating configuration...
+  ✓ Created config/profiles/custom.yaml with 12 overrides
+  ✓ Updated .env with CONFIG_PROFILE=standard
+  ✓ Backed up original .env to .env.pre-migration
+
+Migration complete! Your custom settings are preserved in:
+  config/profiles/custom.yaml
+
+The system will now use:
+  1. Standard profile as base
+  2. Custom profile overrides
+  3. Environment variable overrides (highest priority)
+```
+
+**Migration Strategy:**
+
+```yaml
+# Generated config/profiles/custom.yaml
+# Migrated from .env on 2026-01-11
+# Base profile: standard
+# Override count: 12
+
+# --- Overrides from original .env ---
+
+retrieval:
+  reranker:
+    enabled: true       # Was: RERANKER_ENABLED=true
+    provider: flashrank # Was: RERANKER_PROVIDER=flashrank
+
+memory:
+  scopes_enabled: true  # Was: MEMORY_SCOPES_ENABLED=true
+
+# Note: These settings override the standard profile defaults.
+# To remove an override, delete the key (inherit from standard).
+```
+
+**Acceptance Criteria:**
+- `rag-cli migrate analyze` shows current config analysis.
+- Profile matching algorithm suggests best base profile.
+- `rag-cli migrate execute` creates profile with overrides.
+- Original .env backed up before modification.
+- Generated YAML includes comments explaining origin.
+- Backward compatibility: system works with both .env-only and profile modes.
+
+---
+
+### Story 17-18: CLI Upgrade/Self-Update Command
+
+**Objective:** Provide a mechanism for users to upgrade their RAG installation when new versions are released.
+
+**Problem:** Users need to know when updates are available and how to apply them safely.
+
+**Command Interface:**
+
+```bash
+# Check for updates
+$ rag-cli update check
+
+╔══════════════════════════════════════════════════════════════╗
+║                    UPDATE AVAILABLE                           ║
+╚══════════════════════════════════════════════════════════════╝
+
+Current Version: 1.2.0
+Latest Version:  1.3.0
+
+Changes in 1.3.0:
+  NEW: ColBERT reranking support
+  NEW: Cross-language query translation
+  FIX: Memory scope inheritance bug
+  BREAKING: GRADER_MODEL renamed to GRADER_PROVIDER
+
+Configuration Impact:
+  ⚠ GRADER_MODEL detected in your config
+    → Will be renamed to GRADER_PROVIDER automatically
+
+? View full changelog? [y/N]
+? Proceed with update? [Y/n]
+
+# Apply update
+$ rag-cli update apply
+
+Updating RAG installation...
+  ✓ Backed up current configuration
+  ✓ Downloaded update (45MB)
+  ✓ Applied configuration migration
+  ✓ Pulled updated Docker images
+  ✓ Ran database migrations
+
+Update complete! 1.2.0 → 1.3.0
+
+Post-Update Actions:
+  1. Review migrated config: cat .env.migrated.diff
+  2. Restart services: docker compose up -d
+  3. Verify health: rag-cli doctor
+```
+
+**Update Flow:**
+
+1. **Version Check:** Compare local version with latest release.
+2. **Impact Analysis:** Identify breaking changes affecting user's config.
+3. **Configuration Migration:** Apply automatic renames/transforms.
+4. **Image Update:** Pull updated Docker images.
+5. **Database Migration:** Run Alembic migrations if needed.
+6. **Verification:** Run doctor command to validate.
+
+**Command Options:**
+
+```bash
+rag-cli update check              # Check for updates without applying
+rag-cli update apply              # Apply available update
+rag-cli update apply --version 1.3.0  # Update to specific version
+rag-cli update rollback           # Rollback to previous version
+rag-cli update --skip-docker      # Update config only, skip Docker pulls
+rag-cli update --dry-run          # Show what would change without applying
+```
+
+**Acceptance Criteria:**
+- `rag-cli update check` shows available updates.
+- Breaking changes highlighted with migration path.
+- Configuration automatically migrated when possible.
+- Backup created before any changes.
+- Rollback available if update fails.
+- `--dry-run` shows changes without applying.
+- Works with offline installations (manual download mode).
+
+---
+
+### Story 17-19: Framework Template Details and Testing
+
+**Objective:** Ensure framework starter templates (Story 17-5) are comprehensive, tested, and well-documented.
+
+**Problem:** Story 17-5 defined template structure but lacks specific implementation details for each framework.
+
+**Framework-Specific Requirements:**
+
+**PydanticAI Template (`examples/pydanticai/`):**
+
+```python
+# examples/pydanticai/agent.py
+"""PydanticAI agent with RAG integration via A2A and MCP."""
+
+from pydantic_ai import Agent
+from pydantic import BaseModel
+from fasta2a import A2AClient
+from mcp import Client as MCPClient
+
+# Configuration
+RAG_BASE_URL = "http://localhost:8000"
+LLM_MODEL = "openai:gpt-4o"
+
+# Data models for structured outputs
+class SearchResult(BaseModel):
+    content: str
+    sources: list[str]
+    confidence: float
+
+class IngestResult(BaseModel):
+    document_id: str
+    chunks_created: int
+    entities_extracted: int
+
+# Initialize clients
+a2a_client = A2AClient(f"{RAG_BASE_URL}/api/v1/a2a")
+mcp_client = MCPClient(f"{RAG_BASE_URL}/api/v1/mcp")
+
+# Create PydanticAI agent
+rag_agent = Agent(
+    LLM_MODEL,
+    result_type=SearchResult,
+    system_prompt="""You are a research assistant with access to a knowledge base.
+    Use the search_knowledge tool to find relevant information."""
+)
+
+@rag_agent.tool
+async def search_knowledge(query: str, max_results: int = 5) -> str:
+    """Search the RAG knowledge base via MCP."""
+    result = await mcp_client.call_tool(
+        "knowledge.query",
+        {"query": query, "tenant_id": "default", "limit": max_results}
+    )
+    return result.content
+
+@rag_agent.tool
+async def delegate_to_rag(task: str) -> str:
+    """Delegate complex tasks to RAG orchestrator via A2A."""
+    session = await a2a_client.create_session("default")
+    response = await a2a_client.send_message(session.id, task)
+    return response.content
+
+# Example usage
+async def main():
+    result = await rag_agent.run("What is GraphRAG and how does it work?")
+    print(f"Answer: {result.data.content}")
+    print(f"Sources: {result.data.sources}")
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
+```
+
+**CrewAI Template (`examples/crewai/`):**
+
+```python
+# examples/crewai/crew.py
+"""CrewAI crew with RAG knowledge base integration."""
+
+from crewai import Agent, Crew, Task, Process
+from crewai.tools import tool
+
+# RAG Configuration
+RAG_BASE_URL = "http://localhost:8000"
+
+# Define RAG-connected agent
+researcher = Agent(
+    role="Senior Researcher",
+    goal="Find accurate, comprehensive information from the knowledge base",
+    backstory="""You are an expert researcher with access to a powerful
+    knowledge graph and vector database. You excel at finding relevant
+    information and synthesizing it into clear insights.""",
+    verbose=True,
+    allow_delegation=True,
+    a2a_agents=[{
+        "url": f"{RAG_BASE_URL}/api/v1/a2a",
+        "name": "rag_knowledge_base",
+        "description": "Search and query the knowledge graph and vector store"
+    }]
+)
+
+synthesizer = Agent(
+    role="Research Synthesizer",
+    goal="Combine findings into coherent, actionable summaries",
+    backstory="""You are skilled at taking research findings and distilling
+    them into clear, actionable insights.""",
+    verbose=True
+)
+
+# Define tasks
+research_task = Task(
+    description="""Research the following topic using the RAG knowledge base:
+    {topic}
+
+    Find at least 5 relevant sources and summarize key findings.""",
+    expected_output="Research findings with source citations",
+    agent=researcher
+)
+
+synthesis_task = Task(
+    description="""Synthesize the research findings into a comprehensive report.
+    Include key insights, recommendations, and areas for further research.""",
+    expected_output="Synthesized report with recommendations",
+    agent=synthesizer,
+    context=[research_task]
+)
+
+# Create crew
+rag_crew = Crew(
+    agents=[researcher, synthesizer],
+    tasks=[research_task, synthesis_task],
+    process=Process.sequential,
+    verbose=True
+)
+
+# Example usage
+def main():
+    result = rag_crew.kickoff(inputs={"topic": "temporal knowledge graphs"})
+    print(result)
+
+if __name__ == "__main__":
+    main()
+```
+
+**LangGraph Template (`examples/langgraph/`):**
+
+```python
+# examples/langgraph/graph.py
+"""LangGraph workflow with RAG tool integration via MCP."""
+
+from langgraph.graph import StateGraph, END
+from langchain_core.messages import HumanMessage, AIMessage
+from langchain_openai import ChatOpenAI
+from langchain_mcp_adapters import MCPToolkit
+from typing import TypedDict, Annotated, Sequence
+import operator
+
+# RAG Configuration
+RAG_BASE_URL = "http://localhost:8000"
+
+# Initialize MCP toolkit
+mcp_toolkit = MCPToolkit(
+    server_url=f"{RAG_BASE_URL}/api/v1/mcp",
+    tool_names=["knowledge.query", "knowledge.graph_stats", "ingest_url"]
+)
+
+# State definition
+class AgentState(TypedDict):
+    messages: Annotated[Sequence[HumanMessage | AIMessage], operator.add]
+    context: str
+    sources: list[str]
+
+# LLM with tools
+llm = ChatOpenAI(model="gpt-4o").bind_tools(mcp_toolkit.get_tools())
+
+# Node definitions
+async def retrieve_context(state: AgentState) -> AgentState:
+    """Retrieve relevant context from RAG."""
+    query = state["messages"][-1].content
+    result = await mcp_toolkit.call_tool(
+        "knowledge.query",
+        {"query": query, "tenant_id": "default"}
+    )
+    return {
+        "context": result["content"],
+        "sources": result.get("sources", [])
+    }
+
+async def generate_response(state: AgentState) -> AgentState:
+    """Generate response using retrieved context."""
+    messages = state["messages"]
+    context = state["context"]
+
+    system_message = f"""Answer based on this context:
+    {context}
+
+    Always cite sources when available."""
+
+    response = await llm.ainvoke([
+        {"role": "system", "content": system_message},
+        *messages
+    ])
+
+    return {"messages": [response]}
+
+def should_continue(state: AgentState) -> str:
+    """Determine if we need more retrieval."""
+    last_message = state["messages"][-1]
+    if "need more information" in last_message.content.lower():
+        return "retrieve"
+    return END
+
+# Build graph
+workflow = StateGraph(AgentState)
+workflow.add_node("retrieve", retrieve_context)
+workflow.add_node("generate", generate_response)
+workflow.add_edge("retrieve", "generate")
+workflow.add_conditional_edges("generate", should_continue, {
+    "retrieve": "retrieve",
+    END: END
+})
+workflow.set_entry_point("retrieve")
+
+# Compile
+app = workflow.compile()
+
+# Example usage
+async def main():
+    result = await app.ainvoke({
+        "messages": [HumanMessage(content="Explain the Graphiti architecture")],
+        "context": "",
+        "sources": []
+    })
+    print(result["messages"][-1].content)
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
+```
+
+**Anthropic SDK Template (`examples/anthropic/`):**
+
+```python
+# examples/anthropic/agent.py
+"""Anthropic Claude agent with RAG MCP tools."""
+
+from anthropic import Anthropic
+import httpx
+import json
+
+# RAG Configuration
+RAG_BASE_URL = "http://localhost:8000"
+
+# Initialize Anthropic client
+client = Anthropic()
+
+# Define MCP tools for Claude
+tools = [
+    {
+        "name": "search_knowledge",
+        "description": "Search the RAG knowledge base for relevant information",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum results to return",
+                    "default": 5
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "ingest_url",
+        "description": "Crawl and ingest a URL into the knowledge base",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "The URL to ingest"
+                }
+            },
+            "required": ["url"]
+        }
+    }
+]
+
+async def call_mcp_tool(tool_name: str, params: dict) -> str:
+    """Execute MCP tool on RAG backend."""
+    async with httpx.AsyncClient() as http:
+        response = await http.post(
+            f"{RAG_BASE_URL}/api/v1/mcp/call",
+            json={"tool": tool_name, "params": params}
+        )
+        return response.json()["result"]
+
+async def run_agent(user_message: str) -> str:
+    """Run Claude agent with RAG tool access."""
+    messages = [{"role": "user", "content": user_message}]
+
+    while True:
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=4096,
+            tools=tools,
+            messages=messages
+        )
+
+        # Check if Claude wants to use a tool
+        if response.stop_reason == "tool_use":
+            tool_use = next(
+                block for block in response.content
+                if block.type == "tool_use"
+            )
+
+            # Execute tool via MCP
+            tool_result = await call_mcp_tool(
+                tool_use.name,
+                tool_use.input
+            )
+
+            # Add assistant response and tool result
+            messages.append({
+                "role": "assistant",
+                "content": response.content
+            })
+            messages.append({
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": tool_use.id,
+                    "content": tool_result
+                }]
+            })
+        else:
+            # No more tool calls, return final response
+            return response.content[0].text
+
+# Example usage
+async def main():
+    result = await run_agent(
+        "Search the knowledge base for information about RAG architectures"
+    )
+    print(result)
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
+```
+
+**Template Testing Requirements:**
+
+| Template | Test Scope | CI Integration |
+|----------|------------|----------------|
+| PydanticAI | Unit tests + integration with mock RAG | GitHub Actions |
+| CrewAI | Unit tests + integration with mock RAG | GitHub Actions |
+| LangGraph | Unit tests + integration with mock RAG | GitHub Actions |
+| Anthropic | Unit tests + integration with mock RAG | GitHub Actions |
+
+**Acceptance Criteria:**
+- Each template is a complete, runnable example.
+- Templates include comprehensive README.md with setup instructions.
+- Templates demonstrate both A2A and MCP connection patterns.
+- Templates include unit tests that mock RAG backend.
+- Templates tested against actual RAG in CI (weekly job).
+- Templates versioned and updated with each RAG release.
+- `rag-cli generate-example --framework <name>` creates local copy.
+
+---
+
 ## Technical Notes
 
 ### CLI Technology Stack
