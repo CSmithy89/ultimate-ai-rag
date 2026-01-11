@@ -399,6 +399,9 @@ async def transcribe_audio(
             confidence=result.confidence,
         )
 
+    except HTTPException:
+        # Re-raise HTTP exceptions (413, 415, etc.) without converting to 500
+        raise
     except RuntimeError as e:
         logger.error("transcribe_audio_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
@@ -480,6 +483,9 @@ async def text_to_speech(
             },
         )
 
+    except HTTPException:
+        # Re-raise HTTP exceptions without converting to 500
+        raise
     except RuntimeError as e:
         logger.error("tts_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
