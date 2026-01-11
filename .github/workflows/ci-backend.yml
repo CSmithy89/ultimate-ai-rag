@@ -35,9 +35,9 @@ jobs:
         working-directory: backend
         run: uv run mypy src
 
-      - name: Run tests
+      - name: Run tests with coverage
         working-directory: backend
-        run: uv run pytest
+        run: uv run pytest --cov --cov-report=term-missing --cov-fail-under=80
 
       - name: Validate story status
         run: python3 scripts/validate-story-status.py

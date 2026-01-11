@@ -16,6 +16,17 @@
 - [ ] AI review comments triaged (addressed or explicitly waived)
 - [ ] Test outcomes recorded (story notes or epic test report)
 
+## Frontend Security (UI Changes Only)
+
+Complete this section if you modified frontend components.
+Reference: `docs/checklists/frontend-security-checklist.md`
+
+- [ ] Sensitive data patterns comprehensive (password, token, key, jwt, bearer, etc.)
+- [ ] No dangerouslySetInnerHTML without sanitization
+- [ ] External links use rel="noopener noreferrer"
+- [ ] User content sanitized before rendering (markdown, HTML)
+- [ ] No credentials in URLs (use headers/body)
+
 ## Protocol Compliance (API Routes Only)
 
 Complete this section if you added or modified API endpoints.

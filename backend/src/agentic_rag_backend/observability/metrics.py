@@ -399,6 +399,24 @@ Labels:
 
 
 # =============================================================================
+# Telemetry Metrics (Story 22-TD1)
+# =============================================================================
+
+TELEMETRY_EVENTS_TOTAL = Counter(
+    "telemetry_events_total",
+    "Total frontend telemetry events received",
+    labelnames=["event", "tenant_id"],
+    registry=_registry,
+)
+"""Counter for frontend telemetry events.
+
+Labels:
+    event: Event name (e.g., page_view, search_query, message_sent)
+    tenant_id: Tenant identifier for multi-tenancy
+"""
+
+
+# =============================================================================
 # Helper Functions
 # =============================================================================
 
@@ -732,3 +750,19 @@ def set_reranker_cache_size(size: int) -> None:
         size: Current number of entries in the cache
     """
     RERANKER_CACHE_SIZE.set(size)
+
+
+# =============================================================================
+# Telemetry Helper Functions (Story 22-TD1)
+# =============================================================================
+
+
+def record_telemetry_event(event: str, tenant_id: str) -> None:
+    """Record a frontend telemetry event.
+
+    Args:
+        event: Event name (e.g., page_view, search_query, message_sent)
+        tenant_id: Tenant identifier
+    """
+    tenant_label = normalize_tenant_label(tenant_id)
+    TELEMETRY_EVENTS_TOTAL.labels(event=event, tenant_id=tenant_label).inc()

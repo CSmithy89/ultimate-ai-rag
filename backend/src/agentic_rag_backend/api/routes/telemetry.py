@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from ..utils import rate_limit_exceeded
 from ...rate_limit import RateLimiter
+from ...observability.metrics import record_telemetry_event
 
 router = APIRouter()
 
@@ -67,31 +68,38 @@ async def track_telemetry(
 ):
     """
     Track frontend telemetry events.
-    
+
     Events are sanitized to remove PII before logging/storage.
     Currently logs structured events; can be extended to store in DB/Timescale.
     """
-    # Simple rate limiting using IP since this is a public-facing endpoint (auth optional for tracking)
+    # Rate limiting using composite key of tenant_id and IP (Story 22-TD5)
+    # This prevents users behind shared NAT gateways from being incorrectly rate-limited
     client_ip = request.client.host if request.client else "unknown"
-    if not await limiter.allow(f"telemetry:{client_ip}"):
+    tenant_id = getattr(request.state, "tenant_id", None) or "anonymous"
+    rate_key = f"telemetry:{tenant_id}:{client_ip}"
+    if not await limiter.allow(rate_key):
         raise rate_limit_exceeded()
 
     # Sanitize payload
     sanitized_props = _sanitize_properties(payload.properties)
-    
+
+    # Record Prometheus metric (Story 22-TD1)
+    record_telemetry_event(event=payload.event, tenant_id=tenant_id)
+
     # Log the event (structured logging will handle JSON formatting)
     # In a real system, this would go to a specialized telemetry store (e.g. PostHog, Mixpanel, ClickHouse)
     # For now, we use our structured logger which flows to stdout/logs
     import structlog
     logger = structlog.get_logger("telemetry")
-    
+
     logger.info(
         "frontend_telemetry",
-        event=payload.event,
+        event_name=payload.event,
         properties=sanitized_props,
         client_timestamp=payload.timestamp.isoformat(),
         received_at=datetime.now(timezone.utc).isoformat(),
-        source="frontend"
+        source="frontend",
+        tenant_id=tenant_id,
     )
 
     return TelemetryResponse(

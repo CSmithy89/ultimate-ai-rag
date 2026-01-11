@@ -247,6 +247,32 @@ async def example() -> None:
   - Docling-based MCP PDF ingestion with page-level chunking
   - New crawler operational guides (profiles, memory, parsing)
 
+### Epic 20: Memory Platform & Graph Intelligence
+- Status: Complete
+- Stories: 12/12 completed
+- Key Features:
+  - Memory scopes (user/session/agent/global) with hierarchical inheritance
+  - Memory consolidation with deduplication, decay, and cleanup
+  - Community detection with Louvain algorithm for graph summaries
+  - Query routing (global vs local retrieval based on query type)
+  - Graph rerankers (episode recency, distance-based, hybrid)
+  - Hierarchical chunking with small-to-big retrieval
+  - Dual-level retrieval combining chunk and document levels
+  - Prometheus metrics for retrieval quality monitoring
+
+### Epic 21: CopilotKit Full Integration
+- Status: Complete
+- Stories: 19/19 completed (6 groups: A-F)
+- Key Features:
+  - A2UI widget rendering (card, table, form, chart, image, list)
+  - MCP client tool bridge with retry logic
+  - CopilotKit backend action handlers for tool execution
+  - Source validation frontend tools with Zod schemas
+  - Voice I/O: Speech-to-text (Whisper) and text-to-speech (OpenAI/ElevenLabs/pyttsx3)
+  - Telemetry endpoint with PII sanitization
+  - Prometheus metrics for telemetry events
+- Documentation: `docs/guides/voice-io-configuration.md`
+
 ## Roadmap
 
 ### Upcoming Epics

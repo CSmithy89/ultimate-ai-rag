@@ -99,6 +99,25 @@ filterwarnings = [
   "ignore:Support for class-based `config` is deprecated:DeprecationWarning:graphiti_core",
 ]
 
+# Coverage configuration (Story 22-TD4)
+[tool.coverage.run]
+source = ["src/agentic_rag_backend"]
+omit = [
+  "*/tests/*",
+  "*/__pycache__/*",
+  "*/migrations/*",
+  "*/.venv/*",
+]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+]
+
 [tool.ruff]
 line-length = 100
 exclude = [
