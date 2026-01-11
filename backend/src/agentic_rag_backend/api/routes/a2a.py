@@ -9,11 +9,13 @@ This module provides the HTTP API for the A2A protocol including:
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
-from typing import Any, Optional
+from typing import Any, AsyncIterator, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 import jsonschema
 import structlog
@@ -23,12 +25,15 @@ from ...core.errors import (
     A2AAgentNotFoundError,
     A2ACapabilityNotFoundError,
     A2ADelegationError,
+    A2AMessageLimitExceededError,
     A2APermissionError,
+    A2ARateLimitExceededError,
     A2ARegistrationError,
+    A2ASessionLimitExceededError,
     A2AServiceUnavailableError,
     A2ATaskNotFoundError,
 )
-from ...protocols.a2a import A2ASessionManager
+from ...protocols.a2a import A2ASessionManager, A2ASessionNotFoundError
 from ...protocols.a2a_messages import (
     AgentCapability,
     TaskRequest,
@@ -41,7 +46,12 @@ from ...protocols.a2a_middleware import (
     A2AAgentInfo as MiddlewareAgentInfo,
     A2AAgentCapability as MiddlewareAgentCapability,
 )
-from ...protocols.a2a_resource_limits import A2AResourceManager
+from ...protocols.a2a_resource_limits import (
+    A2AResourceManager,
+    A2AMessageLimitExceeded,
+    A2ARateLimitExceeded,
+    A2ASessionLimitExceeded,
+)
 from ...rate_limit import RateLimiter
 from ...validation import TENANT_ID_PATTERN, TENANT_ID_REGEX
 
@@ -314,7 +324,10 @@ def get_a2a_middleware(request: Request) -> A2AMiddlewareAgent:
     """Get the A2A middleware agent from app state."""
     middleware = getattr(request.app.state, "a2a_middleware", None)
     if middleware is None:
-        raise RuntimeError("A2A middleware not initialized")
+        raise A2AServiceUnavailableError(
+            service="A2A middleware",
+            reason="A2A middleware is not initialized",
+        )
     return middleware
 
 
@@ -322,7 +335,10 @@ def get_a2a_resource_manager(request: Request) -> A2AResourceManager:
     """Get the A2A resource manager from app state."""
     manager = getattr(request.app.state, "a2a_resource_manager", None)
     if manager is None:
-        raise RuntimeError("A2A resource manager not initialized")
+        raise A2AServiceUnavailableError(
+            service="A2A resource manager",
+            reason="A2A resource limits backend is not initialized",
+        )
     return manager
 
 
@@ -350,7 +366,6 @@ def validate_tenant_id_header(
 
 # A2A Middleware API Key configuration
 # Set A2A_API_KEY environment variable to enable API key authentication
-_A2A_API_KEY: Optional[str] = os.getenv("A2A_API_KEY")
 
 
 def verify_api_key(
@@ -372,7 +387,8 @@ def verify_api_key(
     Raises:
         HTTPException: If API key is required but missing/invalid
     """
-    if _A2A_API_KEY is None:
+    configured_key = os.getenv("A2A_API_KEY", "").strip()
+    if not configured_key:
         # API key authentication disabled
         return None
 
@@ -390,7 +406,7 @@ def verify_api_key(
         )
 
     # Constant-time comparison to prevent timing attacks
-    if not secrets.compare_digest(api_key, _A2A_API_KEY):
+    if not secrets.compare_digest(api_key, configured_key):
         logger.warning("a2a_middleware_invalid_api_key")
         raise HTTPException(
             status_code=403,
@@ -407,6 +423,7 @@ def verify_api_key(
 async def create_session(
     request_body: CreateSessionRequest,
     manager: A2ASessionManager = Depends(get_a2a_manager),
+    resource_manager: A2AResourceManager = Depends(get_a2a_resource_manager),
     limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> CreateSessionResponse:
     """Create a new A2A collaboration session."""
@@ -415,6 +432,14 @@ async def create_session(
 
     try:
         session = await manager.create_session(request_body.tenant_id)
+        try:
+            await resource_manager.register_session(
+                session_id=session["session_id"],
+                tenant_id=request_body.tenant_id,
+            )
+        except A2ASessionLimitExceeded as exc:
+            await manager.delete_session(session["session_id"])
+            raise A2ASessionLimitExceededError(request_body.tenant_id, exc.limit) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     logger.info("a2a_session_created", session_id=session["session_id"])
@@ -427,11 +452,25 @@ async def add_message(
     session_id: str,
     request_body: MessageRequest,
     manager: A2ASessionManager = Depends(get_a2a_manager),
+    resource_manager: A2AResourceManager = Depends(get_a2a_resource_manager),
     limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> SessionResponse:
     """Add a message to an existing A2A session."""
     if not await limiter.allow(request_body.tenant_id):
         raise rate_limit_exceeded()
+
+    session_snapshot = await manager.get_session(session_id)
+    if session_snapshot is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session_snapshot["tenant_id"] != request_body.tenant_id:
+        raise A2APermissionError("Tenant not authorized for this session")
+
+    try:
+        await resource_manager.record_message(session_id=session_id)
+    except A2AMessageLimitExceeded as exc:
+        raise A2AMessageLimitExceededError(session_id, exc.limit) from exc
+    except A2ARateLimitExceeded as exc:
+        raise A2ARateLimitExceededError(session_id, exc.limit, exc.retry_after) from exc
 
     try:
         session = await manager.add_message(
@@ -443,7 +482,7 @@ async def add_message(
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except KeyError as exc:
+    except A2ASessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Session not found") from exc
     except PermissionError as exc:
         raise A2APermissionError("Tenant not authorized for this session") from exc
@@ -944,7 +983,7 @@ async def list_middleware_capabilities(
     )
 
 
-@router.post("/middleware/agents/{agent_id}/delegate", response_model=MiddlewareDelegateResponse)
+@router.post("/middleware/agents/{agent_id}/delegate", response_class=StreamingResponse)
 async def delegate_to_agent(
     agent_id: str,
     body: MiddlewareDelegateRequest,
@@ -952,7 +991,7 @@ async def delegate_to_agent(
     _api_key: Optional[str] = Depends(verify_api_key),
     middleware: A2AMiddlewareAgent = Depends(get_a2a_middleware),
     limiter: RateLimiter = Depends(get_rate_limiter),
-) -> MiddlewareDelegateResponse:
+) -> StreamingResponse:
     """Delegate a task to a specific agent via AG-UI streaming.
 
     The target agent_id must belong to the calling tenant.
@@ -969,39 +1008,39 @@ async def delegate_to_agent(
             resource_id=agent_id,
         )
 
-    # Collect events from the SSE stream with a max limit to prevent memory exhaustion
-    # NOTE: For true streaming, consider using StreamingResponse with SSE format.
-    # Current implementation limits to 1000 events as a safeguard.
-    MAX_EVENTS = 1000
-    events: list[dict[str, Any]] = []
-    truncated = False
+    delegate_iter = middleware.delegate_task(
+        target_agent_id=agent_id,
+        capability_name=body.capability_name,
+        input_data=body.input_data,
+        context=body.context,
+    )
 
     try:
-        async for event in middleware.delegate_task(
-            target_agent_id=agent_id,
-            capability_name=body.capability_name,
-            input_data=body.input_data,
-            context=body.context,
-        ):
-            if len(events) >= MAX_EVENTS:
-                truncated = True
-                logger.warning(
-                    "a2a_delegation_events_truncated",
-                    agent_id=agent_id,
-                    capability=body.capability_name,
-                    max_events=MAX_EVENTS,
-                )
-                break
-            events.append(event)
-
-        status = "completed_truncated" if truncated else "completed"
-        return MiddlewareDelegateResponse(
-            status=status,
-            events=events,
-            meta=build_meta(),
-        )
-    except A2AAgentNotFoundError:
+        first_event = await anext(delegate_iter)
+    except StopAsyncIteration:
+        first_event = None
+    except (A2AAgentNotFoundError, A2ACapabilityNotFoundError):
         raise
+
+    async def event_stream() -> AsyncIterator[str]:
+        if first_event is not None:
+            yield f"data: {json.dumps(first_event, ensure_ascii=True)}\n\n"
+        try:
+            async for event in delegate_iter:
+                yield f"data: {json.dumps(event, ensure_ascii=True)}\n\n"
+        except Exception as exc:
+            logger.exception(
+                "a2a_delegation_stream_error",
+                agent_id=agent_id,
+                capability=body.capability_name,
+                error=str(exc),
+            )
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)
     except A2ACapabilityNotFoundError:
         raise
     except Exception as e:

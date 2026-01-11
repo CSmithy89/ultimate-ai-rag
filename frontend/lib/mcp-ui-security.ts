@@ -50,7 +50,10 @@ const _allowedOriginsCache = new Map<string, Set<string>>();
  * @param tenantId - Tenant identifier for API call
  * @returns Set of allowed origin strings
  */
-export async function loadAllowedOrigins(tenantId: string): Promise<Set<string>> {
+export async function loadAllowedOrigins(
+  tenantId: string,
+  signal?: AbortSignal
+): Promise<Set<string>> {
   // Check tenant-specific cache
   const cached = _allowedOriginsCache.get(tenantId);
   if (cached !== undefined) {
@@ -65,6 +68,7 @@ export async function loadAllowedOrigins(tenantId: string): Promise<Set<string>>
         'Content-Type': 'application/json',
         'X-Tenant-ID': tenantId,
       },
+      signal,
     });
 
     if (!response.ok) {
@@ -79,6 +83,9 @@ export async function loadAllowedOrigins(tenantId: string): Promise<Set<string>>
     _allowedOriginsCache.set(tenantId, origins);
     return origins;
   } catch (error) {
+    if ((error as { name?: string }).name === 'AbortError') {
+      return new Set<string>();
+    }
     console.warn('MCP-UI: Error loading config', error);
     // Don't cache error states - allow retry on next call
     return new Set<string>();

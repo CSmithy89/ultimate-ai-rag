@@ -1371,7 +1371,11 @@ def load_settings() -> Settings:
         for origin in mcp_ui_allowed_origins_raw.split(",")
         if origin.strip()
     ]
-    mcp_ui_signing_secret = os.getenv("MCP_UI_SIGNING_SECRET", secrets.token_hex(32))
+    raw_mcp_ui_signing_secret = os.getenv("MCP_UI_SIGNING_SECRET")
+    if raw_mcp_ui_signing_secret and raw_mcp_ui_signing_secret.strip():
+        mcp_ui_signing_secret = raw_mcp_ui_signing_secret.strip()
+    else:
+        mcp_ui_signing_secret = secrets.token_hex(32)
 
     return Settings(
         app_env=app_env,

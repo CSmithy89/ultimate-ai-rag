@@ -8,7 +8,18 @@ Story 22-C1: Implement MCP-UI Renderer
 
 from typing import Any
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
+
+SAFE_SANDBOX_FLAGS = frozenset({
+    "allow-scripts",
+    "allow-forms",
+    "allow-popups",
+    "allow-modals",
+    "allow-downloads",
+    "allow-downloads-without-user-activation",
+    "allow-pointer-lock",
+    "allow-presentation",
+})
 
 
 class MCPUIConfig(BaseModel):
@@ -81,6 +92,14 @@ class MCPUIPayload(BaseModel):
         default_factory=dict,
         description="Data to pass to the iframe via postMessage on init",
     )
+
+    @field_validator("sandbox")
+    @classmethod
+    def validate_sandbox(cls, sandbox: list[str]) -> list[str]:
+        invalid = [flag for flag in sandbox if flag not in SAFE_SANDBOX_FLAGS]
+        if invalid:
+            raise ValueError(f"Unsupported sandbox flags: {', '.join(invalid)}")
+        return sandbox
 
 
 class MCPUIMessage(BaseModel):

@@ -8,6 +8,10 @@ import type {
 } from "@copilotkit/react-core";
 import { MCPToolCallCard } from "./MCPToolCallCard";
 import { VectorSearchCard } from "./VectorSearchCard";
+import { MCPUIRenderer, type MCPUIPayload } from "@/components/mcp-ui/MCPUIRenderer";
+import { OpenJSONUIRenderer } from "@/components/open-json-ui/OpenJSONUIRenderer";
+import { OpenJSONUIPayloadSchema } from "@/lib/open-json-ui/schema";
+import { CopilotErrorBoundary } from "./CopilotErrorBoundary";
 import type { ToolStatus } from "./StatusBadge";
 
 /**
@@ -66,6 +70,66 @@ function safeRender(
   }
 }
 
+function isMCPUIResult(result: unknown): result is MCPUIPayload {
+  if (!result || typeof result !== "object") {
+    return false;
+  }
+  const payload = result as Record<string, unknown>;
+  return (
+    payload.type === "mcp_ui" &&
+    typeof payload.ui_url === "string" &&
+    typeof payload.tool_name === "string"
+  );
+}
+
+function renderToolResult(
+  toolName: string,
+  args: Record<string, unknown> | undefined,
+  status: ToolStatus,
+  result: unknown
+): React.ReactElement {
+  const tenantId =
+    typeof args?.tenant_id === "string" ? (args.tenant_id as string) : undefined;
+
+  if (isMCPUIResult(result)) {
+    return (
+      <CopilotErrorBoundary
+        fallback={
+          <div className="my-2 p-3 border border-red-200 rounded-lg bg-red-50 text-red-800 text-sm">
+            <strong>Tool UI error:</strong> {toolName}
+          </div>
+        }
+      >
+        <MCPUIRenderer payload={result} tenantId={tenantId} />
+      </CopilotErrorBoundary>
+    );
+  }
+
+  const openJsonParse = OpenJSONUIPayloadSchema.safeParse(result);
+  if (openJsonParse.success) {
+    return (
+      <CopilotErrorBoundary
+        fallback={
+          <div className="my-2 p-3 border border-red-200 rounded-lg bg-red-50 text-red-800 text-sm">
+            <strong>Tool UI error:</strong> {toolName}
+          </div>
+        }
+      >
+        <OpenJSONUIRenderer payload={openJsonParse.data} />
+      </CopilotErrorBoundary>
+    );
+  }
+
+  return (
+    <MCPToolCallCard
+      name={toolName}
+      args={args || {}}
+      status={status}
+      result={result}
+    />
+  );
+}
+
 /**
  * useToolCallRenderers hook registers tool call renderers with CopilotKit.
  *
@@ -118,13 +182,11 @@ export function useToolCallRenderers(): void {
     render: (props: ActionRenderPropsNoArgs) => {
       return safeRender("graph_search", () => {
         const { args, status, result } = props;
-        return (
-          <MCPToolCallCard
-            name="graph_search"
-            args={(args as Record<string, unknown>) || {}}
-            status={normalizeStatus(status)}
-            result={result}
-          />
+        return renderToolResult(
+          "graph_search",
+          (args as Record<string, unknown>) || {},
+          normalizeStatus(status),
+          result
         );
       });
     },
@@ -136,13 +198,11 @@ export function useToolCallRenderers(): void {
     render: (props: ActionRenderPropsNoArgs) => {
       return safeRender("ingest_url", () => {
         const { args, status, result } = props;
-        return (
-          <MCPToolCallCard
-            name="ingest_url"
-            args={(args as Record<string, unknown>) || {}}
-            status={normalizeStatus(status)}
-            result={result}
-          />
+        return renderToolResult(
+          "ingest_url",
+          (args as Record<string, unknown>) || {},
+          normalizeStatus(status),
+          result
         );
       });
     },
@@ -154,13 +214,11 @@ export function useToolCallRenderers(): void {
     render: (props: ActionRenderPropsNoArgs) => {
       return safeRender("ingest_pdf", () => {
         const { args, status, result } = props;
-        return (
-          <MCPToolCallCard
-            name="ingest_pdf"
-            args={(args as Record<string, unknown>) || {}}
-            status={normalizeStatus(status)}
-            result={result}
-          />
+        return renderToolResult(
+          "ingest_pdf",
+          (args as Record<string, unknown>) || {},
+          normalizeStatus(status),
+          result
         );
       });
     },
@@ -178,13 +236,11 @@ export function useToolCallRenderers(): void {
       const toolName = catchAllProps.name || "unknown_tool";
       return safeRender(toolName, () => {
         const { args, status, result } = props;
-        return (
-          <MCPToolCallCard
-            name={toolName}
-            args={(args as Record<string, unknown>) || {}}
-            status={normalizeStatus(status)}
-            result={result}
-          />
+        return renderToolResult(
+          toolName,
+          (args as Record<string, unknown>) || {},
+          normalizeStatus(status),
+          result
         );
       });
     },

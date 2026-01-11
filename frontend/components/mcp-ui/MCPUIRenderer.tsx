@@ -72,6 +72,21 @@ export const MCPUIRenderer = memo(function MCPUIRenderer({
   onError,
   className,
 }: MCPUIRendererProps) {
+  const safeSandbox = payload.sandbox.filter((flag) =>
+    [
+      'allow-scripts',
+      'allow-forms',
+      'allow-popups',
+      'allow-modals',
+      'allow-downloads',
+      'allow-downloads-without-user-activation',
+      'allow-pointer-lock',
+      'allow-presentation',
+    ].includes(flag)
+  );
+  if (safeSandbox.length !== payload.sandbox.length) {
+    console.warn('MCP-UI: Dropping unsafe sandbox flags', payload.sandbox);
+  }
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [dimensions, setDimensions] = useState(payload.size);
   const [allowedOrigins, setAllowedOrigins] = useState<Set<string>>(
@@ -83,14 +98,26 @@ export const MCPUIRenderer = memo(function MCPUIRenderer({
 
   // Load allowed origins from backend
   useEffect(() => {
-    if (tenantId) {
-      loadAllowedOrigins(tenantId).then((origins) => {
+    let cancelled = false;
+    const controller = new AbortController();
+
+    const loadOrigins = async () => {
+      if (tenantId) {
+        const origins = await loadAllowedOrigins(tenantId, controller.signal);
+        if (cancelled) return;
         setAllowedOrigins(origins);
+      }
+      if (!cancelled) {
         setIsLoading(false);
-      });
-    } else {
-      setIsLoading(false);
-    }
+      }
+    };
+
+    loadOrigins();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [tenantId]);
 
   // Check if URL origin is allowed
@@ -227,7 +254,7 @@ export const MCPUIRenderer = memo(function MCPUIRenderer({
         <iframe
           ref={iframeRef}
           src={payload.ui_url}
-          sandbox={payload.sandbox.join(' ')}
+          sandbox={(safeSandbox.length ? safeSandbox : ['allow-scripts']).join(' ')}
           allow={payload.allow.join('; ')}
           onLoad={handleIframeLoad}
           style={{

@@ -402,6 +402,17 @@ Labels:
 # Telemetry Metrics (Story 22-TD1)
 # =============================================================================
 
+TELEMETRY_EVENT_ALLOWLIST: frozenset[str] = frozenset({
+    "page_view",
+    "search_query",
+    "message_sent",
+    "tool_call",
+    "tool_result",
+    "button_click",
+    "login",
+})
+"""Allowlisted telemetry event names to prevent label cardinality explosion."""
+
 TELEMETRY_EVENTS_TOTAL = Counter(
     "telemetry_events_total",
     "Total frontend telemetry events received",
@@ -765,4 +776,7 @@ def record_telemetry_event(event: str, tenant_id: str) -> None:
         tenant_id: Tenant identifier
     """
     tenant_label = normalize_tenant_label(tenant_id)
-    TELEMETRY_EVENTS_TOTAL.labels(event=event, tenant_id=tenant_label).inc()
+    normalized_event = event.strip().lower()
+    if normalized_event not in TELEMETRY_EVENT_ALLOWLIST:
+        normalized_event = "other"
+    TELEMETRY_EVENTS_TOTAL.labels(event=normalized_event, tenant_id=tenant_label).inc()

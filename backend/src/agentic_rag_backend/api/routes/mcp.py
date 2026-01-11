@@ -106,6 +106,7 @@ async def call_tool(
 @router.get("/ui/config", response_model=MCPUIConfig)
 async def get_mcp_ui_config(
     x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> MCPUIConfig:
     """Get MCP-UI configuration for the requesting tenant.
 
@@ -123,6 +124,9 @@ async def get_mcp_ui_config(
             status_code=400,
             detail="Invalid X-Tenant-ID header",
         )
+
+    if not await limiter.allow(x_tenant_id):
+        raise rate_limit_exceeded()
 
     settings = get_settings()
 

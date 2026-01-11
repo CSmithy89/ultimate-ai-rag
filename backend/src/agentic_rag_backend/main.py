@@ -580,14 +580,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
 
         # Story 22-A1: Initialize A2A Middleware Agent
-        app.state.a2a_middleware = A2AMiddlewareAgent(
-            agent_id=f"system:{settings.a2a_agent_id}",
-            name="RAG Middleware Agent",
-        )
-        struct_logger.info(
-            "a2a_middleware_initialized",
-            agent_id=f"system:{settings.a2a_agent_id}",
-        )
+        try:
+            app.state.a2a_middleware = A2AMiddlewareAgent(
+                agent_id=f"system:{settings.a2a_agent_id}",
+                name="RAG Middleware Agent",
+            )
+            struct_logger.info(
+                "a2a_middleware_initialized",
+                agent_id=f"system:{settings.a2a_agent_id}",
+            )
+        except Exception as exc:
+            struct_logger.exception(
+                "a2a_middleware_init_failed",
+                agent_id=f"system:{settings.a2a_agent_id}",
+                error=str(exc),
+            )
+            app.state.a2a_middleware = None
 
         # Story 22-A2: Initialize A2A Resource Manager
         a2a_limits = A2AResourceLimits(
@@ -599,19 +607,36 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
         # Get async Redis client for resource manager (if available)
         async_redis_client = getattr(app.state, "redis", None)
-        app.state.a2a_resource_manager = A2AResourceManagerFactory.create(
-            backend=settings.a2a_limits_backend,
-            limits=a2a_limits,
-            redis_client=async_redis_client,
-        )
-        await app.state.a2a_resource_manager.start()
-        struct_logger.info(
-            "a2a_resource_manager_initialized",
-            backend=settings.a2a_limits_backend,
-            session_limit=settings.a2a_session_limit_per_tenant,
-            message_limit=settings.a2a_message_limit_per_session,
-            rate_limit=settings.a2a_message_rate_limit,
-        )
+        backend = settings.a2a_limits_backend
+        if backend == "redis" and async_redis_client is None:
+            struct_logger.warning(
+                "a2a_resource_manager_redis_unavailable_fallback",
+                backend=backend,
+                reason="No Redis client available; falling back to in-memory limits backend",
+            )
+            backend = "memory"
+
+        try:
+            app.state.a2a_resource_manager = A2AResourceManagerFactory.create(
+                backend=backend,
+                limits=a2a_limits,
+                redis_client=async_redis_client,
+            )
+            await app.state.a2a_resource_manager.start()
+            struct_logger.info(
+                "a2a_resource_manager_initialized",
+                backend=backend,
+                session_limit=settings.a2a_session_limit_per_tenant,
+                message_limit=settings.a2a_message_limit_per_session,
+                rate_limit=settings.a2a_message_rate_limit,
+            )
+        except Exception as exc:
+            struct_logger.exception(
+                "a2a_resource_manager_init_failed",
+                backend=backend,
+                error=str(exc),
+            )
+            app.state.a2a_resource_manager = None
 
         # Self-register this agent's RAG capabilities in the registry
         # Use a default tenant for system-level registration

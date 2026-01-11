@@ -149,7 +149,7 @@ class TenantRequiredError(AppError):
         super().__init__(
             code=ErrorCode.TENANT_REQUIRED,
             message="tenant_id is required for this operation",
-            status=400,
+            status=401,
         )
 
 
@@ -345,7 +345,7 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     headers: dict[str, str] = {}
 
     # Add Retry-After header for 429 responses per RFC 6585
-    if exc.status == 429 and exc.details.get("retry_after"):
+    if exc.status == 429 and "retry_after" in exc.details:
         headers["Retry-After"] = str(exc.details["retry_after"])
 
     return JSONResponse(
