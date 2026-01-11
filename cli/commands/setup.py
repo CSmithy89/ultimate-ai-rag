@@ -178,5 +178,30 @@ def run_setup(
             "trajectory_debugging_enabled": trajectory_debugging_enabled,
         }
 
+    if target_category in {"codebase", "all"}:
+        codebase_defaults = base_config.get("codebase_intelligence", {})
+        ingestion_defaults = base_config.get("ingestion", {})
+        codebase_enabled = bool(
+            codebase_defaults.get("codebase_enabled", ingestion_defaults.get("codebase_enabled", False))
+        )
+        hallucination_detection_enabled = bool(
+            codebase_defaults.get("hallucination_detection_enabled", False)
+        )
+
+        if not yes and profile_name == "enterprise":
+            codebase_enabled = _prompt_bool(
+                console, "Enable codebase indexing?", codebase_enabled
+            )
+            hallucination_detection_enabled = _prompt_bool(
+                console,
+                "Enable hallucination detection?",
+                hallucination_detection_enabled,
+            )
+
+        custom_config["codebase_intelligence"] = {
+            "codebase_enabled": codebase_enabled,
+            "hallucination_detection_enabled": hallucination_detection_enabled,
+        }
+
     write_custom_profile(custom_config)
     console.print("Configuration saved to config/profiles/custom.yaml")

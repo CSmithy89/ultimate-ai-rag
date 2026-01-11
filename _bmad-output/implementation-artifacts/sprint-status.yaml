@@ -265,7 +265,7 @@ development_status:
   # STT (Whisper), TTS (OpenAI/ElevenLabs/pyttsx3)
   17-12-implement-cli-observability-config: done
   # Prometheus, cost tracking, alerts, trajectory debugging
-  17-13-implement-cli-codebase-intelligence-config: backlog
+  17-13-implement-cli-codebase-intelligence-config: done
   # AST validation, symbol extraction, hallucination detection
   17-14-implement-cli-protocol-config: backlog
   # A2A, MCP, AG-UI, MCP-UI, Open-JSON-UI protocol settings

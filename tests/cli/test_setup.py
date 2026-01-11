@@ -115,3 +115,28 @@ def test_setup_observability_writes_custom_profile() -> None:
         assert custom_path.exists()
         contents = custom_path.read_text(encoding="utf-8")
         assert "observability" in contents
+
+
+def test_setup_codebase_writes_custom_profile() -> None:
+    runner = CliRunner()
+    with runner.isolated_filesystem() as root_str:
+        root = Path(root_str)
+        profile_dir = root / "config" / "profiles"
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        (profile_dir / "enterprise.yaml").write_text(
+            "ingestion:\n"
+            "  codebase_enabled: true\n"
+            "codebase_intelligence:\n"
+            "  hallucination_detection_enabled: true\n",
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(
+            app,
+            ["setup", "--category", "codebase", "--profile", "enterprise", "--yes"],
+        )
+        assert result.exit_code == 0
+        custom_path = profile_dir / "custom.yaml"
+        assert custom_path.exists()
+        contents = custom_path.read_text(encoding="utf-8")
+        assert "codebase_intelligence" in contents
