@@ -514,9 +514,9 @@ development_status:
   # 80% coverage threshold in pyproject.toml, jest.config.js, CI workflows
   22-TD5-telemetry-tenant-rate-limiting: done
   # Composite rate key: telemetry:{tenant_id}:{ip}
-  22-TD6-copilotkit-2x-migration-prep: backlog
+  22-TD6-copilotkit-2x-migration-prep: blocked  # CopilotKit 2.x not yet stable
   # Future: migrate to native Zod schemas when CopilotKit 2.x is stable
-  22-D2-implement-protocol-compliance-tests: backlog
-  # Contract tests for all protocol interfaces
+  22-D2-implement-protocol-compliance-tests: done
+  # Contract tests for all protocol interfaces (157 tests: 79 backend, 78 frontend)
 
   epic-22-retrospective: optional
