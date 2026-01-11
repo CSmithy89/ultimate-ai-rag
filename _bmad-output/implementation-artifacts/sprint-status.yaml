@@ -479,7 +479,7 @@ development_status:
   # FEATURES: A2A Middleware, AG-UI Telemetry, Resource Limits, MCP-UI, Open-JSON-UI
   # See: epic-22-tech-spec.md
   # ==========================================
-  epic-22: backlog
+  epic-22: contexted
 
   # --- Group A: A2A Middleware & Collaboration ---
   22-A1-implement-a2a-middleware-agent: backlog
