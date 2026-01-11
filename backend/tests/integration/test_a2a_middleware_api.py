@@ -39,6 +39,15 @@ TENANT_UUID_1 = "12345678-1234-1234-1234-123456789abc"
 TENANT_UUID_2 = "87654321-4321-4321-4321-cba987654321"
 
 
+@pytest.fixture(autouse=True)
+def allow_public_endpoints(monkeypatch) -> None:
+    """Allow test endpoints without DNS resolution."""
+    monkeypatch.setattr(
+        "agentic_rag_backend.protocols.a2a_middleware.is_safe_endpoint_url",
+        lambda _url: True,
+    )
+
+
 @pytest.fixture
 def mock_rate_limiter() -> InMemoryRateLimiter:
     """Create an in-memory rate limiter for testing."""

@@ -37,7 +37,7 @@ def assert_metric_accepts_labels(
 ) -> None:
     """Assert metric accepts labels via public API and emits samples."""
     update_fn(metric.labels(**labels))
-    samples = metric.collect()[0].samples
+    samples = collect_metric(metric).samples
     assert any(
         all(sample.labels.get(key) == value for key, value in labels.items())
         for sample in samples
@@ -46,11 +46,18 @@ def assert_metric_accepts_labels(
 
 def get_sample_value(metric, labels: dict[str, str]) -> float:
     """Return the sample value matching the provided label set."""
-    samples = metric.collect()[0].samples
+    samples = collect_metric(metric).samples
     for sample in samples:
         if all(sample.labels.get(key) == value for key, value in labels.items()):
             return float(sample.value)
     raise AssertionError(f"No sample found for labels: {labels}")
+
+
+def collect_metric(metric):
+    """Collect a metric via an isolated registry to avoid cross-test pollution."""
+    registry = CollectorRegistry()
+    registry.register(metric)
+    return next(iter(registry.collect()))
 
 
 class TestMetricDefinitions:

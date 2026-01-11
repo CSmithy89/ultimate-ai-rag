@@ -16,6 +16,7 @@ import time
 from unittest.mock import patch
 
 import pytest
+from prometheus_client import CollectorRegistry
 
 # Import the module under test
 from agentic_rag_backend.protocols.ag_ui_metrics import (
@@ -265,50 +266,65 @@ class TestMetricsRegistration:
     def test_stream_started_counter_exists(self):
         """Verify agui_stream_started_total counter is registered."""
         assert STREAM_STARTED is not None
-        metric = next(iter(STREAM_STARTED.collect()))
-        assert metric.name == "agui_stream_started_total"
+        metric = collect_metric(STREAM_STARTED)
+        assert any(
+            sample.name == "agui_stream_started_total" for sample in metric.samples
+        )
 
     def test_stream_completed_counter_exists(self):
         """Verify agui_stream_completed_total counter is registered."""
         assert STREAM_COMPLETED is not None
-        metric = next(iter(STREAM_COMPLETED.collect()))
-        assert metric.name == "agui_stream_completed_total"
+        metric = collect_metric(STREAM_COMPLETED)
+        assert any(
+            sample.name == "agui_stream_completed_total" for sample in metric.samples
+        )
 
     def test_event_emitted_counter_exists(self):
         """Verify agui_event_emitted_total counter is registered."""
         assert EVENT_EMITTED is not None
-        metric = next(iter(EVENT_EMITTED.collect()))
-        assert metric.name == "agui_event_emitted_total"
+        metric = collect_metric(EVENT_EMITTED)
+        assert any(
+            sample.name == "agui_event_emitted_total" for sample in metric.samples
+        )
 
     def test_stream_bytes_counter_exists(self):
         """Verify agui_stream_bytes_total counter is registered."""
         assert STREAM_BYTES is not None
-        metric = next(iter(STREAM_BYTES.collect()))
-        assert metric.name == "agui_stream_bytes_total"
+        metric = collect_metric(STREAM_BYTES)
+        assert any(
+            sample.name == "agui_stream_bytes_total" for sample in metric.samples
+        )
 
     def test_active_streams_gauge_exists(self):
         """Verify agui_active_streams gauge is registered."""
         assert ACTIVE_STREAMS is not None
-        metric = next(iter(ACTIVE_STREAMS.collect()))
+        metric = collect_metric(ACTIVE_STREAMS)
         assert metric.name == "agui_active_streams"
 
     def test_stream_duration_histogram_exists(self):
         """Verify agui_stream_duration_seconds histogram is registered."""
         assert STREAM_DURATION is not None
-        metric = next(iter(STREAM_DURATION.collect()))
+        metric = collect_metric(STREAM_DURATION)
         assert metric.name == "agui_stream_duration_seconds"
 
     def test_event_latency_histogram_exists(self):
         """Verify agui_event_latency_seconds histogram is registered."""
         assert EVENT_LATENCY is not None
-        metric = next(iter(EVENT_LATENCY.collect()))
+        metric = collect_metric(EVENT_LATENCY)
         assert metric.name == "agui_event_latency_seconds"
 
     def test_stream_event_count_histogram_exists(self):
         """Verify agui_stream_event_count histogram is registered."""
         assert STREAM_EVENT_COUNT is not None
-        metric = next(iter(STREAM_EVENT_COUNT.collect()))
+        metric = collect_metric(STREAM_EVENT_COUNT)
         assert metric.name == "agui_stream_event_count"
+
+
+def collect_metric(metric):
+    """Collect a metric via an isolated registry to avoid cross-test pollution."""
+    registry = CollectorRegistry()
+    registry.register(metric)
+    return next(iter(registry.collect()))
 
 
 class TestHistogramBuckets:

@@ -348,7 +348,9 @@ class TestTaskDelegation:
 
         async def mock_iter_lines():
             yield 'data: {"type": "result", "content": "test output"}'
+            yield ""
             yield 'data: {"type": "done"}'
+            yield ""
 
         mock_response.aiter_lines = mock_iter_lines
 
@@ -357,13 +359,17 @@ class TestTaskDelegation:
                 return_value=AsyncContextManagerMock(mock_response)
             )
 
-            events = []
-            async for event in middleware.delegate_task(
-                target_agent_id="tenant123:search-agent",
-                capability_name="vector_search",
-                input_data={"query": "test"},
+            with patch(
+                "agentic_rag_backend.protocols.a2a_middleware.is_safe_endpoint_url",
+                return_value=True,
             ):
-                events.append(event)
+                events = []
+                async for event in middleware.delegate_task(
+                    target_agent_id="tenant123:search-agent",
+                    capability_name="vector_search",
+                    input_data={"query": "test"},
+                ):
+                    events.append(event)
 
             assert len(events) == 2
             assert events[0]["type"] == "result"

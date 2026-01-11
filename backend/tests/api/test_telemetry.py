@@ -157,7 +157,9 @@ class TestTelemetryPrometheusMetrics:
         """Test that TELEMETRY_EVENTS_TOTAL counter is defined."""
         assert TELEMETRY_EVENTS_TOTAL is not None
         metric = next(iter(TELEMETRY_EVENTS_TOTAL.collect()))
-        assert metric.name == "telemetry_events_total"
+        assert any(
+            sample.name == "telemetry_events_total" for sample in metric.samples
+        )
 
     def test_record_telemetry_event_function(self):
         """Test recording a telemetry event metric."""

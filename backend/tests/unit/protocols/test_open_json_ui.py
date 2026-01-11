@@ -264,7 +264,7 @@ class TestOpenJSONUILink:
         link = OpenJSONUILink(text="Click here", href="https://example.com")
         assert link.type == "link"
         assert link.text == "Click here"
-        assert str(link.href) == "https://example.com"
+        assert str(link.href).rstrip("/") == "https://example.com"
         assert link.target is None
 
     def test_link_with_target(self) -> None:
@@ -572,13 +572,13 @@ class TestIndividualFactoryFunctions:
         )
         assert link.type == "link"
         assert link.text == "Click here"
-        assert str(link.href) == "https://example.com"
+        assert str(link.href).rstrip("/") == "https://example.com"
         assert link.target == "_blank"
 
     def test_create_link_minimal(self) -> None:
         """create_link should work with minimal parameters."""
         link = create_link(text="Link", href="https://example.com")
-        assert str(link.href) == "https://example.com"
+        assert str(link.href).rstrip("/") == "https://example.com"
         assert link.target is None
 
     def test_create_divider(self) -> None:

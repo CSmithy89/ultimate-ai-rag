@@ -520,7 +520,10 @@ class TestLazyRAGErrorHandling:
         )
 
         assert response.status_code == 500
-        assert "Test error" in response.json()["detail"]
+        assert (
+            response.json()["detail"]
+            == "LazyRAG query failed due to an internal server error."
+        )
 
     def test_expand_error_returns_500(
         self, lazy_rag_app, mock_lazy_rag_retriever, sample_tenant_id
@@ -538,4 +541,7 @@ class TestLazyRAGErrorHandling:
         )
 
         assert response.status_code == 500
-        assert "Expand error" in response.json()["detail"]
+        assert (
+            response.json()["detail"]
+            == "LazyRAG expansion failed due to an internal server error."
+        )

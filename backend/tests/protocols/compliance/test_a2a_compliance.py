@@ -9,6 +9,8 @@ Verifies A2A protocol implementation:
 - Message format compliance
 """
 
+import socket
+
 import pytest
 from pydantic import ValidationError
 
@@ -299,9 +301,14 @@ class TestA2ASecurityCompliance:
         # The API should require tenant_id (empty string not allowed)
         # This is enforced at the API layer, not the manager level
 
-    def test_ssrf_protection_url_patterns(self) -> None:
+    def test_ssrf_protection_url_patterns(self, monkeypatch) -> None:
         """SSRF protection must block dangerous URLs."""
         from agentic_rag_backend.protocols.a2a_middleware import is_safe_endpoint_url
+
+        def fake_getaddrinfo(*_args, **_kwargs):
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+
+        monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
 
         # Should block localhost
         assert not is_safe_endpoint_url("http://localhost:8080")

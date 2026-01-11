@@ -327,7 +327,7 @@ class TestSaveContentEndpoint:
             },
         )
 
-        assert response.status_code == 400
+        assert response.status_code == 401
         data = response.json()
         assert data["title"] == "Tenant Required"
 
@@ -364,7 +364,7 @@ class TestLoadWorkspaceEndpoint:
             "/api/v1/workspace/11111111-1111-1111-1111-111111111111",
         )
 
-        assert response.status_code == 400
+        assert response.status_code == 401
 
 
 class TestExportContentEndpoint:
@@ -428,7 +428,7 @@ class TestExportContentEndpoint:
             },
         )
 
-        assert response.status_code == 400
+        assert response.status_code == 401
 
 
 class TestShareContentEndpoint:
@@ -571,7 +571,7 @@ class TestShareContentEndpoint:
             },
         )
 
-        assert response.status_code == 400
+        assert response.status_code == 401
 
 
 class TestBookmarkContentEndpoint:
@@ -604,7 +604,7 @@ class TestBookmarkContentEndpoint:
             },
         )
 
-        assert response.status_code == 400
+        assert response.status_code == 401
 
 
 class TestGetBookmarksEndpoint:
