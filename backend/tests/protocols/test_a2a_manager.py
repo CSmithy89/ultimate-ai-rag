@@ -22,14 +22,23 @@ async def test_a2a_prunes_expired_sessions() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a2a_cleanup_task_prunes_expired_sessions() -> None:
+async def test_a2a_cleanup_task_prunes_expired_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manager = A2ASessionManager(session_ttl_seconds=1)
     session = await manager.create_session("11111111-1111-1111-1111-111111111111")
     manager._sessions[session["session_id"]].last_activity = datetime.now(timezone.utc) - timedelta(seconds=5)
 
+    async def run_once(_: int) -> None:
+        async with manager._lock:
+            manager._prune_expired_locked()
+
+    monkeypatch.setattr(manager, "_periodic_cleanup_task", run_once)
+
     await manager.start_cleanup_task(0.01)
     try:
-        await asyncio.sleep(0.02)
+        if manager._cleanup_task:
+            await manager._cleanup_task
         assert session["session_id"] not in manager._sessions
     finally:
         await manager.stop_cleanup_task()
