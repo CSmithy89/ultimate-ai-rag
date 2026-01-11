@@ -500,7 +500,7 @@ development_status:
   # OpenAI-style declarative UI: text, heading, code, table, image, button, etc.
 
   # --- Group D: Protocol Polish & Documentation ---
-  22-D1-create-protocol-integration-guide: backlog
+  22-D1-create-protocol-integration-guide: done
   # Comprehensive docs: AG-UI, A2A, MCP, A2UI, MCP-UI, Open-JSON-UI
 
   # --- Tech Debt (from Epic 21 Retrospective) ---
