@@ -657,7 +657,7 @@ correct-course               # If issues
 **Phase 2 Planning:**
 
 - `docs/tech-spec.md` (Quick Flow track)
-- `docs/PRD.md` (BMad Method/Enterprise tracks - FRs/NFRs only)
+- `_bmad-output/prd.md` (BMad Method/Enterprise tracks - FRs/NFRs only)
 
 **Phase 3 Solutioning:**
 
@@ -665,15 +665,15 @@ correct-course               # If issues
 
 **Phase 3 Architecture:**
 
-- `docs/architecture.md` (BMad Method/Enterprise tracks)
-- `docs/epics.md` + epic folders (from create-epics-and-stories)
+- `_bmad-output/architecture.md` (BMad Method/Enterprise tracks)
+- `_bmad-output/project-planning-artifacts/epics.md` + epic folders (from create-epics-and-stories)
 
 **Phase 4 Implementation:**
 
-- `docs/sprint-status.yaml` - **Single source of truth**
-- `docs/epic-{n}-context.md`
-- `docs/stories/{epic}-{story}-{title}.md`
-- `docs/stories/{epic}-{story}-{title}-context.md`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` - **Single source of truth**
+- `_bmad-output/epics/epic-{n}-tech-spec.md`
+- `_bmad-output/implementation-artifacts/stories/{epic}-{story}-{title}.md`
+- `_bmad-output/implementation-artifacts/stories/{epic}-{story}-{title}-context.md`
 
 ### Decision Flowchart
 

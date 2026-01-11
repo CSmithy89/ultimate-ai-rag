@@ -391,7 +391,7 @@ Check `bmad/bmm/config.yaml` for configured paths:
 
 ```yaml
 output_folder: '{project-root}/docs'
-dev_story_location: '{project-root}/docs/stories'
+dev_story_location: '{project-root}/_bmad-output/implementation-artifacts/stories'
 ```
 
 Default locations:
