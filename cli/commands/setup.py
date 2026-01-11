@@ -153,5 +153,30 @@ def run_setup(
             "tts_voice": tts_voice,
         }
 
+    if target_category in {"observability", "all"}:
+        observability_defaults = base_config.get("observability", {})
+        prometheus_enabled = bool(observability_defaults.get("prometheus_enabled", False))
+        cost_tracking_enabled = bool(observability_defaults.get("cost_tracking_enabled", False))
+        trajectory_debugging_enabled = bool(
+            observability_defaults.get("trajectory_debugging_enabled", False)
+        )
+
+        if not yes and profile_name != "minimal":
+            prometheus_enabled = _prompt_bool(
+                console, "Enable Prometheus metrics?", prometheus_enabled
+            )
+            cost_tracking_enabled = _prompt_bool(
+                console, "Enable cost tracking?", cost_tracking_enabled
+            )
+            trajectory_debugging_enabled = _prompt_bool(
+                console, "Enable trajectory debugging?", trajectory_debugging_enabled
+            )
+
+        custom_config["observability"] = {
+            "prometheus_enabled": prometheus_enabled,
+            "cost_tracking_enabled": cost_tracking_enabled,
+            "trajectory_debugging_enabled": trajectory_debugging_enabled,
+        }
+
     write_custom_profile(custom_config)
     console.print("Configuration saved to config/profiles/custom.yaml")

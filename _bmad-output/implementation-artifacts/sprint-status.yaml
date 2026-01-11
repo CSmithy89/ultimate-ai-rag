@@ -263,7 +263,7 @@ development_status:
   # Memory scopes, consolidation, community detection, LazyRAG, query routing
   17-11-implement-cli-voice-io-config: done
   # STT (Whisper), TTS (OpenAI/ElevenLabs/pyttsx3)
-  17-12-implement-cli-observability-config: backlog
+  17-12-implement-cli-observability-config: done
   # Prometheus, cost tracking, alerts, trajectory debugging
   17-13-implement-cli-codebase-intelligence-config: backlog
   # AST validation, symbol extraction, hallucination detection
