@@ -8,7 +8,11 @@ Includes:
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
+import time
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
@@ -43,6 +47,66 @@ class ToolCallResponse(BaseModel):
     tool: str
     result: dict[str, Any]
     meta: dict[str, Any]
+
+
+MCP_UI_SIGNATURE_TTL_SECONDS = 300
+MCP_UI_SIGNATURE_PARAM = "mcp_sig"
+MCP_UI_EXP_PARAM = "mcp_exp"
+
+
+def sign_mcp_ui_url(ui_url: str, secret: str, ttl_seconds: int) -> str:
+    """Return a signed MCP-UI URL with expiry and signature query params."""
+    parsed = urlsplit(ui_url)
+    query_pairs = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if key not in {MCP_UI_SIGNATURE_PARAM, MCP_UI_EXP_PARAM}
+    ]
+    base_query = urlencode(query_pairs, doseq=True)
+    base_url = urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, base_query, parsed.fragment)
+    )
+    expires_at = int(time.time()) + ttl_seconds
+    payload = f"{base_url}|{expires_at}"
+    signature = hmac.new(
+        secret.encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    signed_query = urlencode(
+        query_pairs
+        + [
+            (MCP_UI_EXP_PARAM, str(expires_at)),
+            (MCP_UI_SIGNATURE_PARAM, signature),
+        ],
+        doseq=True,
+    )
+    return urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, signed_query, parsed.fragment)
+    )
+
+
+def maybe_sign_mcp_ui_result(
+    result: dict[str, Any],
+    secret: str,
+    enabled: bool,
+) -> dict[str, Any]:
+    """Sign MCP-UI payload URLs when MCP-UI is enabled."""
+    if not enabled:
+        return result
+    if result.get("type") != "mcp_ui":
+        return result
+    ui_url = result.get("ui_url")
+    if not isinstance(ui_url, str):
+        return result
+    signed_url = sign_mcp_ui_url(
+        ui_url=ui_url,
+        secret=secret,
+        ttl_seconds=MCP_UI_SIGNATURE_TTL_SECONDS,
+    )
+    updated = dict(result)
+    updated["ui_url"] = signed_url
+    return updated
 
 
 def get_rate_limiter(request: Request) -> RateLimiter:
@@ -94,6 +158,14 @@ async def call_tool(
         raise HTTPException(status_code=504, detail="Tool execution timed out") from exc
     except (ValueError, ValidationError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    settings = get_settings()
+    if isinstance(result, dict):
+        result = maybe_sign_mcp_ui_result(
+            result,
+            secret=settings.mcp_ui_signing_secret,
+            enabled=settings.mcp_ui_enabled,
+        )
 
     return ToolCallResponse(tool=request_body.tool, result=result, meta=build_meta())
 

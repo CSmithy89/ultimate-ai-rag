@@ -464,6 +464,9 @@ async def add_message(
         raise HTTPException(status_code=404, detail="Session not found")
     if session_snapshot["tenant_id"] != request_body.tenant_id:
         raise A2APermissionError("Tenant not authorized for this session")
+    max_messages = getattr(manager, "_max_messages_per_session", None)
+    if max_messages and len(session_snapshot.get("messages", [])) >= max_messages:
+        raise HTTPException(status_code=409, detail="Session message limit reached")
 
     try:
         await resource_manager.record_message(session_id=session_id)
@@ -1041,19 +1044,6 @@ async def delegate_to_agent(
         "X-Accel-Buffering": "no",
     }
     return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)
-    except A2ACapabilityNotFoundError:
-        raise
-    except Exception as e:
-        logger.error(
-            "a2a_delegation_failed",
-            agent_id=agent_id,
-            capability=body.capability_name,
-            error=str(e),
-        )
-        raise A2ADelegationError(
-            reason=str(e),
-            task_id=None,
-        ) from e
 
 
 # ==================== Resource Metrics Endpoints (Story 22-A2) ====================

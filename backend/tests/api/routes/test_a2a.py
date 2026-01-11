@@ -35,12 +35,21 @@ class DenyLimiter:
         return False
 
 
+class AllowResourceManager:
+    async def register_session(self, session_id: str, tenant_id: str) -> None:
+        return None
+
+    async def record_message(self, session_id: str) -> None:
+        return None
+
+
 @pytest.mark.asyncio
 async def test_create_session_success() -> None:
     manager = A2ASessionManager()
     response = await create_session(
         request_body=CreateSessionRequest(tenant_id="11111111-1111-1111-1111-111111111111"),
         manager=manager,
+        resource_manager=AllowResourceManager(),
         limiter=AllowLimiter(),
     )
 
@@ -62,6 +71,7 @@ async def test_add_message_success() -> None:
             content="hello",
         ),
         manager=manager,
+        resource_manager=AllowResourceManager(),
         limiter=AllowLimiter(),
     )
 
@@ -91,6 +101,7 @@ async def test_rate_limit_applies() -> None:
         await create_session(
             request_body=CreateSessionRequest(tenant_id="11111111-1111-1111-1111-111111111111"),
             manager=manager,
+            resource_manager=AllowResourceManager(),
             limiter=DenyLimiter(),
         )
     assert exc_info.value.status_code == 429
@@ -102,6 +113,7 @@ async def test_session_limit_enforced() -> None:
     await create_session(
         request_body=CreateSessionRequest(tenant_id="11111111-1111-1111-1111-111111111111"),
         manager=manager,
+        resource_manager=AllowResourceManager(),
         limiter=AllowLimiter(),
     )
 
@@ -109,6 +121,7 @@ async def test_session_limit_enforced() -> None:
         await create_session(
             request_body=CreateSessionRequest(tenant_id="11111111-1111-1111-1111-111111111111"),
             manager=manager,
+            resource_manager=AllowResourceManager(),
             limiter=AllowLimiter(),
         )
     assert exc_info.value.status_code == 409
@@ -127,6 +140,7 @@ async def test_message_limit_enforced() -> None:
             content="hello",
         ),
         manager=manager,
+        resource_manager=AllowResourceManager(),
         limiter=AllowLimiter(),
     )
 
@@ -139,6 +153,7 @@ async def test_message_limit_enforced() -> None:
                 content="second",
             ),
             manager=manager,
+            resource_manager=AllowResourceManager(),
             limiter=AllowLimiter(),
         )
     assert exc_info.value.status_code == 409
