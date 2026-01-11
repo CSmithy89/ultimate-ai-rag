@@ -259,7 +259,7 @@ development_status:
   # Foundation story: YAML profiles (minimal/standard/enterprise), config loader, schema validation
   17-9-implement-cli-ingestion-source-config: done
   # Crawl4AI, PDF/Docling, YouTube, External Sync, Codebase indexing
-  17-10-implement-cli-memory-graph-config: backlog
+  17-10-implement-cli-memory-graph-config: done
   # Memory scopes, consolidation, community detection, LazyRAG, query routing
   17-11-implement-cli-voice-io-config: backlog
   # STT (Whisper), TTS (OpenAI/ElevenLabs/pyttsx3)

@@ -65,5 +65,56 @@ def run_setup(
             "external_sync_enabled": external_sync_enabled,
         }
 
+    if target_category in {"memory", "graph", "memory-graph", "all"}:
+        memory_defaults = base_config.get("memory", {})
+        community_defaults = base_config.get("community", {})
+        graph_defaults = base_config.get("graph_intelligence", {})
+
+        scopes_enabled = bool(memory_defaults.get("scopes_enabled", False))
+        default_scope = memory_defaults.get("default_scope", "session")
+        consolidation_enabled = bool(memory_defaults.get("consolidation_enabled", False))
+
+        community_detection_enabled = bool(community_defaults.get("detection_enabled", False))
+        lazy_rag_enabled = bool(graph_defaults.get("lazy_rag_enabled", False))
+        query_routing_enabled = bool(graph_defaults.get("query_routing_enabled", False))
+        graph_reranker_enabled = bool(graph_defaults.get("graph_reranker_enabled", False))
+
+        if not yes and profile_name != "minimal":
+            scopes_enabled = _prompt_bool(console, "Enable memory scopes?", scopes_enabled)
+            if scopes_enabled:
+                default_scope = Prompt.ask(
+                    "Default memory scope",
+                    choices=["session", "user", "agent"],
+                    default=default_scope,
+                    console=console,
+                )
+            consolidation_enabled = _prompt_bool(
+                console, "Enable memory consolidation?", consolidation_enabled
+            )
+            community_detection_enabled = _prompt_bool(
+                console, "Enable community detection?", community_detection_enabled
+            )
+            lazy_rag_enabled = _prompt_bool(console, "Enable LazyRAG?", lazy_rag_enabled)
+            query_routing_enabled = _prompt_bool(
+                console, "Enable query routing?", query_routing_enabled
+            )
+            graph_reranker_enabled = _prompt_bool(
+                console, "Enable graph reranker?", graph_reranker_enabled
+            )
+
+        custom_config["memory"] = {
+            "scopes_enabled": scopes_enabled,
+            "default_scope": default_scope,
+            "consolidation_enabled": consolidation_enabled,
+        }
+        custom_config["community"] = {
+            "detection_enabled": community_detection_enabled,
+        }
+        custom_config["graph_intelligence"] = {
+            "lazy_rag_enabled": lazy_rag_enabled,
+            "query_routing_enabled": query_routing_enabled,
+            "graph_reranker_enabled": graph_reranker_enabled,
+        }
+
     write_custom_profile(custom_config)
     console.print("Configuration saved to config/profiles/custom.yaml")
