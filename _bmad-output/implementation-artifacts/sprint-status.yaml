@@ -496,7 +496,7 @@ development_status:
   # --- Group C: MCP-UI & Open-JSON-UI Rendering ---
   22-C1-implement-mcp-ui-renderer: done
   # Iframe sandbox, origin allowlist, postMessage bridge
-  22-C2-implement-open-json-ui-renderer: drafted
+  22-C2-implement-open-json-ui-renderer: done
   # OpenAI-style declarative UI: text, heading, code, table, image, button, etc.
 
   # --- Group D: Protocol Polish & Documentation ---
