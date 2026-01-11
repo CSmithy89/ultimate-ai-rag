@@ -482,7 +482,7 @@ development_status:
   epic-22: contexted
 
   # --- Group A: A2A Middleware & Collaboration ---
-  22-A1-implement-a2a-middleware-agent: drafted
+  22-A1-implement-a2a-middleware-agent: done
   # A2AMiddlewareAgent for agent delegation and discovery
   22-A2-implement-a2a-session-resource-limits: backlog
   # Per-tenant session/message caps, rate limiting

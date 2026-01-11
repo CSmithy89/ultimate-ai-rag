@@ -1,0 +1,773 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <story-summary>
+    <title>Story 22-A1: Implement A2A Middleware Agent</title>
+    <objective>Create an A2AMiddlewareAgent class for agent delegation and collaboration that enables agents to discover, register, and delegate tasks to each other through a standardized A2A protocol with tenant-scoped security.</objective>
+    <priority>P0 - HIGH</priority>
+    <story-points>8</story-points>
+    <owner>Backend</owner>
+
+    <key-deliverables>
+      <deliverable>A2AMiddlewareAgent class with registration, discovery, and delegation methods</deliverable>
+      <deliverable>A2AAgentCapability and A2AAgentInfo Pydantic models</deliverable>
+      <deliverable>New API endpoints: POST /a2a/agents/register, GET /a2a/agents, GET /a2a/capabilities</deliverable>
+      <deliverable>Tenant-scoped agent ID validation (agent_id must be prefixed with tenant_id)</deliverable>
+      <deliverable>AG-UI SSE streaming for task delegation responses</deliverable>
+      <deliverable>Unit and integration tests with >90% coverage</deliverable>
+    </key-deliverables>
+
+    <acceptance-criteria-summary>
+      <criterion id="AC1">A2AMiddlewareAgent initializes with agent_id, name, capabilities, and empty registry</criterion>
+      <criterion id="AC2">POST /a2a/agents/register validates tenant_id prefix in agent_id</criterion>
+      <criterion id="AC3">403 Forbidden with RFC 7807 format for mismatched tenant prefix</criterion>
+      <criterion id="AC4">GET /a2a/agents returns tenant-scoped agent list</criterion>
+      <criterion id="AC5">GET /a2a/capabilities supports filter query param</criterion>
+      <criterion id="AC6">delegate_task() invokes target agent's AG-UI endpoint with streaming</criterion>
+      <criterion id="AC7">A2AAgentNotFoundError for non-existent agents</criterion>
+      <criterion id="AC8">A2ACapabilityNotFoundError for non-existent capabilities</criterion>
+      <criterion id="AC9">Structlog logging for all A2A operations</criterion>
+      <criterion id="AC10">HTTP client cleanup via close() method</criterion>
+    </acceptance-criteria-summary>
+  </story-summary>
+
+  <technical-requirements>
+    <requirement id="TR1">
+      <title>A2AMiddlewareAgent Class</title>
+      <description>Core middleware agent for A2A protocol collaboration</description>
+      <details>
+        <![CDATA[
+- Agent-to-agent message routing
+- Capability discovery across agents
+- Task delegation with context preservation
+- Async agent invocation with response handling
+- HTTP connection pooling with proper lifecycle management
+        ]]>
+      </details>
+    </requirement>
+
+    <requirement id="TR2">
+      <title>Tenant-Scoped Security</title>
+      <description>All operations must enforce tenant isolation</description>
+      <details>
+        <![CDATA[
+- Agent IDs must be prefixed with tenant_id (e.g., "tenant123:agent-name")
+- Registration requires valid X-Tenant-ID header + API key
+- Rate limiting: 10 registrations per minute per tenant
+- Agent listings scoped to requesting tenant only
+        ]]>
+      </details>
+    </requirement>
+
+    <requirement id="TR3">
+      <title>AG-UI SSE Streaming</title>
+      <description>Task delegation uses Server-Sent Events for streaming responses</description>
+      <details>
+        <![CDATA[
+- HTTP POST with Accept: text/event-stream header
+- Parse SSE format: "data: {json}\n\n"
+- AsyncIterator[dict[str, Any]] return type
+- 30s default timeout, 5s connect timeout
+        ]]>
+      </details>
+    </requirement>
+
+    <requirement id="TR4">
+      <title>HTTP Client Configuration</title>
+      <description>Pooled HTTP client for efficient connection reuse</description>
+      <details>
+        <![CDATA[
+- httpx.AsyncClient with connection pooling
+- max_connections=100, max_keepalive_connections=20
+- Timeout: 30.0s total, 5.0s connect
+- Lazy initialization via _get_http_client()
+- Cleanup via async close() method
+        ]]>
+      </details>
+    </requirement>
+
+    <requirement id="TR5">
+      <title>Error Handling</title>
+      <description>RFC 7807 Problem Details format for all errors</description>
+      <details>
+        <![CDATA[
+Existing error classes to use:
+- A2AAgentNotFoundError: Agent not in registry (404)
+- A2ACapabilityNotFoundError: Capability not available (404)
+- A2APermissionError: Tenant mismatch (403)
+- A2ARegistrationError: Registration validation failure (400)
+
+All errors must include:
+- type: URL to error documentation
+- title: Human-readable error title
+- status: HTTP status code
+- detail: Specific error message
+- instance: Request path
+        ]]>
+      </details>
+    </requirement>
+  </technical-requirements>
+
+  <existing-code-analysis>
+    <module name="protocols/a2a.py">
+      <purpose>A2A Session Manager for agent collaboration sessions</purpose>
+      <relevant-patterns>
+        <![CDATA[
+# Session management pattern - use similar structure for middleware
+class A2ASessionManager:
+    def __init__(
+        self,
+        session_ttl_seconds: int = 21600,
+        max_sessions_per_tenant: int = 100,
+        redis_client: Optional[RedisClient] = None,
+    ) -> None:
+        self._sessions: dict[str, A2ASession] = {}
+        self._lock = Lock()
+        self._redis_client = redis_client
+
+# Async lock pattern for thread safety
+async def create_session(self, tenant_id: str) -> dict[str, Any]:
+    async with self._lock:
+        # Critical section
+        ]]>
+      </relevant-patterns>
+    </module>
+
+    <module name="protocols/a2a_registry.py">
+      <purpose>Agent registration and health monitoring</purpose>
+      <relevant-patterns>
+        <![CDATA[
+# Agent ID validation pattern - REUSE THIS
+MAX_AGENT_ID_LENGTH = 128
+AGENT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_.-]+$")
+
+# Registration validation
+if len(agent_id) > MAX_AGENT_ID_LENGTH:
+    raise ValueError(f"agent_id exceeds maximum length of {MAX_AGENT_ID_LENGTH}")
+if not AGENT_ID_PATTERN.match(agent_id):
+    raise ValueError("agent_id must contain only alphanumeric...")
+
+# Registry pattern for middleware
+class A2AAgentRegistry:
+    def __init__(self, config: Optional[RegistryConfig] = None, redis_client: Optional[RedisClient] = None):
+        self._agents: dict[str, AgentRegistration] = {}
+        self._lock = Lock()
+
+    async def register_agent(self, agent_id: str, agent_type: str, ...) -> AgentRegistration:
+        # Validation + lock + persist
+        ]]>
+      </relevant-patterns>
+    </module>
+
+    <module name="protocols/a2a_delegation.py">
+      <purpose>Task delegation with retry and timeout handling</purpose>
+      <relevant-patterns>
+        <![CDATA[
+# HTTP client pattern - FOLLOW THIS EXACT PATTERN
+def _get_http_client(self) -> httpx.AsyncClient:
+    if self._http_client is None:
+        self._http_client = httpx.AsyncClient(
+            timeout=self._config.http_timeout_seconds
+        )
+    return self._http_client
+
+async def close(self) -> None:
+    if self._http_client is not None:
+        await self._http_client.aclose()
+        self._http_client = None
+
+# Retry with exponential backoff
+async def _execute_with_retry(self, request: TaskRequest, endpoint_url: str) -> TaskResult:
+    retry_delay = self._config.retry_delay_seconds
+    for attempt in range(self._config.max_retries + 1):
+        result = await self._send_task_to_agent(request, endpoint_url)
+        if result.is_success:
+            return result
+        await asyncio.sleep(retry_delay)
+        retry_delay *= 2  # Exponential backoff
+        ]]>
+      </relevant-patterns>
+    </module>
+
+    <module name="protocols/a2a_messages.py">
+      <purpose>Message types and data structures</purpose>
+      <relevant-patterns>
+        <![CDATA[
+# Existing AgentCapability - DON'T DUPLICATE, import this
+@dataclass
+class AgentCapability:
+    name: str
+    description: str
+    parameters_schema: dict[str, Any] = field(default_factory=dict)
+    returns_schema: dict[str, Any] = field(default_factory=dict)
+    estimated_duration_ms: Optional[int] = None
+
+    def to_dict(self) -> dict[str, Any]: ...
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "AgentCapability": ...
+
+# Consider using existing AgentRegistration pattern for A2AAgentInfo
+        ]]>
+      </relevant-patterns>
+    </module>
+
+    <module name="api/routes/a2a.py">
+      <purpose>A2A HTTP API endpoints</purpose>
+      <relevant-patterns>
+        <![CDATA[
+# Existing endpoint pattern - EXTEND this file
+@router.post("/agents/register", response_model=AgentResponse)
+async def register_agent(
+    request_body: RegisterAgentRequest,
+    registry: A2AAgentRegistry = Depends(get_a2a_registry),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+) -> AgentResponse:
+    if not await limiter.allow(request_body.tenant_id):
+        raise rate_limit_exceeded()
+    # ... validation and registration
+
+# Dependency injection pattern
+def get_a2a_registry(request: Request) -> A2AAgentRegistry:
+    registry = getattr(request.app.state, "a2a_registry", None)
+    if registry is None:
+        raise RuntimeError("A2A agent registry not initialized")
+    return registry
+        ]]>
+      </relevant-patterns>
+    </module>
+
+    <module name="core/errors.py">
+      <purpose>Error handling with RFC 7807</purpose>
+      <relevant-patterns>
+        <![CDATA[
+# A2A Error codes already defined - USE THESE
+class ErrorCode(str, Enum):
+    A2A_AGENT_NOT_FOUND = "a2a_agent_not_found"
+    A2A_AGENT_UNHEALTHY = "a2a_agent_unhealthy"
+    A2A_CAPABILITY_NOT_FOUND = "a2a_capability_not_found"
+    A2A_PERMISSION_DENIED = "a2a_permission_denied"
+    A2A_REGISTRATION_FAILED = "a2a_registration_failed"
+
+# Error classes exist - use them directly
+class A2AAgentNotFoundError(AppError): ...
+class A2ACapabilityNotFoundError(AppError): ...
+class A2APermissionError(AppError): ...
+        ]]>
+      </relevant-patterns>
+    </module>
+
+    <module name="main.py">
+      <purpose>Application lifecycle and dependency wiring</purpose>
+      <relevant-patterns>
+        <![CDATA[
+# Lifecycle pattern for new middleware
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    # Startup: Wire middleware to app.state
+    if settings.a2a_enabled:
+        app.state.a2a_middleware = A2AMiddlewareAgent(...)
+
+    yield
+
+    # Shutdown: Clean up HTTP client
+    if hasattr(app.state, "a2a_middleware") and app.state.a2a_middleware:
+        await app.state.a2a_middleware.close()
+        ]]>
+      </relevant-patterns>
+    </module>
+  </existing-code-analysis>
+
+  <file-structure>
+    <files-to-create>
+      <file path="backend/src/agentic_rag_backend/protocols/a2a_middleware.py">
+        <purpose>A2AMiddlewareAgent core class with Pydantic models</purpose>
+        <contents>
+          <![CDATA[
+Classes to implement:
+1. A2AAgentCapability(BaseModel) - capability description for middleware
+   - name: str
+   - description: str
+   - input_schema: dict[str, Any]
+   - output_schema: dict[str, Any]
+
+2. A2AAgentInfo(BaseModel) - registered agent info
+   - agent_id: str
+   - name: str
+   - description: str
+   - capabilities: list[A2AAgentCapability]
+   - endpoint: str  # AG-UI endpoint
+
+3. A2AMiddlewareAgent - main middleware class
+   - __init__(agent_id, name, capabilities)
+   - register_agent(agent_info: A2AAgentInfo) -> None
+   - discover_capabilities(filter: str | None) -> list[tuple[str, A2AAgentCapability]]
+   - delegate_task(target_agent_id, capability_name, input_data, context) -> AsyncIterator[dict]
+   - _invoke_agent(endpoint, capability, input_data, context) -> AsyncIterator[dict]
+   - _get_http_client() -> httpx.AsyncClient
+   - close() -> None
+          ]]>
+        </contents>
+      </file>
+
+      <file path="tests/protocols/test_a2a_middleware.py">
+        <purpose>Unit tests for A2AMiddlewareAgent</purpose>
+        <test-cases>
+          <![CDATA[
+- test_middleware_initialization
+- test_register_agent_success
+- test_discover_capabilities_no_filter
+- test_discover_capabilities_with_filter
+- test_delegate_task_success (mocked httpx)
+- test_delegate_task_agent_not_found
+- test_delegate_task_capability_not_found
+- test_close_cleans_up_http_client
+- test_http_client_lazy_initialization
+          ]]>
+        </test-cases>
+      </file>
+
+      <file path="tests/integration/test_a2a_middleware_endpoints.py">
+        <purpose>Integration tests for new API endpoints</purpose>
+        <test-cases>
+          <![CDATA[
+- test_register_with_valid_tenant_prefix
+- test_register_with_invalid_tenant_prefix_returns_403
+- test_list_agents_returns_tenant_scoped
+- test_capabilities_with_filter
+- test_registration_requires_rate_limit
+          ]]>
+        </test-cases>
+      </file>
+    </files-to-create>
+
+    <files-to-modify>
+      <file path="backend/src/agentic_rag_backend/api/routes/a2a.py">
+        <changes>
+          <![CDATA[
+Add new endpoints:
+1. POST /a2a/agents/register with tenant prefix validation
+   - Validate agent_id.startswith(f"{tenant_id}:")
+   - Return 403 RFC 7807 error on mismatch
+
+2. GET /a2a/agents - already exists but verify tenant-scoping
+
+3. GET /a2a/capabilities?filter=xxx - already exists but add filter param if missing
+
+Add new dependency:
+- get_a2a_middleware(request: Request) -> A2AMiddlewareAgent
+          ]]>
+        </changes>
+      </file>
+
+      <file path="backend/src/agentic_rag_backend/main.py">
+        <changes>
+          <![CDATA[
+In lifespan():
+  # After A2A registry initialization
+  if settings.a2a_enabled:
+      app.state.a2a_middleware = A2AMiddlewareAgent(
+          agent_id=settings.a2a_agent_id,
+          name="rag-engine-middleware",
+          capabilities=[],  # Or from settings
+      )
+
+  yield
+
+  # In shutdown
+  if hasattr(app.state, "a2a_middleware") and app.state.a2a_middleware:
+      await app.state.a2a_middleware.close()
+          ]]>
+        </changes>
+      </file>
+
+      <file path="backend/src/agentic_rag_backend/protocols/__init__.py">
+        <changes>
+          <![CDATA[
+Add exports:
+from .a2a_middleware import (
+    A2AMiddlewareAgent,
+    A2AAgentCapability,
+    A2AAgentInfo,
+)
+          ]]>
+        </changes>
+      </file>
+    </files-to-modify>
+  </file-structure>
+
+  <implementation-guidance>
+    <phase id="1" name="Create Core Classes">
+      <steps>
+        <step number="1">Create protocols/a2a_middleware.py with Pydantic models</step>
+        <step number="2">Implement A2AAgentCapability with input_schema/output_schema</step>
+        <step number="3">Implement A2AAgentInfo with endpoint field</step>
+        <step number="4">Implement A2AMiddlewareAgent.__init__ with empty _registered_agents dict</step>
+        <step number="5">Add structlog logging in __init__</step>
+      </steps>
+      <code-snippet>
+        <![CDATA[
+# backend/src/agentic_rag_backend/protocols/a2a_middleware.py
+from __future__ import annotations
+
+from typing import Any, AsyncIterator
+
+import httpx
+import structlog
+from pydantic import BaseModel, Field
+
+logger = structlog.get_logger(__name__)
+
+
+class A2AAgentCapability(BaseModel):
+    """Advertised capability of an A2A agent."""
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(..., min_length=1, max_length=500)
+    input_schema: dict[str, Any] = Field(default_factory=dict)
+    output_schema: dict[str, Any] = Field(default_factory=dict)
+
+
+class A2AAgentInfo(BaseModel):
+    """Registered A2A agent information."""
+    agent_id: str = Field(..., min_length=1, max_length=128)
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(..., min_length=1, max_length=500)
+    capabilities: list[A2AAgentCapability]
+    endpoint: str = Field(..., min_length=1, max_length=500)
+
+
+class A2AMiddlewareAgent:
+    """Middleware agent for A2A protocol collaboration."""
+
+    def __init__(
+        self,
+        agent_id: str,
+        name: str,
+        capabilities: list[A2AAgentCapability] | None = None,
+    ) -> None:
+        self.agent_id = agent_id
+        self.name = name
+        self.capabilities = capabilities or []
+        self._registered_agents: dict[str, A2AAgentInfo] = {}
+        self._http_client: httpx.AsyncClient | None = None
+
+        logger.info(
+            "a2a_middleware_initialized",
+            agent_id=agent_id,
+            name=name,
+        )
+        ]]>
+      </code-snippet>
+    </phase>
+
+    <phase id="2" name="Implement Registration and Discovery">
+      <steps>
+        <step number="1">Implement register_agent() with logging</step>
+        <step number="2">Implement discover_capabilities() with optional filter</step>
+        <step number="3">Store agents in _registered_agents dict keyed by agent_id</step>
+      </steps>
+      <code-snippet>
+        <![CDATA[
+def register_agent(self, agent_info: A2AAgentInfo) -> None:
+    """Register an agent for collaboration."""
+    self._registered_agents[agent_info.agent_id] = agent_info
+    logger.info(
+        "a2a_agent_registered",
+        agent_id=agent_info.agent_id,
+        capabilities=[c.name for c in agent_info.capabilities],
+    )
+
+def discover_capabilities(
+    self,
+    capability_filter: str | None = None,
+) -> list[tuple[str, A2AAgentCapability]]:
+    """Discover capabilities across all registered agents."""
+    results: list[tuple[str, A2AAgentCapability]] = []
+    for agent_id, agent_info in self._registered_agents.items():
+        for cap in agent_info.capabilities:
+            if capability_filter is None or capability_filter in cap.name:
+                results.append((agent_id, cap))
+    return results
+        ]]>
+      </code-snippet>
+    </phase>
+
+    <phase id="3" name="Implement Task Delegation">
+      <steps>
+        <step number="1">Implement _get_http_client() with connection pooling</step>
+        <step number="2">Implement _invoke_agent() with SSE streaming</step>
+        <step number="3">Implement delegate_task() with validation</step>
+        <step number="4">Implement close() for cleanup</step>
+      </steps>
+      <code-snippet>
+        <![CDATA[
+from agentic_rag_backend.core.errors import (
+    A2AAgentNotFoundError,
+    A2ACapabilityNotFoundError,
+)
+
+def _get_http_client(self) -> httpx.AsyncClient:
+    """Get or create pooled HTTP client."""
+    if self._http_client is None:
+        self._http_client = httpx.AsyncClient(
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+            timeout=httpx.Timeout(30.0, connect=5.0),
+        )
+    return self._http_client
+
+async def close(self) -> None:
+    """Close the HTTP client pool."""
+    if self._http_client is not None:
+        await self._http_client.aclose()
+        self._http_client = None
+        logger.info("a2a_middleware_http_client_closed")
+
+async def delegate_task(
+    self,
+    target_agent_id: str,
+    capability_name: str,
+    input_data: dict[str, Any],
+    context: dict[str, Any] | None = None,
+) -> AsyncIterator[dict[str, Any]]:
+    """Delegate a task to another agent."""
+    agent_info = self._registered_agents.get(target_agent_id)
+    if not agent_info:
+        raise A2AAgentNotFoundError(target_agent_id)
+
+    capability = next(
+        (c for c in agent_info.capabilities if c.name == capability_name),
+        None,
+    )
+    if not capability:
+        raise A2ACapabilityNotFoundError(capability_name)
+
+    logger.info(
+        "a2a_task_delegated",
+        from_agent=self.agent_id,
+        to_agent=target_agent_id,
+        capability=capability_name,
+    )
+
+    async for event in self._invoke_agent(
+        agent_info.endpoint,
+        capability_name,
+        input_data,
+        context,
+    ):
+        yield event
+
+async def _invoke_agent(
+    self,
+    endpoint: str,
+    capability: str,
+    input_data: dict[str, Any],
+    context: dict[str, Any] | None,
+) -> AsyncIterator[dict[str, Any]]:
+    """Invoke an agent's capability via AG-UI protocol."""
+    import json
+
+    client = self._get_http_client()
+    async with client.stream(
+        "POST",
+        endpoint,
+        json={
+            "capability": capability,
+            "input": input_data,
+            "context": context or {},
+        },
+        headers={"Accept": "text/event-stream"},
+    ) as response:
+        response.raise_for_status()
+        async for line in response.aiter_lines():
+            if line.startswith("data: "):
+                yield json.loads(line[6:])
+        ]]>
+      </code-snippet>
+    </phase>
+
+    <phase id="4" name="Update API Endpoints">
+      <steps>
+        <step number="1">Add get_a2a_middleware dependency function</step>
+        <step number="2">Add tenant prefix validation to register endpoint</step>
+        <step number="3">Ensure capabilities endpoint has filter param</step>
+      </steps>
+      <code-snippet>
+        <![CDATA[
+# In api/routes/a2a.py
+
+def get_a2a_middleware(request: Request) -> "A2AMiddlewareAgent":
+    """Get the A2A middleware from app state."""
+    from agentic_rag_backend.protocols.a2a_middleware import A2AMiddlewareAgent
+    middleware = getattr(request.app.state, "a2a_middleware", None)
+    if middleware is None:
+        raise RuntimeError("A2A middleware not initialized")
+    return middleware
+
+
+# Update register endpoint to validate tenant prefix
+@router.post("/a2a/agents/register", response_model=AgentResponse)
+async def register_agent(
+    request_body: RegisterAgentRequest,
+    tenant_id: str = Header(..., alias="X-Tenant-ID"),
+    registry: A2AAgentRegistry = Depends(get_a2a_registry),
+    middleware: "A2AMiddlewareAgent" = Depends(get_a2a_middleware),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+) -> AgentResponse:
+    """Register an agent for A2A collaboration (tenant-scoped)."""
+    if not await limiter.allow(tenant_id):
+        raise rate_limit_exceeded()
+
+    # Validate agent belongs to this tenant
+    if not request_body.agent_id.startswith(f"{tenant_id}:"):
+        raise A2APermissionError(
+            reason="Agent ID must be prefixed with tenant ID",
+            resource_id=request_body.agent_id,
+        )
+
+    # Continue with registration...
+        ]]>
+      </code-snippet>
+    </phase>
+
+    <phase id="5" name="Wire to Application Lifecycle">
+      <steps>
+        <step number="1">Add A2AMiddlewareAgent initialization in lifespan()</step>
+        <step number="2">Add cleanup in shutdown</step>
+        <step number="3">Export new classes in protocols/__init__.py</step>
+      </steps>
+      <code-snippet>
+        <![CDATA[
+# In main.py lifespan()
+
+from .protocols.a2a_middleware import A2AMiddlewareAgent
+
+# After a2a_registry initialization (around line 575)
+if settings.a2a_enabled:
+    app.state.a2a_middleware = A2AMiddlewareAgent(
+        agent_id=settings.a2a_agent_id,
+        name="rag-engine-middleware",
+        capabilities=[],
+    )
+    struct_logger.info(
+        "a2a_middleware_initialized",
+        agent_id=settings.a2a_agent_id,
+    )
+else:
+    app.state.a2a_middleware = None
+
+# In shutdown section (around line 775)
+if hasattr(app.state, "a2a_middleware") and app.state.a2a_middleware:
+    await app.state.a2a_middleware.close()
+        ]]>
+      </code-snippet>
+    </phase>
+
+    <phase id="6" name="Write Unit Tests">
+      <steps>
+        <step number="1">Create test file with pytest fixtures</step>
+        <step number="2">Test initialization</step>
+        <step number="3">Test registration</step>
+        <step number="4">Test discovery with/without filter</step>
+        <step number="5">Test delegation with mocked httpx</step>
+        <step number="6">Test error cases</step>
+        <step number="7">Test HTTP client lifecycle</step>
+      </steps>
+    </phase>
+
+    <phase id="7" name="Write Integration Tests">
+      <steps>
+        <step number="1">Create integration test file</step>
+        <step number="2">Test tenant prefix validation</step>
+        <step number="3">Test tenant scoping in list</step>
+        <step number="4">Test capability filter</step>
+        <step number="5">Test rate limiting</step>
+      </steps>
+    </phase>
+  </implementation-guidance>
+
+  <testing-requirements>
+    <unit-tests>
+      <test-file>tests/protocols/test_a2a_middleware.py</test-file>
+      <coverage-target>90%</coverage-target>
+      <test-cases>
+        <case name="test_middleware_initialization">Verify __init__ sets agent_id, name, capabilities, empty registry</case>
+        <case name="test_register_agent_adds_to_registry">Verify agent is stored in _registered_agents</case>
+        <case name="test_discover_capabilities_no_filter">Verify all capabilities returned</case>
+        <case name="test_discover_capabilities_with_filter">Verify filter matches capability names</case>
+        <case name="test_delegate_task_agent_not_found">Verify A2AAgentNotFoundError raised</case>
+        <case name="test_delegate_task_capability_not_found">Verify A2ACapabilityNotFoundError raised</case>
+        <case name="test_delegate_task_streams_events">Mock httpx, verify SSE parsing</case>
+        <case name="test_http_client_lazy_init">Verify client created on first use</case>
+        <case name="test_close_cleans_http_client">Verify aclose() called</case>
+      </test-cases>
+    </unit-tests>
+
+    <integration-tests>
+      <test-file>tests/integration/test_a2a_middleware_endpoints.py</test-file>
+      <test-cases>
+        <case name="test_register_valid_tenant_prefix">POST /a2a/agents/register with matching prefix returns 200</case>
+        <case name="test_register_invalid_tenant_prefix">POST with mismatched prefix returns 403 RFC 7807</case>
+        <case name="test_list_agents_tenant_scoped">GET /a2a/agents only returns tenant's agents</case>
+        <case name="test_capabilities_filter">GET /a2a/capabilities?filter=search works</case>
+        <case name="test_rate_limiting_enforced">Verify 429 after limit exceeded</case>
+      </test-cases>
+    </integration-tests>
+
+    <mocking-requirements>
+      <mock name="httpx.AsyncClient">For SSE streaming in delegate_task tests</mock>
+      <mock name="app.state.a2a_middleware">For endpoint integration tests</mock>
+    </mocking-requirements>
+  </testing-requirements>
+
+  <dependencies>
+    <external-dependencies>
+      <dependency name="httpx" version="^0.27.x" purpose="HTTP client with pooling and streaming"/>
+      <dependency name="structlog" version="existing" purpose="Structured logging"/>
+      <dependency name="pydantic" version="existing" purpose="Data models and validation"/>
+    </external-dependencies>
+
+    <internal-dependencies>
+      <dependency module="agentic_rag_backend.core.errors">A2A error classes</dependency>
+      <dependency module="agentic_rag_backend.protocols.a2a_registry">A2AAgentRegistry</dependency>
+      <dependency module="agentic_rag_backend.rate_limit">RateLimiter</dependency>
+    </internal-dependencies>
+
+    <epic-dependencies>
+      <dependency epic="7-2">Basic A2A session/message lifecycle (completed)</dependency>
+      <dependency epic="14-2">Robust A2A protocol foundation (completed)</dependency>
+      <dependency epic="21">AG-UI transport for delegation streaming (completed)</dependency>
+    </epic-dependencies>
+  </dependencies>
+
+  <naming-conventions>
+    <python>
+      <rule>snake_case for functions and variables</rule>
+      <rule>PascalCase for classes</rule>
+      <rule>SCREAMING_SNAKE_CASE for constants</rule>
+      <rule>Private methods/attributes prefixed with underscore</rule>
+    </python>
+    <logging>
+      <rule>Event names use snake_case with a2a_ prefix</rule>
+      <rule>Example: a2a_agent_registered, a2a_task_delegated</rule>
+    </logging>
+    <api>
+      <rule>kebab-case for URL paths</rule>
+      <rule>camelCase for JSON response fields in meta</rule>
+    </api>
+  </naming-conventions>
+
+  <error-response-format>
+    <rfc7807-template>
+      <![CDATA[
+{
+  "type": "https://api.example.com/errors/a2a-permission-denied",
+  "title": "A2A Permission Denied",
+  "status": 403,
+  "detail": "Agent ID must be prefixed with tenant ID",
+  "instance": "/api/v1/a2a/agents/register",
+  "errors": {
+    "resource_id": "invalid-agent-id"
+  }
+}
+      ]]>
+    </rfc7807-template>
+  </error-response-format>
+</story-context>

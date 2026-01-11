@@ -60,6 +60,7 @@ from .protocols.mcp import MCPToolRegistry
 from .protocols.a2a_registry import A2AAgentRegistry, RegistryConfig
 from .protocols.a2a_delegation import TaskDelegationManager, DelegationConfig
 from .protocols.a2a_messages import get_implemented_rag_capabilities
+from .protocols.a2a_middleware import A2AMiddlewareAgent
 from .memory.consolidation import MemoryConsolidator
 from .memory.scheduler import create_consolidation_scheduler
 from .rate_limit import InMemoryRateLimiter, RateLimiter, RedisRateLimiter, close_redis
@@ -574,6 +575,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             redis_client=getattr(app.state, "redis_client", None),
         )
 
+        # Story 22-A1: Initialize A2A Middleware Agent
+        app.state.a2a_middleware = A2AMiddlewareAgent(
+            agent_id=f"system:{settings.a2a_agent_id}",
+            name="RAG Middleware Agent",
+        )
+        struct_logger.info(
+            "a2a_middleware_initialized",
+            agent_id=f"system:{settings.a2a_agent_id}",
+        )
+
         # Self-register this agent's RAG capabilities in the registry
         # Use a default tenant for system-level registration
         default_tenant = "system"
@@ -610,6 +621,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         app.state.a2a_registry = None
         app.state.a2a_delegation_manager = None
+        app.state.a2a_middleware = None
         struct_logger.info("a2a_protocol_disabled")
 
     app.state.mcp_registry = MCPToolRegistry(
@@ -775,6 +787,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Epic 14: Close A2A delegation manager HTTP client
     if hasattr(app.state, "a2a_delegation_manager") and app.state.a2a_delegation_manager:
         await app.state.a2a_delegation_manager.close()
+    # Story 22-A1: Close A2A middleware HTTP client
+    if hasattr(app.state, "a2a_middleware") and app.state.a2a_middleware:
+        await app.state.a2a_middleware.close()
+        struct_logger.info("a2a_middleware_closed")
     # Epic 5: Graphiti connection
     if hasattr(app.state, "graphiti") and app.state.graphiti:
         await app.state.graphiti.disconnect()
