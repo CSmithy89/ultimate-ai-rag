@@ -39,6 +39,15 @@ export { MCPToolCallCard } from "./MCPToolCallCard";
 // Error Handling
 // =============================================================================
 export { CopilotErrorBoundary } from "./CopilotErrorBoundary";
+export {
+  useAGUIErrorHandler,
+  parseAGUIError,
+  isErrorCode,
+  type UseAGUIErrorHandlerOptions,
+  type UseAGUIErrorHandlerReturn,
+  AGUIErrorCode,
+  type AGUIErrorData,
+} from "./ErrorHandler";
 
 // =============================================================================
 // HITL / Validation

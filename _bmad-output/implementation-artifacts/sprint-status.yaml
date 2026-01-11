@@ -490,7 +490,7 @@ development_status:
   # --- Group B: AG-UI Telemetry & Error Handling ---
   22-B1-implement-agui-stream-metrics: done
   # Prometheus metrics: stream_started, completed, event_emitted, duration, latency
-  22-B2-implement-extended-agui-error-events: backlog
+  22-B2-implement-extended-agui-error-events: done
   # Full error taxonomy: RATE_LIMITED, TIMEOUT, CAPABILITY_NOT_FOUND, etc.
 
   # --- Group C: MCP-UI & Open-JSON-UI Rendering ---

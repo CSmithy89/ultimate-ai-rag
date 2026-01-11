@@ -26,6 +26,7 @@ from ..models.copilot import (
     ToolCallEndEvent,
 )
 from ..schemas import VectorCitation
+from .ag_ui_errors import create_error_event
 from .ag_ui_metrics import AGUIMetricsCollector
 
 logger = structlog.get_logger(__name__)
@@ -247,6 +248,17 @@ class AGUIBridge:
                 logger.exception("copilot_request_failed", error=str(e), tenant_id=tenant_id)
                 # Issue #1 Fix: stream_error already defaults to True, no need to set again
 
+                # Story 22-B2: Emit structured AG-UI error event
+                # Determine if we should include debug details (development mode only)
+                from ..config import get_settings, is_development_env
+                settings = get_settings()
+                is_debug = is_development_env(settings.app_env)
+
+                error_event = create_error_event(e, is_debug=is_debug)
+                metrics.event_emitted(error_event.event.value)
+                yield error_event
+
+                # Also emit the error as a text message for backward compatibility
                 event = TextMessageStartEvent()
                 metrics.event_emitted(event.event.value)
                 yield event
