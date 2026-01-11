@@ -239,7 +239,7 @@ development_status:
   # DECISION: Merged Epic 16 (Framework Agnosticism) per Vision A
   # DECISION: CLI is the capstone UX for the developer platform
   # UPDATED: 2026-01-05 - Added framework templates, Agent Skills, protocol docs
-  epic-17: backlog
+  epic-17: contexted
   17-1-create-rag-install-cli-tool: backlog
   # Guided setup: LLM provider, database, framework template, features
   17-2-implement-auto-hardware-detection: backlog
