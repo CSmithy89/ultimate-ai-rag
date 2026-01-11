@@ -31,6 +31,8 @@ from agentic_rag_backend.protocols.a2a_resource_limits import (
     SessionUsage,
 )
 
+VALID_TENANT_ID = "12345678-1234-1234-1234-123456789abc"
+
 
 class TestA2AResourceLimitsConfig:
     """Tests for A2AResourceLimits configuration model."""
@@ -79,9 +81,9 @@ class TestTenantUsageModel:
 
     def test_default_values(self) -> None:
         """Test default values for tenant usage."""
-        usage = TenantUsage(tenant_id="tenant-123")
+        usage = TenantUsage(tenant_id=VALID_TENANT_ID)
 
-        assert usage.tenant_id == "tenant-123"
+        assert usage.tenant_id == VALID_TENANT_ID
         assert usage.active_sessions == 0
         assert usage.total_messages == 0
         assert usage.last_activity is not None
@@ -94,11 +96,11 @@ class TestSessionUsageModel:
         """Test default values for session usage."""
         usage = SessionUsage(
             session_id="session-abc",
-            tenant_id="tenant-123",
+            tenant_id=VALID_TENANT_ID,
         )
 
         assert usage.session_id == "session-abc"
-        assert usage.tenant_id == "tenant-123"
+        assert usage.tenant_id == VALID_TENANT_ID
         assert usage.message_count == 0
         assert list(usage.message_timestamps) == []
 
@@ -109,7 +111,7 @@ class TestA2AResourceMetrics:
     def test_creation(self) -> None:
         """Test metrics model creation."""
         metrics = A2AResourceMetrics(
-            tenant_id="tenant-123",
+            tenant_id=VALID_TENANT_ID,
             active_sessions=5,
             total_messages=100,
             session_limit=100,
@@ -117,7 +119,7 @@ class TestA2AResourceMetrics:
             message_rate_limit=60,
         )
 
-        assert metrics.tenant_id == "tenant-123"
+        assert metrics.tenant_id == VALID_TENANT_ID
         assert metrics.active_sessions == 5
         assert metrics.total_messages == 100
 
@@ -127,11 +129,11 @@ class TestExceptions:
 
     def test_session_limit_exceeded(self) -> None:
         """Test A2ASessionLimitExceeded exception."""
-        exc = A2ASessionLimitExceeded("tenant-123", 100)
+        exc = A2ASessionLimitExceeded(VALID_TENANT_ID, 100)
 
-        assert exc.tenant_id == "tenant-123"
+        assert exc.tenant_id == VALID_TENANT_ID
         assert exc.limit == 100
-        assert "tenant-123" in str(exc)
+        assert VALID_TENANT_ID in str(exc)
         assert "100" in str(exc)
 
     def test_message_limit_exceeded(self) -> None:
@@ -190,11 +192,11 @@ class TestInMemoryA2AResourceManager:
         manager: InMemoryA2AResourceManager,
     ) -> None:
         """Test successful session registration."""
-        await manager.register_session("session-1", "tenant-123")
+        await manager.register_session("session-1", VALID_TENANT_ID)
 
         assert "session-1" in manager._session_usage
-        assert "tenant-123" in manager._tenant_usage
-        assert manager._tenant_usage["tenant-123"].active_sessions == 1
+        assert VALID_TENANT_ID in manager._tenant_usage
+        assert manager._tenant_usage[VALID_TENANT_ID].active_sessions == 1
 
     @pytest.mark.asyncio
     async def test_register_session_multiple(
@@ -202,10 +204,10 @@ class TestInMemoryA2AResourceManager:
         manager: InMemoryA2AResourceManager,
     ) -> None:
         """Test registering multiple sessions for same tenant."""
-        await manager.register_session("session-1", "tenant-123")
-        await manager.register_session("session-2", "tenant-123")
+        await manager.register_session("session-1", VALID_TENANT_ID)
+        await manager.register_session("session-2", VALID_TENANT_ID)
 
-        assert manager._tenant_usage["tenant-123"].active_sessions == 2
+        assert manager._tenant_usage[VALID_TENANT_ID].active_sessions == 2
 
     @pytest.mark.asyncio
     async def test_register_session_limit_exceeded(
@@ -213,14 +215,14 @@ class TestInMemoryA2AResourceManager:
         manager: InMemoryA2AResourceManager,
     ) -> None:
         """Test that session limit is enforced."""
-        await manager.register_session("session-1", "tenant-123")
-        await manager.register_session("session-2", "tenant-123")
-        await manager.register_session("session-3", "tenant-123")
+        await manager.register_session("session-1", VALID_TENANT_ID)
+        await manager.register_session("session-2", VALID_TENANT_ID)
+        await manager.register_session("session-3", VALID_TENANT_ID)
 
         with pytest.raises(A2ASessionLimitExceeded) as exc_info:
-            await manager.register_session("session-4", "tenant-123")
+            await manager.register_session("session-4", VALID_TENANT_ID)
 
-        assert exc_info.value.tenant_id == "tenant-123"
+        assert exc_info.value.tenant_id == VALID_TENANT_ID
         assert exc_info.value.limit == 3
 
     @pytest.mark.asyncio
@@ -229,11 +231,11 @@ class TestInMemoryA2AResourceManager:
         manager: InMemoryA2AResourceManager,
     ) -> None:
         """Test closing a session."""
-        await manager.register_session("session-1", "tenant-123")
+        await manager.register_session("session-1", VALID_TENANT_ID)
         await manager.close_session("session-1")
 
         assert "session-1" not in manager._session_usage
-        assert manager._tenant_usage["tenant-123"].active_sessions == 0
+        assert manager._tenant_usage[VALID_TENANT_ID].active_sessions == 0
 
     @pytest.mark.asyncio
     async def test_close_session_not_found(
@@ -250,11 +252,11 @@ class TestInMemoryA2AResourceManager:
         manager: InMemoryA2AResourceManager,
     ) -> None:
         """Test recording a message."""
-        await manager.register_session("session-1", "tenant-123")
+        await manager.register_session("session-1", VALID_TENANT_ID)
         await manager.record_message("session-1")
 
         assert manager._session_usage["session-1"].message_count == 1
-        assert manager._tenant_usage["tenant-123"].total_messages == 1
+        assert manager._tenant_usage[VALID_TENANT_ID].total_messages == 1
 
     @pytest.mark.asyncio
     async def test_record_message_limit_exceeded(
@@ -262,7 +264,7 @@ class TestInMemoryA2AResourceManager:
         manager: InMemoryA2AResourceManager,
     ) -> None:
         """Test that message limit is enforced."""
-        await manager.register_session("session-1", "tenant-123")
+        await manager.register_session("session-1", VALID_TENANT_ID)
 
         # Record up to limit
         for _ in range(5):
@@ -282,7 +284,7 @@ class TestInMemoryA2AResourceManager:
     ) -> None:
         """Test that rate limit is enforced."""
         rate_limited_manager = InMemoryA2AResourceManager(limits=rate_limited_limits)
-        await rate_limited_manager.register_session("session-1", "tenant-123")
+        await rate_limited_manager.register_session("session-1", VALID_TENANT_ID)
 
         # Record up to rate limit (3 per minute)
         for _ in range(3):
@@ -310,7 +312,7 @@ class TestInMemoryA2AResourceManager:
         manager: InMemoryA2AResourceManager,
     ) -> None:
         """Test check_session_limit returns True when under limit."""
-        result = await manager.check_session_limit("tenant-123")
+        result = await manager.check_session_limit(VALID_TENANT_ID)
         assert result is True
 
     @pytest.mark.asyncio
@@ -319,11 +321,11 @@ class TestInMemoryA2AResourceManager:
         manager: InMemoryA2AResourceManager,
     ) -> None:
         """Test check_session_limit returns False when at limit."""
-        await manager.register_session("session-1", "tenant-123")
-        await manager.register_session("session-2", "tenant-123")
-        await manager.register_session("session-3", "tenant-123")
+        await manager.register_session("session-1", VALID_TENANT_ID)
+        await manager.register_session("session-2", VALID_TENANT_ID)
+        await manager.register_session("session-3", VALID_TENANT_ID)
 
-        result = await manager.check_session_limit("tenant-123")
+        result = await manager.check_session_limit(VALID_TENANT_ID)
         assert result is False
 
     @pytest.mark.asyncio
@@ -332,7 +334,7 @@ class TestInMemoryA2AResourceManager:
         manager: InMemoryA2AResourceManager,
     ) -> None:
         """Test check_message_limit returns True when under limit."""
-        await manager.register_session("session-1", "tenant-123")
+        await manager.register_session("session-1", VALID_TENANT_ID)
         result = await manager.check_message_limit("session-1")
         assert result is True
 
@@ -342,7 +344,7 @@ class TestInMemoryA2AResourceManager:
         manager: InMemoryA2AResourceManager,
     ) -> None:
         """Test check_message_limit returns False when at limit."""
-        await manager.register_session("session-1", "tenant-123")
+        await manager.register_session("session-1", VALID_TENANT_ID)
         for _ in range(5):
             await manager.record_message("session-1")
 
@@ -355,7 +357,7 @@ class TestInMemoryA2AResourceManager:
         manager: InMemoryA2AResourceManager,
     ) -> None:
         """Test check_rate_limit returns True when under limit."""
-        await manager.register_session("session-1", "tenant-123")
+        await manager.register_session("session-1", VALID_TENANT_ID)
         result = await manager.check_rate_limit("session-1")
         assert result is True
 
@@ -365,9 +367,9 @@ class TestInMemoryA2AResourceManager:
         manager: InMemoryA2AResourceManager,
     ) -> None:
         """Test getting metrics for tenant with no activity."""
-        metrics = await manager.get_tenant_metrics("tenant-123")
+        metrics = await manager.get_tenant_metrics(VALID_TENANT_ID)
 
-        assert metrics.tenant_id == "tenant-123"
+        assert metrics.tenant_id == VALID_TENANT_ID
         assert metrics.active_sessions == 0
         assert metrics.total_messages == 0
         assert metrics.session_limit == 3
@@ -380,11 +382,11 @@ class TestInMemoryA2AResourceManager:
         manager: InMemoryA2AResourceManager,
     ) -> None:
         """Test getting metrics for tenant with activity."""
-        await manager.register_session("session-1", "tenant-123")
+        await manager.register_session("session-1", VALID_TENANT_ID)
         await manager.record_message("session-1")
         await manager.record_message("session-1")
 
-        metrics = await manager.get_tenant_metrics("tenant-123")
+        metrics = await manager.get_tenant_metrics(VALID_TENANT_ID)
 
         assert metrics.active_sessions == 1
         assert metrics.total_messages == 2
@@ -544,7 +546,7 @@ class TestRedisA2AResourceManager:
         manager: RedisA2AResourceManager,
     ) -> None:
         """Test Redis key generation."""
-        assert manager._tenant_key("tenant-123") == "a2a:tenant:tenant-123"
+        assert manager._tenant_key(VALID_TENANT_ID) == f"a2a:tenant:{VALID_TENANT_ID}"
         assert manager._session_key("session-abc") == "a2a:session:session-abc:info"
         assert manager._rate_key("session-abc") == "a2a:session:session-abc:rate"
 
@@ -556,7 +558,7 @@ class TestRedisA2AResourceManager:
     ) -> None:
         """Test check_session_limit when under limit."""
         mock_redis.hget.return_value = "1"
-        result = await manager.check_session_limit("tenant-123")
+        result = await manager.check_session_limit(VALID_TENANT_ID)
         assert result is True
 
     @pytest.mark.asyncio
@@ -567,7 +569,7 @@ class TestRedisA2AResourceManager:
     ) -> None:
         """Test check_session_limit when at limit."""
         mock_redis.hget.return_value = "3"
-        result = await manager.check_session_limit("tenant-123")
+        result = await manager.check_session_limit(VALID_TENANT_ID)
         assert result is False
 
     @pytest.mark.asyncio
@@ -602,7 +604,7 @@ class TestRedisA2AResourceManager:
         # Lua script returns 1 (success)
         mock_redis.evalsha = AsyncMock(return_value=1)
 
-        await manager.register_session("session-abc", "tenant-123")
+        await manager.register_session("session-abc", VALID_TENANT_ID)
 
         # Verify eval was called with the Lua script
         mock_redis.evalsha.assert_called_once()
@@ -618,7 +620,7 @@ class TestRedisA2AResourceManager:
         mock_redis.evalsha = AsyncMock(return_value=0)
 
         with pytest.raises(A2ASessionLimitExceeded):
-            await manager.register_session("session-abc", "tenant-123")
+            await manager.register_session("session-abc", VALID_TENANT_ID)
 
     @pytest.mark.asyncio
     async def test_get_tenant_metrics_empty(
@@ -629,9 +631,9 @@ class TestRedisA2AResourceManager:
         """Test getting metrics for tenant with no activity."""
         mock_redis.hgetall.return_value = {}
 
-        metrics = await manager.get_tenant_metrics("tenant-123")
+        metrics = await manager.get_tenant_metrics(VALID_TENANT_ID)
 
-        assert metrics.tenant_id == "tenant-123"
+        assert metrics.tenant_id == VALID_TENANT_ID
         assert metrics.active_sessions == 0
         assert metrics.total_messages == 0
 
@@ -647,7 +649,7 @@ class TestRedisA2AResourceManager:
             b"total_messages": b"100",
         }
 
-        metrics = await manager.get_tenant_metrics("tenant-123")
+        metrics = await manager.get_tenant_metrics(VALID_TENANT_ID)
 
         assert metrics.active_sessions == 5
         assert metrics.total_messages == 100
@@ -660,7 +662,7 @@ class TestRedisA2AResourceManager:
     ) -> None:
         """Test successful message recording with Lua script."""
         # Session exists
-        mock_redis.hget.return_value = "tenant-123"
+        mock_redis.hget.return_value = VALID_TENANT_ID
         # Lua script returns 1 (success)
         mock_redis.evalsha = AsyncMock(return_value=1)
 
@@ -677,7 +679,7 @@ class TestRedisA2AResourceManager:
     ) -> None:
         """Test message limit exceeded during message recording."""
         # Session exists
-        mock_redis.hget.return_value = "tenant-123"
+        mock_redis.hget.return_value = VALID_TENANT_ID
         # Lua script returns 0 (message limit exceeded)
         mock_redis.evalsha = AsyncMock(return_value=0)
 
@@ -692,7 +694,7 @@ class TestRedisA2AResourceManager:
     ) -> None:
         """Test rate limit exceeded during message recording."""
         # Session exists
-        mock_redis.hget.return_value = "tenant-123"
+        mock_redis.hget.return_value = VALID_TENANT_ID
         # Lua script returns -1 (rate limit exceeded)
         mock_redis.evalsha = AsyncMock(return_value=-1)
 
@@ -722,7 +724,7 @@ class TestRedisA2AResourceManager:
         # Lua script returns 1 (success)
         mock_redis.evalsha = AsyncMock(return_value=1)
 
-        await manager.register_session("session-abc", "tenant-123")
+        await manager.register_session("session-abc", VALID_TENANT_ID)
 
         # Verify eval was called with the Lua script
         mock_redis.evalsha.assert_called_once()
@@ -738,7 +740,7 @@ class TestRedisA2AResourceManager:
         mock_redis.evalsha = AsyncMock(return_value=0)
 
         with pytest.raises(A2ASessionLimitExceeded):
-            await manager.register_session("session-abc", "tenant-123")
+            await manager.register_session("session-abc", VALID_TENANT_ID)
 
     @pytest.mark.asyncio
     async def test_start_stop_lifecycle(

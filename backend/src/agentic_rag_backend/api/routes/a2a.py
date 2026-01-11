@@ -22,6 +22,7 @@ import jsonschema
 import structlog
 
 from ...api.utils import build_meta, rate_limit_exceeded
+from ...config import get_settings
 from ...core.errors import (
     A2AAgentNotFoundError,
     A2ACapabilityNotFoundError,
@@ -442,7 +443,12 @@ async def create_session(
             )
         except A2ASessionLimitExceeded as exc:
             await manager.delete_session(session["session_id"])
-            raise A2ASessionLimitExceededError(request_body.tenant_id, exc.limit) from exc
+            retry_after = get_settings().rate_limit_retry_after_seconds
+            raise A2ASessionLimitExceededError(
+                request_body.tenant_id,
+                exc.limit,
+                retry_after=retry_after,
+            ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     logger.info("a2a_session_created", session_id=session["session_id"])
@@ -474,7 +480,12 @@ async def add_message(
     try:
         await resource_manager.record_message(session_id=session_id)
     except A2AMessageLimitExceeded as exc:
-        raise A2AMessageLimitExceededError(session_id, exc.limit) from exc
+        retry_after = get_settings().rate_limit_retry_after_seconds
+        raise A2AMessageLimitExceededError(
+            session_id,
+            exc.limit,
+            retry_after=retry_after,
+        ) from exc
     except A2ARateLimitExceeded as exc:
         raise A2ARateLimitExceededError(session_id, exc.limit, exc.retry_after) from exc
 

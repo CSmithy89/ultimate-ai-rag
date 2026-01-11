@@ -51,7 +51,7 @@ from .api.routes import (
 from .mcp_server.routes import router as mcp_server_router
 from .api.routes.ingest import limiter as slowapi_limiter
 from .api.utils import rate_limit_exceeded
-from .config import Settings, load_settings
+from .config import Settings, is_production_env, load_settings
 from .llm import UnsupportedLLMProviderError, get_llm_adapter
 from .core.errors import AppError, app_error_handler, http_exception_handler
 from .protocols.a2a import A2ASessionManager
@@ -227,6 +227,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     settings = load_settings()
     app.state.settings = settings
+    metrics_label_mode = os.getenv("METRICS_TENANT_LABEL_MODE", "global").strip().lower()
+    if metrics_label_mode == "full" and is_production_env(settings.app_env):
+        struct_logger.warning(
+            "metrics_tenant_label_mode_full",
+            app_env=settings.app_env,
+            hint="Use METRICS_TENANT_LABEL_MODE=hash or global in production",
+        )
+    if not os.getenv("A2A_API_KEY"):
+        struct_logger.warning(
+            "a2a_api_key_not_configured",
+            app_env=settings.app_env,
+            hint="A2A endpoints are unauthenticated until A2A_API_KEY is set",
+        )
     try:
         llm_adapter = get_llm_adapter(settings)
     except UnsupportedLLMProviderError as exc:

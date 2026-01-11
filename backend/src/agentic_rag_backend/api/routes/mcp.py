@@ -14,7 +14,7 @@ import time
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field, ValidationError
 import structlog
 
@@ -126,6 +126,23 @@ def maybe_sign_mcp_ui_result(
     return updated
 
 
+def _build_mcp_ui_cors_headers(
+    origin: str | None,
+    allowed_origins: list[str],
+) -> dict[str, str]:
+    """Build CORS headers for MCP-UI config endpoint."""
+    if not origin:
+        return {}
+    normalized_allowed = {allowed.rstrip("/") for allowed in allowed_origins}
+    normalized_origin = origin.rstrip("/")
+    if normalized_origin not in normalized_allowed:
+        return {}
+    return {
+        "Access-Control-Allow-Origin": normalized_origin,
+        "Vary": "Origin",
+    }
+
+
 def get_rate_limiter(request: Request) -> RateLimiter:
     """Get rate limiter from app state."""
     return request.app.state.rate_limiter
@@ -196,6 +213,8 @@ async def call_tool(
 
 @router.get("/ui/config", response_model=MCPUIConfig)
 async def get_mcp_ui_config(
+    request: Request,
+    response: Response,
     x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
     limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> MCPUIConfig:
@@ -220,8 +239,35 @@ async def get_mcp_ui_config(
         raise rate_limit_exceeded()
 
     settings = get_settings()
+    cors_headers = _build_mcp_ui_cors_headers(
+        request.headers.get("origin"),
+        settings.mcp_ui_allowed_origins,
+    )
+    for key, value in cors_headers.items():
+        response.headers[key] = value
 
     return MCPUIConfig(
         enabled=settings.mcp_ui_enabled,
         allowed_origins=settings.mcp_ui_allowed_origins,
     )
+
+
+@router.options("/ui/config")
+async def get_mcp_ui_config_options(request: Request) -> Response:
+    """Handle CORS preflight for MCP-UI config."""
+    settings = get_settings()
+    cors_headers = _build_mcp_ui_cors_headers(
+        request.headers.get("origin"),
+        settings.mcp_ui_allowed_origins,
+    )
+    if cors_headers:
+        requested_headers = request.headers.get("access-control-request-headers")
+        allow_headers = requested_headers or "X-Tenant-ID, Content-Type"
+        cors_headers.update(
+            {
+                "Access-Control-Allow-Methods": "GET, OPTIONS",
+                "Access-Control-Allow-Headers": allow_headers,
+                "Access-Control-Max-Age": "600",
+            }
+        )
+    return Response(status_code=204, headers=cors_headers)

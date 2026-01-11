@@ -30,6 +30,8 @@ from pydantic import BaseModel, Field
 from redis.exceptions import NoScriptError
 import structlog
 
+from ..validation import is_valid_tenant_id
+
 if TYPE_CHECKING:
     import redis.asyncio as redis
 
@@ -726,6 +728,12 @@ class RedisA2AResourceManager(A2AResourceManager):
 
     def _tenant_key(self, tenant_id: str) -> str:
         """Get Redis key for tenant usage."""
+        if not is_valid_tenant_id(tenant_id):
+            logger.warning(
+                "a2a_invalid_tenant_id_for_redis_key",
+                tenant_id=tenant_id,
+            )
+            raise ValueError("Invalid tenant_id for Redis key construction")
         return f"{self._key_prefix}:tenant:{tenant_id}"
 
     def _session_key(self, session_id: str) -> str:

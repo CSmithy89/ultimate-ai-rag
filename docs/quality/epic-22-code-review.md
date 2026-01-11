@@ -11,6 +11,8 @@ Scope: A2A middleware + resource limits, AG-UI metrics/errors, MCP-UI, Open-JSON
 - [x] A2A middleware auth key is captured at import time; if `A2A_API_KEY` is unset or rotated later, auth can be disabled or stale for the process lifetime. `backend/src/agentic_rag_backend/api/routes/a2a.py`
 - [x] MCP-UI signing secret accepts empty/whitespace values, resulting in an effectively blank signing key. `backend/src/agentic_rag_backend/config.py`
 - [x] Middleware delegation buffers up to 1000 events instead of streaming, risking high memory usage and truncated/incomplete UI state. `backend/src/agentic_rag_backend/api/routes/a2a.py`
+- [x] Redis tenant keys are built directly from tenant_id; validate tenant_id before Redis key construction to prevent keyspace injection. `backend/src/agentic_rag_backend/protocols/a2a_resource_limits.py`
+- [x] `/mcp/ui/config` lacks explicit CORS handling for cross-origin fetches using X-Tenant-ID. `backend/src/agentic_rag_backend/api/routes/mcp.py`
 
 ## High Findings
 - [x] MCP-UI signing secret is configured but unused, CSP headers are not enforced, and docs show sandbox attributes that do not match defaults. `backend/src/agentic_rag_backend/config.py`, `backend/src/agentic_rag_backend/models/mcp_ui.py`, `docs/guides/protocol-integration/mcp-ui-rendering.md`
@@ -22,6 +24,10 @@ Scope: A2A middleware + resource limits, AG-UI metrics/errors, MCP-UI, Open-JSON
 - [x] Redis active session counts can drift when session keys expire via TTL without `close_session`; cleanup only clamps negatives, not reconciles counts. `backend/src/agentic_rag_backend/protocols/a2a_resource_limits.py`
 - [x] `/mcp/ui/config` has no per-tenant rate limiting. `backend/src/agentic_rag_backend/api/routes/mcp.py`
 - [x] SSRF checks do not resolve hostnames; DNS rebinding/CNAME to private IPs can bypass checks. `backend/src/agentic_rag_backend/protocols/a2a_middleware.py`
+- [x] Warn when A2A endpoints are unauthenticated because `A2A_API_KEY` is unset. `backend/src/agentic_rag_backend/main.py`
+- [x] Ensure 429 responses include `Retry-After` guidance for A2A session/message limit errors. `backend/src/agentic_rag_backend/api/routes/a2a.py`, `backend/src/agentic_rag_backend/core/errors.py`
+- [x] MCP-UI/Open-JSON-UI renderers are wrapped in a Copilot error boundary to prevent UI crashes from propagating. `frontend/components/copilot/tool-renderers.tsx`
+- [x] Emit a warning when `METRICS_TENANT_LABEL_MODE=full` in production to avoid unbounded tenant label cardinality. `backend/src/agentic_rag_backend/main.py`
 
 ## Medium Findings
 - [x] Epic 22 status tracking is inconsistent (epic tech spec says Backlog; sprint status says done; story 22-C1 still in-progress). `_bmad-output/epics/epic-22-tech-spec.md`, `_bmad-output/implementation-artifacts/sprint-status.yaml`, `_bmad-output/implementation-artifacts/stories/22-C1-implement-mcp-ui-renderer.md`

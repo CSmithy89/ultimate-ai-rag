@@ -580,24 +580,30 @@ class A2AServiceUnavailableError(AppError):
 class A2ASessionLimitExceededError(AppError):
     """Error when tenant has reached their A2A session limit."""
 
-    def __init__(self, tenant_id: str, limit: int) -> None:
+    def __init__(self, tenant_id: str, limit: int, retry_after: int | None = None) -> None:
+        details: dict[str, Any] = {"tenant_id": tenant_id, "limit": limit}
+        if retry_after is not None:
+            details["retry_after"] = retry_after
         super().__init__(
             code=ErrorCode.A2A_SESSION_LIMIT_EXCEEDED,
             message=f"Tenant has reached maximum concurrent sessions ({limit})",
             status=429,
-            details={"tenant_id": tenant_id, "limit": limit},
+            details=details,
         )
 
 
 class A2AMessageLimitExceededError(AppError):
     """Error when session has reached its message limit."""
 
-    def __init__(self, session_id: str, limit: int) -> None:
+    def __init__(self, session_id: str, limit: int, retry_after: int | None = None) -> None:
+        details: dict[str, Any] = {"session_id": session_id, "limit": limit}
+        if retry_after is not None:
+            details["retry_after"] = retry_after
         super().__init__(
             code=ErrorCode.A2A_MESSAGE_LIMIT_EXCEEDED,
             message=f"Session has reached maximum messages ({limit})",
             status=429,
-            details={"session_id": session_id, "limit": limit},
+            details=details,
         )
 
 

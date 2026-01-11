@@ -57,6 +57,36 @@ class TestMCPUIConfigEndpoint:
         assert "https://tools.example.com" in data["allowed_origins"]
         assert "https://mcp-ui.example.com" in data["allowed_origins"]
 
+    def test_get_config_sets_cors_headers(self, client: TestClient) -> None:
+        """Should set CORS headers for allowed origins."""
+        response = client.get(
+            "/api/v1/mcp/ui/config",
+            headers={
+                "X-Tenant-ID": VALID_TENANT_ID,
+                "Origin": "https://tools.example.com",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.headers["access-control-allow-origin"] == "https://tools.example.com"
+        assert response.headers["vary"] == "Origin"
+
+    def test_get_config_preflight(self, client: TestClient) -> None:
+        """Should respond to CORS preflight requests."""
+        response = client.options(
+            "/api/v1/mcp/ui/config",
+            headers={
+                "Origin": "https://tools.example.com",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "X-Tenant-ID",
+            },
+        )
+
+        assert response.status_code == 204
+        assert response.headers["access-control-allow-origin"] == "https://tools.example.com"
+        assert response.headers["access-control-allow-methods"] == "GET, OPTIONS"
+        assert "X-Tenant-ID" in response.headers["access-control-allow-headers"]
+
     def test_get_config_missing_tenant_header(self, client: TestClient) -> None:
         """Should return 422 when X-Tenant-ID header is missing."""
         response = client.get("/api/v1/mcp/ui/config")
