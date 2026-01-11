@@ -484,7 +484,7 @@ development_status:
   # --- Group A: A2A Middleware & Collaboration ---
   22-A1-implement-a2a-middleware-agent: done
   # A2AMiddlewareAgent for agent delegation and discovery
-  22-A2-implement-a2a-session-resource-limits: drafted
+  22-A2-implement-a2a-session-resource-limits: ready-for-dev
   # Per-tenant session/message caps, rate limiting
 
   # --- Group B: AG-UI Telemetry & Error Handling ---
