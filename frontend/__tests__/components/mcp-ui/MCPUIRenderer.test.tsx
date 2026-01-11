@@ -142,7 +142,7 @@ describe('MCPUIRenderer', () => {
       expect(iframe.src).toBe('https://trusted.example.com/tool');
     });
 
-    it('should apply sandbox attributes', async () => {
+    it('should apply sandbox attributes with unsafe flags removed', async () => {
       render(
         <MCPUIRenderer
           payload={createMockPayload({
@@ -156,7 +156,7 @@ describe('MCPUIRenderer', () => {
         // jsdom doesn't fully support DOMTokenList, use getAttribute instead
         const sandboxAttr = iframe.getAttribute('sandbox') || '';
         expect(sandboxAttr).toContain('allow-scripts');
-        expect(sandboxAttr).toContain('allow-same-origin');
+        expect(sandboxAttr).not.toContain('allow-same-origin');
       });
     });
 
