@@ -1,6 +1,14 @@
 """Protocol handlers for agent communication."""
 
 from .ag_ui_bridge import AGUIBridge
+from .ag_ui_metrics import (
+    AGUIMetricsCollector,
+    track_agui_stream,
+    record_stream_started,
+    record_stream_completed,
+    record_event_emitted,
+    KNOWN_EVENT_TYPES,  # Issue #2: Known event types for cardinality control
+)
 from .mcp import MCPToolRegistry
 from .a2a import A2ASessionManager
 from .a2a_messages import (
@@ -29,6 +37,13 @@ from .a2a_resource_limits import (
 
 __all__ = [
     "AGUIBridge",
+    # AG-UI Metrics (Story 22-B1)
+    "AGUIMetricsCollector",
+    "track_agui_stream",
+    "record_stream_started",
+    "record_stream_completed",
+    "record_event_emitted",
+    "KNOWN_EVENT_TYPES",  # Issue #2: Known event types for cardinality control
     "MCPToolRegistry",
     "A2ASessionManager",
     # A2A Protocol (Epic 14)
