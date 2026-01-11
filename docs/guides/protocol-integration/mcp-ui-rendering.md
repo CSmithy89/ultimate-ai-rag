@@ -8,7 +8,7 @@
 
 ## Overview
 
-MCP-UI enables secure rendering of external tool UIs within iframes. It implements strict security controls including origin validation, Content Security Policy (CSP), and a postMessage bridge for cross-origin communication.
+MCP-UI enables secure rendering of external tool UIs within iframes. It implements strict security controls including origin validation, Content Security Policy (CSP), signed UI URLs, and a postMessage bridge for cross-origin communication.
 
 ## Architecture
 
@@ -42,21 +42,22 @@ graph TB
 
 ### Iframe Sandboxing
 
-All MCP-UI iframes use restrictive sandbox attributes:
+MCP-UI iframes use restrictive sandbox attributes:
 
 ```html
 <iframe
   src="https://trusted-origin.com/tool-ui"
-  sandbox="allow-scripts allow-forms allow-same-origin"
+  sandbox="allow-scripts"
   referrerpolicy="strict-origin-when-cross-origin"
 />
 ```
 
 **Sandbox Attributes:**
 - `allow-scripts`: Required for interactive UIs
-- `allow-forms`: Required for form submissions
-- `allow-same-origin`: Required for postMessage origin validation
-- **NOT included**: `allow-top-navigation`, `allow-popups`, `allow-modals`
+- Optional allowlist (if explicitly configured): `allow-forms`, `allow-popups`, `allow-modals`,
+  `allow-downloads`, `allow-downloads-without-user-activation`, `allow-pointer-lock`,
+  `allow-presentation`
+- **Rejected**: `allow-same-origin`, `allow-top-navigation`, `allow-top-navigation-by-user-activation`
 
 ### Origin Allowlist
 
@@ -69,6 +70,16 @@ MCP_UI_ALLOWED_ORIGINS = [
     "https://verified-partner.com",
 ]
 ```
+
+### Signed UI URLs
+
+MCP-UI tool responses are signed on the backend when MCP-UI is enabled:
+
+- Signed query params: `mcp_exp` (expiry epoch seconds), `mcp_sig` (HMAC-SHA256 signature)
+- Signature payload: `{base_url}|{mcp_exp}`
+- Default TTL: 300 seconds
+
+Tool UI servers can verify the signature using `MCP_UI_SIGNING_SECRET`.
 
 ### PostMessage Validation
 
@@ -97,13 +108,19 @@ const MCPUIMessageSchema = z.discriminatedUnion("type", [
 ### Environment Variables
 
 ```bash
-# Enable MCP-UI rendering
+# Enable MCP-UI rendering (backend)
 MCP_UI_ENABLED=true
 
-# Comma-separated allowed origins
+# Comma-separated allowed origins (backend)
+MCP_UI_ALLOWED_ORIGINS=https://trusted1.com,https://trusted2.com
+
+# Optional MCP-UI signing secret (backend)
+MCP_UI_SIGNING_SECRET=change-me
+
+# Frontend fallback allowlist (optional)
 NEXT_PUBLIC_MCP_UI_ALLOWED_ORIGINS=https://trusted1.com,https://trusted2.com
 
-# Backend API URL
+# Backend API URL (frontend)
 NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
 ```
 
@@ -114,8 +131,6 @@ NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
 class MCPUIConfig(BaseModel):
     enabled: bool = True
     allowed_origins: list[str] = []
-    max_iframe_width: int = 800
-    max_iframe_height: int = 600
 ```
 
 ### API Endpoint
@@ -131,6 +146,15 @@ async def get_mcp_ui_config(
         enabled=settings.MCP_UI_ENABLED,
         allowed_origins=settings.MCP_UI_ALLOWED_ORIGINS,
     )
+```
+
+### CSP Headers
+
+The frontend sets a CSP header that restricts `frame-src` and `child-src` to:
+
+```
+frame-src 'self' <MCP_UI_ALLOWED_ORIGINS...>;
+child-src 'self' <MCP_UI_ALLOWED_ORIGINS...>;
 ```
 
 ## PostMessage Protocol

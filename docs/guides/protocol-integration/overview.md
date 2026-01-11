@@ -152,33 +152,42 @@ sequenceDiagram
 ### Environment Variables
 
 ```bash
-# AG-UI Configuration
-AGUI_STREAM_TIMEOUT_SECONDS=300
-AGUI_MAX_EVENTS_PER_STREAM=1000
-
 # A2A Configuration
-A2A_DEFAULT_TIMEOUT_SECONDS=30
-A2A_MAX_DELEGATION_DEPTH=3
-A2A_SESSION_LIMITS_ENABLED=true
+A2A_ENABLED=true
+A2A_AGENT_ID=agentic-rag-001
+A2A_ENDPOINT_URL=http://localhost:8000
+A2A_HEARTBEAT_INTERVAL_SECONDS=30
+A2A_HEARTBEAT_TIMEOUT_SECONDS=60
+A2A_TASK_DEFAULT_TIMEOUT_SECONDS=300
+A2A_TASK_MAX_RETRIES=3
+
+# A2A Resource Limits
+A2A_LIMITS_BACKEND=memory  # memory | redis
+A2A_SESSION_LIMIT_PER_TENANT=100
+A2A_MESSAGE_LIMIT_PER_SESSION=1000
+A2A_SESSION_TTL_HOURS=24
+A2A_MESSAGE_RATE_LIMIT=60
+A2A_LIMITS_CLEANUP_INTERVAL_MINUTES=15
 
 # MCP Configuration
-MCP_SERVER_ENABLED=true
-MCP_TOOL_TIMEOUT_MS=30000
+MCP_TOOL_TIMEOUT_SECONDS=30
+MCP_TOOL_MAX_TIMEOUT_SECONDS=300
+MCP_TOOL_TIMEOUT_OVERRIDES={"knowledge.query":30,"knowledge.graph_stats":10}
 
 # MCP-UI Configuration
 MCP_UI_ENABLED=true
 MCP_UI_ALLOWED_ORIGINS=https://trusted-origin.com
-
-# Open-JSON-UI Configuration
-OPEN_JSON_UI_ENABLED=true
+MCP_UI_SIGNING_SECRET=
+NEXT_PUBLIC_MCP_UI_ALLOWED_ORIGINS=https://trusted-origin.com
 ```
 
 ### Redis Keys (A2A)
 
 ```
-a2a:sessions:{session_id}          # Session metadata
-a2a:agents:{agent_id}              # Agent registration
-a2a:limits:{session_id}            # Resource limits
+a2a:sessions:{session_id}          # Session metadata (A2ASessionManager)
+a2a:tenant:{tenant_id}             # Resource limits (tenant usage)
+a2a:session:{session_id}:info      # Resource limits (session usage)
+a2a:session:{session_id}:rate      # Resource limits (rate window)
 ```
 
 ## Security Considerations
@@ -203,7 +212,7 @@ a2a:limits:{session_id}            # Resource limits
 
 | Issue | Likely Cause | Solution |
 |-------|--------------|----------|
-| Stream disconnects | Timeout exceeded | Increase `AGUI_STREAM_TIMEOUT_SECONDS` |
+| Stream disconnects | Upstream timeout | Check upstream agent timeouts and network stability |
 | A2A delegation fails | Agent not registered | Check agent registration in Redis |
 | MCP tools not found | Server not initialized | Verify MCP server startup |
 | MCP-UI blocked | Origin not allowed | Add origin to `MCP_UI_ALLOWED_ORIGINS` |

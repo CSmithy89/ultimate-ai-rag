@@ -189,10 +189,10 @@ if not await manager.check_and_increment(tenant_id, session_id):
 ### Redis Key Structure
 
 ```
-a2a:sessions:{tenant_id}:{session_id}     # Session metadata
-a2a:session_count:{tenant_id}             # Session counter
-a2a:message_count:{tenant_id}:{session_id} # Message counter
-a2a:rate_limit:{tenant_id}:{session_id}   # Rate limit window
+a2a:sessions:{session_id}                 # Session metadata (A2ASessionManager)
+a2a:tenant:{tenant_id}                    # Resource limits (tenant usage)
+a2a:session:{session_id}:info             # Resource limits (session usage)
+a2a:session:{session_id}:rate             # Resource limits (rate window)
 ```
 
 ## Configuration
@@ -203,11 +203,9 @@ a2a:rate_limit:{tenant_id}:{session_id}   # Rate limit window
 # Enable A2A
 A2A_ENABLED=true
 
-# Default timeout for delegation
-A2A_DEFAULT_TIMEOUT_SECONDS=30
-
-# Maximum delegation depth (prevent cycles)
-A2A_MAX_DELEGATION_DEPTH=3
+# Delegation behavior
+A2A_TASK_DEFAULT_TIMEOUT_SECONDS=300
+A2A_TASK_MAX_RETRIES=3
 
 # Resource limits
 A2A_SESSION_LIMIT_PER_TENANT=100
@@ -215,8 +213,10 @@ A2A_MESSAGE_LIMIT_PER_SESSION=1000
 A2A_SESSION_TTL_HOURS=24
 A2A_MESSAGE_RATE_LIMIT=60
 
-# Redis configuration
-A2A_REDIS_URL=redis://localhost:6379/1
+# Limits backend
+A2A_LIMITS_BACKEND=memory  # memory | redis
+# Redis configuration (used when A2A_LIMITS_BACKEND=redis)
+REDIS_URL=redis://localhost:6379/1
 ```
 
 ### Python Configuration
@@ -225,9 +225,9 @@ A2A_REDIS_URL=redis://localhost:6379/1
 # settings.py
 class A2ASettings(BaseModel):
     enabled: bool = True
-    default_timeout: int = 30
-    max_delegation_depth: int = 3
-    resource_limits: A2AResourceLimits = A2AResourceLimits()
+    task_default_timeout_seconds: int = 300
+    task_max_retries: int = 3
+    limits: A2AResourceLimits = A2AResourceLimits()
 ```
 
 ## Code Examples

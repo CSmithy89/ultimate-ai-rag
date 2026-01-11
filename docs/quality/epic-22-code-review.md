@@ -3,47 +3,47 @@
 Scope: A2A middleware + resource limits, AG-UI metrics/errors, MCP-UI, Open-JSON-UI, protocol docs, and Epic 22 tech debt items.
 
 ## Critical Findings (Must Fix Before Completion)
-- [ ] A2A resource limits are not enforced in session or message endpoints; the manager is only used by `/a2a/metrics/{tenant_id}`. `backend/src/agentic_rag_backend/api/routes/a2a.py`, `backend/src/agentic_rag_backend/main.py`
-- [ ] A2A middleware registration contract diverges from the story: `/a2a/agents/register` (registry) accepts tenant_id in body and skips header/API-key/prefix validation, while the middleware uses `/a2a/middleware/*`. `backend/src/agentic_rag_backend/api/routes/a2a.py`
-- [ ] MCP-UI and Open-JSON-UI renderers are not wired into the CopilotKit rendering pipeline; tool calls only render MCPToolCallCard/VectorSearchCard. `frontend/components/copilot/tool-renderers.tsx`, `frontend/components/mcp-ui/MCPUIRenderer.tsx`, `frontend/components/open-json-ui/OpenJSONUIRenderer.tsx`
-- [ ] Backend Open-JSON-UI models do not validate component schemas or URL safety; `OpenJSONUIPayload.components` is `list[dict]`. `backend/src/agentic_rag_backend/protocols/open_json_ui.py`
-- [ ] Missing tenant_id in AG-UI bridge emits only text; it never emits a structured RUN_ERROR event, and the frontend error handler hook is not integrated anywhere. `backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py`, `frontend/components/copilot/ErrorHandler.tsx`
-- [ ] A2A middleware auth key is captured at import time; if `A2A_API_KEY` is unset or rotated later, auth can be disabled or stale for the process lifetime. `backend/src/agentic_rag_backend/api/routes/a2a.py`
-- [ ] MCP-UI signing secret accepts empty/whitespace values, resulting in an effectively blank signing key. `backend/src/agentic_rag_backend/config.py`
-- [ ] Middleware delegation buffers up to 1000 events instead of streaming, risking high memory usage and truncated/incomplete UI state. `backend/src/agentic_rag_backend/api/routes/a2a.py`
+- [x] A2A resource limits are not enforced in session or message endpoints; the manager is only used by `/a2a/metrics/{tenant_id}`. `backend/src/agentic_rag_backend/api/routes/a2a.py`, `backend/src/agentic_rag_backend/main.py`
+- [x] A2A middleware registration contract diverges from the story: `/a2a/agents/register` (registry) accepts tenant_id in body and skips header/API-key/prefix validation, while the middleware uses `/a2a/middleware/*`. `backend/src/agentic_rag_backend/api/routes/a2a.py`
+- [x] MCP-UI and Open-JSON-UI renderers are not wired into the CopilotKit rendering pipeline; tool calls only render MCPToolCallCard/VectorSearchCard. `frontend/components/copilot/tool-renderers.tsx`, `frontend/components/mcp-ui/MCPUIRenderer.tsx`, `frontend/components/open-json-ui/OpenJSONUIRenderer.tsx`
+- [x] Backend Open-JSON-UI models do not validate component schemas or URL safety; `OpenJSONUIPayload.components` is `list[dict]`. `backend/src/agentic_rag_backend/protocols/open_json_ui.py`
+- [x] Missing tenant_id in AG-UI bridge emits only text; it never emits a structured RUN_ERROR event, and the frontend error handler hook is not integrated anywhere. `backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py`, `frontend/components/copilot/ErrorHandler.tsx`
+- [x] A2A middleware auth key is captured at import time; if `A2A_API_KEY` is unset or rotated later, auth can be disabled or stale for the process lifetime. `backend/src/agentic_rag_backend/api/routes/a2a.py`
+- [x] MCP-UI signing secret accepts empty/whitespace values, resulting in an effectively blank signing key. `backend/src/agentic_rag_backend/config.py`
+- [x] Middleware delegation buffers up to 1000 events instead of streaming, risking high memory usage and truncated/incomplete UI state. `backend/src/agentic_rag_backend/api/routes/a2a.py`
 
 ## High Findings
-- [ ] MCP-UI signing secret is configured but unused, CSP headers are not enforced, and docs show sandbox attributes that do not match defaults. `backend/src/agentic_rag_backend/config.py`, `backend/src/agentic_rag_backend/models/mcp_ui.py`, `docs/guides/protocol-integration/mcp-ui-rendering.md`
-- [ ] A2A limits config drift: new `A2A_*_LIMITS` env vars exist in config but are missing from `.env.example`, while older session limit vars still exist. `backend/src/agentic_rag_backend/config.py`, `.env.example`
-- [ ] Telemetry metrics label cardinality control is missing; event names are unbounded and the metric name differs from the story. `backend/src/agentic_rag_backend/observability/metrics.py`, `backend/src/agentic_rag_backend/api/routes/telemetry.py`
-- [ ] Protocol docs list env vars and APIs that do not exist in code (AGUI_STREAM_TIMEOUT_SECONDS, A2A_DEFAULT_TIMEOUT_SECONDS, A2A_MAX_DELEGATION_DEPTH, A2A_REDIS_URL, OPEN_JSON_UI_ENABLED). `docs/guides/protocol-integration/overview.md`, `docs/guides/protocol-integration/a2a-protocol.md`
-- [ ] In-memory A2A rate-limit tracking may grow large for high configured limits; cleanup is time-based but unbounded by count. Consider bounded deque or maxlen. `backend/src/agentic_rag_backend/protocols/a2a_resource_limits.py`
-- [ ] Redis tenant usage hashes never expire (TTL set only on session keys), leaving stale tenant keys indefinitely. `backend/src/agentic_rag_backend/protocols/a2a_resource_limits.py`
-- [ ] Redis active session counts can drift when session keys expire via TTL without `close_session`; cleanup only clamps negatives, not reconciles counts. `backend/src/agentic_rag_backend/protocols/a2a_resource_limits.py`
-- [ ] `/mcp/ui/config` has no per-tenant rate limiting. `backend/src/agentic_rag_backend/api/routes/mcp.py`
-- [ ] SSRF checks do not resolve hostnames; DNS rebinding/CNAME to private IPs can bypass checks. `backend/src/agentic_rag_backend/protocols/a2a_middleware.py`
+- [x] MCP-UI signing secret is configured but unused, CSP headers are not enforced, and docs show sandbox attributes that do not match defaults. `backend/src/agentic_rag_backend/config.py`, `backend/src/agentic_rag_backend/models/mcp_ui.py`, `docs/guides/protocol-integration/mcp-ui-rendering.md`
+- [x] A2A limits config drift: new `A2A_*_LIMITS` env vars exist in config but are missing from `.env.example`, while older session limit vars still exist. `backend/src/agentic_rag_backend/config.py`, `.env.example`
+- [x] Telemetry metrics label cardinality control is missing; event names are unbounded and the metric name differs from the story. `backend/src/agentic_rag_backend/observability/metrics.py`, `backend/src/agentic_rag_backend/api/routes/telemetry.py`
+- [x] Protocol docs list env vars and APIs that do not exist in code (AGUI_STREAM_TIMEOUT_SECONDS, A2A_DEFAULT_TIMEOUT_SECONDS, A2A_MAX_DELEGATION_DEPTH, A2A_REDIS_URL, OPEN_JSON_UI_ENABLED). `docs/guides/protocol-integration/overview.md`, `docs/guides/protocol-integration/a2a-protocol.md`
+- [x] In-memory A2A rate-limit tracking may grow large for high configured limits; cleanup is time-based but unbounded by count. Consider bounded deque or maxlen. `backend/src/agentic_rag_backend/protocols/a2a_resource_limits.py`
+- [x] Redis tenant usage hashes never expire (TTL set only on session keys), leaving stale tenant keys indefinitely. `backend/src/agentic_rag_backend/protocols/a2a_resource_limits.py`
+- [x] Redis active session counts can drift when session keys expire via TTL without `close_session`; cleanup only clamps negatives, not reconciles counts. `backend/src/agentic_rag_backend/protocols/a2a_resource_limits.py`
+- [x] `/mcp/ui/config` has no per-tenant rate limiting. `backend/src/agentic_rag_backend/api/routes/mcp.py`
+- [x] SSRF checks do not resolve hostnames; DNS rebinding/CNAME to private IPs can bypass checks. `backend/src/agentic_rag_backend/protocols/a2a_middleware.py`
 
 ## Medium Findings
-- [ ] Epic 22 status tracking is inconsistent (epic tech spec says Backlog; sprint status says done; story 22-C1 still in-progress). `_bmad-output/epics/epic-22-tech-spec.md`, `_bmad-output/implementation-artifacts/sprint-status.yaml`, `_bmad-output/implementation-artifacts/stories/22-C1-implement-mcp-ui-renderer.md`
-- [ ] Compliance tests validate schemas but not runtime wiring; MCP-UI/Open-JSON-UI can pass tests while never rendering in UI. `frontend/__tests__/protocols/mcp-ui-compliance.test.ts`, `frontend/__tests__/protocols/open-json-ui-compliance.test.ts`
-- [ ] A2A middleware HTTP client read timeout is fixed at 30s; for long SSE streams it should be configurable or disable read timeout while keeping connect timeout. `backend/src/agentic_rag_backend/protocols/a2a_middleware.py`
-- [ ] A2A resource manager initialization errors surface as RuntimeError (500) instead of structured 503. `backend/src/agentic_rag_backend/api/routes/a2a.py`
-- [ ] `Retry-After` header is only set when `retry_after` is truthy, so valid `0` is dropped. `backend/src/agentic_rag_backend/core/errors.py`
-- [ ] AG-UI bridge emits RUN_FINISHED without RUN_STARTED when no user message; violates protocol ordering. `backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py`
-- [ ] MCP-UI allowed-origin fetch effect lacks abort/cleanup on unmount. `frontend/components/mcp-ui/MCPUIRenderer.tsx`
-- [ ] `record_stream_completed` helper decrements active gauge even if no matching start; can underflow. `backend/src/agentic_rag_backend/protocols/ag_ui_metrics.py`
-- [ ] KeyError is mapped to SESSION_NOT_FOUND broadly; should be a specific session lookup error to avoid masking unrelated failures. `backend/src/agentic_rag_backend/protocols/ag_ui_errors.py`
-- [ ] Redis scan in cleanup uses default count; add `count=100` to avoid latency spikes. `backend/src/agentic_rag_backend/protocols/a2a_resource_limits.py`
+- [x] Epic 22 status tracking is inconsistent (epic tech spec says Backlog; sprint status says done; story 22-C1 still in-progress). `_bmad-output/epics/epic-22-tech-spec.md`, `_bmad-output/implementation-artifacts/sprint-status.yaml`, `_bmad-output/implementation-artifacts/stories/22-C1-implement-mcp-ui-renderer.md`
+- [x] Compliance tests validate schemas but not runtime wiring; MCP-UI/Open-JSON-UI can pass tests while never rendering in UI. `frontend/__tests__/protocols/mcp-ui-compliance.test.ts`, `frontend/__tests__/protocols/open-json-ui-compliance.test.ts`
+- [x] A2A middleware HTTP client read timeout is fixed at 30s; for long SSE streams it should be configurable or disable read timeout while keeping connect timeout. `backend/src/agentic_rag_backend/protocols/a2a_middleware.py`
+- [x] A2A resource manager initialization errors surface as RuntimeError (500) instead of structured 503. `backend/src/agentic_rag_backend/api/routes/a2a.py`
+- [x] `Retry-After` header is only set when `retry_after` is truthy, so valid `0` is dropped. `backend/src/agentic_rag_backend/core/errors.py`
+- [x] AG-UI bridge emits RUN_FINISHED without RUN_STARTED when no user message; violates protocol ordering. `backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py`
+- [x] MCP-UI allowed-origin fetch effect lacks abort/cleanup on unmount. `frontend/components/mcp-ui/MCPUIRenderer.tsx`
+- [x] `record_stream_completed` helper decrements active gauge even if no matching start; can underflow. `backend/src/agentic_rag_backend/protocols/ag_ui_metrics.py`
+- [x] KeyError is mapped to SESSION_NOT_FOUND broadly; should be a specific session lookup error to avoid masking unrelated failures. `backend/src/agentic_rag_backend/protocols/ag_ui_errors.py`
+- [x] Redis scan in cleanup uses default count; add `count=100` to avoid latency spikes. `backend/src/agentic_rag_backend/protocols/a2a_resource_limits.py`
 
 ## Low Findings
-- [ ] Use Pydantic discriminated unions for Open-JSON-UI component validation (`Field(discriminator="type")`). `backend/src/agentic_rag_backend/protocols/open_json_ui.py`
-- [ ] Prefer `exception.retry_after` when available instead of hardcoded 60s in error mapping. `backend/src/agentic_rag_backend/protocols/ag_ui_errors.py`
-- [ ] Remove unused Redis Lua SHA attributes or implement script caching (EVALSHA). `backend/src/agentic_rag_backend/protocols/a2a_resource_limits.py`
+- [x] Use Pydantic discriminated unions for Open-JSON-UI component validation (`Field(discriminator="type")`). `backend/src/agentic_rag_backend/protocols/open_json_ui.py`
+- [x] Prefer `exception.retry_after` when available instead of hardcoded 60s in error mapping. `backend/src/agentic_rag_backend/protocols/ag_ui_errors.py`
+- [x] Remove unused Redis Lua SHA attributes or implement script caching (EVALSHA). `backend/src/agentic_rag_backend/protocols/a2a_resource_limits.py`
 
 ## Testing & Quality Notes
 - [ ] Replace real sleeps in tests with time mocking to avoid flakiness.
 - [ ] Isolate Prometheus CollectorRegistry per test to prevent cross-test pollution.
-- [ ] Avoid asserting on Prometheus internal attributes (`_name`, `_labelnames`).
+- [x] Avoid asserting on Prometheus internal attributes (`_name`, `_labelnames`).
 - [ ] Add E2E test for A2A delegation → MCP-UI rendering.
 - [ ] Add frontend edge-case tests for network failures and malformed UI payloads.
 
@@ -54,7 +54,7 @@ Scope: A2A middleware + resource limits, AG-UI metrics/errors, MCP-UI, Open-JSON
 
 ## Security Review Recommendations
 - [ ] Add API gateway rate limiting in addition to in-app limits.
-- [ ] Add CSP headers for MCP-UI iframe responses.
+- [x] Add CSP headers for MCP-UI iframe responses.
 - [ ] Add request signing for A2A agent-to-agent communication.
 - [ ] Log security events (blocked origins, SSRF attempts) to SIEM.
 
@@ -63,20 +63,20 @@ Scope: A2A middleware + resource limits, AG-UI metrics/errors, MCP-UI, Open-JSON
 Current canonical middleware endpoints are `/a2a/middleware/*`, not `/a2a/agents/*`. The latter targets the A2A registry and skips middleware tenant-prefix + API-key enforcement. Evidence: integration tests target `/a2a/middleware/*`, and middleware dependencies are only wired on those routes. `backend/tests/integration/test_a2a_middleware_api.py`, `backend/src/agentic_rag_backend/api/routes/a2a.py`
 
 ### A2A Resource Limits Integration
-A2ASessionManager already enforces per-tenant and per-session limits, while A2AResourceManager is unused outside metrics and background cleanup. This creates parallel limit systems with no shared state. Evidence: no calls to `register_session`/`record_message` in A2A routes, and no session close endpoint to decrement counts. `backend/src/agentic_rag_backend/api/routes/a2a.py`, `backend/src/agentic_rag_backend/protocols/a2a_resource_limits.py`
+A2AResourceManager is now integrated into session create/message/close so rate limits and usage metrics share the same source of truth. Evidence: `register_session`, `record_message`, and `delete_session` are called from A2A routes and errors map to RFC 7807. `backend/src/agentic_rag_backend/api/routes/a2a.py`, `backend/src/agentic_rag_backend/protocols/a2a_resource_limits.py`
 
 ### MCP-UI / Open-JSON-UI Rendering Path
-Neither renderer is registered in the tool-call rendering hook, and MCPToolCallCard only stringifies results. There is no AG-UI event or tool result handler that dispatches `mcp_ui` or `open_json_ui` payloads. `frontend/components/copilot/tool-renderers.tsx`, `frontend/components/copilot/MCPToolCallCard.tsx`
+Tool-call results now dispatch `mcp_ui` and `open_json_ui` payloads to MCPUIRenderer/OpenJSONUIRenderer via the CopilotKit tool renderer hook, with error boundaries and tests validating the wiring. `frontend/components/copilot/tool-renderers.tsx`, `frontend/__tests__/components/copilot/tool-renderers.test.tsx`
 
 ## Implementation Checklist
-- [ ] Decide canonical A2A middleware endpoint and align docs + story ACs (either move middleware to `/a2a/agents/*` or document `/a2a/middleware/*` as canonical).
-- [ ] Integrate A2AResourceManager into session lifecycle (create/message/close) and map its exceptions to RFC 7807 errors (or remove duplicate A2ASessionManager limits).
-- [ ] Wire MCP-UI and Open-JSON-UI renderers into the CopilotKit tool rendering pipeline (or add explicit AG-UI UI payload rendering).
-- [ ] Tighten backend Open-JSON-UI validation (typed component union, URL validation) to match frontend Zod schemas.
-- [ ] Emit structured AG-UI RUN_ERROR for missing tenant_id and integrate `useAGUIErrorHandler`/`parseAGUIError` in the chat UI path.
-- [ ] Implement MCP-UI signing verification (or remove secret), and document actual sandbox/CSP behavior.
-- [ ] Add telemetry event allowlist/normalization to prevent label cardinality explosion.
-- [ ] Update `.env.example` and protocol docs to match actual config names and behavior.
+- [x] Decide canonical A2A middleware endpoint and align docs + story ACs (either move middleware to `/a2a/agents/*` or document `/a2a/middleware/*` as canonical).
+- [x] Integrate A2AResourceManager into session lifecycle (create/message/close) and map its exceptions to RFC 7807 errors (or remove duplicate A2ASessionManager limits).
+- [x] Wire MCP-UI and Open-JSON-UI renderers into the CopilotKit tool rendering pipeline (or add explicit AG-UI UI payload rendering).
+- [x] Tighten backend Open-JSON-UI validation (typed component union, URL validation) to match frontend Zod schemas.
+- [x] Emit structured AG-UI RUN_ERROR for missing tenant_id and integrate `useAGUIErrorHandler`/`parseAGUIError` in the chat UI path.
+- [x] Implement MCP-UI signing verification (or remove secret), and document actual sandbox/CSP behavior.
+- [x] Add telemetry event allowlist/normalization to prevent label cardinality explosion.
+- [x] Update `.env.example` and protocol docs to match actual config names and behavior.
 
 ## PR-ready Work Items
 ### PR 1: Enforce A2A Resource Limits in Session Lifecycle
