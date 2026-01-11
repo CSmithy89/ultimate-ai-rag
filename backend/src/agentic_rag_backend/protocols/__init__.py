@@ -1,6 +1,14 @@
 """Protocol handlers for agent communication."""
 
 from .ag_ui_bridge import AGUIBridge
+from .ag_ui_metrics import (
+    AGUIMetricsCollector,
+    track_agui_stream,
+    record_stream_started,
+    record_stream_completed,
+    record_event_emitted,
+    KNOWN_EVENT_TYPES,  # Issue #2: Known event types for cardinality control
+)
 from .mcp import MCPToolRegistry
 from .a2a import A2ASessionManager
 from .a2a_messages import (
@@ -14,9 +22,55 @@ from .a2a_messages import (
 )
 from .a2a_registry import A2AAgentRegistry, RegistryConfig
 from .a2a_delegation import TaskDelegationManager, DelegationConfig
+from .a2a_middleware import A2AMiddlewareAgent, A2AAgentCapability, A2AAgentInfo
+from .a2a_resource_limits import (
+    A2AResourceLimits,
+    A2AResourceManager,
+    A2AResourceMetrics,
+    InMemoryA2AResourceManager,
+    RedisA2AResourceManager,
+    A2AResourceManagerFactory,
+    A2ASessionLimitExceeded,
+    A2AMessageLimitExceeded,
+    A2ARateLimitExceeded,
+)
+from .open_json_ui import (
+    OpenJSONUIText,
+    OpenJSONUIHeading,
+    OpenJSONUICode,
+    OpenJSONUITable,
+    OpenJSONUIImage,
+    OpenJSONUIButton,
+    OpenJSONUIList,
+    OpenJSONUILink,
+    OpenJSONUIDivider,
+    OpenJSONUIProgress,
+    OpenJSONUIAlert,
+    OpenJSONUIComponent,
+    OpenJSONUIPayload,
+    create_open_json_ui,
+    create_text,
+    create_heading,
+    create_code,
+    create_table,
+    create_image,
+    create_button,
+    create_list,
+    create_link,
+    create_divider,
+    create_progress,
+    create_alert,
+)
 
 __all__ = [
     "AGUIBridge",
+    # AG-UI Metrics (Story 22-B1)
+    "AGUIMetricsCollector",
+    "track_agui_stream",
+    "record_stream_started",
+    "record_stream_completed",
+    "record_event_emitted",
+    "KNOWN_EVENT_TYPES",  # Issue #2: Known event types for cardinality control
     "MCPToolRegistry",
     "A2ASessionManager",
     # A2A Protocol (Epic 14)
@@ -31,4 +85,44 @@ __all__ = [
     "RegistryConfig",
     "TaskDelegationManager",
     "DelegationConfig",
+    # A2A Middleware (Story 22-A1)
+    "A2AMiddlewareAgent",
+    "A2AAgentCapability",
+    "A2AAgentInfo",
+    # A2A Resource Limits (Story 22-A2)
+    "A2AResourceLimits",
+    "A2AResourceManager",
+    "A2AResourceMetrics",
+    "InMemoryA2AResourceManager",
+    "RedisA2AResourceManager",
+    "A2AResourceManagerFactory",
+    "A2ASessionLimitExceeded",
+    "A2AMessageLimitExceeded",
+    "A2ARateLimitExceeded",
+    # Open-JSON-UI (Story 22-C2)
+    "OpenJSONUIText",
+    "OpenJSONUIHeading",
+    "OpenJSONUICode",
+    "OpenJSONUITable",
+    "OpenJSONUIImage",
+    "OpenJSONUIButton",
+    "OpenJSONUIList",
+    "OpenJSONUILink",
+    "OpenJSONUIDivider",
+    "OpenJSONUIProgress",
+    "OpenJSONUIAlert",
+    "OpenJSONUIComponent",
+    "OpenJSONUIPayload",
+    "create_open_json_ui",
+    "create_text",
+    "create_heading",
+    "create_code",
+    "create_table",
+    "create_image",
+    "create_button",
+    "create_list",
+    "create_link",
+    "create_divider",
+    "create_progress",
+    "create_alert",
 ]

@@ -1,6 +1,7 @@
 # Retrospective Process
 
 This folder contains retrospective templates and action item tracking.
+Completed retrospectives live in `_bmad-output/implementation-artifacts/retrospectives`.
 
 ## Action Item Tracking
 

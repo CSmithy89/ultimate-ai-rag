@@ -1,0 +1,22 @@
+<storyContext>
+  <story id="9.5" title="Story File Status Synchronization" epic="9" />
+
+  <summary>
+    Enforce status consistency between sprint-status.yaml and story files,
+    and fix existing mismatches.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Status in story files matches sprint-status.yaml.</acceptanceCriteria>
+    <acceptanceCriteria>Validation flags mismatches for resolution.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Use file-based validation without external services.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="_bmad-output/implementation-artifacts/sprint-status.yaml" section="development_status" />
+    <reference path="_bmad-output/epics/epic-9-process-quality-foundation.md" section="Story 9.5" />
+  </references>
+</storyContext>

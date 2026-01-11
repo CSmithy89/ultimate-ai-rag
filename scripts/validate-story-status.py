@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 
 SPRINT_STATUS_PATH = Path("_bmad-output/implementation-artifacts/sprint-status.yaml")
-STORY_DIR = Path("docs/stories")
+STORY_DIR = Path("_bmad-output/implementation-artifacts/stories")
 
 
 def parse_args() -> argparse.Namespace:

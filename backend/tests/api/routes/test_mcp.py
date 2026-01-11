@@ -1,6 +1,8 @@
 """Tests for MCP tool endpoints."""
 
 import os
+from typing import Any
+from urllib.parse import parse_qsl, urlsplit
 from uuid import uuid4
 
 # Set environment variables BEFORE any imports
@@ -19,9 +21,11 @@ from fastapi import HTTPException
 
 from agentic_rag_backend.agents.orchestrator import OrchestratorResult
 from agentic_rag_backend.api.routes.mcp import ToolCallRequest, call_tool, list_tools
+from agentic_rag_backend.config import get_settings
 from agentic_rag_backend.protocols.mcp import MCPToolRegistry
 from agentic_rag_backend.retrieval_router import RetrievalStrategy
 from agentic_rag_backend.schemas import PlanStep
+from agentic_rag_backend.protocols.mcp import MCPTool
 
 
 class DummyOrchestrator:
@@ -58,7 +62,7 @@ class DummyNeo4j:
 
 class SlowOrchestrator:
     async def run(self, query: str, tenant_id: str, session_id: str | None = None) -> OrchestratorResult:
-        await asyncio.sleep(0.05)
+        await asyncio.Event().wait()
         return OrchestratorResult(
             answer="slow",
             plan=[PlanStep(step="Step", status="completed")],
@@ -66,6 +70,50 @@ class SlowOrchestrator:
             retrieval_strategy=RetrievalStrategy.VECTOR,
             trajectory_id=uuid4(),
         )
+
+
+@pytest.mark.asyncio
+async def test_call_tool_signs_mcp_ui_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MCP_UI_ENABLED", "true")
+    monkeypatch.setenv("MCP_UI_SIGNING_SECRET", "test-secret")
+    get_settings.cache_clear()
+
+    registry = MCPToolRegistry(orchestrator=DummyOrchestrator(), neo4j=DummyNeo4j())
+
+    async def mcp_ui_handler(_: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "type": "mcp_ui",
+            "tool_name": "demo-ui",
+            "ui_url": "https://example.com/ui",
+            "ui_type": "iframe",
+            "sandbox": ["allow-scripts"],
+            "size": {"width": 600, "height": 400},
+            "allow": [],
+            "data": {},
+        }
+
+    registry._tools["demo.ui"] = MCPTool(
+        name="demo.ui",
+        description="Demo MCP-UI tool",
+        input_schema={"type": "object", "properties": {"tenant_id": {"type": "string"}}},
+        handler=mcp_ui_handler,
+    )
+
+    request = ToolCallRequest(
+        tool="demo.ui",
+        arguments={"tenant_id": "11111111-1111-1111-1111-111111111111"},
+    )
+    response = await call_tool(
+        request_body=request,
+        registry=registry,
+        limiter=AllowLimiter(),
+    )
+
+    signed_url = response.result["ui_url"]
+    query = dict(parse_qsl(urlsplit(signed_url).query))
+    assert "mcp_sig" in query
+    assert "mcp_exp" in query
+    get_settings.cache_clear()
 
 
 @pytest.mark.asyncio

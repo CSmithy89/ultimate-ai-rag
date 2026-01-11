@@ -156,14 +156,22 @@ class TestTelemetryPrometheusMetrics:
     def test_telemetry_events_total_metric_exists(self):
         """Test that TELEMETRY_EVENTS_TOTAL counter is defined."""
         assert TELEMETRY_EVENTS_TOTAL is not None
-        assert "event" in TELEMETRY_EVENTS_TOTAL._labelnames
-        assert "tenant_id" in TELEMETRY_EVENTS_TOTAL._labelnames
+        metric = next(iter(TELEMETRY_EVENTS_TOTAL.collect()))
+        assert any(
+            sample.name == "telemetry_events_total" for sample in metric.samples
+        )
 
     def test_record_telemetry_event_function(self):
         """Test recording a telemetry event metric."""
         # Should not raise
         record_telemetry_event(event="page_view", tenant_id="test-tenant")
         record_telemetry_event(event="search_query", tenant_id="test-tenant")
+
+    def test_unknown_event_normalized(self):
+        """Unknown telemetry events should be normalized to 'other'."""
+        record_telemetry_event(event="custom_event", tenant_id="test-tenant")
+        metric = next(iter(TELEMETRY_EVENTS_TOTAL.collect()))
+        assert any(sample.labels.get("event") == "other" for sample in metric.samples)
 
     @patch("agentic_rag_backend.api.routes.telemetry.record_telemetry_event")
     def test_endpoint_records_prometheus_metric(self, mock_record, mock_rate_limiter):

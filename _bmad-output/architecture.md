@@ -1327,7 +1327,7 @@ GET /api/v1/knowledge/entity/{id}/history
 
 - [Graphiti GitHub](https://github.com/getzep/graphiti)
 - [Zep: Temporal Knowledge Graph Architecture (arXiv)](https://arxiv.org/abs/2501.13956)
-- [Epic 5 Tech Spec](docs/epics/epic-5-tech-spec.md)
+- [Epic 5 Tech Spec](_bmad-output/epics/epic-5-tech-spec.md)
 
 ---
 
@@ -1378,3 +1378,392 @@ GET /api/v1/knowledge/entity/{id}/history
 - `docs/recommendations_2025.md`
 - `_bmad-output/project-planning-artifacts/epics.md`
 - `_bmad-output/implementation-artifacts/sprint-status.yaml`
+
+---
+
+## Architecture Addendum: Advanced Intelligence (Epics 19-22)
+
+**Date Added:** 2026-01-11
+**Status:** Approved
+**Scope:** Quality foundation, memory platform, graph intelligence, CopilotKit full integration, advanced protocol integration
+
+### Overview
+
+Epics 19-22 deliver advanced intelligence capabilities that position the platform competitively against Mem0, Zep, MS GraphRAG, LightRAG, Cognee, RAGFlow, and Qdrant. These epics add 64 stories covering quality observability, memory scopes, graph intelligence, and advanced protocol integration.
+
+---
+
+### Epic 19: Quality Foundation & Tech Debt (26 stories)
+
+**Architectural Focus:** Establish quality gates and observability infrastructure before competitive features.
+
+#### New Components
+
+```
+backend/src/agentic_rag_backend/
+├── observability/
+│   ├── metrics.py              # Prometheus metrics collection
+│   ├── benchmarks.py           # Retrieval quality benchmarking
+│   └── dashboards/             # Grafana dashboard templates
+├── tests/
+│   ├── integration/            # Full pipeline integration tests
+│   ├── security/
+│   │   ├── test_tenant_isolation.py
+│   │   └── test_tenant_isolation_attacks.py
+│   ├── compliance/
+│   │   └── test_endpoint_spec.py
+│   └── benchmarks/
+│       └── results/            # Benchmark result storage
+└── config/
+    └── crawl-profiles.yaml     # Externalized crawler configuration
+```
+
+#### Configuration Options
+
+| Config | Purpose | Default |
+|--------|---------|---------|
+| `PROMETHEUS_ENABLED` | Enable metrics export | `false` |
+| `PROMETHEUS_PORT` | Metrics endpoint port | `9090` |
+| `GRADER_MODEL` | Cross-encoder model selection | `L-6-v2` |
+| `GRADER_NORMALIZATION_STRATEGY` | Score normalization | `min_max` |
+| `RERANKER_CACHE_ENABLED` | Cache reranking results | `false` |
+| `RERANKER_CACHE_TTL_SECONDS` | Cache TTL | `300` |
+| `CRAWLER_USER_AGENT_STRATEGY` | User-agent rotation | `rotate` |
+| `CRAWLER_BLOOM_FILTER_THRESHOLD` | Large crawl optimization | `10000` |
+
+#### Quality Metrics Exposed
+
+- `retrieval_mrr_at_k` - Mean Reciprocal Rank
+- `retrieval_ndcg_at_k` - Normalized Discounted Cumulative Gain
+- `retrieval_precision_at_k` - Precision @ K
+- `retrieval_recall_at_k` - Recall @ K
+
+---
+
+### Epic 20: Advanced Retrieval Intelligence (18 stories)
+
+**Architectural Focus:** Competitive feature parity with market leaders via opt-in capabilities.
+
+#### New Module Structure
+
+```
+backend/src/agentic_rag_backend/
+├── memory/
+│   ├── __init__.py
+│   ├── scopes.py               # 4-level hierarchy (user/session/agent/global)
+│   ├── consolidation.py        # Dedup, merge, decay algorithms
+│   └── store.py                # Redis + Graphiti hybrid storage
+├── graph/
+│   ├── __init__.py
+│   ├── community.py            # Louvain/Leiden detection
+│   ├── routing.py              # Global vs local query router
+│   └── rerankers.py            # Episode, distance, hybrid scoring
+├── retrieval/
+│   ├── sparse_vectors.py       # BM42 + fastembed
+│   ├── colbert.py              # Late-interaction reranking
+│   └── multilingual.py         # Cross-language support
+└── features/
+    ├── voice_io.py             # Whisper STT + TTS
+    ├── ontology.py             # OWL support (owlready2)
+    └── external_sync/
+        ├── s3.py
+        ├── notion.py
+        └── gdrive.py
+```
+
+#### Memory Scope Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    GLOBAL SCOPE                          │
+│  (Cross-tenant shared knowledge, read-only to tenants)   │
+├─────────────────────────────────────────────────────────┤
+│                    AGENT SCOPE                           │
+│  (Per-agent memories, accessible by all user sessions)   │
+├─────────────────────────────────────────────────────────┤
+│                    USER SCOPE                            │
+│  (Per-user memories, persisted across sessions)          │
+├─────────────────────────────────────────────────────────┤
+│                   SESSION SCOPE                          │
+│  (Ephemeral, cleared on session end)                     │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### Graph Intelligence Flow
+
+```
+Query → Router (global/local) → Community Detection → Graph Reranker → Results
+                                      │
+                                      ↓
+                              LazyRAG Summarization
+                              (query-time, not pre-computed)
+```
+
+#### New Dependencies
+
+```toml
+networkx>=3.0          # Community detection
+owlready2>=0.45        # OWL ontology
+fastembed>=0.3.0       # BM42 sparse vectors
+colbert-ai>=0.2.0      # Late interaction (optional)
+openai-whisper>=20231117  # Voice I/O (optional)
+pyttsx3>=2.90          # TTS fallback (optional)
+notion-client>=2.0.0   # Notion sync (optional)
+aioboto3>=12.0.0       # S3 sync (optional)
+```
+
+#### Configuration Options
+
+| Config | Purpose | Default |
+|--------|---------|---------|
+| `MEMORY_CONSOLIDATION_ENABLED` | Auto-consolidate memories | `true` |
+| `MEMORY_CONSOLIDATION_INTERVAL_HOURS` | Consolidation frequency | `24` |
+| `MEMORY_IMPORTANCE_DECAY_RATE` | Decay multiplier | `0.95` |
+| `COMMUNITY_DETECTION_ALGORITHM` | Louvain or Leiden | `louvain` |
+| `GRAPH_RERANKER_ENABLED` | Use graph-based reranking | `false` |
+| `GLOBAL_LOCAL_ROUTER_ENABLED` | Query routing | `false` |
+| `SPARSE_VECTOR_ENABLED` | BM42 hybrid search | `false` |
+| `COLBERT_ENABLED` | Late-interaction reranking | `false` |
+| `VOICE_IO_ENABLED` | Speech features | `false` |
+
+---
+
+### Epic 21: CopilotKit Full Integration (8 stories)
+
+**Architectural Focus:** Unlock full CopilotKit capabilities with modern patterns.
+
+#### Frontend Architecture Changes
+
+```
+frontend/
+├── components/copilot/
+│   ├── ToolCallRenderer.tsx    # Modern tool visualization
+│   ├── A2UIWidgetRenderer.tsx  # Declarative widget rendering
+│   ├── ErrorHandler.tsx        # AG-UI error display
+│   └── DevConsole.tsx          # Debug overlay
+├── hooks/
+│   ├── use-frontend-tool.ts    # Replaces useCopilotAction
+│   ├── use-human-in-the-loop.ts # HITL approval flow
+│   ├── use-copilot-readable.ts # Context provision
+│   └── use-telemetry.ts        # Observability hook
+├── lib/
+│   ├── schemas/
+│   │   └── tools.ts            # Shared Zod schemas (DRY)
+│   └── utils/
+│       └── redact.ts           # Sensitive data masking
+└── api/routes/
+    └── telemetry/
+        └── route.ts            # Telemetry endpoint
+```
+
+#### Hook Migration Pattern
+
+```typescript
+// DEPRECATED (useCopilotAction)
+useCopilotAction({
+  name: "validate_sources",
+  handler: async () => { ... }
+});
+
+// MODERN (useFrontendTool)
+useFrontendTool({
+  name: "validate_sources",
+  description: "Approve or reject retrieved sources",
+  parameters: z.object({
+    sourceIds: z.array(z.string()),
+    decision: z.enum(["approve", "reject"])
+  }),
+  handler: async ({ sourceIds, decision }) => { ... }
+});
+```
+
+#### A2UI Widget Types
+
+| Widget | Purpose | Props |
+|--------|---------|-------|
+| `card` | Information display | title, content, actions |
+| `table` | Tabular data | headers, rows, sortable |
+| `form` | User input | fields, onSubmit |
+| `chart` | Data visualization | type, data, options |
+| `image` | Media display | src, alt, caption |
+| `list` | Enumerated items | items, ordered |
+
+#### AG-UI Event Flow
+
+```
+RUN_STARTED (run_id) → STATE_SNAPSHOT → STATE_DELTA* → RUN_FINISHED
+                              │
+                              ↓
+                       MESSAGES_SNAPSHOT
+                              │
+                              ↓
+                       A2UI_WIDGETS (optional)
+```
+
+---
+
+### Epic 22: Advanced Protocol Integration (12 stories)
+
+**Architectural Focus:** Complete protocol stack with A2A middleware and multi-tenant safety.
+
+#### New Protocol Components
+
+```
+backend/src/agentic_rag_backend/protocols/
+├── a2a_middleware.py           # Agent delegation handler
+├── a2a_resource_limits.py      # Per-tenant session/message caps
+├── ag_ui_metrics.py            # Prometheus stream metrics
+├── ag_ui_errors.py             # RFC 7807 error taxonomy
+├── mcp_ui.py                   # Iframe signing and validation
+└── open_json_ui.py             # Component schema definitions
+
+frontend/components/
+├── mcp-ui/
+│   └── MCPUIRenderer.tsx       # Iframe sandbox renderer
+├── open-json-ui/
+│   └── OpenJSONUIRenderer.tsx  # Declarative component renderer
+└── copilot/
+    └── ErrorHandler.tsx        # AG-UI error display
+```
+
+#### A2A Middleware Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   A2A Middleware Agent                        │
+├─────────────────────────────────────────────────────────────┤
+│  POST /a2a/agents/register                                    │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │  {                                                       │ │
+│  │    "agent_id": "specialized-analyzer",                   │ │
+│  │    "capabilities": ["analyze", "summarize"],             │ │
+│  │    "endpoint": "https://agent.example.com/a2a"          │ │
+│  │  }                                                       │ │
+│  └─────────────────────────────────────────────────────────┘ │
+├─────────────────────────────────────────────────────────────┤
+│  Delegation Flow:                                             │
+│  Orchestrator → A2AMiddleware → Target Agent → Response       │
+│                      │                                        │
+│                      ↓                                        │
+│              Resource Limit Check                             │
+│              Rate Limit Check                                 │
+│              Context Preservation                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Resource Limits Backend Options
+
+| Backend | Use Case | Config |
+|---------|----------|--------|
+| `memory` | Development | Default, single-process |
+| `redis` | Production | Distributed state |
+| `postgres` | Audit trail | Persistent with history |
+
+#### AG-UI Error Taxonomy (RFC 7807)
+
+| Error Code | HTTP Status | Description |
+|------------|-------------|-------------|
+| `AGENT_EXECUTION_ERROR` | 500 | Internal agent failure |
+| `TENANT_REQUIRED` | 401 | Missing X-Tenant-ID |
+| `TENANT_UNAUTHORIZED` | 403 | Tenant access denied |
+| `SESSION_NOT_FOUND` | 404 | Invalid session ID |
+| `RATE_LIMITED` | 429 | Request throttled |
+| `TIMEOUT` | 504 | Operation timeout |
+| `INVALID_REQUEST` | 400 | Malformed request |
+| `CAPABILITY_NOT_FOUND` | 404 | Unknown capability |
+| `UPSTREAM_ERROR` | 502 | External service failure |
+| `SERVICE_UNAVAILABLE` | 503 | System overloaded |
+
+#### MCP-UI Security Model
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    MCP-UI Security                            │
+├─────────────────────────────────────────────────────────────┤
+│  1. Origin Validation                                         │
+│     - MCP_UI_ALLOWED_ORIGINS whitelist                       │
+│     - Reject unknown origins                                  │
+│                                                               │
+│  2. Signed URLs                                               │
+│     - MCP_UI_SIGNING_SECRET HMAC                             │
+│     - TTL expiration                                          │
+│                                                               │
+│  3. CSP Headers                                               │
+│     - frame-src restriction                                   │
+│     - script-src 'self'                                       │
+│                                                               │
+│  4. PostMessage Validation                                    │
+│     - Origin check on message receipt                         │
+│     - Schema validation via Zod                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Open-JSON-UI Component Schema
+
+```typescript
+type OpenJSONUIComponent =
+  | { type: "text"; content: string }
+  | { type: "heading"; level: 1|2|3|4|5|6; content: string }
+  | { type: "code"; language: string; content: string }
+  | { type: "list"; items: string[]; ordered: boolean }
+  | { type: "table"; headers: string[]; rows: string[][] }
+  | { type: "image"; src: string; alt: string }
+  | { type: "link"; href: string; text: string }
+  | { type: "button"; label: string; action: string }
+  | { type: "card"; title: string; content: string }
+  | { type: "divider" };
+```
+
+#### Configuration Options
+
+| Config | Purpose | Default |
+|--------|---------|---------|
+| `A2A_LIMITS_BACKEND` | Limits storage | `memory` |
+| `A2A_SESSION_LIMIT_PER_TENANT` | Max sessions | `100` |
+| `A2A_MESSAGE_LIMIT_PER_SESSION` | Max messages | `1000` |
+| `A2A_SESSION_TTL_HOURS` | Session expiry | `24` |
+| `A2A_MESSAGE_RATE_LIMIT` | Per-minute limit | `60` |
+| `METRICS_TENANT_SAMPLING_ENABLED` | Cardinality control | `true` |
+| `MCP_UI_ENABLED` | Enable iframe embedding | `false` |
+| `MCP_UI_SIGNING_SECRET` | URL signing key | (required) |
+| `MCP_UI_ALLOWED_ORIGINS` | Origin whitelist | (required) |
+| `OPEN_JSON_UI_ENABLED` | Declarative UI | `true` |
+
+---
+
+### Cross-Epic Integration Points
+
+#### Protocol Stack Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Protocol Layer                            │
+├─────────────┬─────────────┬─────────────┬─────────────┬─────┤
+│    MCP      │    A2A      │   AG-UI     │   MCP-UI    │O-J-UI│
+│  (Tools)    │ (Delegate)  │  (Stream)   │  (Embed)    │(Decl)│
+├─────────────┴─────────────┴─────────────┴─────────────┴─────┤
+│                   Observability Layer                         │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐          │
+│  │ Prometheus  │  │  Telemetry  │  │  Benchmarks │          │
+│  │   Metrics   │  │   Endpoint  │  │   Suite     │          │
+│  └─────────────┘  └─────────────┘  └─────────────┘          │
+├─────────────────────────────────────────────────────────────┤
+│                    Security Layer                             │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐          │
+│  │   Tenant    │  │   Origin    │  │    Rate     │          │
+│  │  Isolation  │  │ Validation  │  │   Limits    │          │
+│  └─────────────┘  └─────────────┘  └─────────────┘          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Architecture Addendum Status: APPROVED ✅
+
+**Date:** 2026-01-11
+**Epics Covered:** 19, 20, 21, 22
+**Total Stories:** 64
+**New Components:** 30+
+**Configuration Options:** 40+
+
+**Next Phase:** Epic 17 and Epic 18 stories are in backlog status, covering CLI implementation and comprehensive documentation.

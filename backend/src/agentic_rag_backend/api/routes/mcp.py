@@ -1,19 +1,32 @@
-"""MCP-style tool discovery and invocation endpoints."""
+"""MCP-style tool discovery and invocation endpoints.
+
+Includes:
+- Tool discovery and invocation (Epic 7)
+- MCP-UI configuration for iframe rendering (Story 22-C1)
+"""
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
+import time
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field, ValidationError
+import structlog
 
 from ...api.utils import build_meta, rate_limit_exceeded
+from ...config import get_settings
+from ...models.mcp_ui import MCPUIConfig
 from ...protocols.mcp import MCPToolNotFoundError, MCPToolRegistry
 from ...rate_limit import RateLimiter
 from ...validation import is_valid_tenant_id
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
+logger = structlog.get_logger(__name__)
 
 
 class ToolDescriptor(BaseModel):
@@ -36,6 +49,98 @@ class ToolCallResponse(BaseModel):
     tool: str
     result: dict[str, Any]
     meta: dict[str, Any]
+
+
+MCP_UI_SIGNATURE_TTL_SECONDS = 300
+MCP_UI_SIGNATURE_PARAM = "mcp_sig"
+MCP_UI_EXP_PARAM = "mcp_exp"
+
+
+def sign_mcp_ui_url(ui_url: str, secret: str, ttl_seconds: int) -> str:
+    """Return a signed MCP-UI URL with expiry and signature query params."""
+    parsed = urlsplit(ui_url)
+    query_pairs = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if key not in {MCP_UI_SIGNATURE_PARAM, MCP_UI_EXP_PARAM}
+    ]
+    base_query = urlencode(query_pairs, doseq=True)
+    base_url = urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, base_query, parsed.fragment)
+    )
+    expires_at = int(time.time()) + ttl_seconds
+    payload = f"{base_url}|{expires_at}"
+    signature = hmac.new(
+        secret.encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    signed_query = urlencode(
+        query_pairs
+        + [
+            (MCP_UI_EXP_PARAM, str(expires_at)),
+            (MCP_UI_SIGNATURE_PARAM, signature),
+        ],
+        doseq=True,
+    )
+    return urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, signed_query, parsed.fragment)
+    )
+
+
+def maybe_sign_mcp_ui_result(
+    result: dict[str, Any],
+    secret: str,
+    enabled: bool,
+    allowed_origins: list[str] | None = None,
+    tenant_id: str | None = None,
+) -> dict[str, Any]:
+    """Sign MCP-UI payload URLs when MCP-UI is enabled."""
+    if not enabled:
+        return result
+    if result.get("type") != "mcp_ui":
+        return result
+    ui_url = result.get("ui_url")
+    if not isinstance(ui_url, str):
+        return result
+    if allowed_origins:
+        origin = None
+        parsed = urlsplit(ui_url)
+        if parsed.scheme and parsed.netloc:
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+        if not origin or origin not in {o.rstrip("/") for o in allowed_origins}:
+            logger.warning(
+                "mcp_ui_origin_blocked",
+                tenant_id=tenant_id,
+                origin=origin or "unknown",
+                security_event=True,
+            )
+            return result
+    signed_url = sign_mcp_ui_url(
+        ui_url=ui_url,
+        secret=secret,
+        ttl_seconds=MCP_UI_SIGNATURE_TTL_SECONDS,
+    )
+    updated = dict(result)
+    updated["ui_url"] = signed_url
+    return updated
+
+
+def _build_mcp_ui_cors_headers(
+    origin: str | None,
+    allowed_origins: list[str],
+) -> dict[str, str]:
+    """Build CORS headers for MCP-UI config endpoint."""
+    if not origin:
+        return {}
+    normalized_allowed = {allowed.rstrip("/") for allowed in allowed_origins}
+    normalized_origin = origin.rstrip("/")
+    if normalized_origin not in normalized_allowed:
+        return {}
+    return {
+        "Access-Control-Allow-Origin": normalized_origin,
+        "Vary": "Origin",
+    }
 
 
 def get_rate_limiter(request: Request) -> RateLimiter:
@@ -88,4 +193,81 @@ async def call_tool(
     except (ValueError, ValidationError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    settings = get_settings()
+    if isinstance(result, dict):
+        result = maybe_sign_mcp_ui_result(
+            result,
+            secret=settings.mcp_ui_signing_secret,
+            enabled=settings.mcp_ui_enabled,
+            allowed_origins=settings.mcp_ui_allowed_origins,
+            tenant_id=tenant_id,
+        )
+
     return ToolCallResponse(tool=request_body.tool, result=result, meta=build_meta())
+
+
+# =============================================================================
+# Story 22-C1: MCP-UI Configuration Endpoint
+# =============================================================================
+
+
+@router.get("/ui/config", response_model=MCPUIConfig)
+async def get_mcp_ui_config(
+    request: Request,
+    response: Response,
+    x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+) -> MCPUIConfig:
+    """Get MCP-UI configuration for the requesting tenant.
+
+    Returns the list of allowed origins for MCP-UI iframe rendering.
+    The frontend uses this to validate iframe URLs before rendering.
+
+    Args:
+        x_tenant_id: Tenant identifier from request header
+
+    Returns:
+        MCPUIConfig with enabled status and allowed origins
+    """
+    if not is_valid_tenant_id(x_tenant_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid X-Tenant-ID header",
+        )
+
+    if not await limiter.allow(x_tenant_id):
+        raise rate_limit_exceeded()
+
+    settings = get_settings()
+    cors_headers = _build_mcp_ui_cors_headers(
+        request.headers.get("origin"),
+        settings.mcp_ui_allowed_origins,
+    )
+    for key, value in cors_headers.items():
+        response.headers[key] = value
+
+    return MCPUIConfig(
+        enabled=settings.mcp_ui_enabled,
+        allowed_origins=settings.mcp_ui_allowed_origins,
+    )
+
+
+@router.options("/ui/config")
+async def get_mcp_ui_config_options(request: Request) -> Response:
+    """Handle CORS preflight for MCP-UI config."""
+    settings = get_settings()
+    cors_headers = _build_mcp_ui_cors_headers(
+        request.headers.get("origin"),
+        settings.mcp_ui_allowed_origins,
+    )
+    if cors_headers:
+        requested_headers = request.headers.get("access-control-request-headers")
+        allow_headers = requested_headers or "X-Tenant-ID, Content-Type"
+        cors_headers.update(
+            {
+                "Access-Control-Allow-Methods": "GET, OPTIONS",
+                "Access-Control-Allow-Headers": allow_headers,
+                "Access-Control-Max-Age": "600",
+            }
+        )
+    return Response(status_code=204, headers=cors_headers)

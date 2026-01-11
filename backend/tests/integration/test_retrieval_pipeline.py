@@ -619,8 +619,10 @@ class TestRetrievalPipeline:
         mock_embedding_gen = MockEmbeddingGenerator()
 
         # Mock a slow embedding generation
+        never = asyncio.Event()
+
         async def slow_embedding(*args, **kwargs):
-            await asyncio.sleep(2.0)  # Simulate slow response
+            await never.wait()
             return _embedding(0.5)
 
         with patch.object(
@@ -633,7 +635,7 @@ class TestRetrievalPipeline:
                 embedding_generator=mock_embedding_gen,
                 limit=10,
                 similarity_threshold=0.1,
-                timeout_seconds=0.1,  # Very short timeout
+                timeout_seconds=0.001,  # Very short timeout
                 cache_ttl_seconds=0,
             )
 

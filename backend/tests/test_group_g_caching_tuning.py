@@ -9,12 +9,12 @@ This test module covers:
 
 import math
 import tempfile
-import time
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
 
+from agentic_rag_backend.retrieval import cache as cache_module
 from agentic_rag_backend.retrieval.cache import (
     TTLCache,
     CacheStats,
@@ -82,12 +82,18 @@ class TestTTLCache:
         cache: TTLCache[str] = TTLCache(max_size=10, ttl_seconds=60)
         assert cache.get("nonexistent") is None
 
-    def test_ttl_expiration(self) -> None:
+    def test_ttl_expiration(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test entries expire after TTL."""
+        now = 1000.0
+
+        def fake_monotonic() -> float:
+            return now
+
+        monkeypatch.setattr(cache_module, "monotonic", fake_monotonic)
         cache: TTLCache[str] = TTLCache(max_size=10, ttl_seconds=0.1)
         cache.set("key1", "value1")
         assert cache.get("key1") == "value1"
-        time.sleep(0.15)
+        now += 0.2
         assert cache.get("key1") is None
 
     def test_max_size_eviction(self) -> None:

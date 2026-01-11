@@ -51,7 +51,7 @@ from .api.routes import (
 from .mcp_server.routes import router as mcp_server_router
 from .api.routes.ingest import limiter as slowapi_limiter
 from .api.utils import rate_limit_exceeded
-from .config import Settings, load_settings
+from .config import Settings, is_production_env, load_settings
 from .llm import UnsupportedLLMProviderError, get_llm_adapter
 from .core.errors import AppError, app_error_handler, http_exception_handler
 from .protocols.a2a import A2ASessionManager
@@ -60,6 +60,11 @@ from .protocols.mcp import MCPToolRegistry
 from .protocols.a2a_registry import A2AAgentRegistry, RegistryConfig
 from .protocols.a2a_delegation import TaskDelegationManager, DelegationConfig
 from .protocols.a2a_messages import get_implemented_rag_capabilities
+from .protocols.a2a_middleware import A2AMiddlewareAgent
+from .protocols.a2a_resource_limits import (
+    A2AResourceLimits,
+    A2AResourceManagerFactory,
+)
 from .memory.consolidation import MemoryConsolidator
 from .memory.scheduler import create_consolidation_scheduler
 from .rate_limit import InMemoryRateLimiter, RateLimiter, RedisRateLimiter, close_redis
@@ -222,6 +227,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     settings = load_settings()
     app.state.settings = settings
+    metrics_label_mode = os.getenv("METRICS_TENANT_LABEL_MODE", "global").strip().lower()
+    if metrics_label_mode == "full" and is_production_env(settings.app_env):
+        struct_logger.warning(
+            "metrics_tenant_label_mode_full",
+            app_env=settings.app_env,
+            hint="Use METRICS_TENANT_LABEL_MODE=hash or global in production",
+        )
+    if not os.getenv("A2A_API_KEY"):
+        struct_logger.warning(
+            "a2a_api_key_not_configured",
+            app_env=settings.app_env,
+            hint="A2A endpoints are unauthenticated until A2A_API_KEY is set",
+        )
     try:
         llm_adapter = get_llm_adapter(settings)
     except UnsupportedLLMProviderError as exc:
@@ -567,12 +585,73 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         delegation_config = DelegationConfig(
             default_timeout_seconds=settings.a2a_task_default_timeout_seconds,
             max_retries=settings.a2a_task_max_retries,
+            signing_secret=settings.a2a_signing_secret,
+            signing_ttl_seconds=settings.a2a_signing_ttl_seconds,
         )
         app.state.a2a_delegation_manager = TaskDelegationManager(
             registry=app.state.a2a_registry,
             config=delegation_config,
             redis_client=getattr(app.state, "redis_client", None),
         )
+
+        # Story 22-A1: Initialize A2A Middleware Agent
+        try:
+            app.state.a2a_middleware = A2AMiddlewareAgent(
+                agent_id=f"system:{settings.a2a_agent_id}",
+                name="RAG Middleware Agent",
+            )
+            struct_logger.info(
+                "a2a_middleware_initialized",
+                agent_id=f"system:{settings.a2a_agent_id}",
+            )
+        except Exception as exc:
+            struct_logger.exception(
+                "a2a_middleware_init_failed",
+                agent_id=f"system:{settings.a2a_agent_id}",
+                error=str(exc),
+            )
+            app.state.a2a_middleware = None
+
+        # Story 22-A2: Initialize A2A Resource Manager
+        a2a_limits = A2AResourceLimits(
+            session_limit_per_tenant=settings.a2a_session_limit_per_tenant,
+            message_limit_per_session=settings.a2a_message_limit_per_session,
+            session_ttl_hours=settings.a2a_session_ttl_hours,
+            message_rate_limit=settings.a2a_message_rate_limit,
+            cleanup_interval_minutes=settings.a2a_limits_cleanup_interval_minutes,
+        )
+        # Get async Redis client for resource manager (if available)
+        async_redis_client = getattr(app.state, "redis", None)
+        backend = settings.a2a_limits_backend
+        if backend == "redis" and async_redis_client is None:
+            struct_logger.warning(
+                "a2a_resource_manager_redis_unavailable_fallback",
+                backend=backend,
+                reason="No Redis client available; falling back to in-memory limits backend",
+            )
+            backend = "memory"
+
+        try:
+            app.state.a2a_resource_manager = A2AResourceManagerFactory.create(
+                backend=backend,
+                limits=a2a_limits,
+                redis_client=async_redis_client,
+            )
+            await app.state.a2a_resource_manager.start()
+            struct_logger.info(
+                "a2a_resource_manager_initialized",
+                backend=backend,
+                session_limit=settings.a2a_session_limit_per_tenant,
+                message_limit=settings.a2a_message_limit_per_session,
+                rate_limit=settings.a2a_message_rate_limit,
+            )
+        except Exception as exc:
+            struct_logger.exception(
+                "a2a_resource_manager_init_failed",
+                backend=backend,
+                error=str(exc),
+            )
+            app.state.a2a_resource_manager = None
 
         # Self-register this agent's RAG capabilities in the registry
         # Use a default tenant for system-level registration
@@ -610,6 +689,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         app.state.a2a_registry = None
         app.state.a2a_delegation_manager = None
+        app.state.a2a_middleware = None
+        app.state.a2a_resource_manager = None
         struct_logger.info("a2a_protocol_disabled")
 
     app.state.mcp_registry = MCPToolRegistry(
@@ -775,6 +856,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Epic 14: Close A2A delegation manager HTTP client
     if hasattr(app.state, "a2a_delegation_manager") and app.state.a2a_delegation_manager:
         await app.state.a2a_delegation_manager.close()
+    # Story 22-A1: Close A2A middleware HTTP client
+    if hasattr(app.state, "a2a_middleware") and app.state.a2a_middleware:
+        await app.state.a2a_middleware.close()
+        struct_logger.info("a2a_middleware_closed")
+    # Story 22-A2: Stop A2A resource manager
+    if hasattr(app.state, "a2a_resource_manager") and app.state.a2a_resource_manager:
+        await app.state.a2a_resource_manager.stop()
+        struct_logger.info("a2a_resource_manager_stopped")
     # Epic 5: Graphiti connection
     if hasattr(app.state, "graphiti") and app.state.graphiti:
         await app.state.graphiti.disconnect()

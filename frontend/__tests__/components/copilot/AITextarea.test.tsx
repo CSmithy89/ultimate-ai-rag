@@ -16,48 +16,54 @@ import { createRef } from "react";
 import { AITextarea } from "@/components/copilot/AITextarea";
 
 // Mock CopilotKit textarea
-jest.mock("@copilotkit/react-textarea", () => ({
-  CopilotTextarea: ({
-    value,
-    onChange,
-    placeholder,
-    disabled,
-    className,
-    style,
-    autosuggestionsConfig,
-    "aria-label": ariaLabel,
-    id,
-    name,
-    ref,
-  }: {
-    value: string;
-    onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
-    placeholder: string;
-    disabled: boolean;
-    className: string;
-    style: React.CSSProperties;
-    autosuggestionsConfig: { textareaPurpose: string; chatApiConfigs: Record<string, unknown> };
-    "aria-label"?: string;
-    id?: string;
-    name?: string;
-    ref?: React.Ref<HTMLTextAreaElement>;
-  }) => (
-    <textarea
-      ref={ref}
-      data-testid="copilot-textarea"
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-      disabled={disabled}
-      className={className}
-      style={style}
-      data-purpose={autosuggestionsConfig.textareaPurpose}
-      aria-label={ariaLabel}
-      id={id}
-      name={name}
-    />
-  ),
-}));
+jest.mock("@copilotkit/react-textarea", () => {
+  const React = require("react");
+  const CopilotTextarea = React.forwardRef(
+    (
+      {
+        value,
+        onChange,
+        placeholder,
+        disabled,
+        className,
+        style,
+        autosuggestionsConfig,
+        "aria-label": ariaLabel,
+        id,
+        name,
+      }: {
+        value: string;
+        onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+        placeholder: string;
+        disabled: boolean;
+        className: string;
+        style: React.CSSProperties;
+        autosuggestionsConfig: { textareaPurpose: string; chatApiConfigs: Record<string, unknown> };
+        "aria-label"?: string;
+        id?: string;
+        name?: string;
+      },
+      ref: React.Ref<HTMLTextAreaElement>
+    ) => (
+      <textarea
+        ref={ref}
+        data-testid="copilot-textarea"
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        disabled={disabled}
+        className={className}
+        style={style}
+        data-purpose={autosuggestionsConfig.textareaPurpose}
+        aria-label={ariaLabel}
+        id={id}
+        name={name}
+      />
+    )
+  );
+  CopilotTextarea.displayName = "CopilotTextarea";
+  return { CopilotTextarea };
+});
 
 describe("AITextarea", () => {
   const defaultProps = {

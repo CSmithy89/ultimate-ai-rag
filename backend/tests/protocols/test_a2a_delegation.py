@@ -186,8 +186,10 @@ async def test_delegate_task_with_timeout(
     )
 
     # Mock a slow HTTP request
+    never = asyncio.Event()
+
     async def slow_request(*args, **kwargs):
-        await asyncio.sleep(1)  # Longer than timeout
+        await never.wait()
         return MagicMock()
 
     with patch("httpx.AsyncClient") as mock_client:
@@ -268,8 +270,10 @@ async def test_get_task_status_running(
     )
 
     # Start a long-running task in background
+    never = asyncio.Event()
+
     async def slow_request(*args, **kwargs):
-        await asyncio.sleep(10)
+        await never.wait()
         return MagicMock()
 
     with patch("httpx.AsyncClient") as mock_client:
@@ -289,7 +293,7 @@ async def test_get_task_status_running(
         )
 
         # Give it a moment to register as pending
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0)
 
         # Get list of pending tasks
         pending = await delegation_manager.list_pending_tasks("tenant-123")

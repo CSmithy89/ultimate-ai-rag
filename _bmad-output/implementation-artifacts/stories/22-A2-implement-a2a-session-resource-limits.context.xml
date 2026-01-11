@@ -1,0 +1,709 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story Context File for 22-A2: Implement A2A Session Resource Limits
+  Generated: 2026-01-11
+  Purpose: Comprehensive implementation context for developer handoff
+-->
+<story-context>
+  <metadata>
+    <story-id>22-A2</story-id>
+    <title>Implement A2A Session Resource Limits</title>
+    <epic>22 - Advanced Protocol Integration</epic>
+    <priority>P0 - HIGH</priority>
+    <story-points>5</story-points>
+    <owner>Backend</owner>
+    <depends-on>22-A1 (A2AMiddlewareAgent Foundation) - COMPLETED</depends-on>
+  </metadata>
+
+  <story-summary>
+    <objective>
+      Implement per-tenant session and message limits for A2A operations to guarantee
+      multi-tenant safety with fair resource allocation and abuse prevention.
+    </objective>
+    <value-proposition>
+      Without resource limits, a single tenant could exhaust server resources with
+      unlimited concurrent sessions, overwhelm the system with message floods, prevent
+      other tenants from accessing A2A capabilities, or accumulate stale sessions indefinitely.
+    </value-proposition>
+    <features>
+      <feature>Per-Tenant Session Caps - Limit concurrent A2A sessions per tenant (default: 100)</feature>
+      <feature>Per-Session Message Caps - Limit messages within a single session (default: 1000)</feature>
+      <feature>Rate Limiting - Throttle message frequency per session (default: 60/minute)</feature>
+      <feature>Session TTL and Cleanup - Automatic expiration of idle sessions (default: 24 hours)</feature>
+      <feature>Cross-Worker Enforcement - Redis backend for distributed deployments</feature>
+    </features>
+  </story-summary>
+
+  <acceptance-criteria>
+    <criterion id="AC1">
+      Given the A2AResourceManager class exists in backend/src/agentic_rag_backend/protocols/a2a_limits.py,
+      when it is instantiated with A2AResourceLimits config,
+      then it initializes with configurable session/message limits, TTL, and cleanup interval.
+    </criterion>
+    <criterion id="AC2">
+      Given a tenant has reached their session limit (default 100),
+      when register_session() is called,
+      then an A2ASessionLimitExceeded exception is raised.
+    </criterion>
+    <criterion id="AC3">
+      Given a session has reached its message limit (default 1000),
+      when record_message() is called,
+      then an A2AMessageLimitExceeded exception is raised.
+    </criterion>
+    <criterion id="AC4">
+      Given a session has exceeded the rate limit (default 60 messages/minute),
+      when record_message() is called,
+      then an A2ARateLimitExceeded exception is raised.
+    </criterion>
+    <criterion id="AC5">
+      Given sessions exist with age exceeding TTL (default 24 hours),
+      when the cleanup task runs,
+      then expired sessions are automatically closed and tenant active session counts are decremented.
+    </criterion>
+    <criterion id="AC6">
+      Given a session is registered and actively used,
+      when get_tenant_metrics(tenant_id) is called,
+      then current usage metrics are returned including active_sessions, total_messages, session_limit, and message_rate_limit.
+    </criterion>
+    <criterion id="AC7">
+      Given limit violations occur on A2A endpoints,
+      when errors are returned,
+      then they use RFC 7807 format with HTTP 429 status and include retry_after hint where applicable.
+    </criterion>
+    <criterion id="AC8">
+      Given A2A_LIMITS_BACKEND=redis is configured,
+      when the A2AResourceManagerFactory creates the manager,
+      then it returns a RedisA2AResourceManager that enforces limits across multiple worker processes.
+    </criterion>
+    <criterion id="AC9">
+      Given A2A_LIMITS_BACKEND=memory (or not set),
+      when the manager is created,
+      then an InMemoryA2AResourceManager is returned for development/testing.
+    </criterion>
+    <criterion id="AC10">
+      Given the resource manager is started via start(),
+      when running,
+      then a background cleanup task runs at the configured interval to remove expired sessions.
+    </criterion>
+  </acceptance-criteria>
+
+  <configuration>
+    <env-variables>
+      <variable name="A2A_LIMITS_BACKEND" default="memory" values="memory|redis|postgres">
+        Backend storage for limit tracking. Use "redis" for production multi-worker deployments.
+      </variable>
+      <variable name="A2A_SESSION_LIMIT_PER_TENANT" default="100" type="int">
+        Maximum concurrent sessions allowed per tenant.
+      </variable>
+      <variable name="A2A_MESSAGE_LIMIT_PER_SESSION" default="1000" type="int">
+        Maximum messages allowed within a single session.
+      </variable>
+      <variable name="A2A_SESSION_TTL_HOURS" default="24" type="int">
+        Session expiration time in hours.
+      </variable>
+      <variable name="A2A_MESSAGE_RATE_LIMIT" default="60" type="int">
+        Maximum messages per minute per session.
+      </variable>
+      <variable name="A2A_CLEANUP_INTERVAL_MINUTES" default="15" type="int">
+        Interval for background cleanup task to remove expired sessions.
+      </variable>
+    </env-variables>
+  </configuration>
+
+  <existing-code-patterns>
+    <pattern name="Redis Client Usage" file="backend/src/agentic_rag_backend/db/redis.py">
+      <description>
+        RedisClient class provides async Redis operations using redis.asyncio.
+        Uses connection pooling and streams for job queues.
+      </description>
+      <code-snippet language="python"><![CDATA[
+class RedisClient:
+    def __init__(self, url: str) -> None:
+        self.url = url
+        self._client: Optional[redis.Redis] = None
+
+    async def connect(self) -> None:
+        if self._client is None:
+            self._client = redis.from_url(
+                self.url,
+                encoding="utf-8",
+                decode_responses=False,
+            )
+
+    async def disconnect(self) -> None:
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
+
+    @property
+    def client(self) -> redis.Redis:
+        if self._client is None:
+            raise RedisError("connection", "Redis client not connected")
+        return self._client
+      ]]></code-snippet>
+      <key-points>
+        <point>Global singleton pattern via get_redis_client(url) function</point>
+        <point>Lazy connection on first use</point>
+        <point>Error handling via custom RedisError exception</point>
+        <point>Async operations throughout</point>
+      </key-points>
+    </pattern>
+
+    <pattern name="Rate Limiting" file="backend/src/agentic_rag_backend/rate_limit.py">
+      <description>
+        Existing rate limiter with both in-memory and Redis-backed implementations.
+        Use this pattern for the A2A message rate limiting.
+      </description>
+      <code-snippet language="python"><![CDATA[
+class RateLimiter:
+    """Async rate limiter interface."""
+    async def allow(self, key: str) -> bool:
+        raise NotImplementedError
+
+@dataclass
+class InMemoryRateLimiter(RateLimiter):
+    max_requests: int
+    window_seconds: int
+
+    def __post_init__(self) -> None:
+        self._lock = Lock()
+        self._requests: dict[str, deque[float]] = {}
+        self._last_seen: dict[str, float] = {}
+        self._inactive_ttl = self.window_seconds * 2
+
+    async def allow(self, key: str) -> bool:
+        now = time()
+        cutoff = now - self.window_seconds
+        with self._lock:
+            self._cleanup(now)
+            bucket = self._requests.setdefault(key, deque())
+            while bucket and bucket[0] < cutoff:
+                bucket.popleft()
+            if len(bucket) >= self.max_requests:
+                return False
+            bucket.append(now)
+            self._requests[key] = bucket
+            self._last_seen[key] = now
+            return True
+
+@dataclass
+class RedisRateLimiter(RateLimiter):
+    client: redis.Redis
+    max_requests: int
+    window_seconds: int
+    key_prefix: str = "rate-limit"
+
+    async def allow(self, key: str) -> bool:
+        bucket = int(time() / self.window_seconds)
+        redis_key = f"{self.key_prefix}:{key}:{bucket}"
+        pipeline = self.client.pipeline()
+        pipeline.incr(redis_key)
+        pipeline.expire(redis_key, self.window_seconds * 2)
+        current, _ = await pipeline.execute()
+        return int(current) <= self.max_requests
+      ]]></code-snippet>
+      <key-points>
+        <point>Abstract base class with allow(key) -> bool interface</point>
+        <point>In-memory uses deque with sliding window</point>
+        <point>Redis uses bucket-based counting with INCR + EXPIRE pipeline</point>
+        <point>Both implementations are async-compatible</point>
+        <point>Key pattern includes prefix for namespace isolation</point>
+      </key-points>
+    </pattern>
+
+    <pattern name="A2A Middleware Agent" file="backend/src/agentic_rag_backend/protocols/a2a_middleware.py">
+      <description>
+        Existing A2AMiddlewareAgent that this story extends with resource limits.
+        Uses in-memory agent registry that will need Redis backing for limits.
+      </description>
+      <code-snippet language="python"><![CDATA[
+class A2AMiddlewareAgent:
+    def __init__(
+        self,
+        agent_id: str,
+        name: str,
+        capabilities: list[A2AAgentCapability] | None = None,
+    ) -> None:
+        self.agent_id = agent_id
+        self.name = name
+        self.capabilities = capabilities or []
+        self._registered_agents: dict[str, A2AAgentInfo] = {}
+        self._http_client: httpx.AsyncClient | None = None
+        self._http_client_lock = asyncio.Lock()
+
+    def register_agent(self, agent_info: A2AAgentInfo) -> None:
+        self._registered_agents[agent_info.agent_id] = agent_info
+        logger.info("a2a_agent_registered", agent_id=agent_info.agent_id, ...)
+
+    def list_agents_for_tenant(self, tenant_id: str) -> list[A2AAgentInfo]:
+        prefix = f"{tenant_id}:"
+        return [agent for agent in self._registered_agents.values()
+                if agent.agent_id.startswith(prefix)]
+
+    async def close(self) -> None:
+        if self._http_client is not None:
+            await self._http_client.aclose()
+            self._http_client = None
+      ]]></code-snippet>
+      <key-points>
+        <point>Tenant isolation via agent_id prefix pattern: {tenant_id}:{agent_name}</point>
+        <point>Lifecycle methods: __init__, close()</point>
+        <point>Uses structlog for logging</point>
+        <point>Async lock for thread-safe client initialization</point>
+      </key-points>
+    </pattern>
+
+    <pattern name="Error Handling" file="backend/src/agentic_rag_backend/core/errors.py">
+      <description>
+        RFC 7807 compliant error handling with custom exception classes.
+        New A2A limit exceptions should follow this pattern.
+      </description>
+      <code-snippet language="python"><![CDATA[
+class AppError(Exception):
+    """Base application error with RFC 7807 support."""
+    def __init__(
+        self,
+        code: str,
+        detail: str,
+        status_code: int = 500,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        self.code = code
+        self.detail = detail
+        self.status_code = status_code
+        self.extra = extra or {}
+        super().__init__(detail)
+
+class A2AAgentNotFoundError(AppError):
+    def __init__(self, agent_id: str) -> None:
+        super().__init__(
+            code="A2A_AGENT_NOT_FOUND",
+            detail=f"Agent not found: {agent_id}",
+            status_code=404,
+        )
+
+class A2ACapabilityNotFoundError(AppError):
+    def __init__(self, capability_name: str) -> None:
+        super().__init__(
+            code="A2A_CAPABILITY_NOT_FOUND",
+            detail=f"Capability not found: {capability_name}",
+            status_code=404,
+        )
+      ]]></code-snippet>
+      <key-points>
+        <point>All errors extend AppError base class</point>
+        <point>Include code, detail, status_code fields</point>
+        <point>Use HTTP 429 for rate limit errors</point>
+        <point>Add retry_after in extra dict for rate limiting</point>
+      </key-points>
+    </pattern>
+
+    <pattern name="Application Lifecycle" file="backend/src/agentic_rag_backend/main.py">
+      <description>
+        FastAPI lifespan events for starting/stopping background tasks.
+        Use this pattern for the cleanup background task.
+      </description>
+      <usage-note>
+        Wire A2AResourceManager to app.state in startup:
+        - app.state.a2a_resource_manager = A2AResourceManagerFactory.create(settings)
+        - await app.state.a2a_resource_manager.start()
+
+        In shutdown:
+        - await app.state.a2a_resource_manager.stop()
+      </usage-note>
+    </pattern>
+
+    <pattern name="Dependency Injection" file="backend/src/agentic_rag_backend/api/routes/a2a.py">
+      <description>
+        FastAPI dependency injection for accessing middleware and rate limiters.
+      </description>
+      <code-snippet language="python"><![CDATA[
+def get_a2a_middleware(request: Request) -> A2AMiddlewareAgent:
+    """Get the A2A middleware from app state."""
+    middleware = getattr(request.app.state, "a2a_middleware", None)
+    if middleware is None:
+        raise HTTPException(status_code=503, detail="A2A middleware not initialized")
+    return middleware
+
+def get_rate_limiter(request: Request) -> RateLimiter:
+    """Get the rate limiter from app state."""
+    limiter = getattr(request.app.state, "rate_limiter", None)
+    if limiter is None:
+        raise HTTPException(status_code=503, detail="Rate limiter not initialized")
+    return limiter
+
+# Usage in endpoint
+@router.post("/a2a/agents/register")
+async def register_agent(
+    body: A2AAgentInfo,
+    tenant_id: str = Depends(validate_tenant_id_header),
+    middleware: A2AMiddlewareAgent = Depends(get_a2a_middleware),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+) -> dict[str, str]:
+    ...
+      ]]></code-snippet>
+      <key-points>
+        <point>Access shared state via request.app.state</point>
+        <point>Return 503 if dependency not initialized</point>
+        <point>Use Depends() for clean injection</point>
+      </key-points>
+    </pattern>
+  </existing-code-patterns>
+
+  <implementation-specification>
+    <file-structure>
+      <new-file path="backend/src/agentic_rag_backend/protocols/a2a_limits.py">
+        Primary module containing all A2A resource limit classes:
+        - A2AResourceLimits (Pydantic config model)
+        - TenantUsage (Pydantic model for tenant tracking)
+        - SessionUsage (Pydantic model for session tracking)
+        - A2AResourceManager (abstract base class)
+        - InMemoryA2AResourceManager (development/testing)
+        - RedisA2AResourceManager (production)
+        - A2AResourceManagerFactory (factory class)
+        - Exception classes: A2ASessionLimitExceeded, A2AMessageLimitExceeded, A2ARateLimitExceeded
+      </new-file>
+      <modified-file path="backend/src/agentic_rag_backend/config.py">
+        Add A2A limit configuration to Settings class.
+      </modified-file>
+      <modified-file path="backend/src/agentic_rag_backend/core/errors.py">
+        Register A2A limit exceptions with HTTP 429 mapping.
+      </modified-file>
+      <modified-file path="backend/src/agentic_rag_backend/api/routes/a2a.py">
+        Add GET /a2a/metrics/{tenant_id} endpoint.
+        Wire resource manager calls into session operations.
+      </modified-file>
+      <modified-file path="backend/src/agentic_rag_backend/main.py">
+        Wire A2AResourceManager to app lifecycle.
+      </modified-file>
+      <modified-file path="backend/src/agentic_rag_backend/protocols/__init__.py">
+        Export new classes.
+      </modified-file>
+      <modified-file path="backend/.env.example">
+        Add all A2A limit environment variables.
+      </modified-file>
+      <new-file path="backend/tests/protocols/test_a2a_limits.py">
+        Unit tests for all A2A limit functionality.
+      </new-file>
+      <new-file path="backend/tests/integration/test_a2a_limits.py">
+        Integration tests for metrics endpoint and limit enforcement.
+      </new-file>
+    </file-structure>
+
+    <class-design>
+      <class name="A2AResourceLimits">
+        <description>Pydantic model for A2A resource limit configuration.</description>
+        <fields>
+          <field name="session_limit_per_tenant" type="int" default="100"/>
+          <field name="message_limit_per_session" type="int" default="1000"/>
+          <field name="session_ttl_hours" type="int" default="24"/>
+          <field name="message_rate_limit" type="int" default="60" description="per minute"/>
+          <field name="cleanup_interval_minutes" type="int" default="15"/>
+        </fields>
+      </class>
+
+      <class name="TenantUsage">
+        <description>Tracks resource usage for a tenant.</description>
+        <fields>
+          <field name="tenant_id" type="str"/>
+          <field name="active_sessions" type="int" default="0"/>
+          <field name="total_messages" type="int" default="0"/>
+          <field name="last_activity" type="datetime" default="datetime.utcnow()"/>
+        </fields>
+      </class>
+
+      <class name="SessionUsage">
+        <description>Tracks resource usage for a session.</description>
+        <fields>
+          <field name="session_id" type="str"/>
+          <field name="tenant_id" type="str"/>
+          <field name="message_count" type="int" default="0"/>
+          <field name="created_at" type="datetime" default="datetime.utcnow()"/>
+          <field name="last_message_at" type="datetime" default="datetime.utcnow()"/>
+          <field name="message_timestamps" type="list[datetime]" default="[]" description="For sliding window rate limiting"/>
+        </fields>
+      </class>
+
+      <class name="A2AResourceManager" type="abstract">
+        <description>Abstract base class for A2A resource management.</description>
+        <methods>
+          <method name="check_session_limit" signature="(tenant_id: str) -> bool" async="true">
+            Returns True if tenant can create a new session.
+          </method>
+          <method name="check_message_limit" signature="(session_id: str) -> bool" async="true">
+            Returns True if session can send another message.
+          </method>
+          <method name="check_rate_limit" signature="(session_id: str) -> bool" async="true">
+            Returns True if session is within rate limit.
+          </method>
+          <method name="register_session" signature="(session_id: str, tenant_id: str) -> None" async="true">
+            Register a new session. Raises A2ASessionLimitExceeded if limit reached.
+          </method>
+          <method name="record_message" signature="(session_id: str) -> None" async="true">
+            Record a message. Raises A2AMessageLimitExceeded or A2ARateLimitExceeded if limits exceeded.
+          </method>
+          <method name="close_session" signature="(session_id: str) -> None" async="true">
+            Close a session and update limits.
+          </method>
+          <method name="get_tenant_metrics" signature="(tenant_id: str) -> dict[str, Any]" async="true">
+            Get resource usage metrics for a tenant.
+          </method>
+          <method name="start" signature="() -> None" async="true">
+            Start the cleanup background task.
+          </method>
+          <method name="stop" signature="() -> None" async="true">
+            Stop the cleanup background task.
+          </method>
+        </methods>
+      </class>
+
+      <class name="InMemoryA2AResourceManager" extends="A2AResourceManager">
+        <description>In-memory implementation for development/testing.</description>
+        <internal-state>
+          <field name="_tenant_usage" type="dict[str, TenantUsage]"/>
+          <field name="_session_usage" type="dict[str, SessionUsage]"/>
+          <field name="_cleanup_task" type="asyncio.Task | None"/>
+        </internal-state>
+        <implementation-notes>
+          <note>Use sliding window for rate limiting: store timestamps, count messages in last 60 seconds</note>
+          <note>Clean timestamps older than 5 minutes to bound memory</note>
+          <note>Background task runs cleanup at configured interval</note>
+          <note>TTL enforcement: remove sessions older than session_ttl_hours</note>
+        </implementation-notes>
+      </class>
+
+      <class name="RedisA2AResourceManager" extends="A2AResourceManager">
+        <description>Redis-backed implementation for production multi-worker deployments.</description>
+        <redis-key-schema>
+          <key pattern="a2a:tenant:{tenant_id}:sessions" type="hash">
+            Tracks session count per tenant. Use HINCRBY for atomic increment/decrement.
+          </key>
+          <key pattern="a2a:session:{session_id}:info" type="hash">
+            Session metadata: tenant_id, message_count, created_at, last_message_at.
+            Set EXPIRE for automatic TTL enforcement.
+          </key>
+          <key pattern="a2a:session:{session_id}:rate" type="sorted_set">
+            Message timestamps for rate limiting. Score = timestamp, member = unique message ID.
+            Use ZRANGEBYSCORE to count messages in window.
+            Use ZREMRANGEBYSCORE to clean old entries.
+          </key>
+        </redis-key-schema>
+        <implementation-notes>
+          <note>Use Redis pipelines for atomic operations</note>
+          <note>Set EXPIRE on session keys for automatic TTL</note>
+          <note>Use Lua scripts if complex atomic operations needed</note>
+          <note>Cleanup task can be simpler since Redis handles expiry</note>
+        </implementation-notes>
+      </class>
+
+      <class name="A2AResourceManagerFactory">
+        <description>Factory for creating appropriate resource manager based on config.</description>
+        <method name="create" signature="(config: Settings) -> A2AResourceManager" static="true">
+          <logic>
+            1. Read A2A_LIMITS_BACKEND from config
+            2. If "redis": validate REDIS_URL, return RedisA2AResourceManager
+            3. If "postgres": return stub (future implementation)
+            4. Otherwise: return InMemoryA2AResourceManager
+          </logic>
+        </method>
+      </class>
+    </class-design>
+
+    <rate-limiting-algorithm>
+      <description>Sliding window rate limiting for message frequency control.</description>
+      <steps>
+        <step>Store timestamp of each message in message_timestamps list</step>
+        <step>On each record_message(), count timestamps within last 60 seconds</step>
+        <step>If count >= message_rate_limit, raise A2ARateLimitExceeded</step>
+        <step>Clean timestamps older than 5 minutes to bound memory usage</step>
+      </steps>
+      <code-example language="python"><![CDATA[
+async def check_rate_limit(self, session_id: str) -> bool:
+    usage = self._session_usage.get(session_id)
+    if not usage:
+        return True
+
+    now = datetime.utcnow()
+    minute_ago = now - timedelta(minutes=1)
+
+    # Count messages in last minute
+    recent_messages = [ts for ts in usage.message_timestamps if ts > minute_ago]
+    return len(recent_messages) < self.limits.message_rate_limit
+      ]]></code-example>
+    </rate-limiting-algorithm>
+
+    <error-response-format>
+      <description>RFC 7807 compliant error responses for limit violations.</description>
+      <example type="rate_limit_exceeded">
+        <json><![CDATA[
+{
+  "type": "/errors/rate-limited",
+  "title": "Rate Limit Exceeded",
+  "status": 429,
+  "detail": "Session has exceeded message rate limit (60/minute)",
+  "instance": "/a2a/messages",
+  "retry_after": 60
+}
+        ]]></json>
+      </example>
+      <example type="session_limit_exceeded">
+        <json><![CDATA[
+{
+  "type": "/errors/session-limit-exceeded",
+  "title": "Session Limit Exceeded",
+  "status": 429,
+  "detail": "Tenant has reached maximum concurrent sessions (100)",
+  "instance": "/a2a/sessions"
+}
+        ]]></json>
+      </example>
+    </error-response-format>
+
+    <metrics-endpoint>
+      <path>GET /a2a/metrics/{tenant_id}</path>
+      <authorization>Tenant can only view their own metrics (403 for others)</authorization>
+      <response-example>
+        <json><![CDATA[
+{
+  "active_sessions": 5,
+  "total_messages": 1250,
+  "session_limit": 100,
+  "message_rate_limit": 60
+}
+        ]]></json>
+      </response-example>
+    </metrics-endpoint>
+  </implementation-specification>
+
+  <tasks>
+    <task id="1" title="Create A2A Resource Limits Configuration" ac="1">
+      <subtasks>
+        <subtask>Create backend/src/agentic_rag_backend/protocols/a2a_limits.py</subtask>
+        <subtask>Define A2AResourceLimits Pydantic model with all configurable limits</subtask>
+        <subtask>Define TenantUsage Pydantic model</subtask>
+        <subtask>Define SessionUsage Pydantic model</subtask>
+        <subtask>Add limit configuration to Settings class in config.py</subtask>
+        <subtask>Update .env.example with all A2A limit environment variables</subtask>
+      </subtasks>
+    </task>
+    <task id="2" title="Implement A2AResourceManager Base Class" ac="1,6">
+      <subtasks>
+        <subtask>Create abstract base class A2AResourceManager</subtask>
+        <subtask>Define check_session_limit, check_message_limit, check_rate_limit methods</subtask>
+        <subtask>Define register_session, record_message, close_session methods</subtask>
+        <subtask>Define get_tenant_metrics method</subtask>
+        <subtask>Define start() and stop() lifecycle methods</subtask>
+      </subtasks>
+    </task>
+    <task id="3" title="Implement InMemoryA2AResourceManager" ac="2,3,4,5,6,9,10">
+      <subtasks>
+        <subtask>Implement InMemoryA2AResourceManager class</subtask>
+        <subtask>Maintain _tenant_usage and _session_usage dicts</subtask>
+        <subtask>Implement session limit check</subtask>
+        <subtask>Implement message limit check</subtask>
+        <subtask>Implement rate limit check using sliding window</subtask>
+        <subtask>Implement _cleanup_loop() asyncio background task</subtask>
+        <subtask>Implement _cleanup_expired_sessions() for TTL enforcement</subtask>
+        <subtask>Clean old timestamps from message_timestamps</subtask>
+        <subtask>Add structlog logging for all operations</subtask>
+      </subtasks>
+    </task>
+    <task id="4" title="Implement RedisA2AResourceManager" ac="8">
+      <subtasks>
+        <subtask>Implement RedisA2AResourceManager class</subtask>
+        <subtask>Use Redis HSET for tenant and session tracking</subtask>
+        <subtask>Use Redis ZADD with timestamps for rate limiting</subtask>
+        <subtask>Implement key patterns as specified</subtask>
+        <subtask>Use Redis EXPIRE for automatic TTL</subtask>
+        <subtask>Implement atomic operations for cross-worker safety</subtask>
+      </subtasks>
+    </task>
+    <task id="5" title="Implement A2AResourceManagerFactory" ac="8,9">
+      <subtasks>
+        <subtask>Create factory class A2AResourceManagerFactory</subtask>
+        <subtask>Read A2A_LIMITS_BACKEND from config</subtask>
+        <subtask>Return appropriate implementation based on config</subtask>
+        <subtask>Validate REDIS_URL when redis backend selected</subtask>
+      </subtasks>
+    </task>
+    <task id="6" title="Define Exception Classes" ac="2,3,4,7">
+      <subtasks>
+        <subtask>Define A2ASessionLimitExceeded exception</subtask>
+        <subtask>Define A2AMessageLimitExceeded exception</subtask>
+        <subtask>Define A2ARateLimitExceeded exception</subtask>
+        <subtask>Register exceptions in core/errors.py</subtask>
+        <subtask>Map to HTTP 429 with RFC 7807 format</subtask>
+        <subtask>Include retry_after in rate limit error response</subtask>
+      </subtasks>
+    </task>
+    <task id="7" title="Add Metrics API Endpoint" ac="6,7">
+      <subtasks>
+        <subtask>Add GET /a2a/metrics/{tenant_id} endpoint to a2a.py</subtask>
+        <subtask>Add tenant authorization check</subtask>
+        <subtask>Return usage metrics from resource manager</subtask>
+        <subtask>Return 403 if attempting to view other tenant's metrics</subtask>
+      </subtasks>
+    </task>
+    <task id="8" title="Wire Resource Manager to Application Lifecycle">
+      <subtasks>
+        <subtask>Add get_a2a_resource_manager dependency</subtask>
+        <subtask>Wire resource manager to app.state in main.py startup</subtask>
+        <subtask>Call start() on startup, stop() on shutdown</subtask>
+        <subtask>Export new classes in protocols/__init__.py</subtask>
+      </subtasks>
+    </task>
+    <task id="9" title="Integrate Limits with A2A Session Operations">
+      <subtasks>
+        <subtask>Update A2A session creation to call register_session()</subtask>
+        <subtask>Update A2A message handling to call record_message()</subtask>
+        <subtask>Update A2A session close to call close_session()</subtask>
+        <subtask>Handle limit exceptions with proper error responses</subtask>
+      </subtasks>
+    </task>
+    <task id="10" title="Add Unit Tests" ac="1,2,3,4,5,6,9,10">
+      <subtasks>
+        <subtask>Create tests/protocols/test_a2a_limits.py</subtask>
+        <subtask>Test A2AResourceLimits model validation</subtask>
+        <subtask>Test InMemoryA2AResourceManager initialization</subtask>
+        <subtask>Test register_session() success and limit exceeded</subtask>
+        <subtask>Test record_message() success, limit exceeded, and rate limited</subtask>
+        <subtask>Test close_session() decrements active session count</subtask>
+        <subtask>Test get_tenant_metrics() returns correct values</subtask>
+        <subtask>Test _cleanup_expired_sessions() removes old sessions</subtask>
+        <subtask>Test cleanup task starts and stops correctly</subtask>
+        <subtask>Test A2AResourceManagerFactory returns correct implementation</subtask>
+      </subtasks>
+    </task>
+    <task id="11" title="Add Integration Tests" ac="6,7,8">
+      <subtasks>
+        <subtask>Create tests/integration/test_a2a_limits.py</subtask>
+        <subtask>Test GET /a2a/metrics/{tenant_id} returns metrics</subtask>
+        <subtask>Test GET /a2a/metrics/{tenant_id} returns 403 for other tenant</subtask>
+        <subtask>Test session limit enforcement on registration endpoint</subtask>
+        <subtask>Test rate limit enforcement returns 429 with retry_after</subtask>
+        <subtask>Test Redis backend integration (requires Redis test container)</subtask>
+      </subtasks>
+    </task>
+  </tasks>
+
+  <security-checklist>
+    <item checked="false">Cross-tenant isolation verified: Tenant metrics only visible to requesting tenant</item>
+    <item checked="false">Authorization checked: API key validation on metrics endpoint</item>
+    <item checked="false">No information leakage: Cannot enumerate other tenant session counts</item>
+    <item checked="false">Redis keys include tenant scope: Keys prefixed with a2a:sessions:{tenant_id}:</item>
+    <item checked="false">Integration tests for access control: Cross-tenant metrics access rejected</item>
+    <item checked="false">RFC 7807 error responses: All limit violations use AppError pattern</item>
+    <item checked="false">Background task safety: Cleanup task handles exceptions gracefully</item>
+  </security-checklist>
+
+  <definition-of-done>
+    <item>All acceptance criteria met and verified</item>
+    <item>Unit tests passing with >90% coverage for a2a_limits.py</item>
+    <item>Integration tests passing for metrics endpoint</item>
+    <item>Redis backend tested with docker-compose Redis container</item>
+    <item>Configuration documented in .env.example</item>
+    <item>RFC 7807 error responses verified for all limit violations</item>
+    <item>Code reviewed and approved</item>
+    <item>No new linting errors or type check failures</item>
+  </definition-of-done>
+</story-context>

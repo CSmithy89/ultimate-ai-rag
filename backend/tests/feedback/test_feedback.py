@@ -274,7 +274,8 @@ class TestFeedbackStats:
         assert stats.feedback_types == {}
         assert stats.last_feedback_at is None
 
-    def test_add_positive_feedback(self) -> None:
+    @pytest.mark.asyncio
+    async def test_add_positive_feedback(self) -> None:
         """Test adding positive feedback updates stats."""
         stats = FeedbackStats(query_id="q-123")
         feedback = UserFeedback(
@@ -285,7 +286,7 @@ class TestFeedbackStats:
             user_id="user-1",
         )
 
-        stats.add_feedback(feedback)
+        await stats.add_feedback(feedback)
 
         assert stats.total_count == 1
         assert stats.positive_count == 1
@@ -294,7 +295,8 @@ class TestFeedbackStats:
         assert stats.feedback_types == {"relevance": 1}
         assert stats.last_feedback_at == feedback.created_at
 
-    def test_add_negative_feedback(self) -> None:
+    @pytest.mark.asyncio
+    async def test_add_negative_feedback(self) -> None:
         """Test adding negative feedback updates stats."""
         stats = FeedbackStats(query_id="q-123")
         feedback = UserFeedback(
@@ -305,14 +307,15 @@ class TestFeedbackStats:
             user_id="user-1",
         )
 
-        stats.add_feedback(feedback)
+        await stats.add_feedback(feedback)
 
         assert stats.total_count == 1
         assert stats.positive_count == 0
         assert stats.negative_count == 1
         assert stats.average_score == -0.5
 
-    def test_add_feedback_with_correction(self) -> None:
+    @pytest.mark.asyncio
+    async def test_add_feedback_with_correction(self) -> None:
         """Test adding feedback with correction updates correction count."""
         stats = FeedbackStats(query_id="q-123")
         feedback = UserFeedback(
@@ -324,11 +327,12 @@ class TestFeedbackStats:
             correction="This is wrong",
         )
 
-        stats.add_feedback(feedback)
+        await stats.add_feedback(feedback)
 
         assert stats.correction_count == 1
 
-    def test_average_score_calculation(self) -> None:
+    @pytest.mark.asyncio
+    async def test_average_score_calculation(self) -> None:
         """Test that average score is calculated correctly."""
         stats = FeedbackStats(query_id="q-123")
 
@@ -341,12 +345,13 @@ class TestFeedbackStats:
                 tenant_id="tenant-1",
                 user_id="user-1",
             )
-            stats.add_feedback(feedback)
+            await stats.add_feedback(feedback)
 
         expected_avg = (0.5 + 0.7 - 0.3 + 0.9 + 0.2) / 5
         assert abs(stats.average_score - expected_avg) < 0.0001
 
-    def test_feedback_types_aggregation(self) -> None:
+    @pytest.mark.asyncio
+    async def test_feedback_types_aggregation(self) -> None:
         """Test feedback types are aggregated correctly."""
         stats = FeedbackStats(query_id="q-123")
 
@@ -364,7 +369,7 @@ class TestFeedbackStats:
                 tenant_id="tenant-1",
                 user_id="user-1",
             )
-            stats.add_feedback(feedback)
+            await stats.add_feedback(feedback)
 
         assert stats.feedback_types == {
             "relevance": 2,
@@ -551,9 +556,9 @@ class TestFeedbackLoop:
         await loop.record_feedback(feedback1)
         await loop.record_feedback(feedback2)
 
-        assert loop.get_feedback_count("tenant-1") == 1
-        assert loop.get_feedback_count("tenant-2") == 1
-        assert loop.get_feedback_count("tenant-3") == 0
+        assert await loop.get_feedback_count("tenant-1") == 1
+        assert await loop.get_feedback_count("tenant-2") == 1
+        assert await loop.get_feedback_count("tenant-3") == 0
 
     @pytest.mark.asyncio
     async def test_record_feedback_updates_query_stats(self) -> None:
@@ -569,7 +574,7 @@ class TestFeedbackLoop:
 
         await loop.record_feedback(feedback)
 
-        stats = loop.get_feedback_stats("q-123")
+        stats = await loop.get_feedback_stats("q-123")
         assert stats is not None
         assert stats.total_count == 1
         assert stats.average_score == 0.8
@@ -627,11 +632,11 @@ class TestFeedbackLoop:
         await loop.record_feedback(fb3)
 
         # Should only get feedback for tenant-1
-        feedback = loop.get_feedback_for_query("q-123", "tenant-1")
+        feedback = await loop.get_feedback_for_query("q-123", "tenant-1")
         assert len(feedback) == 2
 
         # Should only get feedback for tenant-2
-        feedback = loop.get_feedback_for_query("q-123", "tenant-2")
+        feedback = await loop.get_feedback_for_query("q-123", "tenant-2")
         assert len(feedback) == 1
 
     @pytest.mark.asyncio
@@ -742,14 +747,14 @@ class TestFeedbackLoop:
                 await loop.record_feedback(feedback)
 
         # Clear tenant-1
-        count = loop.clear_tenant_feedback("tenant-1")
+        count = await loop.clear_tenant_feedback("tenant-1")
         assert count == 3
 
         # Verify tenant-1 is cleared
-        assert loop.get_feedback_count("tenant-1") == 0
+        assert await loop.get_feedback_count("tenant-1") == 0
 
         # Verify tenant-2 is unchanged
-        assert loop.get_feedback_count("tenant-2") == 3
+        assert await loop.get_feedback_count("tenant-2") == 3
 
     @pytest.mark.asyncio
     async def test_store_query_embedding(self) -> None:
@@ -877,27 +882,30 @@ class TestFeedbackLoopAdapter:
         # Should return neutral (no feedback yet)
         assert boost.boost == 1.0
 
-    def test_get_feedback_stats_when_disabled(self) -> None:
+    @pytest.mark.asyncio
+    async def test_get_feedback_stats_when_disabled(self) -> None:
         """Test getting stats returns None when disabled."""
         adapter = FeedbackLoopAdapter(enabled=False)
 
-        stats = adapter.get_feedback_stats("q-123")
+        stats = await adapter.get_feedback_stats("q-123")
 
         assert stats is None
 
-    def test_get_feedback_for_query_when_disabled(self) -> None:
+    @pytest.mark.asyncio
+    async def test_get_feedback_for_query_when_disabled(self) -> None:
         """Test getting feedback returns empty list when disabled."""
         adapter = FeedbackLoopAdapter(enabled=False)
 
-        feedback = adapter.get_feedback_for_query("q-123", "tenant-1")
+        feedback = await adapter.get_feedback_for_query("q-123", "tenant-1")
 
         assert feedback == []
 
-    def test_get_feedback_count_when_disabled(self) -> None:
+    @pytest.mark.asyncio
+    async def test_get_feedback_count_when_disabled(self) -> None:
         """Test getting count returns 0 when disabled."""
         adapter = FeedbackLoopAdapter(enabled=False)
 
-        count = adapter.get_feedback_count("tenant-1")
+        count = await adapter.get_feedback_count("tenant-1")
 
         assert count == 0
 
@@ -910,11 +918,12 @@ class TestFeedbackLoopAdapter:
 
         assert result is False
 
-    def test_clear_tenant_feedback_when_disabled(self) -> None:
+    @pytest.mark.asyncio
+    async def test_clear_tenant_feedback_when_disabled(self) -> None:
         """Test clearing feedback returns 0 when disabled."""
         adapter = FeedbackLoopAdapter(enabled=False)
 
-        count = adapter.clear_tenant_feedback("tenant-1")
+        count = await adapter.clear_tenant_feedback("tenant-1")
 
         assert count == 0
 
@@ -1030,7 +1039,7 @@ class TestFeedbackLoopIntegration:
             assert result.success is True
 
         # Get stats
-        stats = adapter.get_feedback_stats("original-query-id")
+        stats = await adapter.get_feedback_stats("original-query-id")
         assert stats is not None
         assert stats.total_count == 5
 
@@ -1073,12 +1082,12 @@ class TestFeedbackLoopIntegration:
             await adapter.record_feedback(feedback)
 
         # Verify isolation
-        assert adapter.get_feedback_count("tenant-1") == 3
-        assert adapter.get_feedback_count("tenant-2") == 3
+        assert await adapter.get_feedback_count("tenant-1") == 3
+        assert await adapter.get_feedback_count("tenant-2") == 3
 
         # Verify feedback retrieval is isolated
-        fb1 = adapter.get_feedback_for_query("shared-query", "tenant-1")
-        fb2 = adapter.get_feedback_for_query("shared-query", "tenant-2")
+        fb1 = await adapter.get_feedback_for_query("shared-query", "tenant-1")
+        fb2 = await adapter.get_feedback_for_query("shared-query", "tenant-2")
 
         assert all(f.score > 0 for f in fb1)  # All positive
         assert all(f.score < 0 for f in fb2)  # All negative

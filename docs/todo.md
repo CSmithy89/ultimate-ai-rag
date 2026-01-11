@@ -13,7 +13,7 @@
 
 ### Low Priority
 - [x] Fail fast on invalid codebase settings (threshold range, detector mode) instead of silently falling back (`backend/src/agentic_rag_backend/config.py`).
-- [x] Fix MD036 style in Epic 15 test report gate decision (`docs/epics/epic-15-test-report.md`).
+- [x] Fix MD036 style in Epic 15 test report gate decision (`_bmad-output/epics/epic-15-test-report.md`).
 
 ## Epic 8 Review Follow-ups
 - [x] Require a stable `TRACE_ENCRYPTION_KEY` in non-dev environments; fail startup if missing to prevent data loss.

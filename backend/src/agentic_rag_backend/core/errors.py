@@ -49,11 +49,16 @@ class ErrorCode(str, Enum):
     A2A_DELEGATION_FAILED = "a2a_delegation_failed"
     A2A_REGISTRATION_FAILED = "a2a_registration_failed"
     A2A_PERMISSION_DENIED = "a2a_permission_denied"
+    A2A_AUTH_FAILED = "a2a_auth_failed"
     A2A_SERVICE_UNAVAILABLE = "a2a_service_unavailable"
     # Epic 20 - Memory Platform error codes
     MEMORY_NOT_FOUND = "memory_not_found"
     MEMORY_SCOPE_INVALID = "memory_scope_invalid"
     MEMORY_LIMIT_EXCEEDED = "memory_limit_exceeded"
+    # Story 22-A2 - A2A Resource Limits error codes
+    A2A_SESSION_LIMIT_EXCEEDED = "a2a_session_limit_exceeded"
+    A2A_MESSAGE_LIMIT_EXCEEDED = "a2a_message_limit_exceeded"
+    A2A_RATE_LIMIT_EXCEEDED = "a2a_rate_limit_exceeded"
 
 
 class AppError(Exception):
@@ -145,7 +150,7 @@ class TenantRequiredError(AppError):
         super().__init__(
             code=ErrorCode.TENANT_REQUIRED,
             message="tenant_id is required for this operation",
-            status=400,
+            status=401,
         )
 
 
@@ -328,6 +333,8 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     FastAPI exception handler for AppError.
 
     Converts AppError to RFC 7807 Problem Details JSON response.
+    For 429 responses with retry_after in details, adds the Retry-After header
+    per RFC 6585.
 
     Args:
         request: The FastAPI request object
@@ -336,9 +343,16 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     Returns:
         JSONResponse with Problem Details format
     """
+    headers: dict[str, str] = {}
+
+    # Add Retry-After header for 429 responses per RFC 6585
+    if exc.status == 429 and "retry_after" in exc.details:
+        headers["Retry-After"] = str(exc.details["retry_after"])
+
     return JSONResponse(
         status_code=exc.status,
         content=exc.to_problem_detail(str(request.url.path)),
+        headers=headers if headers else None,
     )
 
 
@@ -537,6 +551,17 @@ class A2APermissionError(AppError):
         )
 
 
+class A2AAuthFailedError(AppError):
+    """Error when A2A request authentication fails."""
+
+    def __init__(self, reason: str = "A2A request authentication failed") -> None:
+        super().__init__(
+            code=ErrorCode.A2A_AUTH_FAILED,
+            message=reason,
+            status=401,
+        )
+
+
 class A2AServiceUnavailableError(AppError):
     """Error when an A2A service (like orchestrator) is unavailable."""
 
@@ -546,4 +571,58 @@ class A2AServiceUnavailableError(AppError):
             message=f"{service} is unavailable: {reason}",
             status=503,
             details={"service": service, "reason": reason},
+        )
+
+
+# Story 22-A2 - A2A Resource Limits Errors
+
+
+class A2ASessionLimitExceededError(AppError):
+    """Error when tenant has reached their A2A session limit."""
+
+    def __init__(self, tenant_id: str, limit: int, retry_after: int | None = None) -> None:
+        details: dict[str, Any] = {"tenant_id": tenant_id, "limit": limit}
+        if retry_after is not None:
+            details["retry_after"] = retry_after
+        super().__init__(
+            code=ErrorCode.A2A_SESSION_LIMIT_EXCEEDED,
+            message=f"Tenant has reached maximum concurrent sessions ({limit})",
+            status=429,
+            details=details,
+        )
+
+
+class A2AMessageLimitExceededError(AppError):
+    """Error when session has reached its message limit."""
+
+    def __init__(self, session_id: str, limit: int, retry_after: int | None = None) -> None:
+        details: dict[str, Any] = {"session_id": session_id, "limit": limit}
+        if retry_after is not None:
+            details["retry_after"] = retry_after
+        super().__init__(
+            code=ErrorCode.A2A_MESSAGE_LIMIT_EXCEEDED,
+            message=f"Session has reached maximum messages ({limit})",
+            status=429,
+            details=details,
+        )
+
+
+class A2ARateLimitExceededError(AppError):
+    """Error when session has exceeded the rate limit."""
+
+    def __init__(
+        self,
+        session_id: str,
+        limit: int,
+        retry_after: int = 60,
+    ) -> None:
+        super().__init__(
+            code=ErrorCode.A2A_RATE_LIMIT_EXCEEDED,
+            message=f"Session has exceeded message rate limit ({limit}/minute)",
+            status=429,
+            details={
+                "session_id": session_id,
+                "limit": limit,
+                "retry_after": retry_after,
+            },
         )

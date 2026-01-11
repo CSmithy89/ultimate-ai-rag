@@ -9,22 +9,34 @@ This module provides the HTTP API for the A2A protocol including:
 
 from __future__ import annotations
 
-from typing import Any, Optional
+import json
+import os
+import secrets
+import time
+from typing import Any, AsyncIterator, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 import jsonschema
 import structlog
 
 from ...api.utils import build_meta, rate_limit_exceeded
+from ...config import get_settings
 from ...core.errors import (
     A2AAgentNotFoundError,
+    A2ACapabilityNotFoundError,
+    A2ADelegationError,
+    A2AAuthFailedError,
+    A2AMessageLimitExceededError,
     A2APermissionError,
+    A2ARateLimitExceededError,
     A2ARegistrationError,
+    A2ASessionLimitExceededError,
     A2AServiceUnavailableError,
     A2ATaskNotFoundError,
 )
-from ...protocols.a2a import A2ASessionManager
+from ...protocols.a2a import A2ASessionManager, A2ASessionNotFoundError
 from ...protocols.a2a_messages import (
     AgentCapability,
     TaskRequest,
@@ -32,8 +44,20 @@ from ...protocols.a2a_messages import (
 )
 from ...protocols.a2a_registry import A2AAgentRegistry
 from ...protocols.a2a_delegation import TaskDelegationManager
+from ...protocols.a2a_middleware import (
+    A2AMiddlewareAgent,
+    A2AAgentInfo as MiddlewareAgentInfo,
+    A2AAgentCapability as MiddlewareAgentCapability,
+)
+from ...protocols.a2a_signing import verify_a2a_signature
+from ...protocols.a2a_resource_limits import (
+    A2AResourceManager,
+    A2AMessageLimitExceeded,
+    A2ARateLimitExceeded,
+    A2ASessionLimitExceeded,
+)
 from ...rate_limit import RateLimiter
-from ...validation import TENANT_ID_PATTERN
+from ...validation import TENANT_ID_PATTERN, TENANT_ID_REGEX
 
 logger = structlog.get_logger(__name__)
 
@@ -190,6 +214,84 @@ class CapabilityListResponse(BaseModel):
     meta: dict[str, Any]
 
 
+# ==================== Middleware Models (Story 22-A1) ====================
+
+
+class MiddlewareCapabilityModel(BaseModel):
+    """Pydantic model for middleware agent capability."""
+
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(..., min_length=1, max_length=500)
+    input_schema: dict[str, Any] = Field(default_factory=dict)
+    output_schema: dict[str, Any] = Field(default_factory=dict)
+
+
+class MiddlewareRegisterRequest(BaseModel):
+    """Request to register an agent with the middleware.
+
+    The agent_id MUST be prefixed with tenant_id: (e.g., tenant123:my-agent).
+    """
+
+    agent_id: str = Field(..., min_length=1, max_length=128)
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(..., min_length=1, max_length=500)
+    capabilities: list[MiddlewareCapabilityModel]
+    endpoint: str = Field(..., min_length=1, max_length=500)
+
+
+class MiddlewareRegisterResponse(BaseModel):
+    """Response from middleware agent registration."""
+
+    status: str
+    agent_id: str
+    meta: dict[str, Any]
+
+
+class MiddlewareAgentListResponse(BaseModel):
+    """Response containing list of middleware agents."""
+
+    agents: list[dict[str, Any]]
+    meta: dict[str, Any]
+
+
+class MiddlewareCapabilityListResponse(BaseModel):
+    """Response containing list of middleware capabilities."""
+
+    capabilities: list[dict[str, Any]]
+    meta: dict[str, Any]
+
+
+class MiddlewareDelegateRequest(BaseModel):
+    """Request to delegate a task to an agent via middleware."""
+
+    capability_name: str = Field(..., min_length=1, max_length=100)
+    input_data: dict[str, Any] = Field(default_factory=dict)
+    context: dict[str, Any] | None = None
+
+
+class MiddlewareDelegateResponse(BaseModel):
+    """Response from task delegation."""
+
+    status: str
+    events: list[dict[str, Any]]
+    meta: dict[str, Any]
+
+
+# ==================== Resource Metrics Models (Story 22-A2) ====================
+
+
+class ResourceMetricsResponse(BaseModel):
+    """Response containing A2A resource usage metrics."""
+
+    tenant_id: str
+    active_sessions: int
+    total_messages: int
+    session_limit: int
+    message_limit_per_session: int
+    message_rate_limit: int
+    meta: dict[str, Any]
+
+
 # ==================== Dependency Injection ====================
 
 
@@ -222,6 +324,102 @@ def get_delegation_manager(request: Request) -> TaskDelegationManager:
     return manager
 
 
+def get_a2a_middleware(request: Request) -> A2AMiddlewareAgent:
+    """Get the A2A middleware agent from app state."""
+    middleware = getattr(request.app.state, "a2a_middleware", None)
+    if middleware is None:
+        raise A2AServiceUnavailableError(
+            service="A2A middleware",
+            reason="A2A middleware is not initialized",
+        )
+    return middleware
+
+
+def get_a2a_resource_manager(request: Request) -> A2AResourceManager:
+    """Get the A2A resource manager from app state."""
+    manager = getattr(request.app.state, "a2a_resource_manager", None)
+    if manager is None:
+        raise A2AServiceUnavailableError(
+            service="A2A resource manager",
+            reason="A2A resource limits backend is not initialized",
+        )
+    return manager
+
+
+def validate_tenant_id_header(
+    x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
+) -> str:
+    """Validate the X-Tenant-ID header against the TENANT_ID_PATTERN.
+
+    Args:
+        x_tenant_id: The tenant ID from the X-Tenant-ID header
+
+    Returns:
+        The validated tenant ID
+
+    Raises:
+        HTTPException: If the tenant ID doesn't match the required UUID pattern
+    """
+    if not TENANT_ID_REGEX.fullmatch(x_tenant_id):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid X-Tenant-ID header: must match UUID format ({TENANT_ID_PATTERN})",
+        )
+    return x_tenant_id
+
+
+# A2A Middleware API Key configuration
+# Set A2A_API_KEY environment variable to enable API key authentication
+
+
+def verify_api_key(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+) -> Optional[str]:
+    """Verify API key for A2A middleware endpoints.
+
+    Checks X-API-Key header or Authorization: Bearer <key> header.
+    If A2A_API_KEY environment variable is not set, authentication is disabled.
+
+    Args:
+        x_api_key: API key from X-API-Key header
+        authorization: Authorization header (Bearer token)
+
+    Returns:
+        The validated API key, or None if auth is disabled
+
+    Raises:
+        HTTPException: If API key is required but missing/invalid
+    """
+    configured_key = os.getenv("A2A_API_KEY", "").strip()
+    if not configured_key:
+        # API key authentication disabled
+        return None
+
+    # Extract key from headers
+    api_key: Optional[str] = None
+    if x_api_key:
+        api_key = x_api_key
+    elif authorization and authorization.startswith("Bearer "):
+        api_key = authorization[7:]
+
+    if not api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="API key required. Provide X-API-Key header or Authorization: Bearer <key>",
+        )
+
+    # Constant-time comparison to prevent timing attacks
+    if not secrets.compare_digest(api_key, configured_key):
+        logger.warning("a2a_middleware_invalid_api_key")
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid API key",
+        )
+
+    return api_key
+
+
 # ==================== Session Endpoints (existing) ====================
 
 
@@ -229,6 +427,7 @@ def get_delegation_manager(request: Request) -> TaskDelegationManager:
 async def create_session(
     request_body: CreateSessionRequest,
     manager: A2ASessionManager = Depends(get_a2a_manager),
+    resource_manager: A2AResourceManager = Depends(get_a2a_resource_manager),
     limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> CreateSessionResponse:
     """Create a new A2A collaboration session."""
@@ -237,6 +436,19 @@ async def create_session(
 
     try:
         session = await manager.create_session(request_body.tenant_id)
+        try:
+            await resource_manager.register_session(
+                session_id=session["session_id"],
+                tenant_id=request_body.tenant_id,
+            )
+        except A2ASessionLimitExceeded as exc:
+            await manager.delete_session(session["session_id"])
+            retry_after = get_settings().rate_limit_retry_after_seconds
+            raise A2ASessionLimitExceededError(
+                request_body.tenant_id,
+                exc.limit,
+                retry_after=retry_after,
+            ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     logger.info("a2a_session_created", session_id=session["session_id"])
@@ -249,11 +461,33 @@ async def add_message(
     session_id: str,
     request_body: MessageRequest,
     manager: A2ASessionManager = Depends(get_a2a_manager),
+    resource_manager: A2AResourceManager = Depends(get_a2a_resource_manager),
     limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> SessionResponse:
     """Add a message to an existing A2A session."""
     if not await limiter.allow(request_body.tenant_id):
         raise rate_limit_exceeded()
+
+    session_snapshot = await manager.get_session(session_id)
+    if session_snapshot is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session_snapshot["tenant_id"] != request_body.tenant_id:
+        raise A2APermissionError("Tenant not authorized for this session")
+    max_messages = getattr(manager, "_max_messages_per_session", None)
+    if max_messages and len(session_snapshot.get("messages", [])) >= max_messages:
+        raise HTTPException(status_code=409, detail="Session message limit reached")
+
+    try:
+        await resource_manager.record_message(session_id=session_id)
+    except A2AMessageLimitExceeded as exc:
+        retry_after = get_settings().rate_limit_retry_after_seconds
+        raise A2AMessageLimitExceededError(
+            session_id,
+            exc.limit,
+            retry_after=retry_after,
+        ) from exc
+    except A2ARateLimitExceeded as exc:
+        raise A2ARateLimitExceededError(session_id, exc.limit, exc.retry_after) from exc
 
     try:
         session = await manager.add_message(
@@ -265,7 +499,7 @@ async def add_message(
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except KeyError as exc:
+    except A2ASessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Session not found") from exc
     except PermissionError as exc:
         raise A2APermissionError("Tenant not authorized for this session") from exc
@@ -577,6 +811,25 @@ async def execute_incoming_task(
     if not await limiter.allow(request_body.tenant_id):
         raise rate_limit_exceeded()
 
+    settings = getattr(request.app.state, "settings", None)
+    signing_secret = getattr(settings, "a2a_signing_secret", None)
+    if signing_secret:
+        signature = request.headers.get("X-A2A-Signature")
+        timestamp = request.headers.get("X-A2A-Timestamp")
+        if not verify_a2a_signature(
+            signing_secret,
+            request_body.model_dump(),
+            timestamp,
+            signature,
+            ttl_seconds=getattr(settings, "a2a_signing_ttl_seconds", 300),
+        ):
+            logger.warning(
+                "a2a_signature_invalid",
+                tenant_id=request_body.tenant_id,
+                security_event=True,
+            )
+            raise A2AAuthFailedError("Invalid or missing A2A signature")
+
     # Get the orchestrator to execute capabilities
     orchestrator = getattr(request.app.state, "orchestrator", None)
     if not orchestrator:
@@ -645,4 +898,252 @@ async def execute_incoming_task(
         result=response.get("result"),
         error=response.get("error"),
         execution_time_ms=response.get("execution_time_ms"),
+    )
+
+
+# ==================== Middleware Endpoints (Story 22-A1) ====================
+# These use the /middleware prefix to avoid collision with registry endpoints
+
+
+@router.post("/middleware/agents/register", response_model=MiddlewareRegisterResponse)
+async def register_middleware_agent(
+    body: MiddlewareRegisterRequest,
+    x_tenant_id: str = Depends(validate_tenant_id_header),
+    _api_key: Optional[str] = Depends(verify_api_key),
+    middleware: A2AMiddlewareAgent = Depends(get_a2a_middleware),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+) -> MiddlewareRegisterResponse:
+    """Register an agent with the A2A middleware.
+
+    The agent_id MUST be prefixed with the tenant_id.
+    Rate limit: 10 registrations per minute per tenant.
+    Requires API key authentication when A2A_API_KEY is configured.
+    """
+    if not await limiter.allow(f"a2a_register:{x_tenant_id}"):
+        raise rate_limit_exceeded()
+
+    # Validate tenant prefix in agent_id
+    expected_prefix = f"{x_tenant_id}:"
+    if not body.agent_id.startswith(expected_prefix):
+        raise A2ARegistrationError(
+            agent_id=body.agent_id,
+            reason=f"agent_id must be prefixed with tenant_id '{x_tenant_id}:'",
+        )
+
+    # Convert to middleware model
+    capabilities = [
+        MiddlewareAgentCapability(
+            name=c.name,
+            description=c.description,
+            input_schema=c.input_schema,
+            output_schema=c.output_schema,
+        )
+        for c in body.capabilities
+    ]
+
+    agent_info = MiddlewareAgentInfo(
+        agent_id=body.agent_id,
+        name=body.name,
+        description=body.description,
+        capabilities=capabilities,
+        endpoint=body.endpoint,
+    )
+
+    middleware.register_agent(agent_info)
+
+    logger.info(
+        "a2a_middleware_agent_registered",
+        agent_id=body.agent_id,
+        tenant_id=x_tenant_id,
+        capabilities=[c.name for c in capabilities],
+    )
+
+    return MiddlewareRegisterResponse(
+        status="registered",
+        agent_id=body.agent_id,
+        meta=build_meta(),
+    )
+
+
+@router.get("/middleware/agents", response_model=MiddlewareAgentListResponse)
+async def list_middleware_agents(
+    x_tenant_id: str = Depends(validate_tenant_id_header),
+    _api_key: Optional[str] = Depends(verify_api_key),
+    middleware: A2AMiddlewareAgent = Depends(get_a2a_middleware),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+) -> MiddlewareAgentListResponse:
+    """List all registered agents for the calling tenant.
+
+    Requires API key authentication when A2A_API_KEY is configured.
+    """
+    if not await limiter.allow(x_tenant_id):
+        raise rate_limit_exceeded()
+
+    agents = middleware.list_agents_for_tenant(x_tenant_id)
+
+    return MiddlewareAgentListResponse(
+        agents=[
+            {
+                "agent_id": a.agent_id,
+                "name": a.name,
+                "description": a.description,
+                "capabilities": [c.model_dump() for c in a.capabilities],
+                "endpoint": a.endpoint,
+            }
+            for a in agents
+        ],
+        meta=build_meta(),
+    )
+
+
+@router.get("/middleware/capabilities", response_model=MiddlewareCapabilityListResponse)
+async def list_middleware_capabilities(
+    x_tenant_id: str = Depends(validate_tenant_id_header),
+    filter: str | None = Query(None, description="Substring filter for capability name"),
+    _api_key: Optional[str] = Depends(verify_api_key),
+    middleware: A2AMiddlewareAgent = Depends(get_a2a_middleware),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+) -> MiddlewareCapabilityListResponse:
+    """Discover capabilities across all registered agents for the tenant.
+
+    Requires API key authentication when A2A_API_KEY is configured.
+    """
+    if not await limiter.allow(x_tenant_id):
+        raise rate_limit_exceeded()
+
+    capabilities = middleware.discover_capabilities(x_tenant_id, filter)
+
+    return MiddlewareCapabilityListResponse(
+        capabilities=capabilities,
+        meta=build_meta(),
+    )
+
+
+@router.post("/middleware/agents/{agent_id}/delegate", response_class=StreamingResponse)
+async def delegate_to_agent(
+    agent_id: str,
+    body: MiddlewareDelegateRequest,
+    x_tenant_id: str = Depends(validate_tenant_id_header),
+    _api_key: Optional[str] = Depends(verify_api_key),
+    middleware: A2AMiddlewareAgent = Depends(get_a2a_middleware),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+) -> StreamingResponse:
+    """Delegate a task to a specific agent via AG-UI streaming.
+
+    The target agent_id must belong to the calling tenant.
+    Requires API key authentication when A2A_API_KEY is configured.
+    """
+    if not await limiter.allow(x_tenant_id):
+        raise rate_limit_exceeded()
+
+    # Validate tenant prefix in target agent_id
+    expected_prefix = f"{x_tenant_id}:"
+    if not agent_id.startswith(expected_prefix):
+        raise A2APermissionError(
+            reason="Cannot delegate to agent outside tenant scope",
+            resource_id=agent_id,
+        )
+
+    delegate_iter = middleware.delegate_task(
+        target_agent_id=agent_id,
+        capability_name=body.capability_name,
+        input_data=body.input_data,
+        context=body.context,
+    )
+
+    try:
+        first_event = await anext(delegate_iter)
+    except StopAsyncIteration:
+        first_event = None
+    except (A2AAgentNotFoundError, A2ACapabilityNotFoundError):
+        raise
+
+    async def event_stream() -> AsyncIterator[str]:
+        event_count = 0
+        bytes_sent = 0
+        started_at = time.monotonic()
+        if first_event is not None:
+            payload = f"data: {json.dumps(first_event, ensure_ascii=True)}\n\n"
+            event_count += 1
+            bytes_sent += len(payload.encode("utf-8"))
+            yield payload
+        try:
+            async for event in delegate_iter:
+                payload = f"data: {json.dumps(event, ensure_ascii=True)}\n\n"
+                event_count += 1
+                bytes_sent += len(payload.encode("utf-8"))
+                yield payload
+        except Exception as exc:
+            logger.exception(
+                "a2a_delegation_stream_error",
+                agent_id=agent_id,
+                capability=body.capability_name,
+                error=str(exc),
+            )
+        finally:
+            duration_ms = int((time.monotonic() - started_at) * 1000)
+            logger.info(
+                "a2a_delegation_stream_summary",
+                agent_id=agent_id,
+                capability=body.capability_name,
+                event_count=event_count,
+                bytes_sent=bytes_sent,
+                duration_ms=duration_ms,
+            )
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)
+
+
+# ==================== Resource Metrics Endpoints (Story 22-A2) ====================
+
+
+@router.get("/metrics/{tenant_id}", response_model=ResourceMetricsResponse)
+async def get_resource_metrics(
+    tenant_id: str,
+    x_tenant_id: str = Depends(validate_tenant_id_header),
+    _api_key: Optional[str] = Depends(verify_api_key),
+    resource_manager: A2AResourceManager = Depends(get_a2a_resource_manager),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+) -> ResourceMetricsResponse:
+    """Get A2A resource usage metrics for a tenant.
+
+    Tenants can only view their own metrics. Attempting to view another tenant's
+    metrics returns 403 Forbidden.
+
+    Returns current usage including:
+    - active_sessions: Current number of active A2A sessions
+    - total_messages: Total messages sent across all sessions
+    - session_limit: Maximum concurrent sessions allowed
+    - message_limit_per_session: Maximum messages per session
+    - message_rate_limit: Maximum messages per minute per session
+    """
+    if not await limiter.allow(x_tenant_id):
+        raise rate_limit_exceeded()
+
+    # Validate tenant can only view their own metrics
+    if tenant_id != x_tenant_id:
+        logger.warning(
+            "a2a_metrics_access_denied",
+            requesting_tenant=x_tenant_id,
+            target_tenant=tenant_id,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot view metrics for another tenant",
+        )
+
+    metrics = await resource_manager.get_tenant_metrics(tenant_id)
+
+    return ResourceMetricsResponse(
+        tenant_id=metrics.tenant_id,
+        active_sessions=metrics.active_sessions,
+        total_messages=metrics.total_messages,
+        session_limit=metrics.session_limit,
+        message_limit_per_session=metrics.message_limit_per_session,
+        message_rate_limit=metrics.message_rate_limit,
+        meta=build_meta(),
     )

@@ -12,7 +12,7 @@
  * - Keyboard interactions
  */
 
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { VoiceInput } from "@/components/copilot/VoiceInput";
 
@@ -103,8 +103,9 @@ describe("VoiceInput", () => {
     it("starts recording on click", async () => {
       render(<VoiceInput {...defaultProps} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button", { name: /start voice input/i });
-      await userEvent.click(button);
+      await user.click(button);
 
       expect(mockGetUserMedia).toHaveBeenCalledWith({ audio: true });
       expect(global.MediaRecorder).toHaveBeenCalled();
@@ -114,8 +115,9 @@ describe("VoiceInput", () => {
     it("shows recording indicator when recording", async () => {
       render(<VoiceInput {...defaultProps} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button);
+      await user.click(button);
 
       // Button should show stop label
       await waitFor(() => {
@@ -126,11 +128,12 @@ describe("VoiceInput", () => {
     it("stops recording on second click", async () => {
       render(<VoiceInput {...defaultProps} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button); // Start
+      await user.click(button); // Start
 
       mockMediaRecorder.state = "recording";
-      await userEvent.click(button); // Stop
+      await user.click(button); // Stop
 
       expect(mockMediaRecorder.stop).toHaveBeenCalled();
     });
@@ -143,8 +146,9 @@ describe("VoiceInput", () => {
 
       render(<VoiceInput {...defaultProps} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button);
+      await user.click(button);
 
       await waitFor(() => {
         expect(screen.getByRole("alert")).toHaveTextContent(/microphone permission denied/i);
@@ -157,8 +161,9 @@ describe("VoiceInput", () => {
 
       render(<VoiceInput {...defaultProps} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button);
+      await user.click(button);
 
       await waitFor(() => {
         expect(screen.getByRole("alert")).toHaveTextContent(/no microphone found/i);
@@ -171,11 +176,12 @@ describe("VoiceInput", () => {
 
       render(<VoiceInput {...defaultProps} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button);
+      await user.click(button);
 
       const errorAlert = await screen.findByRole("alert");
-      await userEvent.click(errorAlert);
+      await user.click(errorAlert);
 
       await waitFor(() => {
         expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -184,23 +190,28 @@ describe("VoiceInput", () => {
 
     it("auto-dismisses error after 5 seconds", async () => {
       jest.useFakeTimers();
-      const permissionError = new DOMException("Permission denied", "NotAllowedError");
-      mockGetUserMedia.mockRejectedValueOnce(permissionError);
+      const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+      try {
+        const permissionError = new DOMException("Permission denied", "NotAllowedError");
+        mockGetUserMedia.mockRejectedValueOnce(permissionError);
 
-      render(<VoiceInput {...defaultProps} />);
+        render(<VoiceInput {...defaultProps} />);
 
-      const button = screen.getByRole("button");
-      await userEvent.click(button);
+        const button = screen.getByRole("button");
+        await user.click(button);
 
-      expect(await screen.findByRole("alert")).toBeInTheDocument();
+        expect(await screen.findByRole("alert")).toBeInTheDocument();
 
-      jest.advanceTimersByTime(5000);
+        await act(async () => {
+          jest.advanceTimersByTime(5000);
+        });
 
-      await waitFor(() => {
-        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-      });
-
-      jest.useRealTimers();
+        await waitFor(() => {
+          expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+        });
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 
@@ -208,10 +219,13 @@ describe("VoiceInput", () => {
     it("cancels recording on Escape key", async () => {
       render(<VoiceInput {...defaultProps} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button); // Start recording
+      await user.click(button); // Start recording
 
-      mockMediaRecorder.state = "recording";
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /stop recording/i })).toBeInTheDocument();
+      });
 
       fireEvent.keyDown(button, { key: "Escape" });
 
@@ -245,15 +259,18 @@ describe("VoiceInput", () => {
 
       render(<VoiceInput onTranscription={onTranscription} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button); // Start
+      await user.click(button); // Start
 
       // Simulate recording data available
       const blob = new Blob(["audio data"], { type: "audio/webm" });
       mockMediaRecorder.ondataavailable?.({ data: blob });
 
       // Simulate recording stop
-      mockMediaRecorder.onstop?.();
+      act(() => {
+        void mockMediaRecorder.onstop?.();
+      });
 
       await waitFor(() => {
         expect(onTranscription).toHaveBeenCalledWith("Hello, world!");
@@ -270,12 +287,19 @@ describe("VoiceInput", () => {
 
       render(<VoiceInput {...defaultProps} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button);
+      await user.click(button);
+
+      await waitFor(() => {
+        expect(mockMediaRecorder.start).toHaveBeenCalled();
+      });
 
       const blob = new Blob(["audio data"], { type: "audio/webm" });
       mockMediaRecorder.ondataavailable?.({ data: blob });
-      mockMediaRecorder.onstop?.();
+      act(() => {
+        void mockMediaRecorder.onstop?.();
+      });
 
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /transcribing/i })).toBeInTheDocument();

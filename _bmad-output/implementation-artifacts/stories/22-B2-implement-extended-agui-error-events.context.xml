@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story Context File: 22-B2 Implement Extended AG-UI Error Events
+  Generated: 2026-01-11
+  Purpose: Comprehensive implementation context for AG-UI error taxonomy
+-->
+<story-context>
+  <metadata>
+    <story-id>22-B2</story-id>
+    <story-title>Implement Extended AG-UI Error Events</story-title>
+    <epic>22 - Advanced Protocol Integration</epic>
+    <priority>P1 - MEDIUM</priority>
+    <story-points>3</story-points>
+    <owner>Backend</owner>
+    <status>implemented</status>
+    <generated>2026-01-11</generated>
+  </metadata>
+
+  <summary>
+    Implemented comprehensive AG-UI error event taxonomy with standardized error codes,
+    HTTP status mappings, and retry guidance for CopilotKit integration. This enables
+    frontend developers to implement appropriate error handling UIs, distinguish between
+    transient and permanent failures, and provide users with actionable feedback.
+  </summary>
+
+  <implementation-summary>
+    <files-created>
+      <file path="backend/src/agentic_rag_backend/protocols/ag_ui_errors.py">
+        Core AG-UI error module with AGUIErrorCode enum, AGUIErrorEvent class,
+        and create_error_event() function for exception mapping.
+      </file>
+      <file path="frontend/lib/ag-ui-error-codes.ts">
+        TypeScript error code enum, HTTP status mapping, and utility functions
+        for error handling (isRetryableError, requiresUserAction, formatRetryMessage).
+      </file>
+      <file path="frontend/components/copilot/ErrorHandler.tsx">
+        useAGUIErrorHandler hook for centralized error handling with toast
+        notifications, retry guidance, and callbacks for custom handling.
+      </file>
+      <file path="backend/tests/unit/protocols/test_ag_ui_errors.py">
+        28 unit tests covering enum completeness, event initialization,
+        serialization, and all exception mappings.
+      </file>
+      <file path="backend/tests/integration/test_ag_ui_errors_integration.py">
+        16 integration tests for AG-UI bridge error emission, SSE format,
+        debug mode behavior, and complete exception mapping coverage.
+      </file>
+    </files-created>
+
+    <files-modified>
+      <file path="backend/src/agentic_rag_backend/models/copilot.py">
+        Added RUN_ERROR to AGUIEventType enum for proper error event typing.
+      </file>
+      <file path="backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py">
+        Integrated create_error_event() in exception handler to emit structured
+        error events with debug mode support based on app environment.
+      </file>
+      <file path="backend/src/agentic_rag_backend/protocols/ag_ui_metrics.py">
+        Added RUN_ERROR to KNOWN_EVENT_TYPES for metrics cardinality control.
+      </file>
+      <file path="frontend/components/copilot/index.ts">
+        Exported useAGUIErrorHandler, parseAGUIError, isErrorCode, AGUIErrorCode,
+        and related types from the ErrorHandler module.
+      </file>
+    </files-modified>
+  </implementation-summary>
+
+  <error-taxonomy>
+    <error-code code="AGENT_EXECUTION_ERROR" http-status="500" type="server-error">
+      Unhandled agent exception - default fallback for unknown errors.
+    </error-code>
+    <error-code code="TENANT_REQUIRED" http-status="401" type="auth-error">
+      Missing tenant_id in request configuration.
+    </error-code>
+    <error-code code="TENANT_UNAUTHORIZED" http-status="403" type="auth-error">
+      Invalid or unauthorized tenant_id (A2APermissionError).
+    </error-code>
+    <error-code code="SESSION_NOT_FOUND" http-status="404" type="not-found">
+      Invalid session reference (KeyError in session lookups).
+    </error-code>
+    <error-code code="RATE_LIMITED" http-status="429" type="rate-limit">
+      Request/session/message limit exceeded. Includes retry_after field.
+    </error-code>
+    <error-code code="TIMEOUT" http-status="504" type="timeout">
+      Request/response timeout (TimeoutError, asyncio.TimeoutError, httpx.TimeoutException).
+    </error-code>
+    <error-code code="INVALID_REQUEST" http-status="400" type="validation">
+      Malformed or invalid request (ValidationError).
+    </error-code>
+    <error-code code="CAPABILITY_NOT_FOUND" http-status="404" type="not-found">
+      Requested capability unavailable (A2AAgentNotFoundError, A2ACapabilityNotFoundError).
+    </error-code>
+    <error-code code="UPSTREAM_ERROR" http-status="502" type="upstream">
+      External service failure (httpx.HTTPStatusError).
+    </error-code>
+    <error-code code="SERVICE_UNAVAILABLE" http-status="503" type="server-error">
+      System overloaded/unavailable (A2AServiceUnavailableError).
+    </error-code>
+  </error-taxonomy>
+
+  <exception-mapping>
+    <mapping exception="A2ARateLimitExceededError" code="RATE_LIMITED" http-status="429" retry-after="from-exception" />
+    <mapping exception="A2ASessionLimitExceededError" code="RATE_LIMITED" http-status="429" />
+    <mapping exception="A2AMessageLimitExceededError" code="RATE_LIMITED" http-status="429" />
+    <mapping exception="TimeoutError" code="TIMEOUT" http-status="504" />
+    <mapping exception="asyncio.TimeoutError" code="TIMEOUT" http-status="504" />
+    <mapping exception="httpx.TimeoutException" code="TIMEOUT" http-status="504" />
+    <mapping exception="httpx.HTTPStatusError" code="UPSTREAM_ERROR" http-status="502" />
+    <mapping exception="A2AAgentNotFoundError" code="CAPABILITY_NOT_FOUND" http-status="404" />
+    <mapping exception="A2ACapabilityNotFoundError" code="CAPABILITY_NOT_FOUND" http-status="404" />
+    <mapping exception="TenantRequiredError" code="TENANT_REQUIRED" http-status="401" />
+    <mapping exception="A2APermissionError" code="TENANT_UNAUTHORIZED" http-status="403" />
+    <mapping exception="ValidationError" code="INVALID_REQUEST" http-status="400" />
+    <mapping exception="KeyError" code="SESSION_NOT_FOUND" http-status="404" />
+    <mapping exception="A2AServiceUnavailableError" code="SERVICE_UNAVAILABLE" http-status="503" />
+    <mapping exception="*" code="AGENT_EXECUTION_ERROR" http-status="500" />
+  </exception-mapping>
+
+  <sse-format>
+    <example><![CDATA[
+event: RUN_ERROR
+data: {"code": "RATE_LIMITED", "message": "Request rate limit exceeded. Please wait before retrying.", "http_status": 429, "details": {}, "retry_after": 120}
+    ]]></example>
+  </sse-format>
+
+  <debug-mode>
+    <description>
+      In development mode (APP_ENV=development), error events include the exception
+      type name in the details field for debugging. In production mode, details are
+      omitted to prevent information leakage.
+    </description>
+    <example-debug><![CDATA[
+{"code": "AGENT_EXECUTION_ERROR", "message": "An error occurred processing your request.", "http_status": 500, "details": {"error_type": "ValueError"}}
+    ]]></example-debug>
+    <example-production><![CDATA[
+{"code": "AGENT_EXECUTION_ERROR", "message": "An error occurred processing your request.", "http_status": 500, "details": {}}
+    ]]></example-production>
+  </debug-mode>
+
+  <frontend-integration>
+    <hook name="useAGUIErrorHandler">
+      Provides centralized error handling with toast notifications.
+      Supports callbacks for retryable errors, user action required, and general errors.
+    </hook>
+    <utilities>
+      <utility name="parseAGUIError">Extract error data from RUN_ERROR events</utility>
+      <utility name="isRetryableError">Check if error is transient (RATE_LIMITED, TIMEOUT, SERVICE_UNAVAILABLE)</utility>
+      <utility name="requiresUserAction">Check if user intervention needed (TENANT_REQUIRED, etc.)</utility>
+      <utility name="formatRetryMessage">Format human-readable retry countdown</utility>
+      <utility name="getToastVariant">Determine toast severity (destructive for 5xx)</utility>
+    </utilities>
+  </frontend-integration>
+
+  <test-coverage>
+    <unit-tests count="28" file="backend/tests/unit/protocols/test_ag_ui_errors.py">
+      <test-class name="TestAGUIErrorCodeEnum" tests="3">Enum completeness and HTTP status mapping</test-class>
+      <test-class name="TestAGUIErrorEvent" tests="5">Initialization, serialization, defaults</test-class>
+      <test-class name="TestCreateErrorEvent" tests="16">All exception type mappings</test-class>
+      <test-class name="TestAGUIErrorEventSerialization" tests="2">SSE format output</test-class>
+      <test-class name="TestAGUIErrorEventFromMiddleware" tests="2">Middleware exception handling</test-class>
+    </unit-tests>
+    <integration-tests count="16" file="backend/tests/integration/test_ag_ui_errors_integration.py">
+      <test-class name="TestAGUIBridgeErrorEvents" tests="3">Bridge error emission</test-class>
+      <test-class name="TestErrorEventSSEStream" tests="2">SSE stream format</test-class>
+      <test-class name="TestErrorEventDebugMode" tests="3">Debug mode behavior</test-class>
+      <test-class name="TestErrorEventMapping" tests="8">Complete mapping coverage</test-class>
+    </integration-tests>
+  </test-coverage>
+
+  <acceptance-criteria-status>
+    <criterion id="AC1" status="passed">AGUIErrorCode enum contains all 10 standardized error codes</criterion>
+    <criterion id="AC2" status="passed">AGUIErrorEvent includes code, message, http_status, details, retry_after</criterion>
+    <criterion id="AC3" status="passed">create_error_event maps A2ARateLimitExceeded to RATE_LIMITED with retry_after</criterion>
+    <criterion id="AC4" status="passed">A2ASessionLimitExceeded and A2AMessageLimitExceeded map to RATE_LIMITED</criterion>
+    <criterion id="AC5" status="passed">TimeoutError maps to TIMEOUT with http_status 504</criterion>
+    <criterion id="AC6" status="passed">Unknown exception without debug returns AGENT_EXECUTION_ERROR without details</criterion>
+    <criterion id="AC7" status="passed">Unknown exception with debug includes error_type in details</criterion>
+    <criterion id="AC8" status="passed">Error event serializes to correct SSE JSON structure</criterion>
+    <criterion id="AC9" status="passed">useAGUIErrorHandler hook displays toast notifications</criterion>
+    <criterion id="AC10" status="passed">RUN_ERROR with retry_after shows retry countdown</criterion>
+    <criterion id="AC11" status="passed">AG-UI bridge emits AGUIErrorEvent before stream ends</criterion>
+    <criterion id="AC12" status="passed">All error codes have unit tests verifying mapping and serialization</criterion>
+  </acceptance-criteria-status>
+
+  <design-decisions>
+    <decision id="1">
+      AGUIErrorCode enum placed in protocols/ag_ui_errors.py instead of models/copilot.py
+      to avoid circular imports between models and protocols modules.
+    </decision>
+    <decision id="2">
+      Error events also emit backward-compatible TextDeltaEvent with generic error message
+      to maintain compatibility with older frontend versions.
+    </decision>
+    <decision id="3">
+      Debug mode determined by is_development_env(settings.app_env) to automatically
+      enable detailed error information in development environments.
+    </decision>
+    <decision id="4">
+      retry_after field only included when non-None to keep SSE payload minimal for
+      non-rate-limited errors.
+    </decision>
+  </design-decisions>
+</story-context>

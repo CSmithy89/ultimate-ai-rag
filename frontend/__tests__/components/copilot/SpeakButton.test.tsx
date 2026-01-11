@@ -12,7 +12,7 @@
  * - Loading states
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SpeakButton } from "@/components/copilot/SpeakButton";
 
@@ -99,8 +99,9 @@ describe("SpeakButton", () => {
     it("starts playback on click", async () => {
       render(<SpeakButton {...defaultProps} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button);
+      await user.click(button);
 
       await waitFor(() => {
         expect(global.fetch).toHaveBeenCalledWith("/api/copilot/tts", expect.any(Object));
@@ -121,8 +122,9 @@ describe("SpeakButton", () => {
 
       render(<SpeakButton {...defaultProps} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button);
+      await user.click(button);
 
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /loading/i })).toBeInTheDocument();
@@ -138,8 +140,9 @@ describe("SpeakButton", () => {
     it("shows playing state during playback", async () => {
       render(<SpeakButton {...defaultProps} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button);
+      await user.click(button);
 
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /stop speaking/i })).toBeInTheDocument();
@@ -149,14 +152,15 @@ describe("SpeakButton", () => {
     it("stops playback on second click", async () => {
       render(<SpeakButton {...defaultProps} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button); // Start
+      await user.click(button); // Start
 
       await waitFor(() => {
         expect(mockAudio.play).toHaveBeenCalled();
       });
 
-      await userEvent.click(button); // Stop
+      await user.click(button); // Stop
 
       expect(mockAudio.pause).toHaveBeenCalled();
     });
@@ -164,15 +168,18 @@ describe("SpeakButton", () => {
     it("resets state when audio ends", async () => {
       render(<SpeakButton {...defaultProps} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button);
+      await user.click(button);
 
       await waitFor(() => {
         expect(mockAudio.play).toHaveBeenCalled();
       });
 
       // Trigger audio ended event
-      mockAudio.onended?.();
+      await act(async () => {
+        mockAudio.onended?.();
+      });
 
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /read aloud/i })).toBeInTheDocument();
@@ -191,8 +198,9 @@ describe("SpeakButton", () => {
     it("sends voice parameter to API", async () => {
       render(<SpeakButton {...defaultProps} voice="nova" />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button);
+      await user.click(button);
 
       await waitFor(() => {
         expect(global.fetch).toHaveBeenCalledWith(
@@ -207,8 +215,9 @@ describe("SpeakButton", () => {
     it("sends speed parameter to API", async () => {
       render(<SpeakButton {...defaultProps} speed={1.5} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button);
+      await user.click(button);
 
       await waitFor(() => {
         expect(global.fetch).toHaveBeenCalledWith(
@@ -231,8 +240,9 @@ describe("SpeakButton", () => {
 
       render(<SpeakButton {...defaultProps} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button);
+      await user.click(button);
 
       await waitFor(() => {
         expect(screen.getByRole("alert")).toHaveTextContent(/TTS service unavailable/i);
@@ -247,15 +257,18 @@ describe("SpeakButton", () => {
 
       render(<SpeakButton {...defaultProps} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button);
+      await user.click(button);
 
       await waitFor(() => {
         expect(mockAudio.play).toHaveBeenCalled();
       });
 
       // Trigger audio error
-      mockAudio.onerror?.();
+      await act(async () => {
+        mockAudio.onerror?.();
+      });
 
       await waitFor(() => {
         expect(screen.getByRole("alert")).toHaveTextContent(/audio playback failed/i);
@@ -271,11 +284,12 @@ describe("SpeakButton", () => {
 
       render(<SpeakButton {...defaultProps} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button);
+      await user.click(button);
 
       const errorAlert = await screen.findByRole("alert");
-      await userEvent.click(errorAlert);
+      await user.click(errorAlert);
 
       await waitFor(() => {
         expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -284,26 +298,31 @@ describe("SpeakButton", () => {
 
     it("auto-dismisses error after 5 seconds", async () => {
       jest.useFakeTimers();
-      global.fetch = jest.fn().mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-        json: async () => ({ detail: "Error" }),
-      });
+      const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+      try {
+        global.fetch = jest.fn().mockResolvedValueOnce({
+          ok: false,
+          status: 500,
+          json: async () => ({ detail: "Error" }),
+        });
 
-      render(<SpeakButton {...defaultProps} />);
+        render(<SpeakButton {...defaultProps} />);
 
-      const button = screen.getByRole("button");
-      await userEvent.click(button);
+        const button = screen.getByRole("button");
+        await user.click(button);
 
-      expect(await screen.findByRole("alert")).toBeInTheDocument();
+        expect(await screen.findByRole("alert")).toBeInTheDocument();
 
-      jest.advanceTimersByTime(5000);
+        await act(async () => {
+          jest.advanceTimersByTime(5000);
+        });
 
-      await waitFor(() => {
-        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-      });
-
-      jest.useRealTimers();
+        await waitFor(() => {
+          expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+        });
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it("revokes object URL on error to prevent memory leak", async () => {
@@ -314,15 +333,18 @@ describe("SpeakButton", () => {
 
       render(<SpeakButton {...defaultProps} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button);
+      await user.click(button);
 
       await waitFor(() => {
         expect(mockAudio.play).toHaveBeenCalled();
       });
 
       // Trigger audio error
-      mockAudio.onerror?.();
+      await act(async () => {
+        mockAudio.onerror?.();
+      });
 
       expect(global.URL.revokeObjectURL).toHaveBeenCalled();
     });
@@ -353,8 +375,9 @@ describe("SpeakButton", () => {
 
       const { unmount } = render(<SpeakButton {...defaultProps} />);
 
+      const user = userEvent.setup();
       const button = screen.getByRole("button");
-      await userEvent.click(button);
+      await user.click(button);
 
       await waitFor(() => {
         expect(mockAudio.play).toHaveBeenCalled();

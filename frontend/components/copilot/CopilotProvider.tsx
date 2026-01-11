@@ -4,6 +4,7 @@ import { CopilotKit } from "@copilotkit/react-core";
 import "@copilotkit/react-ui/styles.css";
 import { ReactNode } from "react";
 import { useDefaultToolHandler } from "@/hooks/use-default-tool";
+import { AGUIErrorListener } from "./AGUIErrorListener";
 
 interface CopilotProviderProps {
   children: ReactNode;
@@ -25,7 +26,7 @@ function CopilotContextProvider() {
   // - Generic loading indicator during execution
   useDefaultToolHandler();
 
-  return null;
+  return <AGUIErrorListener />;
 }
 
 /**

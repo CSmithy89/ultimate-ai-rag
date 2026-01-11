@@ -1,0 +1,22 @@
+<storyContext>
+  <story id="10.7" title="NFR Benchmark Validation" epic="10" />
+
+  <summary>
+    Add benchmark tests for ingestion and query latency and record results
+    for trend tracking in CI.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Ingestion and query latency benchmarks are defined.</acceptanceCriteria>
+    <acceptanceCriteria>Benchmark results are recorded for trend analysis.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Benchmarks must be gated behind RUN_BENCHMARKS.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="_bmad-output/epics/epic-10-tech-spec.md" section="Story Breakdown" />
+    <reference path="_bmad-output/epics/epic-10-testing-infrastructure.md" section="Story 10.7" />
+  </references>
+</storyContext>

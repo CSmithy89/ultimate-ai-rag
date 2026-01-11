@@ -1,0 +1,24 @@
+<storyContext>
+  <story id="3.3" title="Hybrid Answer Synthesis" epic="3" />
+
+  <summary>
+    Combine vector and graph evidence into a single prompt, synthesize a
+    unified answer, and include citations from both evidence sources.
+  </summary>
+
+  <requirements>
+    <acceptanceCriteria>Merge vector and graph evidence before synthesis.</acceptanceCriteria>
+    <acceptanceCriteria>Rank or prioritize evidence for response quality.</acceptanceCriteria>
+    <acceptanceCriteria>Generate unified LLM response with citations.</acceptanceCriteria>
+  </requirements>
+
+  <constraints>
+    <constraint>Prompt should remain bounded and deterministic.</constraint>
+    <constraint>Citations must reference vector chunk IDs and graph node IDs.</constraint>
+  </constraints>
+
+  <references>
+    <reference path="backend/src/agentic_rag_backend/agents/orchestrator.py" section="Prompt construction" />
+    <reference path="_bmad-output/epics/epic-3-tech-spec.md" section="Story 3.3" />
+  </references>
+</storyContext>

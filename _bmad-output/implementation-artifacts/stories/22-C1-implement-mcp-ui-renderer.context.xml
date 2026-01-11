@@ -1,0 +1,887 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story Context File: 22-C1 Implement MCP-UI Renderer
+  Generated: 2026-01-11
+  Purpose: Comprehensive implementation context for MCP-UI iframe rendering with security controls
+-->
+<story-context>
+  <metadata>
+    <story-id>22-C1</story-id>
+    <story-title>Implement MCP-UI Renderer</story-title>
+    <epic>22 - Advanced Protocol Integration</epic>
+    <priority>P1 - MEDIUM</priority>
+    <story-points>8</story-points>
+    <owner>Frontend + Backend</owner>
+    <status>ready-for-dev</status>
+    <generated>2026-01-11</generated>
+  </metadata>
+
+  <summary>
+    Implement MCP-UI rendering capabilities that allow external MCP tool UIs to be embedded
+    within the CopilotKit chat interface via sandboxed iframes. This includes backend configuration
+    for origin allowlists, frontend components for secure iframe rendering, and a postMessage
+    bridge for communication between the iframe and parent application. Security is paramount:
+    all origins must be validated, iframes must be sandboxed, and postMessage data must be validated.
+  </summary>
+
+  <objectives>
+    <objective>Create backend MCP-UI configuration models and API endpoint</objective>
+    <objective>Add MCP_UI_ALLOWED_ORIGINS config setting to Settings dataclass</objective>
+    <objective>Create MCPUIRenderer component with sandboxed iframe</objective>
+    <objective>Create MCPUIBridge hook for postMessage communication</objective>
+    <objective>Implement origin validation utilities</objective>
+    <objective>Add Zod schema for postMessage validation</objective>
+    <objective>Ensure comprehensive test coverage for all security controls</objective>
+  </objectives>
+
+  <acceptance-criteria>
+    <criterion id="AC1">When MCP_UI_ALLOWED_ORIGINS env var is set, origins are parsed into validated allowlist</criterion>
+    <criterion id="AC2">GET /mcp/ui/config returns allowed origins list for tenant</criterion>
+    <criterion id="AC3">MCPUIRenderer creates iframe with sandbox="allow-scripts allow-same-origin" attributes</criterion>
+    <criterion id="AC4">URLs not in allowlist trigger security warning instead of iframe</criterion>
+    <criterion id="AC5">postMessages from non-allowed origins are silently ignored with console warning</criterion>
+    <criterion id="AC6">mcp_ui_resize messages update iframe dimensions</criterion>
+    <criterion id="AC7">mcp_ui_result messages invoke onResult callback</criterion>
+    <criterion id="AC8">mcp_ui_error messages are logged and optionally displayed</criterion>
+    <criterion id="AC9">isAllowedOrigin() validates against loaded allowlist</criterion>
+    <criterion id="AC10">All tests pass with >85% coverage</criterion>
+  </acceptance-criteria>
+
+  <files-to-create>
+    <file>
+      <path>backend/src/agentic_rag_backend/models/mcp_ui.py</path>
+      <purpose>MCP-UI Pydantic models for configuration and payloads</purpose>
+      <dependencies>pydantic</dependencies>
+    </file>
+    <file>
+      <path>backend/src/agentic_rag_backend/api/routes/mcp_ui.py</path>
+      <purpose>API endpoint for MCP-UI configuration</purpose>
+      <dependencies>fastapi, pydantic</dependencies>
+    </file>
+    <file>
+      <path>frontend/lib/mcp-ui-security.ts</path>
+      <purpose>Origin validation utilities and Zod schemas</purpose>
+      <dependencies>zod</dependencies>
+    </file>
+    <file>
+      <path>frontend/components/mcp-ui/MCPUIRenderer.tsx</path>
+      <purpose>Sandboxed iframe component for MCP tool UIs</purpose>
+      <dependencies>react, zod, shadcn/ui</dependencies>
+    </file>
+    <file>
+      <path>frontend/components/mcp-ui/MCPUIBridge.tsx</path>
+      <purpose>PostMessage bridge hook for iframe communication</purpose>
+      <dependencies>react</dependencies>
+    </file>
+    <file>
+      <path>backend/tests/unit/models/test_mcp_ui.py</path>
+      <purpose>Unit tests for MCP-UI models</purpose>
+    </file>
+    <file>
+      <path>backend/tests/integration/test_mcp_ui_api.py</path>
+      <purpose>Integration tests for /mcp/ui/config endpoint</purpose>
+    </file>
+    <file>
+      <path>frontend/__tests__/components/mcp-ui/MCPUIRenderer.test.tsx</path>
+      <purpose>Unit tests for MCPUIRenderer component</purpose>
+    </file>
+    <file>
+      <path>frontend/__tests__/components/mcp-ui/MCPUIBridge.test.tsx</path>
+      <purpose>Unit tests for MCPUIBridge hook</purpose>
+    </file>
+    <file>
+      <path>frontend/__tests__/lib/mcp-ui-security.test.ts</path>
+      <purpose>Unit tests for security utilities</purpose>
+    </file>
+  </files-to-create>
+
+  <files-to-modify>
+    <file>
+      <path>backend/src/agentic_rag_backend/config.py</path>
+      <purpose>Add MCP-UI configuration settings to Settings dataclass</purpose>
+      <integration-point>Add mcp_ui_enabled, mcp_ui_allowed_origins, mcp_ui_signing_secret fields</integration-point>
+    </file>
+    <file>
+      <path>backend/src/agentic_rag_backend/main.py</path>
+      <purpose>Register MCP-UI router</purpose>
+      <integration-point>Add router import and app.include_router() call</integration-point>
+    </file>
+    <file>
+      <path>backend/src/agentic_rag_backend/models/__init__.py</path>
+      <purpose>Export MCP-UI models</purpose>
+    </file>
+    <file>
+      <path>.env.example</path>
+      <purpose>Add MCP-UI environment variables</purpose>
+    </file>
+    <file>
+      <path>frontend/.env.example</path>
+      <purpose>Add NEXT_PUBLIC_MCP_UI_ALLOWED_ORIGINS variable</purpose>
+    </file>
+  </files-to-modify>
+
+  <existing-code-patterns>
+    <pattern name="Pydantic Model Definition">
+      <location>backend/src/agentic_rag_backend/models/copilot.py</location>
+      <description>
+        Pattern for defining Pydantic models with proper typing and docstrings.
+        All models inherit from BaseModel and use Field for defaults.
+      </description>
+      <example><![CDATA[
+from pydantic import BaseModel, Field
+from typing import Any, Optional
+
+class CopilotConfig(BaseModel):
+    """Configuration for CopilotKit request."""
+    configurable: dict[str, Any] = Field(default_factory=dict)
+      ]]></example>
+    </pattern>
+
+    <pattern name="API Route Definition">
+      <location>backend/src/agentic_rag_backend/api/routes/a2a.py</location>
+      <description>
+        Pattern for defining FastAPI routes with proper dependencies and response models.
+        Uses APIRouter with prefix and tags.
+      </description>
+      <example><![CDATA[
+from fastapi import APIRouter, Depends, Header
+
+router = APIRouter(prefix="/mcp", tags=["mcp"])
+
+@router.get("/ui/config")
+async def get_mcp_ui_config(
+    tenant_id: str = Header(..., alias="X-Tenant-ID"),
+) -> dict[str, Any]:
+    """Get MCP-UI configuration for tenant."""
+    ...
+      ]]></example>
+    </pattern>
+
+    <pattern name="Frontend API Fetching">
+      <location>frontend/lib/api.ts</location>
+      <description>
+        Pattern for fetching from backend API with proper error handling.
+        Uses fetchApi wrapper with Zod validation.
+      </description>
+      <example><![CDATA[
+async function fetchApi<T>(
+  endpoint: string,
+  options?: RequestInit
+): Promise<ApiResponse<T>> {
+  const url = API_BASE_URL + endpoint;
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options?.headers,
+    },
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(
+      errorData.detail || errorData.title || 'API error: ' + response.status
+    );
+  }
+
+  return response.json();
+}
+      ]]></example>
+    </pattern>
+
+    <pattern name="React Component with Card">
+      <location>frontend/components/copilot/MCPToolCallCard.tsx</location>
+      <description>
+        Pattern for React components using shadcn/ui Card components.
+        Good reference for MCP-related UI.
+      </description>
+    </pattern>
+
+    <pattern name="Error Handler Component">
+      <location>frontend/components/copilot/ErrorHandler.tsx</location>
+      <description>
+        Pattern for handling and displaying errors in the UI.
+        Includes AG-UI error code handling.
+      </description>
+    </pattern>
+  </existing-code-patterns>
+
+  <security-requirements>
+    <requirement name="Origin Allowlist">
+      <description>All iframe URLs must be validated against MCP_UI_ALLOWED_ORIGINS before rendering</description>
+      <implementation>Check new URL(payload.ui_url).origin against allowlist Set</implementation>
+    </requirement>
+    <requirement name="Sandbox Attributes">
+      <description>Iframes must use minimal sandbox permissions</description>
+      <implementation>sandbox="allow-scripts allow-same-origin" - enables scripts but blocks form submission, popups, etc.</implementation>
+    </requirement>
+    <requirement name="PostMessage Origin Validation">
+      <description>All incoming postMessages must verify event.origin before processing</description>
+      <implementation>if (!allowedOrigins.has(event.origin)) return with console.warn</implementation>
+    </requirement>
+    <requirement name="Zod Schema Validation">
+      <description>PostMessage data must be validated with discriminated union schema</description>
+      <implementation>Use z.discriminatedUnion for type-safe message parsing</implementation>
+    </requirement>
+    <requirement name="CSP Headers">
+      <description>Content Security Policy should restrict frame-src to allowed origins</description>
+      <implementation>Configure in next.config.js headers</implementation>
+    </requirement>
+  </security-requirements>
+
+  <implementation-skeleton>
+    <file path="backend/src/agentic_rag_backend/models/mcp_ui.py"><![CDATA[
+"""Pydantic models for MCP-UI configuration and payloads.
+
+This module defines models for MCP-UI iframe-based tool rendering,
+including configuration, payload formats, and security settings.
+"""
+
+from typing import Any
+
+from pydantic import BaseModel, Field, HttpUrl
+
+
+class MCPUIConfig(BaseModel):
+    """MCP-UI configuration response model."""
+
+    enabled: bool = Field(
+        default=False,
+        description="Whether MCP-UI rendering is enabled",
+    )
+    allowed_origins: list[str] = Field(
+        default_factory=list,
+        description="List of allowed origins for MCP-UI iframes",
+    )
+
+
+class MCPUIPayload(BaseModel):
+    """MCP-UI iframe payload from MCP tool response.
+
+    This payload is emitted by MCP tools that provide interactive UIs.
+    The frontend MCPUIRenderer component consumes this payload.
+    """
+
+    type: str = Field(
+        default="mcp_ui",
+        description="Payload type identifier",
+    )
+    tool_name: str = Field(
+        ...,
+        description="Name of the MCP tool providing this UI",
+    )
+    ui_url: HttpUrl = Field(
+        ...,
+        description="URL of the external tool UI to embed",
+    )
+    ui_type: str = Field(
+        default="iframe",
+        description="UI rendering type (currently only 'iframe' supported)",
+    )
+    sandbox: list[str] = Field(
+        default_factory=lambda: ["allow-scripts", "allow-same-origin"],
+        description="Sandbox permissions for the iframe",
+    )
+    size: dict[str, int] = Field(
+        default_factory=lambda: {"width": 600, "height": 400},
+        description="Initial iframe dimensions",
+    )
+    allow: list[str] = Field(
+        default_factory=list,
+        description="Permissions policy for the iframe",
+    )
+    data: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Data to pass to the iframe via postMessage on init",
+    )
+]]></file>
+
+    <file path="backend/src/agentic_rag_backend/api/routes/mcp_ui.py"><![CDATA[
+"""MCP-UI API routes.
+
+This module provides API endpoints for MCP-UI configuration,
+allowing the frontend to retrieve allowed origins for iframe rendering.
+"""
+
+from typing import Any
+
+from fastapi import APIRouter, Header
+
+from agentic_rag_backend.config import get_settings
+from agentic_rag_backend.models.mcp_ui import MCPUIConfig
+
+router = APIRouter(prefix="/mcp", tags=["mcp-ui"])
+
+
+@router.get("/ui/config", response_model=MCPUIConfig)
+async def get_mcp_ui_config(
+    x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
+) -> MCPUIConfig:
+    """Get MCP-UI configuration for the requesting tenant.
+
+    Returns the list of allowed origins for MCP-UI iframe rendering.
+    The frontend uses this to validate iframe URLs before rendering.
+
+    Args:
+        x_tenant_id: Tenant identifier from request header
+
+    Returns:
+        MCPUIConfig with enabled status and allowed origins
+    """
+    settings = get_settings()
+
+    return MCPUIConfig(
+        enabled=settings.mcp_ui_enabled,
+        allowed_origins=settings.mcp_ui_allowed_origins,
+    )
+]]></file>
+
+    <file path="frontend/lib/mcp-ui-security.ts"><![CDATA[
+/**
+ * MCP-UI Security Utilities
+ *
+ * Provides origin validation and postMessage schema validation
+ * for secure MCP-UI iframe communication.
+ */
+
+import { z } from 'zod';
+
+/**
+ * Zod schema for validating MCP-UI postMessage payloads.
+ * Uses discriminated union for type-safe message handling.
+ */
+export const MCPUIMessageSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('mcp_ui_resize'),
+    width: z.number().min(100).max(4000),
+    height: z.number().min(50).max(4000),
+  }),
+  z.object({
+    type: z.literal('mcp_ui_result'),
+    result: z.unknown(),
+  }),
+  z.object({
+    type: z.literal('mcp_ui_error'),
+    error: z.string(),
+  }),
+]);
+
+export type MCPUIMessage = z.infer<typeof MCPUIMessageSchema>;
+
+/**
+ * MCP-UI configuration from backend.
+ */
+export interface MCPUIConfig {
+  enabled: boolean;
+  allowed_origins: string[];
+}
+
+// Cache for allowed origins
+let _allowedOriginsCache: Set<string> | null = null;
+
+/**
+ * Load allowed origins from backend API.
+ * Results are cached to avoid repeated API calls.
+ *
+ * @param tenantId - Tenant identifier for API call
+ * @returns Set of allowed origin strings
+ */
+export async function loadAllowedOrigins(tenantId: string): Promise<Set<string>> {
+  if (_allowedOriginsCache !== null) {
+    return _allowedOriginsCache;
+  }
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+
+  try {
+    const response = await fetch(`${apiUrl}/mcp/ui/config`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Tenant-ID': tenantId,
+      },
+    });
+
+    if (!response.ok) {
+      console.warn('MCP-UI: Failed to load config, using fallback');
+      _allowedOriginsCache = new Set<string>();
+      return _allowedOriginsCache;
+    }
+
+    const config: MCPUIConfig = await response.json();
+    _allowedOriginsCache = new Set(config.allowed_origins);
+    return _allowedOriginsCache;
+  } catch (error) {
+    console.warn('MCP-UI: Error loading config', error);
+    _allowedOriginsCache = new Set<string>();
+    return _allowedOriginsCache;
+  }
+}
+
+/**
+ * Get allowed origins from environment variable.
+ * Used as fallback when backend is unavailable.
+ *
+ * @returns Set of allowed origin strings from NEXT_PUBLIC_MCP_UI_ALLOWED_ORIGINS
+ */
+export function getEnvAllowedOrigins(): Set<string> {
+  const envOrigins = process.env.NEXT_PUBLIC_MCP_UI_ALLOWED_ORIGINS || '';
+  return new Set(
+    envOrigins
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  );
+}
+
+/**
+ * Check if an origin is in the allowed list.
+ *
+ * @param origin - Origin string to validate
+ * @param allowedOrigins - Set of allowed origins (defaults to env-based)
+ * @returns True if origin is allowed
+ */
+export function isAllowedOrigin(
+  origin: string,
+  allowedOrigins?: Set<string>
+): boolean {
+  const origins = allowedOrigins ?? getEnvAllowedOrigins();
+  return origins.has(origin);
+}
+
+/**
+ * Extract origin from a URL string.
+ *
+ * @param url - URL string to parse
+ * @returns Origin string or null if parsing fails
+ */
+export function extractOrigin(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Validate and parse a postMessage event.
+ * Returns null if validation fails.
+ *
+ * @param event - MessageEvent from postMessage
+ * @param allowedOrigins - Set of allowed origins
+ * @returns Parsed MCPUIMessage or null
+ */
+export function validateMCPUIMessage(
+  event: MessageEvent,
+  allowedOrigins: Set<string>
+): MCPUIMessage | null {
+  // Validate origin
+  if (!isAllowedOrigin(event.origin, allowedOrigins)) {
+    console.warn('MCP-UI: Blocked message from untrusted origin', event.origin);
+    return null;
+  }
+
+  // Validate message shape
+  const result = MCPUIMessageSchema.safeParse(event.data);
+  if (!result.success) {
+    console.warn('MCP-UI: Invalid message shape', result.error);
+    return null;
+  }
+
+  return result.data;
+}
+
+/**
+ * Clear the cached allowed origins.
+ * Useful for testing or when configuration changes.
+ */
+export function clearAllowedOriginsCache(): void {
+  _allowedOriginsCache = null;
+}
+]]></file>
+
+    <file path="frontend/components/mcp-ui/MCPUIRenderer.tsx"><![CDATA[
+/**
+ * MCP-UI Renderer Component
+ *
+ * Renders MCP tool UIs in sandboxed iframes with proper security controls.
+ * Validates origins against allowlist and handles postMessage communication.
+ */
+
+'use client';
+
+import { useRef, useState, useEffect, useCallback } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { AlertCircle } from 'lucide-react';
+import { useMCPUIBridge } from './MCPUIBridge';
+import {
+  extractOrigin,
+  isAllowedOrigin,
+  getEnvAllowedOrigins,
+  loadAllowedOrigins,
+} from '@/lib/mcp-ui-security';
+
+/**
+ * MCP-UI payload structure from backend.
+ */
+export interface MCPUIPayload {
+  type: 'mcp_ui';
+  tool_name: string;
+  ui_url: string;
+  ui_type: 'iframe';
+  sandbox: string[];
+  size: { width: number; height: number };
+  allow: string[];
+  data: Record<string, unknown>;
+}
+
+/**
+ * Props for MCPUIRenderer component.
+ */
+interface MCPUIRendererProps {
+  /** MCP-UI payload from tool response */
+  payload: MCPUIPayload;
+  /** Tenant ID for loading config */
+  tenantId?: string;
+  /** Callback when iframe returns a result */
+  onResult?: (result: unknown) => void;
+  /** Callback when iframe reports an error */
+  onError?: (error: string) => void;
+}
+
+/**
+ * MCPUIRenderer - Secure iframe renderer for MCP tool UIs.
+ *
+ * Renders external tool UIs in sandboxed iframes with:
+ * - Origin validation against allowlist
+ * - Minimal sandbox permissions
+ * - PostMessage bridge for communication
+ * - Security warning for blocked origins
+ */
+export function MCPUIRenderer({
+  payload,
+  tenantId,
+  onResult,
+  onError,
+}: MCPUIRendererProps) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [dimensions, setDimensions] = useState(payload.size);
+  const [allowedOrigins, setAllowedOrigins] = useState<Set<string>>(
+    getEnvAllowedOrigins()
+  );
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Load allowed origins from backend
+  useEffect(() => {
+    if (tenantId) {
+      loadAllowedOrigins(tenantId).then((origins) => {
+        setAllowedOrigins(origins);
+        setIsLoading(false);
+      });
+    } else {
+      setIsLoading(false);
+    }
+  }, [tenantId]);
+
+  // Check if URL origin is allowed
+  useEffect(() => {
+    if (isLoading) return;
+
+    const origin = extractOrigin(payload.ui_url);
+    if (!origin || !isAllowedOrigin(origin, allowedOrigins)) {
+      setIsBlocked(true);
+      console.warn('MCP-UI: Blocked iframe from untrusted origin', origin);
+    } else {
+      setIsBlocked(false);
+    }
+  }, [payload.ui_url, allowedOrigins, isLoading]);
+
+  // Handle resize messages
+  const handleResize = useCallback((width: number, height: number) => {
+    setDimensions({ width, height });
+  }, []);
+
+  // Handle result messages
+  const handleResult = useCallback(
+    (result: unknown) => {
+      onResult?.(result);
+    },
+    [onResult]
+  );
+
+  // Handle error messages
+  const handleError = useCallback(
+    (error: string) => {
+      console.error('MCP-UI error:', error);
+      onError?.(error);
+    },
+    [onError]
+  );
+
+  // Setup postMessage bridge
+  useMCPUIBridge(iframeRef, allowedOrigins, {
+    onResize: handleResize,
+    onResult: handleResult,
+    onError: handleError,
+  });
+
+  // Send init data to iframe when it loads
+  const handleIframeLoad = useCallback(() => {
+    if (iframeRef.current?.contentWindow && payload.data) {
+      const origin = extractOrigin(payload.ui_url);
+      if (origin) {
+        iframeRef.current.contentWindow.postMessage(
+          { type: 'mcp_ui_init', data: payload.data },
+          origin
+        );
+      }
+    }
+  }, [payload.ui_url, payload.data]);
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <Card className="my-2">
+        <CardContent className="p-4 text-muted-foreground">
+          Loading MCP-UI configuration...
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Show security warning for blocked origins
+  if (isBlocked) {
+    const origin = extractOrigin(payload.ui_url);
+    return (
+      <Card className="my-2 border-destructive">
+        <CardHeader className="p-3 pb-2">
+          <CardTitle className="text-sm font-mono flex items-center gap-2 text-destructive">
+            <AlertCircle className="h-4 w-4" />
+            Security Warning
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-3 pt-0 text-sm text-destructive">
+          MCP-UI blocked: Untrusted origin <code className="bg-muted px-1 rounded">{origin}</code>
+          <p className="text-muted-foreground mt-1 text-xs">
+            Tool: {payload.tool_name}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Render sandboxed iframe
+  return (
+    <Card className="my-2">
+      <CardHeader className="p-3 pb-2">
+        <CardTitle className="text-sm font-mono">{payload.tool_name}</CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        <iframe
+          ref={iframeRef}
+          src={payload.ui_url}
+          sandbox={payload.sandbox.join(' ')}
+          allow={payload.allow.join('; ')}
+          onLoad={handleIframeLoad}
+          style={{
+            width: dimensions.width,
+            height: dimensions.height,
+            border: 'none',
+            display: 'block',
+          }}
+          title={`MCP-UI: ${payload.tool_name}`}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+]]></file>
+
+    <file path="frontend/components/mcp-ui/MCPUIBridge.tsx"><![CDATA[
+/**
+ * MCP-UI Bridge Hook
+ *
+ * Provides postMessage communication between the parent application
+ * and MCP-UI iframes with proper origin validation.
+ */
+
+'use client';
+
+import { useEffect, type RefObject } from 'react';
+import { validateMCPUIMessage, type MCPUIMessage } from '@/lib/mcp-ui-security';
+
+/**
+ * Callbacks for MCP-UI bridge messages.
+ */
+export interface MCPUIBridgeCallbacks {
+  /** Called when iframe requests resize */
+  onResize?: (width: number, height: number) => void;
+  /** Called when iframe returns a result */
+  onResult?: (result: unknown) => void;
+  /** Called when iframe reports an error */
+  onError?: (error: string) => void;
+}
+
+/**
+ * Hook for managing postMessage communication with MCP-UI iframes.
+ *
+ * Validates all incoming messages against the allowed origins list
+ * and the Zod schema before invoking callbacks.
+ *
+ * @param iframeRef - Reference to the iframe element
+ * @param allowedOrigins - Set of allowed origin strings
+ * @param callbacks - Callback handlers for different message types
+ *
+ * @example
+ * ```tsx
+ * const iframeRef = useRef<HTMLIFrameElement>(null);
+ *
+ * useMCPUIBridge(iframeRef, allowedOrigins, {
+ *   onResize: (w, h) => setDimensions({ width: w, height: h }),
+ *   onResult: (result) => console.log('Result:', result),
+ *   onError: (error) => console.error('Error:', error),
+ * });
+ * ```
+ */
+export function useMCPUIBridge(
+  iframeRef: RefObject<HTMLIFrameElement>,
+  allowedOrigins: Set<string>,
+  callbacks: MCPUIBridgeCallbacks
+): void {
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      // Only process messages from the iframe
+      if (
+        iframeRef.current?.contentWindow &&
+        event.source !== iframeRef.current.contentWindow
+      ) {
+        return;
+      }
+
+      // Validate origin and message shape
+      const message = validateMCPUIMessage(event, allowedOrigins);
+      if (!message) {
+        return;
+      }
+
+      // Handle message by type
+      handleMCPUIMessage(message, callbacks);
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [iframeRef, allowedOrigins, callbacks]);
+}
+
+/**
+ * Process a validated MCP-UI message.
+ */
+function handleMCPUIMessage(
+  message: MCPUIMessage,
+  callbacks: MCPUIBridgeCallbacks
+): void {
+  switch (message.type) {
+    case 'mcp_ui_resize':
+      callbacks.onResize?.(message.width, message.height);
+      break;
+
+    case 'mcp_ui_result':
+      callbacks.onResult?.(message.result);
+      break;
+
+    case 'mcp_ui_error':
+      callbacks.onError?.(message.error);
+      break;
+  }
+}
+]]></file>
+  </implementation-skeleton>
+
+  <configuration>
+    <backend-variables>
+      <variable name="MCP_UI_ENABLED" default="false" description="Enable MCP-UI iframe rendering" />
+      <variable name="MCP_UI_ALLOWED_ORIGINS" default="" description="Comma-separated list of allowed iframe origins" />
+      <variable name="MCP_UI_SIGNING_SECRET" default="auto-generated" description="Secret for signing MCP-UI URLs" />
+    </backend-variables>
+    <frontend-variables>
+      <variable name="NEXT_PUBLIC_MCP_UI_ALLOWED_ORIGINS" default="" description="Comma-separated fallback allowed origins" />
+    </frontend-variables>
+  </configuration>
+
+  <testing-requirements>
+    <backend-tests>
+      <test name="test_mcp_ui_config_model_defaults">Verify MCPUIConfig has correct defaults</test>
+      <test name="test_mcp_ui_payload_validation">Verify MCPUIPayload validates required fields</test>
+      <test name="test_mcp_ui_payload_url_validation">Verify ui_url must be valid HTTP(S) URL</test>
+      <test name="test_get_mcp_ui_config_endpoint">Verify endpoint returns correct config</test>
+      <test name="test_get_mcp_ui_config_requires_tenant_header">Verify endpoint requires X-Tenant-ID</test>
+    </backend-tests>
+    <frontend-tests>
+      <test name="test_mcpui_renderer_renders_iframe">Verify iframe is rendered for allowed origins</test>
+      <test name="test_mcpui_renderer_blocks_untrusted">Verify security warning for blocked origins</test>
+      <test name="test_mcpui_renderer_sandbox_attributes">Verify correct sandbox attributes applied</test>
+      <test name="test_mcpui_bridge_validates_origin">Verify messages from wrong origin are ignored</test>
+      <test name="test_mcpui_bridge_handles_resize">Verify resize messages update dimensions</test>
+      <test name="test_mcpui_bridge_handles_result">Verify result callback is invoked</test>
+      <test name="test_mcpui_bridge_handles_error">Verify error callback is invoked</test>
+      <test name="test_is_allowed_origin">Verify origin validation function</test>
+      <test name="test_validate_mcpui_message">Verify Zod schema validation</test>
+      <test name="test_load_allowed_origins_caching">Verify origins are cached</test>
+    </frontend-tests>
+  </testing-requirements>
+
+  <dependencies>
+    <dependency name="pydantic" version="^2.x" installed="true" note="Already available" />
+    <dependency name="fastapi" version="^0.x" installed="true" note="Already available" />
+    <dependency name="zod" version="^3.x" installed="true" note="Already available" />
+    <dependency name="lucide-react" version="^0.x" installed="true" note="For AlertCircle icon" />
+    <dependency name="@/components/ui/card" installed="true" note="shadcn/ui Card component" />
+  </dependencies>
+
+  <security-checklist>
+    <item status="addressed">Origin allowlist enforced: All iframe URLs validated against MCP_UI_ALLOWED_ORIGINS</item>
+    <item status="addressed">Sandbox attributes applied: iframe uses sandbox="allow-scripts allow-same-origin"</item>
+    <item status="addressed">PostMessage origin validated: All incoming messages checked against allowlist</item>
+    <item status="pending">CSP headers configured: frame-src includes only allowed origins (implementation note)</item>
+    <item status="addressed">No parent DOM access: Sandbox prevents access to parent document</item>
+    <item status="addressed">Zod schema validation: PostMessage data validated before processing</item>
+  </security-checklist>
+
+  <definition-of-done>
+    <item>MCPUIConfig and MCPUIPayload Pydantic models created</item>
+    <item>GET /mcp/ui/config endpoint functional</item>
+    <item>MCP-UI settings added to Settings dataclass and config.py</item>
+    <item>MCPUIRenderer component renders sandboxed iframes</item>
+    <item>MCPUIBridge hook handles postMessage communication</item>
+    <item>Origin validation blocks untrusted URLs</item>
+    <item>PostMessage origin validation implemented</item>
+    <item>Zod schema validates incoming messages</item>
+    <item>Backend unit tests pass (>85% coverage)</item>
+    <item>Frontend tests pass (>85% coverage)</item>
+    <item>.env.example updated with new variables</item>
+    <item>Code review approved</item>
+    <item>Story file updated with Dev Notes</item>
+  </definition-of-done>
+
+  <notes>
+    <note type="security">
+      The sandbox="allow-scripts allow-same-origin" combination is intentionally minimal.
+      allow-scripts enables JavaScript execution (required for interactive UIs).
+      allow-same-origin enables the iframe to access its own origin's storage/cookies.
+      Together they do NOT grant access to the parent document's DOM or storage.
+      Additional permissions like allow-forms or allow-popups should NOT be added
+      without explicit security review.
+    </note>
+    <note type="csp">
+      CSP headers should be updated in next.config.js to include:
+      frame-src 'self' ${allowed_origins.join(' ')};
+      This provides defense-in-depth beyond JavaScript validation.
+      However, the story focuses on runtime validation; CSP is a deployment concern.
+    </note>
+    <note type="testing">
+      Frontend tests may need to mock the fetch call for loadAllowedOrigins().
+      Use jest.mock or MSW (Mock Service Worker) for API mocking.
+    </note>
+  </notes>
+</story-context>
