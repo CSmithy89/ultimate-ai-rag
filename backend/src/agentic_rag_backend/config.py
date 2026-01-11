@@ -226,6 +226,13 @@ class Settings:
     a2a_heartbeat_timeout_seconds: int
     a2a_task_default_timeout_seconds: int
     a2a_task_max_retries: int
+    # Story 22-A2 - A2A Resource Limits settings
+    a2a_limits_backend: str
+    a2a_session_limit_per_tenant: int
+    a2a_message_limit_per_session: int
+    a2a_session_ttl_hours: int
+    a2a_message_rate_limit: int
+    a2a_limits_cleanup_interval_minutes: int
     # Epic 7 - MCP settings
     mcp_tool_timeout_seconds: float
     mcp_tool_timeout_overrides: dict[str, float]
@@ -592,6 +599,22 @@ def load_settings() -> Settings:
     a2a_heartbeat_timeout_seconds = get_int_env("A2A_HEARTBEAT_TIMEOUT_SECONDS", 60, min_val=10)
     a2a_task_default_timeout_seconds = get_int_env("A2A_TASK_DEFAULT_TIMEOUT_SECONDS", 300, min_val=1)
     a2a_task_max_retries = get_int_env("A2A_TASK_MAX_RETRIES", 3, min_val=0)
+
+    # Story 22-A2 - A2A Resource Limits settings
+    a2a_limits_backend = os.getenv("A2A_LIMITS_BACKEND", "memory").strip().lower()
+    if a2a_limits_backend not in {"memory", "redis", "postgres"}:
+        logger.warning(
+            "invalid_a2a_limits_backend",
+            backend=a2a_limits_backend,
+            valid_backends=["memory", "redis", "postgres"],
+            fallback="memory",
+        )
+        a2a_limits_backend = "memory"
+    a2a_session_limit_per_tenant = get_int_env("A2A_SESSION_LIMIT_PER_TENANT", 100, min_val=1)
+    a2a_message_limit_per_session = get_int_env("A2A_MESSAGE_LIMIT_PER_SESSION", 1000, min_val=1)
+    a2a_session_ttl_hours = get_int_env("A2A_SESSION_TTL_HOURS", 24, min_val=1)
+    a2a_message_rate_limit = get_int_env("A2A_MESSAGE_RATE_LIMIT", 60, min_val=1)
+    a2a_limits_cleanup_interval_minutes = get_int_env("A2A_LIMITS_CLEANUP_INTERVAL_MINUTES", 15, min_val=1)
 
     try:
         mcp_tool_timeout_seconds = float(os.getenv("MCP_TOOL_TIMEOUT_SECONDS", "30"))
@@ -1419,6 +1442,13 @@ def load_settings() -> Settings:
         a2a_heartbeat_timeout_seconds=a2a_heartbeat_timeout_seconds,
         a2a_task_default_timeout_seconds=a2a_task_default_timeout_seconds,
         a2a_task_max_retries=a2a_task_max_retries,
+        # Story 22-A2 - A2A Resource Limits settings
+        a2a_limits_backend=a2a_limits_backend,
+        a2a_session_limit_per_tenant=a2a_session_limit_per_tenant,
+        a2a_message_limit_per_session=a2a_message_limit_per_session,
+        a2a_session_ttl_hours=a2a_session_ttl_hours,
+        a2a_message_rate_limit=a2a_message_rate_limit,
+        a2a_limits_cleanup_interval_minutes=a2a_limits_cleanup_interval_minutes,
         # Epic 7 - MCP settings
         mcp_tool_timeout_seconds=mcp_tool_timeout_seconds,
         mcp_tool_timeout_overrides=mcp_tool_timeout_overrides,

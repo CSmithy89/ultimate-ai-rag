@@ -41,6 +41,7 @@ from ...protocols.a2a_middleware import (
     A2AAgentInfo as MiddlewareAgentInfo,
     A2AAgentCapability as MiddlewareAgentCapability,
 )
+from ...protocols.a2a_resource_limits import A2AResourceManager
 from ...rate_limit import RateLimiter
 from ...validation import TENANT_ID_PATTERN, TENANT_ID_REGEX
 
@@ -262,6 +263,21 @@ class MiddlewareDelegateResponse(BaseModel):
     meta: dict[str, Any]
 
 
+# ==================== Resource Metrics Models (Story 22-A2) ====================
+
+
+class ResourceMetricsResponse(BaseModel):
+    """Response containing A2A resource usage metrics."""
+
+    tenant_id: str
+    active_sessions: int
+    total_messages: int
+    session_limit: int
+    message_limit_per_session: int
+    message_rate_limit: int
+    meta: dict[str, Any]
+
+
 # ==================== Dependency Injection ====================
 
 
@@ -300,6 +316,14 @@ def get_a2a_middleware(request: Request) -> A2AMiddlewareAgent:
     if middleware is None:
         raise RuntimeError("A2A middleware not initialized")
     return middleware
+
+
+def get_a2a_resource_manager(request: Request) -> A2AResourceManager:
+    """Get the A2A resource manager from app state."""
+    manager = getattr(request.app.state, "a2a_resource_manager", None)
+    if manager is None:
+        raise RuntimeError("A2A resource manager not initialized")
+    return manager
 
 
 def validate_tenant_id_header(
@@ -991,3 +1015,54 @@ async def delegate_to_agent(
             reason=str(e),
             task_id=None,
         ) from e
+
+
+# ==================== Resource Metrics Endpoints (Story 22-A2) ====================
+
+
+@router.get("/metrics/{tenant_id}", response_model=ResourceMetricsResponse)
+async def get_resource_metrics(
+    tenant_id: str,
+    x_tenant_id: str = Depends(validate_tenant_id_header),
+    _api_key: Optional[str] = Depends(verify_api_key),
+    resource_manager: A2AResourceManager = Depends(get_a2a_resource_manager),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+) -> ResourceMetricsResponse:
+    """Get A2A resource usage metrics for a tenant.
+
+    Tenants can only view their own metrics. Attempting to view another tenant's
+    metrics returns 403 Forbidden.
+
+    Returns current usage including:
+    - active_sessions: Current number of active A2A sessions
+    - total_messages: Total messages sent across all sessions
+    - session_limit: Maximum concurrent sessions allowed
+    - message_limit_per_session: Maximum messages per session
+    - message_rate_limit: Maximum messages per minute per session
+    """
+    if not await limiter.allow(x_tenant_id):
+        raise rate_limit_exceeded()
+
+    # Validate tenant can only view their own metrics
+    if tenant_id != x_tenant_id:
+        logger.warning(
+            "a2a_metrics_access_denied",
+            requesting_tenant=x_tenant_id,
+            target_tenant=tenant_id,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot view metrics for another tenant",
+        )
+
+    metrics = await resource_manager.get_tenant_metrics(tenant_id)
+
+    return ResourceMetricsResponse(
+        tenant_id=metrics.tenant_id,
+        active_sessions=metrics.active_sessions,
+        total_messages=metrics.total_messages,
+        session_limit=metrics.session_limit,
+        message_limit_per_session=metrics.message_limit_per_session,
+        message_rate_limit=metrics.message_rate_limit,
+        meta=build_meta(),
+    )

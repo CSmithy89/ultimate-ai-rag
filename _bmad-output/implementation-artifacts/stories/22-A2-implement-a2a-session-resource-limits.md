@@ -1,6 +1,6 @@
 # Story 22-A2: Implement A2A Session Resource Limits
 
-Status: drafted
+Status: review
 
 Epic: 22 - Advanced Protocol Integration
 Priority: P0 - HIGH
@@ -286,7 +286,58 @@ a2a:session:{session_id}:rate         # Sorted Set: message timestamps
 
 ## Dev Notes
 
-_To be filled in during implementation_
+**Implementation Date**: 2026-01-11
+
+### Files Created
+
+1. `/backend/src/agentic_rag_backend/protocols/a2a_resource_limits.py` - Core resource management module
+   - `A2AResourceLimits` - Pydantic config model
+   - `TenantUsage` / `SessionUsage` - Usage tracking models
+   - `A2AResourceMetrics` - Metrics response model
+   - `A2ASessionLimitExceeded`, `A2AMessageLimitExceeded`, `A2ARateLimitExceeded` - Custom exceptions
+   - `A2AResourceManager` - Abstract base class
+   - `InMemoryA2AResourceManager` - Development/testing implementation with threading lock
+   - `RedisA2AResourceManager` - Production implementation with atomic Redis operations
+   - `A2AResourceManagerFactory` - Factory for creating managers based on config
+
+2. `/backend/tests/unit/protocols/test_a2a_resource_limits.py` - 42 unit tests
+3. `/backend/tests/integration/test_a2a_resource_limits_api.py` - 10 integration tests
+
+### Files Modified
+
+1. `/backend/src/agentic_rag_backend/core/errors.py` - Added ErrorCode entries and AppError subclasses
+2. `/backend/src/agentic_rag_backend/config.py` - Added configuration settings
+3. `/backend/src/agentic_rag_backend/main.py` - Wired resource manager to lifespan
+4. `/backend/src/agentic_rag_backend/api/routes/a2a.py` - Added metrics endpoint
+5. `/backend/src/agentic_rag_backend/protocols/__init__.py` - Exported new classes
+
+### Configuration Added
+
+```bash
+A2A_LIMITS_BACKEND=memory|redis  # Default: memory
+A2A_SESSION_LIMIT_PER_TENANT=100
+A2A_MESSAGE_LIMIT_PER_SESSION=1000
+A2A_SESSION_TTL_HOURS=24
+A2A_MESSAGE_RATE_LIMIT=60  # per minute
+A2A_LIMITS_CLEANUP_INTERVAL_MINUTES=15
+```
+
+### Design Decisions
+
+1. **Sliding Window Rate Limiting**: Uses timestamp-based sliding window (last 60 seconds) rather than fixed windows to provide smoother rate limiting behavior.
+
+2. **Threading Lock for In-Memory**: Used `threading.Lock` instead of `asyncio.Lock` for the in-memory implementation because the operations are very fast in-memory lookups/updates.
+
+3. **5-Minute Timestamp Retention**: Rate limiting timestamps are retained for 5 minutes (not just 1 minute) to handle potential edge cases and allow for rate limit violation debugging.
+
+4. **Tenant Isolation in Metrics**: Tenants can only view their own metrics - cross-tenant metric access returns 403 Forbidden.
+
+5. **Redis Atomic Operations**: All Redis operations use pipelines for atomicity to prevent race conditions in multi-worker deployments.
+
+### Test Results
+
+- 52 tests passing (42 unit + 10 integration)
+- All linting passes with ruff
 
 ## Completion Notes
 
