@@ -52,18 +52,28 @@ def is_safe_endpoint_url(url: str) -> bool:
 
         # Only allow HTTP and HTTPS
         if parsed.scheme not in ("http", "https"):
-            logger.warning("ssrf_blocked_invalid_scheme", url=url, scheme=parsed.scheme)
+            logger.warning(
+                "ssrf_blocked_invalid_scheme",
+                url=url,
+                scheme=parsed.scheme,
+                security_event=True,
+            )
             return False
 
         hostname = parsed.hostname
         if not hostname:
-            logger.warning("ssrf_blocked_no_hostname", url=url)
+            logger.warning("ssrf_blocked_no_hostname", url=url, security_event=True)
             return False
 
         # Block localhost variants
         localhost_variants = ("localhost", "127.0.0.1", "0.0.0.0", "::1")
         if hostname.lower() in localhost_variants:
-            logger.warning("ssrf_blocked_localhost", url=url, hostname=hostname)
+            logger.warning(
+                "ssrf_blocked_localhost",
+                url=url,
+                hostname=hostname,
+                security_event=True,
+            )
             return False
 
         # Check if hostname is an IP address and block private/reserved ranges
@@ -80,6 +90,7 @@ def is_safe_endpoint_url(url: str) -> bool:
                         else "link_local" if ip.is_link_local
                         else "reserved"
                     ),
+                    security_event=True,
                 )
                 return False
         except ValueError:
@@ -92,6 +103,7 @@ def is_safe_endpoint_url(url: str) -> bool:
                     url=url,
                     hostname=hostname,
                     error=str(exc),
+                    security_event=True,
                 )
                 return False
 
@@ -101,6 +113,7 @@ def is_safe_endpoint_url(url: str) -> bool:
                     "ssrf_blocked_no_resolved_ips",
                     url=url,
                     hostname=hostname,
+                    security_event=True,
                 )
                 return False
 
@@ -113,6 +126,7 @@ def is_safe_endpoint_url(url: str) -> bool:
                         url=url,
                         hostname=hostname,
                         resolved_ip=addr,
+                        security_event=True,
                     )
                     return False
                 if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
@@ -126,12 +140,18 @@ def is_safe_endpoint_url(url: str) -> bool:
                             else "link_local" if ip.is_link_local
                             else "reserved"
                         ),
+                        security_event=True,
                     )
                     return False
 
         return True
     except Exception as e:
-        logger.warning("ssrf_url_validation_failed", url=url, error=str(e))
+        logger.warning(
+            "ssrf_url_validation_failed",
+            url=url,
+            error=str(e),
+            security_event=True,
+        )
         return False
 
 

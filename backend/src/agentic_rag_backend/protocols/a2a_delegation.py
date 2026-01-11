@@ -24,6 +24,7 @@ import structlog
 from agentic_rag_backend.db.redis import RedisClient
 
 from .a2a_messages import TaskRequest, TaskResult, TaskStatus
+from .a2a_signing import sign_a2a_payload
 from .a2a_registry import A2AAgentRegistry
 
 logger = structlog.get_logger(__name__)
@@ -48,6 +49,8 @@ class DelegationConfig:
         redis_prefix: Prefix for Redis keys
         http_timeout_seconds: Timeout for HTTP requests to agents
         result_ttl_seconds: TTL for completed task results in Redis
+        signing_secret: Optional shared secret for request signing
+        signing_ttl_seconds: Allowed clock skew/TTL for request signatures
     """
 
     default_timeout_seconds: int = 300
@@ -57,6 +60,8 @@ class DelegationConfig:
     redis_prefix: str = "a2a:tasks"
     http_timeout_seconds: float = 30.0
     result_ttl_seconds: int = RESULT_TTL_SECONDS
+    signing_secret: Optional[str] = None
+    signing_ttl_seconds: int = 300
 
 
 @dataclass
@@ -217,13 +222,22 @@ class TaskDelegationManager:
         try:
             client = self._get_http_client()
             url = f"{endpoint_url.rstrip('/')}/api/v1/a2a/execute"
+            headers = {
+                "Content-Type": "application/json",
+                "X-Tenant-ID": request.tenant_id,
+            }
+            if self._config.signing_secret:
+                signature, timestamp = sign_a2a_payload(
+                    self._config.signing_secret,
+                    request.to_dict(),
+                )
+                headers["X-A2A-Timestamp"] = str(timestamp)
+                headers["X-A2A-Signature"] = signature
+
             response = await client.post(
                 url,
                 json=request.to_dict(),
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Tenant-ID": request.tenant_id,
-                },
+                headers=headers,
             )
             response.raise_for_status()
             data = response.json()

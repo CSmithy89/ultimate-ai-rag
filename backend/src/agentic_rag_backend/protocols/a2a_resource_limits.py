@@ -22,7 +22,7 @@ import asyncio
 from abc import ABC, abstractmethod
 from collections import deque
 from datetime import datetime, timedelta, timezone
-from time import time
+from time import perf_counter, time
 from typing import TYPE_CHECKING, Optional
 from uuid import uuid4
 
@@ -34,6 +34,8 @@ if TYPE_CHECKING:
     import redis.asyncio as redis
 
 logger = structlog.get_logger(__name__)
+
+LUA_SCRIPT_WARN_MS = 50
 
 
 # -----------------------------------------------------------------------------
@@ -701,16 +703,26 @@ class RedisA2AResourceManager(A2AResourceManager):
         sha_attr: str,
     ) -> int:
         """Evaluate a Lua script using cached SHA when possible."""
-        sha = getattr(self, sha_attr)
-        if sha:
-            try:
-                return await self._redis.evalsha(sha, key_count, *args)
-            except NoScriptError:
-                setattr(self, sha_attr, None)
+        start = perf_counter()
+        try:
+            sha = getattr(self, sha_attr)
+            if sha:
+                try:
+                    return await self._redis.evalsha(sha, key_count, *args)
+                except NoScriptError:
+                    setattr(self, sha_attr, None)
 
-        sha = await self._redis.script_load(script)
-        setattr(self, sha_attr, sha)
-        return await self._redis.evalsha(sha, key_count, *args)
+            sha = await self._redis.script_load(script)
+            setattr(self, sha_attr, sha)
+            return await self._redis.evalsha(sha, key_count, *args)
+        finally:
+            duration_ms = int((perf_counter() - start) * 1000)
+            if duration_ms >= LUA_SCRIPT_WARN_MS:
+                logger.warning(
+                    "a2a_redis_lua_slow",
+                    script=sha_attr,
+                    duration_ms=duration_ms,
+                )
 
     def _tenant_key(self, tenant_id: str) -> str:
         """Get Redis key for tenant usage."""
