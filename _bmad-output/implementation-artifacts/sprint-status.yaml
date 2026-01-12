@@ -329,7 +329,7 @@ development_status:
   # Common issues, diagnostic commands, debug mode
   18-22-create-quickstart-tutorial: done  # Completed 2026-01-13 - See docs/guides/quickstart.md
   # 10-minute first query experience
-  18-23-create-architecture-decision-records: backlog
+  18-23-create-architecture-decision-records: done
   # ADR-001 through ADR-004: GraphRAG, Protocols, Graphiti, CopilotKit
   18-24-create-glossary-terminology-reference: backlog
   # A-Z domain term definitions
