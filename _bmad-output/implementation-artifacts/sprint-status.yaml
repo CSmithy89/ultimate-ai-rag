@@ -325,7 +325,7 @@ development_status:
   # NEW (2026-01-11): Comprehensive documentation coverage for all 200+ features
   18-20-create-advanced-retrieval-deep-dive: done  # Completed 2026-01-13 - See docs/guides/advanced-retrieval-deep-dive.md
   # Cohere/FlashRank/ColBERT reranking, CRAG, sparse vectors, cross-language
-  18-21-create-troubleshooting-guide: backlog
+  18-21-create-troubleshooting-guide: done  # Completed 2026-01-13 - See docs/guides/troubleshooting.md
   # Common issues, diagnostic commands, debug mode
   18-22-create-quickstart-tutorial: backlog
   # 10-minute first query experience
