@@ -359,7 +359,75 @@ MCP_LOG_RESPONSES=false  # Avoid logging sensitive data
 
 ### Client Configuration
 
+#### stdio Transport (Recommended for Local Integration)
+
+The MCP server supports stdio transport for native integration with Claude Desktop, Cursor, and other local MCP clients. This is the recommended approach for local development and single-user deployments.
+
+**Installation:**
+
+```bash
+# Install the backend package
+cd backend && uv sync
+
+# Or install globally
+pip install -e ./backend
+```
+
+**Usage:**
+
+```bash
+# Direct execution
+python -m agentic_rag_backend.mcp_stdio
+
+# Or via installed script
+rag-mcp-stdio
+```
+
+**Environment Variables:**
+
+Configure the stdio server using standard backend environment variables:
+
+```bash
+# Required: LLM Provider
+export LLM_PROVIDER=anthropic
+export ANTHROPIC_API_KEY=your-key
+
+# Required: Neo4j (for graph operations)
+export NEO4J_URI=bolt://localhost:7687
+export NEO4J_USER=neo4j
+export NEO4J_PASSWORD=password
+
+# Optional: PostgreSQL (for vector search)
+export DATABASE_URL=postgresql://user:pass@localhost:5432/rag
+
+# Optional: Tool timeouts
+export MCP_TOOL_TIMEOUT_SECONDS=30
+export MCP_TOOL_MAX_TIMEOUT_SECONDS=300
+```
+
 #### Claude Desktop (`claude_desktop_config.json`)
+
+For stdio transport (recommended):
+
+```json
+{
+  "mcpServers": {
+    "agentic-rag": {
+      "command": "rag-mcp-stdio",
+      "args": [],
+      "env": {
+        "LLM_PROVIDER": "anthropic",
+        "ANTHROPIC_API_KEY": "your-key",
+        "NEO4J_URI": "bolt://localhost:7687",
+        "NEO4J_USER": "neo4j",
+        "NEO4J_PASSWORD": "password"
+      }
+    }
+  }
+}
+```
+
+For HTTP transport (alternative):
 
 ```json
 {
@@ -376,6 +444,25 @@ MCP_LOG_RESPONSES=false  # Avoid logging sensitive data
 ```
 
 #### Cursor IDE (`.cursor/mcp.json`)
+
+For stdio transport (recommended):
+
+```json
+{
+  "servers": {
+    "agentic-rag": {
+      "command": "rag-mcp-stdio",
+      "args": [],
+      "env": {
+        "LLM_PROVIDER": "anthropic",
+        "ANTHROPIC_API_KEY": "your-key"
+      }
+    }
+  }
+}
+```
+
+For HTTP transport:
 
 ```json
 {
@@ -440,53 +527,84 @@ async def vector_search(query: str, top_k: int = 10) -> list[Document]:
 
 This section provides configuration examples for connecting various MCP clients to the Agentic RAG MCP server.
 
-### Claude Desktop
+### Transport Options
 
-Add the following to your `claude_desktop_config.json` (typically located at `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+The MCP server supports two transport modes:
+
+| Transport | Use Case | Auth | Command |
+|-----------|----------|------|---------|
+| **stdio** | Local integration (Claude Desktop, Cursor) | Trust local process | `rag-mcp-stdio` |
+| **HTTP** | Remote access, multi-client | API key required | HTTP endpoint |
+
+**Recommendation:** Use stdio transport for local development and single-user deployments. Use HTTP transport for multi-user or remote access scenarios.
+
+### Claude Desktop (stdio - Recommended)
+
+Add the following to your `claude_desktop_config.json`:
+
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux:** `~/.config/claude/claude_desktop_config.json`
 
 ```json
 {
   "mcpServers": {
     "agentic-rag": {
-      "command": "uvx",
-      "args": ["agentic-rag-mcp"]
-    }
-  }
-}
-```
-
-For authenticated connections with API key:
-
-```json
-{
-  "mcpServers": {
-    "agentic-rag": {
-      "command": "uvx",
-      "args": ["agentic-rag-mcp"],
+      "command": "rag-mcp-stdio",
+      "args": [],
       "env": {
-        "MCP_API_KEY": "your-api-key"
+        "LLM_PROVIDER": "anthropic",
+        "ANTHROPIC_API_KEY": "your-anthropic-api-key",
+        "NEO4J_URI": "bolt://localhost:7687",
+        "NEO4J_USER": "neo4j",
+        "NEO4J_PASSWORD": "your-neo4j-password",
+        "DATABASE_URL": "postgresql://user:pass@localhost:5432/rag"
       }
     }
   }
 }
 ```
 
-### Cursor
-
-Add the following to your Cursor settings.json:
+**Minimal configuration** (graph operations only, no vector search):
 
 ```json
 {
-  "mcp.servers": {
+  "mcpServers": {
     "agentic-rag": {
-      "command": "uvx",
-      "args": ["agentic-rag-mcp"]
+      "command": "rag-mcp-stdio",
+      "args": [],
+      "env": {
+        "LLM_PROVIDER": "openai",
+        "OPENAI_API_KEY": "your-openai-api-key",
+        "NEO4J_URI": "bolt://localhost:7687",
+        "NEO4J_USER": "neo4j",
+        "NEO4J_PASSWORD": "your-neo4j-password"
+      }
     }
   }
 }
 ```
 
-Alternatively, for HTTP transport (when connecting to a running MCP server):
+### Cursor (stdio - Recommended)
+
+Add to your Cursor MCP configuration:
+
+```json
+{
+  "mcp.servers": {
+    "agentic-rag": {
+      "command": "rag-mcp-stdio",
+      "args": [],
+      "env": {
+        "LLM_PROVIDER": "anthropic",
+        "ANTHROPIC_API_KEY": "your-key"
+      }
+    }
+  }
+}
+```
+
+For HTTP transport (when connecting to a running MCP server):
 
 ```json
 {
@@ -508,8 +626,12 @@ For VS Code with the Continue extension, add to your Continue configuration:
   "mcpServers": [
     {
       "name": "agentic-rag",
-      "command": "uvx",
-      "args": ["agentic-rag-mcp"]
+      "command": "rag-mcp-stdio",
+      "args": [],
+      "env": {
+        "LLM_PROVIDER": "anthropic",
+        "ANTHROPIC_API_KEY": "your-key"
+      }
     }
   ]
 }
