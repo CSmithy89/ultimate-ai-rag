@@ -22,6 +22,8 @@ def run_fast_path(
     llm_providers: list[str],
     frameworks: list[str],
 ) -> FastPathSelections:
+    if not llm_providers:
+        raise ValueError("llm_providers list must not be empty")
     accept_recommended = Confirm.ask(
         f"Accept recommended profile? ({recommended_profile})",
         default=True,

@@ -123,9 +123,9 @@ This correctly produces `.env.bak` as the backup filename.
 | Generate .env from template | PASS | `_write_env()` reads `.env.example` |
 | Update key values | PASS | `_update_env_lines()` preserves comments |
 | Validate connections | PASS | `_validate_database_url()`, `_validate_neo4j_uri()` |
-| Backup existing .env | ISSUE | Test failing (see Issue #2) |
+| Backup existing .env | PASS | Issue #2 RESOLVED - Fixed path construction |
 
-**Result:** 3/4 criteria met, 1 needs verification
+**Result:** ALL ACCEPTANCE CRITERIA MET
 
 ---
 

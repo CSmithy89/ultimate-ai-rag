@@ -50,6 +50,25 @@ def _set_nested(config: dict[str, Any], path: tuple[str, ...], value: Any) -> No
     current[path[-1]] = value
 
 
+def _coerce_type(env_value: str, base_value: Any) -> Any:
+    """Convert env string value to match the type of base_value."""
+    if base_value is None:
+        return env_value
+    if isinstance(base_value, bool):
+        return env_value.lower() in ("true", "1", "yes", "on")
+    if isinstance(base_value, int):
+        try:
+            return int(env_value)
+        except ValueError:
+            return env_value
+    if isinstance(base_value, float):
+        try:
+            return float(env_value)
+        except ValueError:
+            return env_value
+    return env_value
+
+
 def _diff_overrides(base: dict[str, Any], env_values: dict[str, str]) -> dict[str, Any]:
     overrides: dict[str, Any] = {}
     for env_key, path in ENV_TO_PROFILE_PATH.items():
@@ -57,11 +76,12 @@ def _diff_overrides(base: dict[str, Any], env_values: dict[str, str]) -> dict[st
             continue
         base_value = _get_nested(base, path)
         env_value = env_values[env_key]
+        typed_value = _coerce_type(env_value, base_value)
         if base_value is None:
-            _set_nested(overrides, path, env_value)
+            _set_nested(overrides, path, typed_value)
             continue
         if str(base_value).lower() != env_value.lower():
-            _set_nested(overrides, path, env_value)
+            _set_nested(overrides, path, typed_value)
     return overrides
 
 

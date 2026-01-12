@@ -10,9 +10,11 @@ client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 
 def call_mcp_tool(tool_name: str, arguments: dict) -> str:
-    if "tenant_id" not in arguments:
-        arguments["tenant_id"] = "default"
-    payload = {"tool": tool_name, "arguments": arguments}
+    # Create a copy to avoid mutating the caller's dict
+    args = {**arguments}
+    if "tenant_id" not in args:
+        args["tenant_id"] = "default"
+    payload = {"tool": tool_name, "arguments": args}
     response = httpx.post(f"{RAG_BASE_URL}/api/v1/mcp/call", json=payload, timeout=30.0)
     response.raise_for_status()
     data = response.json()
