@@ -406,6 +406,146 @@ logger.info("delegation_chain", chain=context.get("delegation_path"))
 | `a2a_active_sessions` | `tenant_id` | Active sessions |
 | `a2a_rate_limit_rejections_total` | `tenant_id` | Rate limit hits |
 
+## Framework Integration (Headless Agent Pattern)
+
+The A2A protocol enables framework-agnostic integration, allowing external agent frameworks to leverage the Agentic RAG platform as a knowledge service. This "headless" pattern means any framework with A2A or MCP support can connect without custom adapters.
+
+### Supported Frameworks
+
+Modern agent frameworks have native protocol support:
+
+| Framework | A2A Support | MCP Support | Integration Method |
+|-----------|-------------|-------------|-------------------|
+| **PydanticAI** | Native | Native | Direct MCP client or A2A delegation |
+| **CrewAI** | Native | Native | Tool wrapping via MCP |
+| **LangGraph** | Native | Native | State-aware A2A sessions |
+| **Anthropic SDK** | Via Agent Skills | Native | Claude Desktop/Code integration |
+| **AutoGen** | Native | Native | Multi-agent orchestration |
+
+### Integration Patterns
+
+#### Pattern 1: MCP Tool Access (Recommended)
+
+External frameworks call RAG tools directly via MCP protocol:
+
+```python
+# PydanticAI example - direct MCP tool access
+from pydantic_ai import Agent
+from pydantic_ai.mcp import MCPServerHTTP
+
+agent = Agent(
+    "openai:gpt-4o",
+    mcp_servers=[
+        MCPServerHTTP(url="http://localhost:3001")  # Agentic RAG MCP server
+    ],
+)
+
+# Agent can now use vector_search, hybrid_retrieve, ingest_url, etc.
+result = await agent.run("What do the docs say about GraphRAG?")
+```
+
+#### Pattern 2: A2A Delegation (Multi-Agent)
+
+For multi-agent scenarios, register your agent and delegate tasks:
+
+```python
+# Register external agent
+await registry.register(
+    A2AAgentRegistration(
+        agent_id="external-pydantic-agent",
+        tenant_id="tenant_abc",
+        capabilities=["CUSTOM_ANALYSIS"],
+        endpoint="http://my-agent:8080/invoke",
+        metadata={"framework": "pydantic_ai", "version": "0.1.0"},
+    )
+)
+
+# Delegate from orchestrator to your agent
+async for message in middleware.delegate(
+    capability="CUSTOM_ANALYSIS",
+    payload={"data": retrieved_context},
+    tenant_id="tenant_abc",
+):
+    process_message(message)
+```
+
+#### Pattern 3: Hybrid (A2A + MCP)
+
+Combine A2A for orchestration with MCP for tool access:
+
+```python
+# CrewAI example - hybrid integration
+from crewai import Agent, Task, Crew
+from crewai.tools import MCPTool
+
+# Create tools from MCP server
+rag_tools = MCPTool.from_server("http://localhost:3001")
+
+# Define agent with RAG capabilities
+researcher = Agent(
+    role="Knowledge Researcher",
+    goal="Find accurate information from the knowledge graph",
+    tools=[rag_tools.vector_search, rag_tools.hybrid_retrieve],
+)
+
+# Register with A2A for delegation
+# (CrewAI agent can now receive delegated tasks)
+```
+
+### Agent Interface Contract
+
+When implementing agents that participate in A2A delegation, follow this interface:
+
+```python
+from typing import AsyncIterator
+from pydantic import BaseModel
+
+class AgentInput(BaseModel):
+    """Standard input for A2A agent invocation."""
+    query: str
+    history: list[dict] = []
+    context: dict = {}
+    tenant_id: str
+
+class AgentResponse(BaseModel):
+    """Standard response from A2A agent."""
+    content: str
+    sources: list[dict] = []
+    trajectory: list[dict] = []  # For debugging/observability
+    metadata: dict = {}
+
+# Your agent endpoint should accept AgentInput and return AgentResponse
+# Example FastAPI endpoint:
+@app.post("/invoke")
+async def invoke_agent(input: AgentInput) -> AgentResponse:
+    result = await my_framework_agent.run(input.query, context=input.context)
+    return AgentResponse(
+        content=result.text,
+        sources=result.citations,
+        trajectory=result.steps,
+    )
+```
+
+### Framework-Specific Examples
+
+See the starter templates for complete integration examples:
+
+- `templates/pydantic_ai/` - Type-safe outputs with MCP
+- `templates/crew_ai/` - Multi-agent with A2A delegation
+- `templates/langgraph/` - Stateful workflows with session persistence
+- `templates/anthropic/` - Claude Desktop Agent Skills
+
+### Why No Custom Adapters?
+
+Earlier designs considered framework-specific adapters (PydanticAIAdapter, CrewAIAdapter, etc.). This approach was deprecated because:
+
+1. **Native Protocol Support**: Modern frameworks already implement A2A and MCP natively
+2. **Maintenance Burden**: Custom adapters require updates when frameworks change
+3. **Reduced Flexibility**: Protocol-based integration allows any compliant agent to participate
+4. **Industry Alignment**: A2A and MCP are becoming standard agent protocols
+
+The current architecture treats the Agentic RAG platform as a **knowledge service** that any framework can consume via standard protocols.
+
 ## Related Documentation
 
 - [Overview](./overview.md)

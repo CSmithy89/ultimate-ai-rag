@@ -710,3 +710,166 @@ Given raw cross-encoder scores: `[-2.5, 0.5, 1.2, 3.0]`
 | percentile | [0.0, 0.33, 0.67, 1.0] | 0.50 |
 
 The mean is then compared against the grader threshold.
+
+---
+
+## Tuning Recommendations
+
+This section provides practical guidance for optimizing each advanced retrieval feature based on your deployment requirements.
+
+### Reranking
+
+**Provider Selection:**
+- **Start with FlashRank (free) for testing** - Zero API cost, runs locally on CPU, good accuracy for initial development and proof-of-concept
+- **Switch to Cohere for production (better accuracy)** - 25-30% NDCG improvement over FlashRank, enterprise-grade reliability, 100+ language support
+
+**Top-K Configuration:**
+- **RERANKER_TOP_K=10 is optimal for most cases** - Balances precision with latency
+- For high-recall requirements (legal, medical), consider `RERANKER_TOP_K=15-20`
+- For low-latency requirements, reduce to `RERANKER_TOP_K=5`
+
+**Performance Tips:**
+- FlashRank latency scales linearly with candidate count - keep Stage 1 retrieval under 50 candidates
+- Cohere batches requests efficiently - larger candidate sets have less impact on latency
+- Monitor `reranker_latency_ms` in trajectory logs to detect performance degradation
+
+### Contextual Retrieval
+
+**Cost Optimization:**
+- **Enable prompt caching to reduce costs 90%** - Set `CONTEXTUAL_PROMPT_CACHING=true` for Anthropic models
+- **Use claude-3-haiku for cost-effective enrichment** - Haiku provides excellent context generation at ~1/10th the cost of larger models
+- Consider `gpt-4o-mini` as an alternative for OpenAI deployments
+
+**Processing Strategy:**
+- **Batch during ingestion, not query time** - Context generation adds ~100-200ms per chunk if done at query time
+- Use `CONTEXTUAL_REINDEX_BATCH_SIZE=100` for optimal throughput during bulk ingestion
+- Schedule re-indexing during off-peak hours to avoid impacting query latency
+
+**Quality Tips:**
+- Custom prompts via `CONTEXTUAL_RETRIEVAL_PROMPT_PATH` can improve domain-specific accuracy by 10-20%
+- Test prompt variations on a representative dataset before production deployment
+- Monitor `contextual_tokens_used` to track cost impact
+
+### CRAG Grader
+
+**Threshold Tuning:**
+- **Threshold 0.5 is a good starting point** - Provides balanced precision/recall for most use cases
+- **Lower threshold = more fallbacks = higher cost** - Each fallback triggers additional API calls
+- Increase to 0.6-0.7 for cost-sensitive deployments (fewer fallbacks)
+- Decrease to 0.3-0.4 for accuracy-critical applications (more fallbacks)
+
+**Model Selection:**
+- `heuristic` (default): Zero latency overhead, good for high-volume deployments
+- `cross-encoder/ms-marco-MiniLM-L-6-v2`: Best latency/accuracy trade-off for production
+- `BAAI/bge-reranker-large`: Maximum accuracy for enterprise deployments (1.3GB RAM required)
+
+**Production Monitoring:**
+- **Monitor fallback rate in production** - High fallback rates (>20%) may indicate:
+  - Threshold too aggressive (lower it)
+  - Knowledge base gaps (expand content)
+  - Query mismatch (review user queries)
+- Track `grader_fallback_triggered` in trajectory logs
+- Set alerts for sustained fallback rates above your target threshold
+
+**Fallback Strategy Tips:**
+- `web_search` (Tavily): Best for current events, knowledge gaps
+- `expanded_query`: Better for ambiguous queries, retrieves from same knowledge base
+- `alternate_index`: Useful for multi-domain systems with specialized indexes
+
+---
+
+## Benchmarking
+
+Systematic benchmarking is essential for validating retrieval improvements and making data-driven configuration decisions.
+
+### Evaluation Methodology
+
+**Creating an Evaluation Dataset:**
+1. Compile 50-100 representative queries from real user interactions
+2. For each query, manually identify the 3-10 most relevant documents
+3. Store as JSON: `{"query": "...", "relevant_doc_ids": ["id1", "id2", ...]}`
+4. Include edge cases: ambiguous queries, multi-hop reasoning, temporal questions
+
+**Running Benchmarks:**
+```bash
+# Run retrieval benchmark with current configuration
+uv run python -m agentic_rag_backend.scripts.benchmark_retrieval \
+  --dataset evaluation/queries.json \
+  --output results/baseline.json \
+  --tenant-id your-tenant
+
+# Compare configurations
+uv run python -m agentic_rag_backend.scripts.compare_benchmarks \
+  --baseline results/baseline.json \
+  --experiment results/with_reranker.json
+```
+
+### Key Metrics to Measure
+
+| Metric | Description | Target |
+|--------|-------------|--------|
+| **MRR@10** | Mean Reciprocal Rank - How high is the first relevant result? | > 0.7 |
+| **NDCG@10** | Normalized Discounted Cumulative Gain - Overall ranking quality | > 0.6 |
+| **Precision@10** | What fraction of top 10 are relevant? | > 0.5 |
+| **Recall@10** | What fraction of relevant docs are in top 10? | > 0.8 |
+| **Latency P50/P95** | Response time percentiles | < 500ms / < 1000ms |
+
+**Interpreting Results:**
+- MRR@10 is most important for single-answer queries (FAQ, definitions)
+- NDCG@10 matters more for exploratory queries (research, analysis)
+- Recall@10 is critical for compliance/legal use cases (must find all relevant docs)
+
+### Comparison Approaches
+
+**A/B Testing Framework:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    BENCHMARK COMPARISON                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  Baseline (Graphiti only)    vs    Experiment (+ Reranker)       │
+│  ─────────────────────────         ──────────────────────────    │
+│  MRR@10:      0.65                 MRR@10:      0.78 (+20%)      │
+│  NDCG@10:     0.58                 NDCG@10:     0.71 (+22%)      │
+│  Precision@10: 0.42                Precision@10: 0.56 (+33%)      │
+│  Latency P95: 280ms                Latency P95: 450ms (+61%)      │
+│                                                                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Recommended Comparison Sequence:**
+1. **Baseline**: Graphiti hybrid retrieval only (no advanced features)
+2. **+ Reranker**: Add FlashRank, measure accuracy and latency impact
+3. **+ Contextual**: Add contextual retrieval, measure accuracy improvement
+4. **+ CRAG**: Add grader with fallback, measure edge case handling
+5. **Full Pipeline**: All features enabled, validate combined performance
+
+**Statistical Significance:**
+- Run each configuration 3+ times to account for variance
+- Use paired t-tests for metric comparisons
+- Require p < 0.05 for declaring improvements significant
+- Consider bootstrap confidence intervals for small datasets
+
+**Cost-Benefit Analysis:**
+```python
+# Calculate ROI for each feature
+feature_roi = {
+    "reranker_flashrank": {
+        "accuracy_gain": 0.15,  # +15% NDCG
+        "latency_cost": 50,     # +50ms
+        "dollar_cost": 0,       # Free (local)
+    },
+    "reranker_cohere": {
+        "accuracy_gain": 0.25,  # +25% NDCG
+        "latency_cost": 150,    # +150ms
+        "dollar_cost": 0.001,   # $1 per 1000 queries
+    },
+    "contextual_retrieval": {
+        "accuracy_gain": 0.35,  # +35% recall
+        "latency_cost": 0,      # Done at ingestion
+        "dollar_cost": 0.02,    # $20 per 1000 docs (haiku)
+    },
+}
+```
+
+Document your benchmark results and configuration decisions in your team's knowledge base for future reference and onboarding.

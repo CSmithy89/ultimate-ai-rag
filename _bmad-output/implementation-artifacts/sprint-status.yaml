@@ -286,58 +286,58 @@ development_status:
   # DECISION (2026-01-04): Some docs already exist. Focus on completing remaining guides.
   # Existing: advanced-retrieval-configuration.md, mcp-wrapper-architecture.md, roadmap-decisions-2026-01-03.md
   # Needed: provider-configuration.md, observability.md, headless-agent-protocol.md, cli-installation.md
-  epic-18: backlog
+  epic-18: done  # All 27 stories completed 2026-01-13
   # DevOps Automation
-  18-1-document-observability-metrics: backlog
-  18-2-configure-dependabot-security-updates: backlog
-  18-3-configure-codeql-analysis: backlog
+  18-1-document-observability-metrics: done
+  18-2-configure-dependabot-security-updates: done
+  18-3-configure-codeql-analysis: done
   # New Documentation
-  18-4-document-provider-configuration-guide: backlog
+  18-4-document-provider-configuration-guide: done
   # NOTE: 18-5 extends existing docs/guides/advanced-retrieval-configuration.md
-  18-5-update-advanced-retrieval-tuning-guide: backlog
-  18-6-document-headless-agent-protocol: backlog  # Largely covered by Epic 22-D1 a2a-protocol.md
+  18-5-update-advanced-retrieval-tuning-guide: done
+  18-6-document-headless-agent-protocol: done  # Completed via A2A protocol docs "Framework Integration" section (2026-01-12)
   # NOTE: 18-7 extends existing docs/guides/mcp-wrapper-architecture.md
-  18-7-update-mcp-server-usage-guide: backlog  # Largely covered by Epic 22-D1 mcp-integration.md
-  18-8-create-cli-installation-manual: backlog
+  18-7-update-mcp-server-usage-guide: done  # Added Client Integration Examples section (Claude Desktop, Cursor, programmatic usage)
+  18-8-create-cli-installation-manual: done  # Created docs/guides/cli-installation.md (2026-01-12)
   # TECH DEBT (2026-01-04): Audit workspace endpoints for RFC 7807 error format compliance
-  18-9-audit-rfc7807-error-compliance: backlog
+  18-9-audit-rfc7807-error-compliance: done  # Completed 2026-01-12 - See docs/audits/rfc7807-compliance.md
   # NEW (Epic 14 Retro): MCP stdio transport for Claude Desktop native integration
-  18-10-implement-mcp-stdio-transport: backlog
+  18-10-implement-mcp-stdio-transport: done
   # NEW (Epic 14 Retro): RFC 7807 error response linter for CI
-  18-11-implement-rfc7807-linter-rule: backlog
+  18-11-implement-rfc7807-linter-rule: done
   # NEW (2026-01-11): Comprehensive documentation coverage for all system features
-  18-12-create-provider-configuration-guide: backlog
+  18-12-create-provider-configuration-guide: done  # Duplicate of 18-4 - docs/guides/provider-configuration.md
   # 5 LLM providers, 5 embedding providers, base URL overrides, model selection
-  18-13-create-memory-platform-guide: backlog
+  18-13-create-memory-platform-guide: done  # Completed 2026-01-12 - See docs/guides/memory-platform.md
   # Memory scopes, consolidation, decay, importance scoring, cleanup
-  18-14-create-ingestion-pipeline-guide: backlog
+  18-14-create-ingestion-pipeline-guide: done  # Completed 2026-01-12 - See docs/guides/ingestion-pipeline.md
   # URL (Crawl4AI), PDF (Docling), YouTube, Codebase, External Sync (Confluence/S3/Notion/Drive/Discord)
-  18-15-create-graph-intelligence-guide: backlog
+  18-15-create-graph-intelligence-guide: done  # Completed 2026-01-12 - See docs/guides/graph-intelligence.md
   # Community detection, LazyRAG, global/local query routing, graph rerankers
-  18-16-create-database-administration-guide: backlog
+  18-16-create-database-administration-guide: done  # Completed 2026-01-12 - See docs/guides/database-administration.md
   # PostgreSQL/pgvector, Neo4j, Redis - connection pools, backups, maintenance
-  18-17-create-openapi-reference-documentation: backlog
+  18-17-create-openapi-reference-documentation: done  # Completed 2026-01-12 - See docs/guides/api-reference.md + backend/scripts/export_openapi.py
   # Auto-generated API reference with examples
-  18-18-create-deployment-production-guide: backlog
+  18-18-create-deployment-production-guide: done  # Created docs/guides/deployment-production.md (2026-01-13)
   # Docker Compose, Kubernetes, scaling, security hardening
-  18-19-create-configuration-profiles-documentation: backlog
+  18-19-create-configuration-profiles-documentation: done  # Completed 2026-01-13 - See docs/guides/configuration-profiles.md
   # DEPENDS ON 17-8: Document minimal/standard/enterprise profiles
   # NEW (2026-01-11): Comprehensive documentation coverage for all 200+ features
-  18-20-create-advanced-retrieval-deep-dive: backlog
+  18-20-create-advanced-retrieval-deep-dive: done  # Completed 2026-01-13 - See docs/guides/advanced-retrieval-deep-dive.md
   # Cohere/FlashRank/ColBERT reranking, CRAG, sparse vectors, cross-language
-  18-21-create-troubleshooting-guide: backlog
+  18-21-create-troubleshooting-guide: done  # Completed 2026-01-13 - See docs/guides/troubleshooting.md
   # Common issues, diagnostic commands, debug mode
-  18-22-create-quickstart-tutorial: backlog
+  18-22-create-quickstart-tutorial: done  # Completed 2026-01-13 - See docs/guides/quickstart.md
   # 10-minute first query experience
-  18-23-create-architecture-decision-records: backlog
+  18-23-create-architecture-decision-records: done
   # ADR-001 through ADR-004: GraphRAG, Protocols, Graphiti, CopilotKit
-  18-24-create-glossary-terminology-reference: backlog
+  18-24-create-glossary-terminology-reference: done  # Completed 2026-01-13 - See docs/glossary.md
   # A-Z domain term definitions
-  18-25-create-feature-discovery-matrix: backlog
-  # All features with profile requirements and config flags
-  18-26-create-testing-framework-documentation: backlog
+  18-25-create-feature-discovery-matrix: done  # Completed 2026-01-13 - See docs/feature-matrix.md
+  # All features with profile requirements and config flags (174 total features documented)
+  18-26-create-testing-framework-documentation: done  # Completed 2026-01-13 - See docs/guides/testing.md
   # Test categories, patterns, fixtures, coverage requirements
-  18-27-create-security-best-practices-guide: backlog
+  18-27-create-security-best-practices-guide: done  # Completed 2026-01-13 - See docs/guides/security-best-practices.md
   # Authentication, secrets, network, incident response
   epic-18-retrospective: optional
 

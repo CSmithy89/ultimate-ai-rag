@@ -31,6 +31,10 @@ jobs:
         working-directory: backend
         run: uv run ruff check .
 
+      - name: RFC 7807 Error Compliance Check
+        working-directory: backend
+        run: uv run python scripts/lint_rfc7807.py src/agentic_rag_backend --format github
+
       - name: Type check
         working-directory: backend
         run: uv run mypy src

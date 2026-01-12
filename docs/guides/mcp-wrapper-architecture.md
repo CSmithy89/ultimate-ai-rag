@@ -359,7 +359,75 @@ MCP_LOG_RESPONSES=false  # Avoid logging sensitive data
 
 ### Client Configuration
 
+#### stdio Transport (Recommended for Local Integration)
+
+The MCP server supports stdio transport for native integration with Claude Desktop, Cursor, and other local MCP clients. This is the recommended approach for local development and single-user deployments.
+
+**Installation:**
+
+```bash
+# Install the backend package
+cd backend && uv sync
+
+# Or install globally
+pip install -e ./backend
+```
+
+**Usage:**
+
+```bash
+# Direct execution
+python -m agentic_rag_backend.mcp_stdio
+
+# Or via installed script
+rag-mcp-stdio
+```
+
+**Environment Variables:**
+
+Configure the stdio server using standard backend environment variables:
+
+```bash
+# Required: LLM Provider
+export LLM_PROVIDER=anthropic
+export ANTHROPIC_API_KEY=your-key
+
+# Required: Neo4j (for graph operations)
+export NEO4J_URI=bolt://localhost:7687
+export NEO4J_USER=neo4j
+export NEO4J_PASSWORD=password
+
+# Optional: PostgreSQL (for vector search)
+export DATABASE_URL=postgresql://user:pass@localhost:5432/rag
+
+# Optional: Tool timeouts
+export MCP_TOOL_TIMEOUT_SECONDS=30
+export MCP_TOOL_MAX_TIMEOUT_SECONDS=300
+```
+
 #### Claude Desktop (`claude_desktop_config.json`)
+
+For stdio transport (recommended):
+
+```json
+{
+  "mcpServers": {
+    "agentic-rag": {
+      "command": "rag-mcp-stdio",
+      "args": [],
+      "env": {
+        "LLM_PROVIDER": "anthropic",
+        "ANTHROPIC_API_KEY": "your-key",
+        "NEO4J_URI": "bolt://localhost:7687",
+        "NEO4J_USER": "neo4j",
+        "NEO4J_PASSWORD": "password"
+      }
+    }
+  }
+}
+```
+
+For HTTP transport (alternative):
 
 ```json
 {
@@ -376,6 +444,25 @@ MCP_LOG_RESPONSES=false  # Avoid logging sensitive data
 ```
 
 #### Cursor IDE (`.cursor/mcp.json`)
+
+For stdio transport (recommended):
+
+```json
+{
+  "servers": {
+    "agentic-rag": {
+      "command": "rag-mcp-stdio",
+      "args": [],
+      "env": {
+        "LLM_PROVIDER": "anthropic",
+        "ANTHROPIC_API_KEY": "your-key"
+      }
+    }
+  }
+}
+```
+
+For HTTP transport:
 
 ```json
 {
@@ -433,6 +520,170 @@ async def vector_search(query: str, top_k: int = 10) -> list[Document]:
         filters={"tenant_id": tenant_id}
     )
 ```
+
+---
+
+## Client Integration Examples
+
+This section provides configuration examples for connecting various MCP clients to the Agentic RAG MCP server.
+
+### Transport Options
+
+The MCP server supports two transport modes:
+
+| Transport | Use Case | Auth | Command |
+|-----------|----------|------|---------|
+| **stdio** | Local integration (Claude Desktop, Cursor) | Trust local process | `rag-mcp-stdio` |
+| **HTTP** | Remote access, multi-client | API key required | HTTP endpoint |
+
+**Recommendation:** Use stdio transport for local development and single-user deployments. Use HTTP transport for multi-user or remote access scenarios.
+
+### Claude Desktop (stdio - Recommended)
+
+Add the following to your `claude_desktop_config.json`:
+
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux:** `~/.config/claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "agentic-rag": {
+      "command": "rag-mcp-stdio",
+      "args": [],
+      "env": {
+        "LLM_PROVIDER": "anthropic",
+        "ANTHROPIC_API_KEY": "your-anthropic-api-key",
+        "NEO4J_URI": "bolt://localhost:7687",
+        "NEO4J_USER": "neo4j",
+        "NEO4J_PASSWORD": "your-neo4j-password",
+        "DATABASE_URL": "postgresql://user:pass@localhost:5432/rag"
+      }
+    }
+  }
+}
+```
+
+**Minimal configuration** (graph operations only, no vector search):
+
+```json
+{
+  "mcpServers": {
+    "agentic-rag": {
+      "command": "rag-mcp-stdio",
+      "args": [],
+      "env": {
+        "LLM_PROVIDER": "openai",
+        "OPENAI_API_KEY": "your-openai-api-key",
+        "NEO4J_URI": "bolt://localhost:7687",
+        "NEO4J_USER": "neo4j",
+        "NEO4J_PASSWORD": "your-neo4j-password"
+      }
+    }
+  }
+}
+```
+
+### Cursor (stdio - Recommended)
+
+Add to your Cursor MCP configuration:
+
+```json
+{
+  "mcp.servers": {
+    "agentic-rag": {
+      "command": "rag-mcp-stdio",
+      "args": [],
+      "env": {
+        "LLM_PROVIDER": "anthropic",
+        "ANTHROPIC_API_KEY": "your-key"
+      }
+    }
+  }
+}
+```
+
+For HTTP transport (when connecting to a running MCP server):
+
+```json
+{
+  "mcp.servers": {
+    "agentic-rag": {
+      "url": "http://localhost:8080/mcp",
+      "transport": "http"
+    }
+  }
+}
+```
+
+### VS Code + Continue
+
+For VS Code with the Continue extension, add to your Continue configuration:
+
+```json
+{
+  "mcpServers": [
+    {
+      "name": "agentic-rag",
+      "command": "rag-mcp-stdio",
+      "args": [],
+      "env": {
+        "LLM_PROVIDER": "anthropic",
+        "ANTHROPIC_API_KEY": "your-key"
+      }
+    }
+  ]
+}
+```
+
+### Programmatic Usage
+
+For direct programmatic integration with the MCP server:
+
+```python
+from agentic_rag import MCPClient
+
+async with MCPClient("http://localhost:8000/mcp") as client:
+    # Search using hybrid retrieval
+    results = await client.call("hybrid_retrieve", {
+        "query": "authentication flow",
+        "top_k": 10
+    })
+
+    # Ingest content from a URL
+    await client.call("ingest_url", {
+        "url": "https://docs.example.com",
+        "max_depth": 2
+    })
+
+    # Vector search
+    docs = await client.call("vector_search", {
+        "query": "How to configure OAuth?",
+        "top_k": 5
+    })
+
+    # Graph search
+    nodes = await client.call("search_nodes", {
+        "query": "User authentication",
+        "limit": 10
+    })
+```
+
+### Authentication
+
+All MCP endpoints support API key authentication:
+
+- **Header-based**: Include `X-API-Key: your-key` in request headers
+- **Environment variable**: Set `MCP_API_KEY` in client configuration
+
+### Rate Limiting
+
+Default rate limits apply to all clients:
+
+- **Default**: 100 requests/minute per API key
+- **Burst**: 10 concurrent requests
+- Configure via `MCP_RATE_LIMIT_RPM` and `MCP_RATE_LIMIT_BURST` environment variables
 
 ---
 
