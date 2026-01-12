@@ -5,7 +5,7 @@ import hashlib
 from datetime import datetime, timezone
 import logging
 import os
-from typing import AsyncGenerator, Awaitable, Callable, cast
+from typing import AsyncGenerator, Awaitable, Callable, Optional, cast
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
@@ -27,8 +27,10 @@ from .retrieval import (
     PostgresHierarchicalChunkStore,
 )
 from .retrieval.dual_level import DualLevelRetriever
+from .retrieval.graph_rerankers import GraphReranker
 from .retrieval.lazy_rag import LazyRAGRetriever
 from .retrieval.query_router import QueryRouter
+from .retrieval.small_to_big import SmallToBigAdapter
 from .retrieval.grader import create_grader
 from .retrieval.reranking import init_reranker_cache
 from .api.routes import (
@@ -99,7 +101,7 @@ def _create_retrieval_enhancements(settings: Settings) -> tuple:
     if settings.reranker_enabled:
         try:
             # Story 19-G1: Initialize reranker cache
-            reranker_cache = init_reranker_cache(settings)
+            init_reranker_cache(settings)
             struct_logger.info(
                 "reranker_cache_initialized",
                 enabled=settings.reranker_cache_enabled,
@@ -133,14 +135,21 @@ def _create_retrieval_enhancements(settings: Settings) -> tuple:
     return reranker, grader
 
 
-def _create_small_to_big_adapter(settings: Settings, postgres_client) -> object:
+def _create_small_to_big_adapter(
+    settings: Settings,
+    postgres_client,
+) -> SmallToBigAdapter | None:
     if postgres_client is None:
         return get_small_to_big_adapter(None, settings)
     chunk_store = PostgresHierarchicalChunkStore(postgres=postgres_client)
     return get_small_to_big_adapter(chunk_store, settings)
 
 
-def _create_graph_reranker(settings: Settings, neo4j_client, graphiti_client) -> object:
+def _create_graph_reranker(
+    settings: Settings,
+    neo4j_client,
+    graphiti_client,
+) -> GraphReranker | None:
     if neo4j_client is None:
         return None
     adapter = get_graph_reranker_adapter(settings)
@@ -187,13 +196,19 @@ def _create_community_detector(settings: Settings, neo4j_client, rate_limiter) -
         return None
 
 
-def _create_query_router(settings: Settings) -> object:
+def _create_query_router(settings: Settings) -> QueryRouter | None:
     if not settings.query_routing_enabled:
         return None
     return QueryRouter(settings)
 
 
-def _create_lazy_rag_retriever(settings: Settings, graphiti_client, neo4j_client, community_detector, rate_limiter) -> object:
+def _create_lazy_rag_retriever(
+    settings: Settings,
+    graphiti_client,
+    neo4j_client,
+    community_detector,
+    rate_limiter,
+) -> LazyRAGRetriever | None:
     if not settings.lazy_rag_enabled or neo4j_client is None:
         return None
     return LazyRAGRetriever(
@@ -205,7 +220,13 @@ def _create_lazy_rag_retriever(settings: Settings, graphiti_client, neo4j_client
     )
 
 
-def _create_dual_level_retriever(settings: Settings, graphiti_client, neo4j_client, community_detector, rate_limiter) -> object:
+def _create_dual_level_retriever(
+    settings: Settings,
+    graphiti_client,
+    neo4j_client,
+    community_detector,
+    rate_limiter,
+) -> DualLevelRetriever | None:
     if not settings.dual_level_retrieval_enabled or neo4j_client is None:
         return None
     return DualLevelRetriever(
@@ -716,15 +737,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             default_timeout=settings.mcp_tool_timeout_seconds,
         )
 
-        graphiti_client = getattr(app.state, "graphiti", None)
-        if graphiti_client and getattr(graphiti_client, "is_connected", False):
-            register_graphiti_tools(mcp_server.registry, graphiti_client)
+        mcp_graphiti_client: Optional[GraphitiClient] = cast(
+            Optional[GraphitiClient],
+            getattr(app.state, "graphiti", None),
+        )
+        if mcp_graphiti_client and getattr(mcp_graphiti_client, "is_connected", False):
+            register_graphiti_tools(mcp_server.registry, mcp_graphiti_client)
 
             vector_service = app.state.orchestrator.vector_search_service
             if vector_service:
                 register_rag_tools(
                     registry=mcp_server.registry,
-                    graphiti_client=graphiti_client,
+                    graphiti_client=mcp_graphiti_client,
                     vector_service=vector_service,
                     reranker=app.state.reranker,
                     retrieval_pipeline=app.state.orchestrator.retrieval_pipeline,

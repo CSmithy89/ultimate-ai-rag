@@ -33,17 +33,14 @@ from agentic_rag_backend.protocols.a2a import A2ASessionManager
 from agentic_rag_backend.protocols.mcp import MCPToolRegistry
 from agentic_rag_backend.retrieval.grader import (
     FallbackStrategy,
-    GraderResult,
     HeuristicGrader,
     RetrievalGrader,
     RetrievalHit,
-    WebSearchFallback,
 )
 from agentic_rag_backend.retrieval.graph_traversal import GraphTraversalService
 from agentic_rag_backend.retrieval.hybrid_synthesis import build_hybrid_prompt
 from agentic_rag_backend.retrieval.reranking import (
     FlashRankRerankerClient,
-    RerankedHit,
     RerankerProviderAdapter,
     RerankerProviderType,
     create_reranker_client,

@@ -6,7 +6,6 @@ This module provides text-to-speech capabilities using OpenAI TTS or pyttsx3.
 """
 
 import asyncio
-import io
 from typing import Any, Optional
 
 import httpx
@@ -211,9 +210,6 @@ class TextToSpeech:
                 # Set speech rate (default is ~200 wpm)
                 base_rate = engine.getProperty("rate")
                 engine.setProperty("rate", int(base_rate * speed))
-
-                # Synthesize to bytes
-                audio_buffer = io.BytesIO()
 
                 # Save to temp file (pyttsx3 requires file output)
                 import tempfile

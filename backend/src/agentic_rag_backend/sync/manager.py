@@ -192,9 +192,9 @@ class SyncManager:
 
         results_list = await asyncio.gather(*tasks, return_exceptions=True)
 
-        results = {}
+        results: dict[str, SyncResult] = {}
         for connector_id, result in zip(self._connectors.keys(), results_list):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 results[connector_id] = SyncResult(
                     source_type=self._connectors[connector_id].source_type,
                     status=SyncStatus.FAILED,

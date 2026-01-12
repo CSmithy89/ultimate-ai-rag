@@ -572,7 +572,7 @@ class CommunityDetector:
                 c2_id = entity_to_community.get(v)
                 if c1_id and c2_id and c1_id != c2_id:
                     # Use sorted tuple as key to avoid double-counting
-                    key = tuple(sorted([c1_id, c2_id]))
+                    key = (c1_id, c2_id) if c1_id < c2_id else (c2_id, c1_id)
                     community_edge_counts[key] += 1
 
             # Step 3: Add edges to meta-graph (with limit to prevent memory exhaustion)

@@ -1,6 +1,7 @@
 """PostgreSQL async client for documents, jobs, chunks, and workspace tables."""
 
 from datetime import datetime
+import math
 from typing import Any, Optional
 from uuid import UUID
 
@@ -21,9 +22,6 @@ def _validate_workspace_content(content: str) -> None:
         raise ValueError(
             f"Content size ({byte_size} bytes) exceeds maximum of {WORKSPACE_MAX_CONTENT_BYTES} bytes"
         )
-
-
-import math
 
 def _validate_embedding(embedding: list[float], expected_dim: int = 1536) -> None:
     """Validate embedding dimension and values.

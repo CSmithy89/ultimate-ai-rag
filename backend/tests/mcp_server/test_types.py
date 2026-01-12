@@ -13,8 +13,6 @@ from agentic_rag_backend.mcp_server.types import (
     MCPRequest,
     MCPResponse,
     MCPCapabilities,
-    MCPServerInfo,
-    MCPInitializeResult,
     create_tool_input_schema,
 )
 

@@ -9,7 +9,6 @@ Verifies MCP (Model Context Protocol) implementation:
 - Tool response format
 """
 
-import pytest
 
 
 # =============================================================================

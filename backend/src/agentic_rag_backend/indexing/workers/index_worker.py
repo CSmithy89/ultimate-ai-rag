@@ -36,6 +36,8 @@ from agentic_rag_backend.indexing.contextual import (
     create_contextual_enricher,
 )
 from agentic_rag_backend.indexing.hierarchical_chunker import (
+    HierarchicalChunk,
+    HierarchicalChunkResult,
     HierarchicalChunker,
     create_hierarchical_chunker,
 )
@@ -217,7 +219,7 @@ async def process_index_job(
             },
         )
 
-        doc_context = None
+        doc_context: Optional[DocumentContext] = None
         if contextual_enricher:
             doc_context = DocumentContext(
                 title=metadata_model.title or filename,
@@ -237,7 +239,8 @@ async def process_index_job(
                 model=contextual_enricher.get_model(),
             )
 
-            enriched_chunks = await contextual_enricher.enrich_chunks(chunks, doc_context)
+            assert doc_context is not None
+            enriched_chunks, _ = await contextual_enricher.enrich_chunks(chunks, doc_context)
 
             for enriched in enriched_chunks:
                 # Use enriched content for embedding
@@ -286,7 +289,7 @@ async def process_index_job(
                 "source_url": metadata_model.source_url,
                 "filename": filename,
             }
-            hierarchical_result = hierarchical_chunker.chunk_document(
+            hierarchical_result: HierarchicalChunkResult = hierarchical_chunker.chunk_document(
                 content=content,
                 document_id=str(document_id),
                 tenant_id=str(tenant_id),
@@ -294,7 +297,10 @@ async def process_index_job(
             )
 
             embedding_level = hierarchical_chunker.embedding_level
-            embedding_chunks = hierarchical_result.chunks_by_level.get(embedding_level, [])
+            embedding_chunks: list[HierarchicalChunk] = hierarchical_result.chunks_by_level.get(
+                embedding_level,
+                [],
+            )
             embedding_texts: list[str] = []
             embedding_metadata_by_id: dict[str, dict[str, object]] = {}
 
@@ -307,19 +313,19 @@ async def process_index_job(
                         level=embedding_level,
                         model=contextual_enricher.get_model(),
                     )
-                    chunk_data = []
-                    for chunk in embedding_chunks:
-                        chunk_index = chunk.metadata.get("chunk_index", 0)
+                    chunk_data: list[ChunkData] = []
+                    for hier_chunk in embedding_chunks:
+                        chunk_index = hier_chunk.metadata.get("chunk_index", 0)
                         chunk_data.append(
                             ChunkData(
-                                content=chunk.content,
+                                content=hier_chunk.content,
                                 chunk_index=chunk_index,
-                                token_count=chunk.token_count,
-                                start_char=chunk.start_char,
-                                end_char=chunk.end_char,
+                                token_count=hier_chunk.token_count,
+                                start_char=hier_chunk.start_char,
+                                end_char=hier_chunk.end_char,
                             )
                         )
-                    enriched_chunks = await contextual_enricher.enrich_chunks(
+                    enriched_chunks, _ = await contextual_enricher.enrich_chunks(
                         chunk_data,
                         doc_context,
                     )
@@ -327,18 +333,18 @@ async def process_index_job(
                         enriched.chunk_index: enriched
                         for enriched in enriched_chunks
                     }
-                    for chunk in embedding_chunks:
-                        chunk_index = chunk.metadata.get("chunk_index", 0)
-                        enriched = enriched_by_index.get(chunk_index)
-                        if enriched:
-                            embedding_texts.append(enriched.enriched_content)
-                            embedding_metadata_by_id[chunk.id] = {
+                    for hier_chunk in embedding_chunks:
+                        chunk_index = hier_chunk.metadata.get("chunk_index", 0)
+                        enriched_chunk = enriched_by_index.get(chunk_index)
+                        if enriched_chunk is not None:
+                            embedding_texts.append(enriched_chunk.enriched_content)
+                            embedding_metadata_by_id[hier_chunk.id] = {
                                 "contextual_enrichment": True,
-                                "context": enriched.context,
-                                "context_generation_ms": enriched.context_generation_ms,
+                                "context": enriched_chunk.context,
+                                "context_generation_ms": enriched_chunk.context_generation_ms,
                             }
                         else:
-                            embedding_texts.append(chunk.content)
+                            embedding_texts.append(hier_chunk.content)
                 else:
                     embedding_texts = [chunk.content for chunk in embedding_chunks]
 
@@ -347,31 +353,31 @@ async def process_index_job(
                     embedding_texts,
                     tenant_id=str(tenant_id),
                 )
-                for chunk, embedding in zip(embedding_chunks, embeddings):
-                    chunk.embedding = embedding
-                    if chunk.id in embedding_metadata_by_id:
-                        chunk.metadata.update(embedding_metadata_by_id[chunk.id])
+                for hier_chunk, embedding in zip(embedding_chunks, embeddings):
+                    hier_chunk.embedding = embedding
+                    if hier_chunk.id in embedding_metadata_by_id:
+                        hier_chunk.metadata.update(embedding_metadata_by_id[hier_chunk.id])
 
             await postgres.delete_hierarchical_chunks_by_document(
                 document_id=document_id,
                 tenant_id=tenant_id,
             )
 
-            for chunk in hierarchical_result.all_chunks:
+            for hier_chunk in hierarchical_result.all_chunks:
                 await postgres.create_hierarchical_chunk(
                     tenant_id=tenant_id,
                     document_id=document_id,
-                    chunk_id=chunk.id,
-                    level=chunk.level,
-                    content=chunk.content,
-                    chunk_index=chunk.metadata.get("chunk_index", 0),
-                    token_count=chunk.token_count,
-                    start_char=chunk.start_char,
-                    end_char=chunk.end_char,
-                    parent_id=chunk.parent_id,
-                    child_ids=chunk.child_ids,
-                    embedding=chunk.embedding,
-                    metadata=chunk.metadata,
+                    chunk_id=hier_chunk.id,
+                    level=hier_chunk.level,
+                    content=hier_chunk.content,
+                    chunk_index=hier_chunk.metadata.get("chunk_index", 0),
+                    token_count=hier_chunk.token_count,
+                    start_char=hier_chunk.start_char,
+                    end_char=hier_chunk.end_char,
+                    parent_id=hier_chunk.parent_id,
+                    child_ids=hier_chunk.child_ids,
+                    embedding=hier_chunk.embedding,
+                    metadata=hier_chunk.metadata,
                 )
 
         ingestion_result = None

@@ -7,7 +7,7 @@ must implement.
 """
 
 from abc import ABC, abstractmethod
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Optional, cast
 
 import structlog
 
@@ -92,7 +92,9 @@ class BaseConnector(ABC):
         Yields:
             SyncItem objects representing items to sync
         """
-        ...
+        if False:
+            yield cast(SyncItem, None)
+        raise NotImplementedError
 
     @abstractmethod
     async def fetch_content(self, item: SyncItem) -> SyncContent:

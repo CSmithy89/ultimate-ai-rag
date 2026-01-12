@@ -709,10 +709,6 @@ class TestAPIContracts:
 
         # Check that most paths use /api/v1 prefix
         v1_paths = [p for p in paths.keys() if p.startswith("/api/v1/")]
-        root_paths = ["/health", "/query"]  # Root paths are acceptable
-        non_v1_paths = [
-            p for p in paths.keys() if not p.startswith("/api/v1/") and p not in root_paths
-        ]
 
         assert len(v1_paths) > 0, "No /api/v1 prefixed paths found"
 

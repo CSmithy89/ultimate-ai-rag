@@ -22,7 +22,6 @@ Performance target: <200ms additional latency over standard Docling parsing
 """
 
 import hashlib
-import html
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
@@ -583,7 +582,8 @@ class EnhancedDoclingParser:
             )
 
             pipeline_options = PdfPipelineOptions(do_table_structure=self.table_extraction)
-            pipeline_options.table_structure_options.mode = table_former_mode
+            if hasattr(pipeline_options.table_structure_options, "mode"):
+                pipeline_options.table_structure_options.mode = table_former_mode
 
             # Use PdfFormatOption wrapper (required by Docling API)
             converter = DocumentConverter(

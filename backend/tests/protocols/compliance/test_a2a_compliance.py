@@ -295,9 +295,6 @@ class TestA2ASecurityCompliance:
     def test_tenant_id_required_for_sessions(self) -> None:
         """tenant_id must be required for all session operations."""
         # Verify the protocol requires tenant_id
-        limits = A2AResourceLimits()
-        manager = InMemoryA2AResourceManager(limits)
-
         # The API should require tenant_id (empty string not allowed)
         # This is enforced at the API layer, not the manager level
 

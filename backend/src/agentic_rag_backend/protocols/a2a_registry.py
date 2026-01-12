@@ -9,18 +9,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from asyncio import Lock
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Optional, TypeVar, cast
 
 import structlog
 
 from agentic_rag_backend.db.redis import RedisClient
 
 if TYPE_CHECKING:
-    import redis
+    from redis.asyncio import Redis as AsyncRedis
 
 from .a2a_messages import (
     AgentCapability,
@@ -30,8 +31,11 @@ from .a2a_messages import (
 
 logger = structlog.get_logger(__name__)
 
+T = TypeVar("T")
 
-import re
+
+async def _await_redis(result: Awaitable[T] | T) -> T:
+    return await cast(Awaitable[T], result)
 
 # Constants for TTL and cleanup multipliers (documented rationale)
 # Registration TTL: 2x heartbeat timeout provides buffer for network delays
@@ -109,7 +113,7 @@ class A2AAgentRegistry:
         """Generate Redis key for tenant's agent index."""
         return f"{self._config.redis_prefix}:tenant:{tenant_id}:agents"
 
-    def _get_redis(self) -> "redis.Redis | None":
+    def _get_redis(self) -> "AsyncRedis | None":
         """Get Redis client if available."""
         if not self._redis_client:
             return None
@@ -129,12 +133,12 @@ class A2AAgentRegistry:
             payload = json.dumps(agent.to_dict())
             # Store agent with configurable TTL multiplier for automatic cleanup
             ttl = self._config.heartbeat_timeout_seconds * self._config.registration_ttl_multiplier
-            await redis.set(key, payload, ex=ttl)
+            await _await_redis(redis.set(key, payload, ex=ttl))
 
             # Add to tenant index
             tenant_key = self._tenant_index_key(agent.tenant_id)
-            await redis.sadd(tenant_key, agent.agent_id)
-            await redis.expire(tenant_key, ttl)
+            await _await_redis(redis.sadd(tenant_key, agent.agent_id))
+            await _await_redis(redis.expire(tenant_key, ttl))
         except Exception as exc:
             logger.warning("a2a_agent_persist_failed", agent_id=agent.agent_id, error=str(exc))
 
@@ -145,7 +149,7 @@ class A2AAgentRegistry:
             return None
         try:
             key = self._agent_key(agent_id)
-            payload = await redis.get(key)
+            payload = await _await_redis(redis.get(key))
             if not payload:
                 return None
             raw = payload.decode("utf-8") if isinstance(payload, (bytes, bytearray)) else payload
@@ -161,8 +165,8 @@ class A2AAgentRegistry:
         if not redis:
             return
         try:
-            await redis.delete(self._agent_key(agent_id))
-            await redis.srem(self._tenant_index_key(tenant_id), agent_id)
+            await _await_redis(redis.delete(self._agent_key(agent_id)))
+            await _await_redis(redis.srem(self._tenant_index_key(tenant_id), agent_id))
         except Exception as exc:
             logger.warning("a2a_agent_remove_failed", agent_id=agent_id, error=str(exc))
 
@@ -173,7 +177,7 @@ class A2AAgentRegistry:
             return []
         try:
             tenant_key = self._tenant_index_key(tenant_id)
-            agent_ids = await redis.smembers(tenant_key)
+            agent_ids = await _await_redis(redis.smembers(tenant_key))
             return [
                 aid.decode("utf-8") if isinstance(aid, (bytes, bytearray)) else aid
                 for aid in agent_ids
@@ -212,14 +216,13 @@ class A2AAgentRegistry:
                     agents_to_remove.append(agent_id)
 
             for agent_id in agents_to_remove:
-                agent = self._agents.pop(agent_id, None)
-                if agent:
-                    await self._remove_agent_from_redis(agent_id, agent.tenant_id)
-                    logger.info(
-                        "a2a_agent_removed_unhealthy",
-                        agent_id=agent_id,
-                        tenant_id=agent.tenant_id,
-                    )
+                agent = self._agents.pop(agent_id)
+                await self._remove_agent_from_redis(agent_id, agent.tenant_id)
+                logger.info(
+                    "a2a_agent_removed_unhealthy",
+                    agent_id=agent_id,
+                    tenant_id=agent.tenant_id,
+                )
 
     async def _periodic_cleanup_task(self) -> None:
         """Background task for periodic health checks and cleanup."""

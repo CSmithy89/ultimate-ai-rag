@@ -327,7 +327,7 @@ class FeedbackLoop:
             query_embedding = await self._embeddings.embed(query)
 
             # Find similar queries using cosine similarity
-            similar = []
+            similar: list[dict[str, float | int | str]] = []
             async with self._lock:
                 for query_id, embedding in self._query_embeddings.items():
                     # Skip correction embeddings (they have ':correction:' in the key)
@@ -351,7 +351,7 @@ class FeedbackLoop:
                     })
 
             # Sort by similarity and return top matches
-            similar.sort(key=lambda x: x["similarity"], reverse=True)
+            similar.sort(key=lambda x: float(x["similarity"]), reverse=True)
             return similar[:limit]
 
         except Exception as e:

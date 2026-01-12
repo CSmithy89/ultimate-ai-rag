@@ -26,7 +26,6 @@ from ...config import get_settings
 from ...core.errors import (
     A2AAgentNotFoundError,
     A2ACapabilityNotFoundError,
-    A2ADelegationError,
     A2AAuthFailedError,
     A2AMessageLimitExceededError,
     A2APermissionError,
@@ -886,6 +885,10 @@ async def execute_incoming_task(
                 reason="Vector search service not initialized",
             )
         # Note: 'else' clause removed - capability validation at start covers this
+        raise A2AServiceUnavailableError(
+            service=capability,
+            reason="Capability handler not executed",
+        )
 
     response = await delegation_manager.handle_incoming_task(
         request_body.model_dump(),

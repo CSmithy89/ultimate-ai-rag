@@ -6,7 +6,6 @@ This module provides a connector for syncing documents from AWS S3 buckets.
 """
 
 import asyncio
-from datetime import datetime
 from typing import AsyncIterator, Optional
 
 import structlog

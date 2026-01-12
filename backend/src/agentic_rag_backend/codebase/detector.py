@@ -731,7 +731,7 @@ async def index_repository(
     async def scan_directory(dir_path: Path) -> None:
         """Recursively scan a directory for source files."""
         try:
-            async for entry in aiofiles.os.scandir(str(dir_path)):
+            for entry in await aiofiles.os.scandir(str(dir_path)):
                 entry_path = Path(entry.path)
 
                 if should_ignore(entry_path):

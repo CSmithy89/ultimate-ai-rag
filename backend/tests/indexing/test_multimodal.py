@@ -1,9 +1,8 @@
 """Tests for multimodal document ingestion (Story 20-D2)."""
 
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -709,8 +708,6 @@ class TestSecurityValidation:
 
     def test_ingest_file_size_limit(self, tmp_path: Path) -> None:
         """Test that oversized files are rejected."""
-        ingester = MultimodalIngester(multimodal_enabled=True)
-
         # Create a file that would be too large (simulate with empty large file)
         large_file = tmp_path / "large.txt"
         # We can't create a 100MB+ file easily in tests, so we'll mock the stat
@@ -813,7 +810,6 @@ class TestOfficeParser:
 
     def test_parse_word_requires_python_docx(self, tmp_path: Path) -> None:
         """Test parse_word raises ImportError if python-docx not available."""
-        parser = OfficeParser()
         docx_file = tmp_path / "test.docx"
         docx_file.write_bytes(b"fake content")
 
@@ -825,7 +821,6 @@ class TestOfficeParser:
 
     def test_parse_excel_requires_openpyxl(self, tmp_path: Path) -> None:
         """Test parse_excel raises ImportError if openpyxl not available."""
-        parser = OfficeParser()
         xlsx_file = tmp_path / "test.xlsx"
         xlsx_file.write_bytes(b"fake content")
 
@@ -837,7 +832,6 @@ class TestOfficeParser:
 
     def test_parse_powerpoint_requires_python_pptx(self, tmp_path: Path) -> None:
         """Test parse_powerpoint raises ImportError if python-pptx not available."""
-        parser = OfficeParser()
         pptx_file = tmp_path / "test.pptx"
         pptx_file.write_bytes(b"fake content")
 
@@ -1115,7 +1109,6 @@ class TestPowerPointIntegration:
         """Create a simple PowerPoint file for testing."""
         try:
             from pptx import Presentation
-            from pptx.util import Inches
         except ImportError:
             pytest.skip("python-pptx not installed")
 

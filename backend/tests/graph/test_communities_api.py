@@ -11,7 +11,7 @@ Tests cover:
 
 import os
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 from datetime import datetime, timezone
 
@@ -30,7 +30,6 @@ from fastapi.testclient import TestClient
 from agentic_rag_backend.api.routes.communities import router
 from agentic_rag_backend.graph import (
     Community,
-    CommunityAlgorithm,
     CommunityDetector,
     CommunityNotFoundError,
     GraphTooSmallError,

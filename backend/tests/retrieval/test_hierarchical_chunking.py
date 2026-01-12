@@ -10,15 +10,13 @@ Tests cover:
 - Performance requirements
 """
 
-import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from agentic_rag_backend.indexing.hierarchical_chunker import (
     HierarchicalChunk,
-    HierarchicalChunkResult,
     HierarchicalChunker,
     create_hierarchical_chunker,
     DEFAULT_LEVEL_SIZES,
@@ -377,7 +375,7 @@ class TestHierarchicalChunkerPerformance:
         content = "Short document content."
 
         start = time.perf_counter()
-        result = chunker.chunk_document(
+        chunker.chunk_document(
             content=content,
             document_id="doc1",
             tenant_id="tenant1",

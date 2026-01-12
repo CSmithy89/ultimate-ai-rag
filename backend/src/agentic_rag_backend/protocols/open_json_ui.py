@@ -20,7 +20,7 @@ Example:
     ... ])
 """
 
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal, Union, cast
 
 from pydantic import BaseModel, Field, HttpUrl
 
@@ -227,7 +227,12 @@ def create_image(
     height: int | None = None,
 ) -> OpenJSONUIImage:
     """Create an image component."""
-    return OpenJSONUIImage(src=src, alt=alt, width=width, height=height)
+    return OpenJSONUIImage(
+        src=cast(HttpUrl, src),
+        alt=alt,
+        width=width,
+        height=height,
+    )
 
 
 def create_button(
@@ -253,7 +258,10 @@ def create_link(
     target: str | None = None,
 ) -> OpenJSONUILink:
     """Create a link component."""
-    return OpenJSONUILink(text=text, href=href, target=target)
+    safe_target: Literal["_self", "_blank"] | None = None
+    if target in {"_self", "_blank"}:
+        safe_target = cast(Literal["_self", "_blank"], target)
+    return OpenJSONUILink(text=text, href=cast(HttpUrl, href), target=safe_target)
 
 
 def create_divider() -> OpenJSONUIDivider:

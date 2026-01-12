@@ -16,7 +16,6 @@ from agentic_rag_backend.retrieval.sparse_vectors import (
     SparseVector,
     BM42Encoder,
     HybridVectorSearch,
-    HybridSearchResult,
     SparseVectorAdapter,
     DEFAULT_SPARSE_VECTORS_ENABLED,
     DEFAULT_SPARSE_MODEL,

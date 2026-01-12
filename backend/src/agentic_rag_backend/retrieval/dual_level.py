@@ -29,7 +29,7 @@ Performance target: <300ms additional latency
 
 import asyncio
 import time
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import structlog
 from openai import AsyncOpenAI
@@ -184,41 +184,44 @@ class DualLevelRetriever:
             )
 
             # Handle exceptions from parallel execution
-            if isinstance(low_level_results, Exception):
+            if isinstance(low_level_results, BaseException):
                 logger.warning(
                     "low_level_retrieval_failed",
                     error=str(low_level_results),
                 )
                 low_level_results = []
 
-            if isinstance(high_level_results, Exception):
+            if isinstance(high_level_results, BaseException):
                 logger.warning(
                     "high_level_retrieval_failed",
                     error=str(high_level_results),
                 )
                 high_level_results = []
 
+            low_level_results_list = cast(list[LowLevelResult], low_level_results)
+            high_level_results_list = cast(list[HighLevelResult], high_level_results)
+
             # Determine if fallback was used (one level empty)
             fallback_used = (
-                (len(low_level_results) == 0 and len(high_level_results) > 0) or
-                (len(high_level_results) == 0 and len(low_level_results) > 0)
+                (len(low_level_results_list) == 0 and len(high_level_results_list) > 0) or
+                (len(high_level_results_list) == 0 and len(low_level_results_list) > 0)
             )
 
             # Calculate confidence based on coverage
             confidence = self._calculate_confidence(
-                low_level_results=low_level_results,
-                high_level_results=high_level_results,
+                low_level_results=low_level_results_list,
+                high_level_results=high_level_results_list,
                 low_weight=effective_low_weight,
                 high_weight=effective_high_weight,
             )
 
             # Generate synthesis if requested and we have results
             synthesis: Optional[str] = None
-            if include_synthesis and (low_level_results or high_level_results):
+            if include_synthesis and (low_level_results_list or high_level_results_list):
                 synthesis_result = await self._synthesize(
                     query=query,
-                    low_level_results=low_level_results,
-                    high_level_results=high_level_results,
+                    low_level_results=low_level_results_list,
+                    high_level_results=high_level_results_list,
                     tenant_id=tenant_id,
                 )
                 synthesis = synthesis_result.text if synthesis_result else None
@@ -238,7 +241,7 @@ class DualLevelRetriever:
                     source=result.source,
                     labels=list(result.labels),
                 )
-                for result in low_level_results
+                for result in low_level_results_list
             ]
             weighted_high_results = [
                 HighLevelResult(
@@ -251,7 +254,7 @@ class DualLevelRetriever:
                     score=round(result.score * effective_high_weight, 3),
                     entity_ids=result.entity_ids,
                 )
-                for result in high_level_results
+                for result in high_level_results_list
             ]
 
             result = DualLevelResult(
@@ -269,8 +272,8 @@ class DualLevelRetriever:
                 "dual_level_retrieval_completed",
                 query=query[:100],
                 tenant_id=tenant_id,
-                low_level_count=len(low_level_results),
-                high_level_count=len(high_level_results),
+                low_level_count=len(low_level_results_list),
+                high_level_count=len(high_level_results_list),
                 confidence=confidence,
                 fallback_used=fallback_used,
                 processing_time_ms=processing_time_ms,
@@ -583,7 +586,16 @@ class DualLevelRetriever:
                 reasoning="LLM rate limit exceeded",
             )
 
-        if not low_level_results and not high_level_results:
+        low_level_results_list: list[LowLevelResult] = cast(
+            list[LowLevelResult],
+            low_level_results,
+        )
+        high_level_results_list: list[HighLevelResult] = cast(
+            list[HighLevelResult],
+            high_level_results,
+        )
+
+        if not low_level_results_list and not high_level_results_list:
             return SynthesisResult(
                 text="",
                 confidence=0.0,
@@ -591,9 +603,9 @@ class DualLevelRetriever:
             )
 
         # Format low-level context
-        if low_level_results:
+        if low_level_results_list:
             low_lines = []
-            for r in low_level_results[:10]:  # Limit for context window
+            for r in low_level_results_list[:10]:  # Limit for context window
                 content = r.content or "No description"
                 low_lines.append(f"- {r.name} ({r.type}): {content[:200]}")
             low_level_context = "\n".join(low_lines)
@@ -601,13 +613,13 @@ class DualLevelRetriever:
             low_level_context = "No specific entities found."
 
         # Format high-level context
-        if high_level_results:
+        if high_level_results_list:
             high_lines = []
-            for r in high_level_results[:5]:  # Limit for context window
-                keywords = ", ".join(r.keywords[:5]) if r.keywords else "N/A"
-                summary = r.summary or "No summary"
+            for high_result in cast(list[HighLevelResult], high_level_results_list)[:5]:
+                keywords = ", ".join(high_result.keywords[:5]) if high_result.keywords else "N/A"
+                summary = high_result.summary or "No summary"
                 high_lines.append(
-                    f"- {r.name} (Level {r.level}, {r.entity_count} entities): {summary[:200]}\n  Keywords: {keywords}"
+                    f"- {high_result.name} (Level {high_result.level}, {high_result.entity_count} entities): {summary[:200]}\n  Keywords: {keywords}"
                 )
             high_level_context = "\n".join(high_lines)
         else:

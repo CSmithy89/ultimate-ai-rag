@@ -144,6 +144,7 @@ class AGUIBridge:
 
         # Issue #1 Fix: Default to error=True, only set False on explicit success path
         stream_error = True
+        event: AGUIEvent
 
         try:
             # Validate tenant_id is present (multi-tenancy requirement)

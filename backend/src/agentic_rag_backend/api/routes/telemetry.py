@@ -1,7 +1,7 @@
 from typing import Any
 from datetime import datetime, timezone
 import hashlib
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from ..utils import rate_limit_exceeded
@@ -40,7 +40,7 @@ def _sanitize_properties(props: dict[str, Any] | None) -> dict[str, Any]:
     if not props:
         return {}
     
-    sanitized = {}
+    sanitized: dict[str, object] = {}
     sensitive_keys = {"password", "secret", "token", "key", "auth", "credential", "api_key"}
     
     for key, value in props.items():

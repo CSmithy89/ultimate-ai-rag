@@ -11,11 +11,8 @@ from agentic_rag_backend.mcp_server.registry import MCPServerRegistry
 from agentic_rag_backend.mcp_server.types import (
     MCPRequest,
     MCPToolSpec,
-    MCPError,
-    MCPErrorCode,
     create_tool_input_schema,
 )
-from agentic_rag_backend.mcp_server.auth import MCPAuthContext
 
 
 async def echo_handler(args):

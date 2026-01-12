@@ -7,7 +7,7 @@ This module defines data models for speech-to-text and text-to-speech operations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 
 class WhisperModel(str, Enum):

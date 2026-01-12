@@ -952,6 +952,8 @@ class CrawlerService:
                         async for result in _iter_results(results):
                             yield result
                 else:
+                    if self._crawler is None:
+                        raise RuntimeError("Crawler not initialized")
                     results = await self._crawler.arun_many(
                         urls=batch_urls,
                         config=config,

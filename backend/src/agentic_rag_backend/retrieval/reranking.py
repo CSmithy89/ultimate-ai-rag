@@ -355,6 +355,8 @@ class FlashRankRerankerClient(RerankerClient):
 
         # Story 19-G3: Ensure model is loaded (lazy loading on first use)
         self._ensure_model_loaded()
+        if self._ranker is None:
+            raise RuntimeError("FlashRank model not initialized")
 
         start_time = time.perf_counter()
 

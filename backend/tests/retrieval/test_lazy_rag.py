@@ -9,8 +9,7 @@ This module tests the LazyRAGRetriever class and its components:
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from dataclasses import dataclass
+from unittest.mock import AsyncMock, MagicMock
 
 from agentic_rag_backend.retrieval.lazy_rag import LazyRAGRetriever
 from agentic_rag_backend.retrieval.lazy_rag_models import (
@@ -535,7 +534,7 @@ class TestLazyRAGRetrieverIntegration:
             settings=settings,
         )
 
-        result = await retriever.query(
+        await retriever.query(
             query="test",
             tenant_id="tenant-1",
             max_entities=10,  # Override

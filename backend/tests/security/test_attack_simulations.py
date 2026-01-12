@@ -27,16 +27,14 @@ References:
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
 
 from agentic_rag_backend.db.neo4j import Neo4jClient
-from agentic_rag_backend.db.postgres import PostgresClient
 from agentic_rag_backend.protocols.a2a import A2ASessionManager
 from agentic_rag_backend.protocols.a2a_delegation import (
     DelegationConfig,
@@ -45,13 +43,11 @@ from agentic_rag_backend.protocols.a2a_delegation import (
 from agentic_rag_backend.protocols.a2a_messages import (
     AgentCapability,
     AgentRegistration,
-    TaskRequest,
     TaskStatus,
 )
 from agentic_rag_backend.protocols.a2a_registry import A2AAgentRegistry
 from agentic_rag_backend.protocols.mcp import MCPToolRegistry
 from agentic_rag_backend.retrieval.graph_traversal import GraphTraversalService
-from agentic_rag_backend.retrieval.types import VectorHit
 from agentic_rag_backend.retrieval.vector_search import VectorSearchService
 from agentic_rag_backend.validation import is_valid_tenant_id
 
@@ -376,7 +372,7 @@ class TestSessionHijacking:
             session = await manager.create_session(VICTIM_TENANT_ID)
             victim_sessions.append(session["session_id"])
 
-        attacker_session = await manager.create_session(ATTACKER_TENANT_ID)
+        await manager.create_session(ATTACKER_TENANT_ID)
 
         # Attacker attempts to access victim's sessions
         for victim_session_id in victim_sessions:
@@ -444,7 +440,6 @@ class TestA2ACrossTenantDelegation:
         Attack: Delegate task to victim tenant's agent as attacker.
         Expected: Delegation fails or respects attacker's tenant isolation.
         """
-        from datetime import datetime, timezone
 
         # Create mock registry with agents for different tenants
         mock_registry = AsyncMock(spec=A2AAgentRegistry)
@@ -518,7 +513,6 @@ class TestA2ACrossTenantDelegation:
         Attack: Delegate with victim's tenant_id while being attacker.
         Expected: Tenant_id in request should be validated/enforced.
         """
-        from datetime import datetime, timezone
 
         mock_registry = AsyncMock(spec=A2AAgentRegistry)
 
@@ -623,7 +617,7 @@ class TestMCPToolTenantBypass:
         )
 
         # Invoke tool with victim's tenant_id
-        result = await registry.call_tool(
+        await registry.call_tool(
             "knowledge.query",
             {
                 "query": "tell me secrets",
@@ -705,10 +699,10 @@ class TestMCPToolTenantBypass:
             try:
                 await registry.call_tool("knowledge.graph_stats", attempt)
                 # If it doesn't raise, verify validation happened
-            except (ValueError, TypeError) as e:
+            except (ValueError, TypeError):
                 # Expected - invalid input rejected
                 pass
-            except Exception as e:
+            except Exception:
                 # Other errors are also acceptable (validation failure)
                 pass
 
@@ -802,13 +796,6 @@ class TestIngestionCrossTenantAccess:
         Attack: Ingest document without tenant_id to pollute all tenants.
         Expected: tenant_id is required for all ingestion.
         """
-        from inspect import signature
-        from agentic_rag_backend.indexing.graphiti_ingestion import (
-            ingest_document_as_episode,
-        )
-
-        sig = signature(ingest_document_as_episode)
-
         # The function takes a document which must have tenant_id
         # Let's verify the UnifiedDocument requires tenant_id
         from agentic_rag_backend.models.documents import UnifiedDocument
@@ -828,7 +815,6 @@ class TestIngestionCrossTenantAccess:
         import hashlib
         from agentic_rag_backend.indexing.graphiti_ingestion import (
             ingest_document_as_episode,
-            EpisodeIngestionResult,
         )
         from agentic_rag_backend.models.documents import UnifiedDocument, SourceType
 
@@ -895,8 +881,6 @@ class TestIngestionCrossTenantAccess:
         # 1. Be prevented by immutability
         # 2. Be caught during save/update operations
         # 3. Be audited if allowed
-
-        original_tenant = str(document.tenant_id)
 
         # Try to modify
         document.tenant_id = UUID(VICTIM_TENANT_ID)
@@ -990,15 +974,6 @@ class TestSecurityAuditReport:
         # Generate report
         total_tests = sum(len(cat["tests"]) for cat in attack_categories.values())
         total_payloads = sum(cat["payloads"] for cat in attack_categories.values())
-
-        report = {
-            "summary": {
-                "attack_categories": len(attack_categories),
-                "total_tests": total_tests,
-                "total_payloads": total_payloads,
-            },
-            "categories": attack_categories,
-        }
 
         # Assertions for coverage requirements
         assert len(attack_categories) >= 6, "Must cover at least 6 attack categories"

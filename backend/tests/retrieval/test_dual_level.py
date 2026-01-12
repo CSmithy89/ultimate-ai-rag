@@ -10,7 +10,6 @@ This module tests the DualLevelRetriever class and its components:
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from dataclasses import dataclass
 
 from agentic_rag_backend.retrieval.dual_level import DualLevelRetriever
 from agentic_rag_backend.retrieval.dual_level_models import (
