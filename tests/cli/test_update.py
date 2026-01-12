@@ -9,7 +9,7 @@ def test_update_check() -> None:
     runner = CliRunner()
     result = runner.invoke(app, ["update", "check"], env={"RAG_CLI_UPDATE_NO_FETCH": "1"})
     assert result.exit_code == 0
-    assert "Update" in result.output
+    assert "Up to date" in result.output or "Update available" in result.output
 
 
 def test_update_apply() -> None:
