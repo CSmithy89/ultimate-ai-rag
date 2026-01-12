@@ -310,7 +310,7 @@ development_status:
   # 5 LLM providers, 5 embedding providers, base URL overrides, model selection
   18-13-create-memory-platform-guide: done  # Completed 2026-01-12 - See docs/guides/memory-platform.md
   # Memory scopes, consolidation, decay, importance scoring, cleanup
-  18-14-create-ingestion-pipeline-guide: backlog
+  18-14-create-ingestion-pipeline-guide: done  # Completed 2026-01-12 - See docs/guides/ingestion-pipeline.md
   # URL (Crawl4AI), PDF (Docling), YouTube, Codebase, External Sync (Confluence/S3/Notion/Drive/Discord)
   18-15-create-graph-intelligence-guide: backlog
   # Community detection, LazyRAG, global/local query routing, graph rerankers
