@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Optional, cast
 
 from dotenv import load_dotenv
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 import structlog
 import yaml
 
@@ -59,7 +60,135 @@ class ConfigLoader:
             raise ValueError(f"Profile not found: {self.profile}")
         with profile_path.open("r", encoding="utf-8") as handle:
             self._config = yaml.safe_load(handle) or {}
+        _validate_profile_config(self.profile, self._config)
         return self._config
+
+
+class LLMProfile(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    provider: str
+    model: str
+
+
+class EmbeddingProfile(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    provider: str
+    model: str
+    dimension: int | None = Field(default=None, ge=1)
+
+
+class FeatureToggle(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    enabled: bool = False
+
+
+class RetrievalReranker(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    enabled: bool = False
+    provider: str | None = None
+
+
+class RetrievalConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    strategy: str | None = None
+    reranker: RetrievalReranker | None = None
+    contextual_retrieval: FeatureToggle | None = None
+    grader: FeatureToggle | None = None
+
+
+class MemoryConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    scopes_enabled: bool | None = None
+    default_scope: str | None = None
+    consolidation_enabled: bool | None = None
+
+
+class CommunityConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    detection_enabled: bool | None = None
+
+
+class IngestionConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    crawl_profile: str | None = None
+    fallback_enabled: bool | None = None
+    codebase_enabled: bool | None = None
+    external_sync_enabled: bool | None = None
+
+
+class VoiceConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    enabled: bool | None = None
+
+
+class GraphIntelligenceConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    lazy_rag_enabled: bool | None = None
+    query_routing_enabled: bool | None = None
+    graph_reranker_enabled: bool | None = None
+
+
+class ObservabilityConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    prometheus_enabled: bool | None = None
+
+
+class A2AProtocolConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    enabled: bool | None = None
+    max_sessions_per_tenant: int | None = Field(default=None, ge=1)
+    max_messages_per_session: int | None = Field(default=None, ge=1)
+
+
+class ProtocolsConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    a2a: A2AProtocolConfig | None = None
+
+
+class ProfileConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    llm: LLMProfile
+    embedding: EmbeddingProfile
+    retrieval: RetrievalConfig
+    memory: MemoryConfig | None = None
+    community: CommunityConfig | None = None
+    ingestion: IngestionConfig | None = None
+    voice: VoiceConfig | None = None
+    graph_intelligence: GraphIntelligenceConfig | None = None
+    observability: ObservabilityConfig | None = None
+    protocols: ProtocolsConfig | None = None
+
+
+def _format_profile_errors(errors: list[dict[str, Any]]) -> str:
+    formatted = []
+    for error in errors:
+        loc = ".".join(str(part) for part in error.get("loc", [])) or "profile"
+        formatted.append(f"{loc}: {error.get('msg', 'invalid value')}")
+    return "; ".join(formatted)
+
+
+def _validate_profile_config(profile_name: str, profile_config: dict[str, Any]) -> None:
+    try:
+        ProfileConfig.model_validate(profile_config)
+    except ValidationError as exc:
+        details = _format_profile_errors(exc.errors())
+        raise ValueError(
+            f"Profile validation failed for {profile_name}: {details}"
+        ) from exc
 
 
 def _get_nested_value(config: dict[str, Any], path: tuple[str, ...]) -> Any:

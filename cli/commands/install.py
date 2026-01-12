@@ -17,6 +17,9 @@ from cli.prompts.fast_path import run_fast_path
 from cli.prompts.shared import requires_api_key, validate_api_key
 from cli.ui.panels import header_panel, success_panel, summary_panel
 
+DEFAULT_SUBPROCESS_TIMEOUT_S = 5.0
+DEFAULT_DOCKER_TIMEOUT_S = 300.0
+
 
 @dataclass
 class InstallSelections:
@@ -28,6 +31,16 @@ class InstallSelections:
     enable_reranking: bool
     enable_contextual_retrieval: bool
     enable_voice: bool
+
+
+def _get_timeout(env_key: str, default: float) -> float:
+    raw_value = os.getenv(env_key)
+    if raw_value is None or raw_value.strip() == "":
+        return default
+    try:
+        return float(raw_value)
+    except ValueError:
+        return default
 
 
 def _read_total_memory_gb() -> float | None:
@@ -45,7 +58,11 @@ def _read_total_memory_gb() -> float | None:
         try:
             import subprocess
 
-            output = subprocess.check_output(["sysctl", "-n", "hw.memsize"], text=True)
+            output = subprocess.check_output(
+                ["sysctl", "-n", "hw.memsize"],
+                text=True,
+                timeout=_get_timeout("RAG_CLI_SUBPROCESS_TIMEOUT", DEFAULT_SUBPROCESS_TIMEOUT_S),
+            )
             bytes_total = int(output.strip())
             return bytes_total / 1024 / 1024 / 1024
         except (OSError, ValueError, subprocess.SubprocessError):
@@ -63,6 +80,7 @@ def _detect_gpu() -> str:
                 check=False,
                 capture_output=True,
                 text=True,
+                timeout=_get_timeout("RAG_CLI_SUBPROCESS_TIMEOUT", DEFAULT_SUBPROCESS_TIMEOUT_S),
             )
             if result.returncode == 0 and result.stdout.strip():
                 return f"NVIDIA ({result.stdout.strip()})"
@@ -146,7 +164,13 @@ def _run_docker_compose(console: Console, dry_run: bool) -> None:
     try:
         import subprocess
 
-        result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=_get_timeout("RAG_CLI_DOCKER_TIMEOUT", DEFAULT_DOCKER_TIMEOUT_S),
+        )
         if result.returncode != 0:
             output = result.stderr.strip() or result.stdout.strip()
             message = output or "Docker compose failed"
