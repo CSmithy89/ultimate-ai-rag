@@ -337,7 +337,7 @@ development_status:
   # All features with profile requirements and config flags (174 total features documented)
   18-26-create-testing-framework-documentation: done  # Completed 2026-01-13 - See docs/guides/testing.md
   # Test categories, patterns, fixtures, coverage requirements
-  18-27-create-security-best-practices-guide: backlog
+  18-27-create-security-best-practices-guide: done  # Completed 2026-01-13 - See docs/guides/security-best-practices.md
   # Authentication, secrets, network, incident response
   epic-18-retrospective: optional
 
