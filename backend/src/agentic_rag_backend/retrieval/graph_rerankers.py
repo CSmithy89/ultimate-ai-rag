@@ -693,11 +693,11 @@ class NodeDistanceReranker(GraphReranker):
 
             min_distance = None
             if query_entities and result_entities and distance_map:
-                distances = [
-                    distance_map.get(entity_id)
-                    for entity_id in result_entities
-                    if entity_id in distance_map
-                ]
+                distances: list[int] = []
+                for entity_id in result_entities:
+                    distance = distance_map.get(entity_id)
+                    if distance is not None:
+                        distances.append(distance)
                 min_distance = min(distances) if distances else None
 
             distance_score = self._distance_to_score(min_distance)

@@ -1,0 +1,27 @@
+name: rag-search
+version: 1.0.0
+description: Search the knowledge graph and vector store for relevant information
+author: Agentic RAG
+tags: [rag, search, knowledge, retrieval]
+
+mcp_tool: knowledge.query
+
+triggers:
+  - "search for"
+  - "find information about"
+  - "what do you know about"
+  - "look up"
+
+parameters:
+  query:
+    type: string
+    description: The search query
+    required: true
+  tenant_id:
+    type: string
+    description: Tenant identifier for multi-tenancy
+    default: "default"
+
+examples:
+  - input: "Search for information about GraphRAG"
+    output: "Found relevant documents about GraphRAG..."

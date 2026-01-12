@@ -1,0 +1,21 @@
+name: ingest-pdf
+version: 1.0.0
+description: Parse and ingest a PDF into the knowledge base
+author: Agentic RAG
+tags: [rag, ingest, pdf]
+
+mcp_tool: ingest_pdf
+
+triggers:
+  - "ingest pdf"
+  - "upload pdf"
+
+parameters:
+  path:
+    type: string
+    description: Path to the PDF file
+    required: true
+  tenant_id:
+    type: string
+    description: Tenant identifier
+    default: "default"

@@ -41,6 +41,7 @@ from agentic_rag_backend.core.errors import (
 from agentic_rag_backend.embeddings import EmbeddingGenerator
 from agentic_rag_backend.llm.providers import get_embedding_adapter
 from agentic_rag_backend.rate_limit import RateLimiter
+from agentic_rag_backend.api.utils import rate_limit_exceeded
 
 logger = structlog.get_logger(__name__)
 
@@ -806,4 +807,3 @@ async def clear_symbol_table(
         "memory_cleared": memory_cleared,
         "redis_cleared": redis_cleared,
     })
-from agentic_rag_backend.api.utils import rate_limit_exceeded

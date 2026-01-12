@@ -468,9 +468,11 @@ class OrchestratorAgent:
 
         entities = getattr(result, "entities", []) or []
         for entity in entities[:5]:
-            content = getattr(entity, "description", None) or getattr(entity, "summary", None)
-            if not content:
-                content = getattr(entity, "name", "")
+            content = str(
+                getattr(entity, "description", None)
+                or getattr(entity, "summary", None)
+                or getattr(entity, "name", "")
+            )
             hits.append(
                 VectorHit(
                     chunk_id=f"lazy-rag-entity:{getattr(entity, 'id', '')}",
@@ -510,7 +512,7 @@ class OrchestratorAgent:
         high_level = getattr(result, "high_level_results", []) or []
 
         for item in low_level[:5]:
-            content = getattr(item, "content", None) or getattr(item, "name", "")
+            content = str(getattr(item, "content", None) or getattr(item, "name", ""))
             hits.append(
                 VectorHit(
                     chunk_id=f"dual-level-low:{getattr(item, 'id', '')}",
@@ -526,7 +528,7 @@ class OrchestratorAgent:
             )
 
         for item in high_level[:5]:
-            content = getattr(item, "summary", None) or getattr(item, "name", "")
+            content = str(getattr(item, "summary", None) or getattr(item, "name", ""))
             hits.append(
                 VectorHit(
                     chunk_id=f"dual-level-high:{getattr(item, 'id', '')}",
@@ -603,6 +605,14 @@ class OrchestratorAgent:
         """Run vector search and log retrieval events."""
         if not self._vector_search:
             note = "Vector search unavailable; missing postgres or embedding generator."
+            thoughts.append(note)
+            if self._logger and trajectory_id:
+                await self._logger.log_observation(tenant_id, trajectory_id, note)
+            else:
+                events.append((EventType.OBSERVATION, note))
+            return []
+        if self._retrieval_pipeline is None:
+            note = "Vector search unavailable; retrieval pipeline not initialized."
             thoughts.append(note)
             if self._logger and trajectory_id:
                 await self._logger.log_observation(tenant_id, trajectory_id, note)
@@ -848,6 +858,14 @@ class OrchestratorAgent:
         """Run graph traversal and log retrieval events."""
         if not self._graph_traversal:
             note = "Graph traversal unavailable; missing Neo4j client."
+            thoughts.append(note)
+            if self._logger and trajectory_id:
+                await self._logger.log_observation(tenant_id, trajectory_id, note)
+            else:
+                events.append((EventType.OBSERVATION, note))
+            return None
+        if self._retrieval_pipeline is None:
+            note = "Graph traversal unavailable; retrieval pipeline not initialized."
             thoughts.append(note)
             if self._logger and trajectory_id:
                 await self._logger.log_observation(tenant_id, trajectory_id, note)

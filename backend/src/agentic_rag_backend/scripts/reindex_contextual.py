@@ -197,7 +197,7 @@ async def reindex_document(
 
     # Enrich chunks
     start_time = time.perf_counter()
-    enriched_chunks = await contextual_enricher.enrich_chunks(chunks, doc_context)
+    enriched_chunks, _ = await contextual_enricher.enrich_chunks(chunks, doc_context)
     enrichment_time_ms = (time.perf_counter() - start_time) * 1000
 
     # Generate new embeddings from enriched content

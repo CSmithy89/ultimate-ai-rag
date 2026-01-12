@@ -13,7 +13,6 @@ Components:
 """
 
 import re
-import unicodedata
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol
@@ -550,7 +549,7 @@ class CrossLanguageAdapter:
 
         if not self._enabled:
             if self._base_embedding and hasattr(self._base_embedding, "embed_batch"):
-                return await self._base_embedding.embed_batch(texts)  # type: ignore
+                return await self._base_embedding.embed_batch(texts)
             # Fall back to individual embedding
             return [await self.embed(t) for t in texts]
 

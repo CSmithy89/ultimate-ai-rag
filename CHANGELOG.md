@@ -5,6 +5,20 @@
 ### Changed
 - Consolidated BMAD artifacts under `_bmad-output/` (epics, stories, retrospectives, reviews) and updated references; `docs/` now focuses on user/developer guidance.
 
+## [Epic 17] - Developer Experience CLI - 2026-01-12
+
+### Added
+- Typer-based `rag-cli` with `rag-install`, `setup`, `doctor`, `migrate`, and `update` commands.
+- Profile-driven configuration (`config/profiles/*.yaml`), schema validation, and profile documentation.
+- Framework templates and skill scaffolding under `cli/templates/` for rapid project setup.
+- Backend profile loader to apply defaults and expose `config_profile` in settings.
+
+### Changed
+- `.env.example` now includes `CONFIG_PROFILE`; `.gitignore` ignores local profile overrides.
+
+### Fixed
+- `.env` backup naming for dotfile paths in the CLI installer.
+
 ## [Epic 22] - Advanced Protocol Integration - 2026-01-11
 
 ### Added

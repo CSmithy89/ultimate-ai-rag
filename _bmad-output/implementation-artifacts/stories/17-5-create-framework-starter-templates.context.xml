@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>17-5</story-id>
+    <story-title>Create Framework Starter Templates</story-title>
+    <epic>17 - Developer Experience, CLI &amp; Framework Integration</epic>
+    <generated>2026-01-12</generated>
+  </metadata>
+
+  <objective>
+    Provide starter templates for PydanticAI, CrewAI, LangGraph, and Anthropic SDK
+    with README instructions and example code showing A2A and MCP usage.
+  </objective>
+
+  <template-structure>
+    <path>examples/pydanticai</path>
+    <path>examples/crewai</path>
+    <path>examples/langgraph</path>
+    <path>examples/anthropic</path>
+  </template-structure>
+
+  <install-behavior>
+    <requirement>rag-install --framework &lt;name&gt; copies template to examples/&lt;name&gt;</requirement>
+  </install-behavior>
+
+  <references>
+    <ref path="_bmad-output/epics/epic-17-tech-spec.md">Story 17-5</ref>
+  </references>
+</story-context>

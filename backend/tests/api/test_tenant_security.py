@@ -1,7 +1,7 @@
 """Security tests for cross-tenant data isolation."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 from uuid import uuid4
 from fastapi.testclient import TestClient
 from datetime import datetime, timezone

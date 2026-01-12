@@ -8,7 +8,7 @@ Tests cover:
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from agentic_rag_backend.retrieval.cross_language import (
     LanguageDetector,

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>17-2</story-id>
+    <story-title>Implement Auto Hardware Detection</story-title>
+    <epic>17 - Developer Experience, CLI &amp; Framework Integration</epic>
+    <generated>2026-01-12</generated>
+  </metadata>
+
+  <objective>
+    Detect CPU, RAM, and GPU (NVIDIA/MPS) to recommend the appropriate
+    installation profile and defaults in rag-install.
+  </objective>
+
+  <hardware-detection>
+    <requirements>
+      <item>CPU cores via os.cpu_count()</item>
+      <item>RAM via /proc/meminfo on Linux and sysctl on macOS</item>
+      <item>NVIDIA GPU via nvidia-smi when available</item>
+      <item>Apple MPS via optional torch import</item>
+      <item>Fallback to standard profile if detection fails</item>
+    </requirements>
+  </hardware-detection>
+
+  <profile-mapping>
+    <thresholds>
+      <minimal>RAM &lt; 16GB</minimal>
+      <standard>RAM 16-31GB</standard>
+      <enterprise>RAM &gt;= 32GB</enterprise>
+    </thresholds>
+  </profile-mapping>
+
+  <files-to-update>
+    <file path="cli/commands/install.py">Detection helpers and profile mapping</file>
+  </files-to-update>
+
+  <references>
+    <ref path="_bmad-output/epics/epic-17-tech-spec.md">Story 17-2 + CLI UX Design</ref>
+    <ref path="cli/commands/install.py">Existing detection stub</ref>
+  </references>
+</story-context>

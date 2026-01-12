@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>17-3</story-id>
+    <story-title>Implement Env Generation Logic</story-title>
+    <epic>17 - Developer Experience, CLI &amp; Framework Integration</epic>
+    <generated>2026-01-12</generated>
+  </metadata>
+
+  <objective>
+    Generate a validated .env from rag-install selections with backups,
+    sectioned comments, and masked sensitive values.
+  </objective>
+
+  <validation>
+    <rule var="OPENAI_API_KEY" check="starts_with sk-" />
+    <rule var="ANTHROPIC_API_KEY" check="starts_with sk-ant-" />
+    <rule var="DATABASE_URL" check="postgresql uri" />
+    <rule var="NEO4J_URI" check="bolt:// uri" />
+  </validation>
+
+  <env-output>
+    <requirement>Create .env.bak if .env exists</requirement>
+    <requirement>Add header and section comments</requirement>
+    <requirement>Mask sensitive values in output (last 4)</requirement>
+  </env-output>
+
+  <files-to-update>
+    <file path="cli/commands/install.py">Validation + env generation</file>
+  </files-to-update>
+
+  <references>
+    <ref path="_bmad-output/epics/epic-17-tech-spec.md">Story 17-3</ref>
+    <ref path=".env.example">Default env values and comments</ref>
+  </references>
+</story-context>

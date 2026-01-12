@@ -24,7 +24,7 @@ os.environ.setdefault("NEO4J_USER", "neo4j")
 os.environ.setdefault("NEO4J_PASSWORD", "test")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379")
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -91,7 +91,6 @@ def _make_mock_expansion_result():
     """Create a mock SubgraphExpansionResult for testing."""
     from agentic_rag_backend.retrieval.lazy_rag_models import (
         LazyRAGEntity,
-        LazyRAGRelationship,
         SubgraphExpansionResult,
     )
 

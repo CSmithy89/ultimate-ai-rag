@@ -125,15 +125,15 @@ class NotionConnector(BaseConnector):
                         break
 
                     for page in results:
-                        item = self._page_to_item(page, database_id)
-                        if item is None:
+                        page_item = self._page_to_item(page, database_id)
+                        if page_item is None:
                             continue
 
                         # Check if item needs sync (incremental mode)
-                        if incremental and not self._should_sync_item(item):
+                        if incremental and not self._should_sync_item(page_item):
                             continue
 
-                        yield item
+                        yield page_item
                         items_yielded += 1
 
                         if max_items and items_yielded >= max_items:
@@ -199,14 +199,14 @@ class NotionConnector(BaseConnector):
                     break
 
                 for page in results:
-                    item = self._page_to_item(page)
-                    if item is None:
+                    page_item = self._page_to_item(page)
+                    if page_item is None:
                         continue
 
-                    if incremental and not self._should_sync_item(item):
+                    if incremental and not self._should_sync_item(page_item):
                         continue
 
-                    yield item
+                    yield page_item
                     items_yielded += 1
 
                     if max_items and items_yielded >= max_items:

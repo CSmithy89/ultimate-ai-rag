@@ -1,0 +1,9 @@
+[project]
+name = "agentic-rag-langgraph"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "langgraph",
+  "langchain-openai",
+  "httpx",
+]

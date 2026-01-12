@@ -137,7 +137,7 @@ class ColBERTEncoder:
                 "colbert_model_loaded",
                 model=self._model_name,
             )
-        except ImportError as e:
+        except ImportError:
             # Fall back to sentence-transformers
             try:
                 from sentence_transformers import SentenceTransformer

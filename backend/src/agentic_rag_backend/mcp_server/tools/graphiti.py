@@ -199,7 +199,7 @@ def create_graphiti_add_episode_tool(
             content_hash=content_hash,
             source_type=source_type,
             source_url=source_url,
-            metadata=DocumentMetadata(title=title) if title else None,
+            metadata=DocumentMetadata(title=title) if title else DocumentMetadata(),
         )
 
         result = await ingest_document_as_episode(

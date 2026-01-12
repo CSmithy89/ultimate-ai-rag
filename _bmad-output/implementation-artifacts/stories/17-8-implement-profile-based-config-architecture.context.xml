@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>17-8</story-id>
+    <story-title>Implement Profile-Based Config Architecture</story-title>
+    <epic>17 - Developer Experience, CLI &amp; Framework Integration</epic>
+    <generated>2026-01-12</generated>
+  </metadata>
+
+  <objective>
+    Add profile-based configuration with defaults loaded from YAML
+    and environment variables overriding profile values.
+  </objective>
+
+  <requirements>
+    <item>config/profiles/minimal.yaml</item>
+    <item>config/profiles/standard.yaml</item>
+    <item>config/profiles/enterprise.yaml</item>
+    <item>config/schema.json and config/README.md</item>
+    <item>Loader applies profile defaults before env overrides</item>
+  </requirements>
+
+  <files-to-update>
+    <file path="backend/src/agentic_rag_backend/config.py">profile loader integration</file>
+    <file path=".env.example">CONFIG_PROFILE default</file>
+  </files-to-update>
+
+  <references>
+    <ref path="_bmad-output/epics/epic-17-tech-spec.md">Story 17-8</ref>
+  </references>
+</story-context>

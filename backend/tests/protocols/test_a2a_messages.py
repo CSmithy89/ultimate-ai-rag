@@ -2,7 +2,6 @@
 
 from datetime import datetime, timezone
 
-import pytest
 
 from agentic_rag_backend.protocols.a2a_messages import (
     A2AMessageType,

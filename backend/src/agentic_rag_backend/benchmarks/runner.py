@@ -239,14 +239,18 @@ class BenchmarkRunner:
         self.dataset = dataset
         self.config = config
 
+        retriever_map: dict[
+            RetrievalStrategy, Callable[[str, int, str], Awaitable[list[str]]]
+        ]
         if retrievers is None:
             # Use mock retriever for all strategies
             mock = MockRetriever(dataset.get_document_text_map())
-            self.retrievers = {
+            retriever_map = {
                 strategy: mock.retrieve for strategy in RetrievalStrategy
             }
         else:
-            self.retrievers = retrievers
+            retriever_map = retrievers
+        self.retrievers = retriever_map
 
     async def run_single_query(
         self,
@@ -389,10 +393,11 @@ def compare_to_baseline(
     Returns:
         Comparison summary with deltas
     """
-    comparison = {
+    deltas: list[dict[str, Any]] = []
+    comparison: dict[str, Any] = {
         "baseline_run_id": baseline.get("run_id"),
         "baseline_timestamp": baseline.get("timestamp"),
-        "deltas": [],
+        "deltas": deltas,
     }
 
     baseline_results = {r["strategy"]: r for r in baseline.get("results", [])}
@@ -415,6 +420,6 @@ def compare_to_baseline(
                 "precision_delta": metrics.precision - baseline_metrics.get(f"precision@{k}", 0),
                 "recall_delta": metrics.recall - baseline_metrics.get(f"recall@{k}", 0),
             }
-            comparison["deltas"].append(delta)
+            deltas.append(delta)
 
     return comparison

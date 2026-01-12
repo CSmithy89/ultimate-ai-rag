@@ -23,7 +23,7 @@ from abc import ABC, abstractmethod
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from time import perf_counter, time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Awaitable, Optional, TypeVar, cast
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -38,6 +38,11 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 LUA_SCRIPT_WARN_MS = 50
+T = TypeVar("T")
+
+
+async def _await_redis(result: Awaitable[T] | T) -> T:
+    return await cast(Awaitable[T], result)
 
 
 # -----------------------------------------------------------------------------
@@ -706,17 +711,22 @@ class RedisA2AResourceManager(A2AResourceManager):
     ) -> int:
         """Evaluate a Lua script using cached SHA when possible."""
         start = perf_counter()
+        string_args = tuple(str(arg) for arg in args)
         try:
             sha = getattr(self, sha_attr)
             if sha:
                 try:
-                    return await self._redis.evalsha(sha, key_count, *args)
+                    return int(
+                        await _await_redis(self._redis.evalsha(sha, key_count, *string_args))
+                    )
                 except NoScriptError:
                     setattr(self, sha_attr, None)
 
-            sha = await self._redis.script_load(script)
+            sha = await cast(Awaitable[str], self._redis.script_load(script))
             setattr(self, sha_attr, sha)
-            return await self._redis.evalsha(sha, key_count, *args)
+            return int(
+                await _await_redis(self._redis.evalsha(sha, key_count, *string_args))
+            )
         finally:
             duration_ms = int((perf_counter() - start) * 1000)
             if duration_ms >= LUA_SCRIPT_WARN_MS:
@@ -747,7 +757,7 @@ class RedisA2AResourceManager(A2AResourceManager):
     async def check_session_limit(self, tenant_id: str) -> bool:
         """Check if tenant can create a new session."""
         key = self._tenant_key(tenant_id)
-        active = await self._redis.hget(key, "active_sessions")
+        active = await _await_redis(self._redis.hget(key, "active_sessions"))
         if active is None:
             return True
         return int(active) < self.limits.session_limit_per_tenant
@@ -755,7 +765,7 @@ class RedisA2AResourceManager(A2AResourceManager):
     async def check_message_limit(self, session_id: str) -> bool:
         """Check if session can send another message."""
         key = self._session_key(session_id)
-        count = await self._redis.hget(key, "message_count")
+        count = await _await_redis(self._redis.hget(key, "message_count"))
         if count is None:
             return True
         return int(count) < self.limits.message_limit_per_session
@@ -767,7 +777,7 @@ class RedisA2AResourceManager(A2AResourceManager):
         minute_ago = now - 60
 
         # Count messages in last minute
-        count = await self._redis.zcount(key, minute_ago, now)
+        count = await _await_redis(self._redis.zcount(key, minute_ago, now))
         return count < self.limits.message_rate_limit
 
     async def register_session(self, session_id: str, tenant_id: str) -> None:
@@ -819,7 +829,7 @@ class RedisA2AResourceManager(A2AResourceManager):
         rate_key = self._rate_key(session_id)
 
         # Get tenant_id from session first (needed for tenant_key)
-        tenant_id = await self._redis.hget(session_key, "tenant_id")
+        tenant_id = await _await_redis(self._redis.hget(session_key, "tenant_id"))
         if tenant_id is None:
             logger.warning(
                 "a2a_record_message_unknown_session",
@@ -887,7 +897,7 @@ class RedisA2AResourceManager(A2AResourceManager):
         rate_key = self._rate_key(session_id)
 
         # Get tenant_id before deleting
-        tenant_id = await self._redis.hget(session_key, "tenant_id")
+        tenant_id = await _await_redis(self._redis.hget(session_key, "tenant_id"))
         if tenant_id is None:
             logger.debug(
                 "a2a_close_session_not_found",
@@ -920,7 +930,7 @@ class RedisA2AResourceManager(A2AResourceManager):
     async def get_tenant_metrics(self, tenant_id: str) -> A2AResourceMetrics:
         """Get resource usage metrics for a tenant."""
         tenant_key = self._tenant_key(tenant_id)
-        data = await self._redis.hgetall(tenant_key)
+        data = await _await_redis(self._redis.hgetall(tenant_key))
 
         if not data:
             return A2AResourceMetrics(
@@ -1011,7 +1021,7 @@ class RedisA2AResourceManager(A2AResourceManager):
 
         session_counts: dict[str, int] = {}
         async for session_key in self._redis.scan_iter(match=session_pattern, count=100):
-            session_tenant_id = await self._redis.hget(session_key, "tenant_id")
+            session_tenant_id = await _await_redis(self._redis.hget(session_key, "tenant_id"))
             if not session_tenant_id:
                 continue
             if isinstance(session_tenant_id, bytes):
@@ -1019,7 +1029,7 @@ class RedisA2AResourceManager(A2AResourceManager):
             session_counts[session_tenant_id] = session_counts.get(session_tenant_id, 0) + 1
 
         async for key in self._redis.scan_iter(match=tenant_pattern, count=100):
-            active = await self._redis.hget(key, "active_sessions")
+            active = await _await_redis(self._redis.hget(key, "active_sessions"))
             if active is None:
                 continue
             try:
@@ -1033,7 +1043,7 @@ class RedisA2AResourceManager(A2AResourceManager):
             corrected_count = max(0, actual_count)
 
             if active_int < 0 or active_int != corrected_count:
-                await self._redis.hset(key, "active_sessions", corrected_count)
+                await _await_redis(self._redis.hset(key, "active_sessions", str(corrected_count)))
                 logger.warning(
                     "a2a_fixed_inconsistent_session_count",
                     key=key,
@@ -1042,7 +1052,7 @@ class RedisA2AResourceManager(A2AResourceManager):
                 )
 
             if corrected_count == 0:
-                await self._redis.expire(key, self.limits.session_ttl_hours * 3600)
+                await _await_redis(self._redis.expire(key, self.limits.session_ttl_hours * 3600))
 
 
 # -----------------------------------------------------------------------------

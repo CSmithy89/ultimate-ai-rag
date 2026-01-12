@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>17-19</story-id>
+    <story-title>Create Framework Template Details &amp; Testing</story-title>
+    <epic>17 - Developer Experience, CLI &amp; Framework Integration</epic>
+    <generated>2026-01-12</generated>
+  </metadata>
+
+  <objective>
+    Add tests validating framework template structure and README content.
+  </objective>
+
+  <files-to-update>
+    <file path="tests/cli/test_templates.py">template tests</file>
+  </files-to-update>
+
+  <references>
+    <ref path="cli/templates/frameworks">template sources</ref>
+  </references>
+</story-context>

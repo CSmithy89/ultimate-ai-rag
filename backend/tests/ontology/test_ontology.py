@@ -9,10 +9,8 @@ These tests verify:
 - Tenant isolation
 """
 
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 import tempfile
 import time
 
@@ -475,8 +473,6 @@ class TestOntologyLoader:
         loader = OntologyLoader()
 
         # Mock the file size to exceed the limit
-        original_stat = large_file.stat
-
         class MockStat:
             st_size = MAX_ONTOLOGY_FILE_SIZE_BYTES + 1
 

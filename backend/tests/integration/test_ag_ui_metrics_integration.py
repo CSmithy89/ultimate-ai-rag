@@ -462,7 +462,6 @@ class TestConcurrencyStress:
         num_streams = 50
 
         async def run_stream(stream_id: int):
-            delay = 0.01 * (stream_id % 5)  # Variable delays
             async with track_agui_stream(tenant_id) as metrics:
                 metrics.event_emitted("RUN_STARTED")
                 await asyncio.sleep(0)

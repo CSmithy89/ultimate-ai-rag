@@ -407,7 +407,7 @@ class SmallToBigRetriever:
         parent_chunks = await asyncio.gather(*parent_tasks, return_exceptions=True)
 
         for parent_id, parent_chunk in zip(parent_ids, parent_chunks):
-            if isinstance(parent_chunk, Exception) or not parent_chunk:
+            if isinstance(parent_chunk, BaseException) or not isinstance(parent_chunk, dict):
                 continue
 
             children = parent_to_children[parent_id]

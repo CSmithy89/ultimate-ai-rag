@@ -239,48 +239,48 @@ development_status:
   # DECISION: Merged Epic 16 (Framework Agnosticism) per Vision A
   # DECISION: CLI is the capstone UX for the developer platform
   # UPDATED: 2026-01-05 - Added framework templates, Agent Skills, protocol docs
-  epic-17: backlog
-  17-1-create-rag-install-cli-tool: backlog
+  epic-17: done
+  17-1-create-rag-install-cli-tool: done
   # Guided setup: LLM provider, database, framework template, features
-  17-2-implement-auto-hardware-detection: backlog
+  17-2-implement-auto-hardware-detection: done
   # GPU for local LLM/Whisper, RAM for model selection
-  17-3-implement-env-generation-logic: backlog
+  17-3-implement-env-generation-logic: done
   # Generate complete .env, validate all combinations
-  17-4-verify-docker-compose-startup: backlog
+  17-4-verify-docker-compose-startup: done
   # Health checks for selected stack
-  17-5-create-framework-starter-templates: backlog
+  17-5-create-framework-starter-templates: done
   # NEW (from Epic 16): PydanticAI, CrewAI, LangGraph, Anthropic examples
-  17-6-implement-agent-skills-anthropic: backlog
+  17-6-implement-agent-skills-anthropic: done
   # NEW (from Epic 16-4): .skills/ folder for Claude Desktop/Code integration
   17-7-document-protocol-integration-guide: done  # Completed via Epic 22-D1
   # COMPLETED (2026-01-11): Delivered via Epic 22-D1 with comprehensive protocol-integration/ folder
   # NEW (2026-01-11): Profile-based configuration and comprehensive CLI coverage
-  17-8-implement-profile-based-config-architecture: backlog
+  17-8-implement-profile-based-config-architecture: done
   # Foundation story: YAML profiles (minimal/standard/enterprise), config loader, schema validation
-  17-9-implement-cli-ingestion-source-config: backlog
+  17-9-implement-cli-ingestion-source-config: done
   # Crawl4AI, PDF/Docling, YouTube, External Sync, Codebase indexing
-  17-10-implement-cli-memory-graph-config: backlog
+  17-10-implement-cli-memory-graph-config: done
   # Memory scopes, consolidation, community detection, LazyRAG, query routing
-  17-11-implement-cli-voice-io-config: backlog
+  17-11-implement-cli-voice-io-config: done
   # STT (Whisper), TTS (OpenAI/ElevenLabs/pyttsx3)
-  17-12-implement-cli-observability-config: backlog
+  17-12-implement-cli-observability-config: done
   # Prometheus, cost tracking, alerts, trajectory debugging
-  17-13-implement-cli-codebase-intelligence-config: backlog
+  17-13-implement-cli-codebase-intelligence-config: done
   # AST validation, symbol extraction, hallucination detection
-  17-14-implement-cli-protocol-config: backlog
+  17-14-implement-cli-protocol-config: done
   # A2A, MCP, AG-UI, MCP-UI, Open-JSON-UI protocol settings
   # NEW (2026-01-11): CLI operational commands and framework template details
-  17-15-implement-cli-doctor-validate-command: backlog
+  17-15-implement-cli-doctor-validate-command: done
   # Diagnostic command: connectivity, config, health checks
-  17-16-implement-cli-interactive-setup-mode: backlog
+  17-16-implement-cli-interactive-setup-mode: done
   # Guided wizard for first-time users
-  17-17-implement-profile-migration-script: backlog
+  17-17-implement-profile-migration-script: done
   # Automated migration between configuration profiles
-  17-18-implement-cli-upgrade-self-update: backlog
+  17-18-implement-cli-upgrade-self-update: done
   # Version checking and self-update mechanism
-  17-19-create-framework-template-details-testing: backlog
+  17-19-create-framework-template-details-testing: done
   # Complete examples for PydanticAI, CrewAI, LangGraph, Anthropic SDK
-  epic-17-retrospective: optional
+  epic-17-retrospective: done
 
   # Epic 18: Enhanced Documentation & DevOps (The Manual)
   # DECISION (2026-01-04): Some docs already exist. Focus on completing remaining guides.

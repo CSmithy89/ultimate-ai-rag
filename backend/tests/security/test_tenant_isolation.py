@@ -14,7 +14,6 @@ and verify that cross-tenant data leakage is prevented.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
@@ -23,17 +22,14 @@ import pytest
 
 from agentic_rag_backend.db.neo4j import Neo4jClient
 from agentic_rag_backend.db.postgres import PostgresClient
-from agentic_rag_backend.db.redis import RedisClient
 from agentic_rag_backend.protocols.a2a import A2ASessionManager
 from agentic_rag_backend.retrieval.grader import (
     HeuristicGrader,
     RetrievalGrader,
     RetrievalHit,
-    WebSearchFallback,
 )
 from agentic_rag_backend.retrieval.graph_traversal import GraphTraversalService
 from agentic_rag_backend.retrieval.reranking import (
-    FlashRankRerankerClient,
     RerankedHit,
     RerankerClient,
 )
@@ -449,16 +445,6 @@ class TestRerankerTenantIsolation:
             ),
         ]
 
-        tenant_b_hits = [
-            VectorHit(
-                chunk_id="chunk-b-1",
-                document_id="doc-b-1",
-                content="Tenant B content about databases",
-                similarity=0.95,
-                metadata={"tenant_id": TENANT_B_ID},
-            ),
-        ]
-
         # Create a mock reranker
         class MockReranker(RerankerClient):
             async def rerank(
@@ -699,7 +685,6 @@ class TestDatabaseQueryTenantEnforcement:
 
         from inspect import signature
 
-        from agentic_rag_backend.db.postgres import PostgresClient
 
         # Get the search_similar_chunks method signature
         sig = signature(PostgresClient.search_similar_chunks)

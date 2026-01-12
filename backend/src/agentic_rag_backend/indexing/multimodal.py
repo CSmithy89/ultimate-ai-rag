@@ -20,7 +20,6 @@ Performance target: <500ms latency for typical documents
 """
 
 import hashlib
-import html
 import mimetypes
 import time
 from dataclasses import dataclass, field

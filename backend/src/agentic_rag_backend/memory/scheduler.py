@@ -12,7 +12,7 @@ Features:
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import structlog
 
@@ -101,7 +101,7 @@ class MemoryConsolidationScheduler:
         self.consolidator = consolidator
         self.schedule = schedule
         self.enabled = enabled
-        self._scheduler: Optional[object] = None
+        self._scheduler: Optional[Any] = None
         self._job_id = "memory_consolidation"
         self._running = False
 
@@ -120,7 +120,7 @@ class MemoryConsolidationScheduler:
             return None
 
         try:
-            job = self._scheduler.get_job(self._job_id)  # type: ignore
+            job = self._scheduler.get_job(self._job_id)
             if job and job.next_run_time:
                 return job.next_run_time
         except Exception:
@@ -149,6 +149,10 @@ class MemoryConsolidationScheduler:
             logger.warning("scheduler_already_running")
             return True
 
+        if AsyncIOScheduler is None or CronTrigger is None:
+            logger.warning("scheduler_unavailable", reason="APScheduler not initialized")
+            return False
+
         try:
             # Parse cron schedule
             cron_kwargs = parse_cron_schedule(self.schedule)
@@ -157,16 +161,16 @@ class MemoryConsolidationScheduler:
             self._scheduler = AsyncIOScheduler()
 
             # Add consolidation job
-            self._scheduler.add_job(  # type: ignore
+            self._scheduler.add_job(
                 self._run_consolidation,
-                trigger=CronTrigger(**cron_kwargs),  # type: ignore
+                trigger=CronTrigger(**cron_kwargs),
                 id=self._job_id,
                 name="Memory Consolidation",
                 replace_existing=True,
             )
 
             # Start scheduler
-            self._scheduler.start()  # type: ignore
+            self._scheduler.start()
             self._running = True
 
             next_run = self.get_next_run_time()
@@ -190,7 +194,7 @@ class MemoryConsolidationScheduler:
         try:
             # Use non-blocking shutdown to avoid stalling the event loop
             # APScheduler's AsyncIOScheduler.shutdown() is a synchronous call
-            self._scheduler.shutdown(wait=False)  # type: ignore
+            self._scheduler.shutdown(wait=False)
             self._running = False
             logger.info("scheduler_stopped")
         except Exception as e:

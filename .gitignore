@@ -40,3 +40,6 @@ venv/
 *.swp
 *.swo
 .serena/
+.env
+.env.bak
+config/profiles/custom.yaml

@@ -13,7 +13,7 @@ can run on a schedule or be triggered manually via API.
 import asyncio
 import time
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Awaitable, Optional, cast
 from uuid import uuid4
 
 import numpy as np
@@ -215,7 +215,10 @@ class MemoryConsolidator:
                     return 0
                 end
                 """
-                await self.store._redis.client.eval(release_script, 1, lock_key, lock_val)
+                await cast(
+                    Awaitable[int],
+                    self.store._redis.client.eval(release_script, 1, lock_key, lock_val),
+                )
 
     async def _run_consolidation(
         self,

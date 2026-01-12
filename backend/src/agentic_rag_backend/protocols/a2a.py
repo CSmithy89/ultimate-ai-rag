@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
-    import redis
+    from redis.asyncio import Redis as AsyncRedis
 from uuid import uuid4
 
 import structlog
@@ -118,7 +118,7 @@ class A2ASessionManager:
             )
             return None
 
-    def _get_redis(self) -> "redis.Redis | None":
+    def _get_redis(self) -> "AsyncRedis | None":
         if not self._redis_client:
             return None
         try:

@@ -7,10 +7,7 @@ This test module covers:
 - Story 19-G4: Score Normalization Strategies
 """
 
-import math
 import tempfile
-from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -20,7 +17,6 @@ from agentic_rag_backend.retrieval.cache import (
     CacheStats,
     RerankerCache,
     generate_reranker_cache_key,
-    hash_cache_key,
 )
 from agentic_rag_backend.retrieval.normalization import (
     NormalizationStrategy,

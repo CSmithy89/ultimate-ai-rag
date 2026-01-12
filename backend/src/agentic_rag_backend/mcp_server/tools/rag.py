@@ -223,6 +223,7 @@ def create_hybrid_retrieve_tool(
         num_results = arguments.get("num_results", 10)
         use_reranking = arguments.get("use_reranking", True) and reranker is not None
 
+        reranked_hits: list[RerankedHit] = []
         if retrieval_pipeline:
             hybrid_result: HybridRetrievalResult = await retrieval_pipeline.hybrid_retrieve(
                 query=query,
@@ -247,7 +248,6 @@ def create_hybrid_retrieve_tool(
             vector_hits, graph_result = await asyncio.gather(vector_task, graph_task)
 
             # Apply reranking if enabled
-            reranked_hits: list[RerankedHit] = []
             if use_reranking and reranker and vector_hits:
                 reranked_hits = await reranker.rerank(
                     query=query,
@@ -573,7 +573,7 @@ def create_ingest_text_tool(
             content_hash=content_hash,
             source_type=SourceType.TEXT,
             source_url=source_url,
-            metadata=DocumentMetadata(title=title) if title else None,
+            metadata=DocumentMetadata(title=title) if title else DocumentMetadata(),
         )
 
         result = await ingest_document_as_episode(

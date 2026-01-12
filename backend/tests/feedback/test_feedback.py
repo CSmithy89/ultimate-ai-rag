@@ -13,7 +13,6 @@ Tests cover:
 - Feedback decay logic
 """
 
-import math
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -23,7 +22,6 @@ from agentic_rag_backend.feedback import (
     DEFAULT_FEEDBACK_BOOST_MIN,
     DEFAULT_FEEDBACK_DECAY_DAYS,
     DEFAULT_FEEDBACK_MIN_SAMPLES,
-    EmbeddingProvider,
     FeedbackLoop,
     FeedbackLoopAdapter,
     FeedbackRecordResult,

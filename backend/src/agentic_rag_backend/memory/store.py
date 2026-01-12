@@ -9,7 +9,7 @@ Provides CRUD operations for scoped memories with:
 import inspect
 import json
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, AsyncIterator, Iterator, Optional, cast
 from uuid import UUID, uuid4
 
 import structlog
@@ -91,10 +91,14 @@ class ScopedMemoryStore:
         if embedding_api_key:
             try:
                 from agentic_rag_backend.embeddings import EmbeddingGenerator
-                from agentic_rag_backend.llm.providers import get_embedding_adapter
+                from agentic_rag_backend.llm.providers import (
+                    EmbeddingProviderAdapter,
+                    EmbeddingProviderType,
+                )
 
-                adapter = get_embedding_adapter(
-                    provider=embedding_provider,
+                provider_type = EmbeddingProviderType(embedding_provider)
+                adapter = EmbeddingProviderAdapter(
+                    provider=provider_type,
                     api_key=embedding_api_key,
                     base_url=embedding_base_url,
                     model=embedding_model,
@@ -1386,7 +1390,8 @@ class ScopedMemoryStore:
                 scan_iter = await scan_iter
 
             if hasattr(scan_iter, "__aiter__"):
-                async for key in scan_iter:
+                async_iter = cast(AsyncIterator[str], scan_iter)
+                async for key in async_iter:
                     keys_to_delete.append(key)
 
                     # Process in batches to avoid memory issues with large key sets
@@ -1397,7 +1402,8 @@ class ScopedMemoryStore:
                             await pipe.execute()
                         keys_to_delete = []
             else:
-                for key in scan_iter:
+                sync_iter = cast(Iterator[str], scan_iter)
+                for key in sync_iter:
                     keys_to_delete.append(key)
 
                     # Process in batches to avoid memory issues with large key sets

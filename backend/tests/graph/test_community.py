@@ -10,14 +10,13 @@ Tests cover:
 
 import pytest
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 from agentic_rag_backend.graph import (
     Community,
     CommunityAlgorithm,
     CommunityDetector,
-    CommunityDetectionError,
     CommunityNotFoundError,
     GraphTooSmallError,
     NETWORKX_AVAILABLE,

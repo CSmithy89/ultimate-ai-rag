@@ -10,10 +10,8 @@ Verifies AG-UI events and streams match specification:
 """
 
 import pytest
-from pydantic import ValidationError
 
 from agentic_rag_backend.models.copilot import (
-    AGUIEvent,
     AGUIEventType,
     CopilotMessage,
     CopilotRequest,

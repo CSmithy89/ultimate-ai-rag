@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 if TYPE_CHECKING:
-    import redis
+    from redis.asyncio import Redis as AsyncRedis
 from uuid import uuid4
 
 import httpx
@@ -133,7 +133,7 @@ class TaskDelegationManager:
         """Generate Redis key for a task result."""
         return f"{self._config.redis_prefix}:result:{task_id}"
 
-    def _get_redis(self) -> "redis.Redis | None":
+    def _get_redis(self) -> "AsyncRedis | None":
         """Get Redis client if available."""
         if not self._redis_client:
             return None

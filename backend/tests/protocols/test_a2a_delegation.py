@@ -8,7 +8,6 @@ import pytest
 from agentic_rag_backend.protocols.a2a_messages import (
     AgentCapability,
     TaskRequest,
-    TaskResult,
     TaskStatus,
 )
 from agentic_rag_backend.protocols.a2a_registry import A2AAgentRegistry, RegistryConfig
@@ -540,7 +539,7 @@ async def test_redis_result_persistence() -> None:
         mock_client_instance.__aexit__.return_value = None
         mock_client.return_value = mock_client_instance
 
-        result = await delegation_manager.delegate_task(
+        await delegation_manager.delegate_task(
             capability_name="test_cap",
             parameters={},
             tenant_id="tenant-123",
