@@ -333,8 +333,8 @@ development_status:
   # ADR-001 through ADR-004: GraphRAG, Protocols, Graphiti, CopilotKit
   18-24-create-glossary-terminology-reference: done  # Completed 2026-01-13 - See docs/glossary.md
   # A-Z domain term definitions
-  18-25-create-feature-discovery-matrix: backlog
-  # All features with profile requirements and config flags
+  18-25-create-feature-discovery-matrix: done  # Completed 2026-01-13 - See docs/feature-matrix.md
+  # All features with profile requirements and config flags (174 total features documented)
   18-26-create-testing-framework-documentation: backlog
   # Test categories, patterns, fixtures, coverage requirements
   18-27-create-security-best-practices-guide: backlog
