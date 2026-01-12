@@ -280,7 +280,7 @@ development_status:
   # Version checking and self-update mechanism
   17-19-create-framework-template-details-testing: done
   # Complete examples for PydanticAI, CrewAI, LangGraph, Anthropic SDK
-  epic-17-retrospective: optional
+  epic-17-retrospective: done
 
   # Epic 18: Enhanced Documentation & DevOps (The Manual)
   # DECISION (2026-01-04): Some docs already exist. Focus on completing remaining guides.
