@@ -312,7 +312,7 @@ development_status:
   # Memory scopes, consolidation, decay, importance scoring, cleanup
   18-14-create-ingestion-pipeline-guide: done  # Completed 2026-01-12 - See docs/guides/ingestion-pipeline.md
   # URL (Crawl4AI), PDF (Docling), YouTube, Codebase, External Sync (Confluence/S3/Notion/Drive/Discord)
-  18-15-create-graph-intelligence-guide: backlog
+  18-15-create-graph-intelligence-guide: done  # Completed 2026-01-12 - See docs/guides/graph-intelligence.md
   # Community detection, LazyRAG, global/local query routing, graph rerankers
   18-16-create-database-administration-guide: backlog
   # PostgreSQL/pgvector, Neo4j, Redis - connection pools, backups, maintenance
