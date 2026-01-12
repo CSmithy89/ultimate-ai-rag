@@ -318,7 +318,7 @@ development_status:
   # PostgreSQL/pgvector, Neo4j, Redis - connection pools, backups, maintenance
   18-17-create-openapi-reference-documentation: done  # Completed 2026-01-12 - See docs/guides/api-reference.md + backend/scripts/export_openapi.py
   # Auto-generated API reference with examples
-  18-18-create-deployment-production-guide: backlog
+  18-18-create-deployment-production-guide: done  # Created docs/guides/deployment-production.md (2026-01-13)
   # Docker Compose, Kubernetes, scaling, security hardening
   18-19-create-configuration-profiles-documentation: backlog
   # DEPENDS ON 17-8: Document minimal/standard/enterprise profiles
