@@ -306,13 +306,23 @@ Detailed epic specs and reports live in `_bmad-output/epics/`.
   - 80% coverage thresholds enforced in CI
   - Composite tenant rate limiting for telemetry endpoints
 
+### Epic 17: Developer Experience, CLI & Framework Integration
+- Status: Complete
+- Stories: 18/18 completed
+- Key Features:
+  - rag-install CLI with fast path, customization, and docker health checks
+  - Profile-based configuration architecture with minimal/standard/enterprise defaults
+  - CLI setup wizard for ingestion, memory, graph, voice, observability, codebase, and protocols
+  - Framework starter templates for PydanticAI, CrewAI, LangGraph, and Anthropic SDK
+  - Agent Skills templates with MCP tool mappings and install flag
+  - CLI doctor, migrate, and update commands with tests
+
 ## Roadmap
 
 ### Backlog Epics
 
 | Epic | Focus | Status |
 |------|-------|--------|
-| **Epic 17** | Developer Experience, CLI & Framework Integration | Backlog |
 | **Epic 18** | Enhanced Documentation & DevOps | Backlog |
 
 ### Deprecated Epics

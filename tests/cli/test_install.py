@@ -123,10 +123,16 @@ def test_invalid_neo4j_uri_fails() -> None:
         )
         assert result.exit_code != 0
 
+
+def test_profile_enterprise_from_high_ram(monkeypatch) -> None:
+    monkeypatch.setattr(install_module, "_detect_gpu", lambda: "not detected")
     monkeypatch.setattr(install_module, "_read_total_memory_gb", lambda: 64)
     profile, _ = install_module._recommend_profile()
     assert profile == "enterprise"
 
+
+def test_profile_standard_from_unknown_ram(monkeypatch) -> None:
+    monkeypatch.setattr(install_module, "_detect_gpu", lambda: "not detected")
     monkeypatch.setattr(install_module, "_read_total_memory_gb", lambda: None)
     profile, _ = install_module._recommend_profile()
     assert profile == "standard"

@@ -228,7 +228,8 @@ def _write_env(selections: InstallSelections, template_path: Path, output_path: 
         "# ═══════════════════════════════════════════════════════════════",
     ]
     if output_path.exists():
-        output_path.replace(output_path.with_suffix(".env.bak"))
+        backup_path = output_path.parent / (output_path.name + ".bak")
+        output_path.replace(backup_path)
     output_path.write_text("\n".join([*header_lines, *lines]) + "\n", encoding="utf-8")
 
 
