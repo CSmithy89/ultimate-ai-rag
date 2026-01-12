@@ -289,7 +289,7 @@ development_status:
   epic-18: in-progress
   # DevOps Automation
   18-1-document-observability-metrics: done
-  18-2-configure-dependabot-security-updates: backlog
+  18-2-configure-dependabot-security-updates: done
   18-3-configure-codeql-analysis: backlog
   # New Documentation
   18-4-document-provider-configuration-guide: backlog
