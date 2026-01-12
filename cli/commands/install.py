@@ -146,7 +146,7 @@ def _run_docker_compose(console: Console, dry_run: bool) -> None:
     try:
         import subprocess
 
-        result = subprocess.run(command, check=False, capture_output=True, text=True)
+        result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=300)
         if result.returncode != 0:
             output = result.stderr.strip() or result.stdout.strip()
             message = output or "Docker compose failed"
@@ -155,6 +155,8 @@ def _run_docker_compose(console: Console, dry_run: bool) -> None:
             raise typer.BadParameter(message)
     except FileNotFoundError:
         raise typer.BadParameter("Docker not installed. Install Docker Desktop or engine")
+    except subprocess.TimeoutExpired:
+        raise typer.BadParameter("Docker compose timed out after 300s. Check docker logs")
 
 
 def _check_url(url: str, timeout: float) -> bool:

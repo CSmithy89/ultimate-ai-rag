@@ -42,11 +42,18 @@ def main() -> None:
     )
 
     if response.stop_reason == "tool_use":
-        tool_use = next(block for block in response.content if block.type == "tool_use")
-        tool_result = call_mcp_tool(tool_use.name, tool_use.input)
-        print(tool_result)
-    else:
+        tool_use = next(
+            (block for block in response.content if block.type == "tool_use"), None
+        )
+        if tool_use:
+            tool_result = call_mcp_tool(tool_use.name, tool_use.input)
+            print(tool_result)
+        else:
+            print("Error: Expected tool_use block not found in response")
+    elif response.content and hasattr(response.content[0], "text"):
         print(response.content[0].text)
+    else:
+        print("No text content in response")
 
 
 if __name__ == "__main__":

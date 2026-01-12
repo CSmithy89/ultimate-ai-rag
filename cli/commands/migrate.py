@@ -80,16 +80,27 @@ def _diff_overrides(base: dict[str, Any], env_values: dict[str, str]) -> dict[st
         if base_value is None:
             _set_nested(overrides, path, typed_value)
             continue
-        if str(base_value).lower() != env_value.lower():
+        if typed_value != base_value:
             _set_nested(overrides, path, typed_value)
     return overrides
+
+
+def _count_leaf_overrides(config: dict[str, Any]) -> int:
+    """Count leaf values in nested dict (actual override count)."""
+    count = 0
+    for value in config.values():
+        if isinstance(value, dict):
+            count += _count_leaf_overrides(value)
+        else:
+            count += 1
+    return count
 
 
 def analyze(profile: str = "standard", env_path: Path = Path(".env")) -> dict[str, Any]:
     base = load_profile(profile)
     env_values = parse_env_file(env_path)
     overrides = _diff_overrides(base, env_values)
-    return {"profile": profile, "override_count": len(overrides), "overrides": overrides}
+    return {"profile": profile, "override_count": _count_leaf_overrides(overrides), "overrides": overrides}
 
 
 def run_analyze(profile: str | None = typer.Option(None, "--profile")) -> None:
