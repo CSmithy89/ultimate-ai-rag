@@ -290,7 +290,7 @@ development_status:
   # DevOps Automation
   18-1-document-observability-metrics: done
   18-2-configure-dependabot-security-updates: done
-  18-3-configure-codeql-analysis: backlog
+  18-3-configure-codeql-analysis: done
   # New Documentation
   18-4-document-provider-configuration-guide: backlog
   # NOTE: 18-5 extends existing docs/guides/advanced-retrieval-configuration.md
