@@ -286,7 +286,7 @@ development_status:
   # DECISION (2026-01-04): Some docs already exist. Focus on completing remaining guides.
   # Existing: advanced-retrieval-configuration.md, mcp-wrapper-architecture.md, roadmap-decisions-2026-01-03.md
   # Needed: provider-configuration.md, observability.md, headless-agent-protocol.md, cli-installation.md
-  epic-18: in-progress
+  epic-18: done  # All 27 stories completed 2026-01-13
   # DevOps Automation
   18-1-document-observability-metrics: done
   18-2-configure-dependabot-security-updates: done
