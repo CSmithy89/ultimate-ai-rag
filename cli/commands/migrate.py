@@ -6,7 +6,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from cli.profile import load_profile, write_custom_profile
+from cli.profile import load_profile, parse_env_file, write_custom_profile
 
 ENV_TO_PROFILE_PATH = {
     "LLM_PROVIDER": ("llm", "provider"),
@@ -32,16 +32,6 @@ ENV_TO_PROFILE_PATH = {
     "A2A_MAX_SESSIONS_PER_TENANT": ("protocols", "a2a", "max_sessions_per_tenant"),
     "A2A_MAX_MESSAGES_PER_SESSION": ("protocols", "a2a", "max_messages_per_session"),
 }
-
-
-def _parse_env(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line or line.strip().startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        values[key.strip()] = value.strip()
-    return values
 
 
 def _get_nested(config: dict[str, Any], path: tuple[str, ...]) -> Any:
@@ -77,7 +67,7 @@ def _diff_overrides(base: dict[str, Any], env_values: dict[str, str]) -> dict[st
 
 def analyze(profile: str = "standard", env_path: Path = Path(".env")) -> dict[str, Any]:
     base = load_profile(profile)
-    env_values = _parse_env(env_path)
+    env_values = parse_env_file(env_path)
     overrides = _diff_overrides(base, env_values)
     return {"profile": profile, "override_count": len(overrides), "overrides": overrides}
 
@@ -88,7 +78,10 @@ def run_analyze(profile: str | None = typer.Option(None, "--profile")) -> None:
     if not env_path.exists():
         raise typer.BadParameter(".env not found")
     profile_name = profile or "standard"
-    result = analyze(profile_name, env_path)
+    try:
+        result = analyze(profile_name, env_path)
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     console.print(f"Base profile: {result['profile']}")
     console.print(f"Overrides: {result['override_count']}")
 
@@ -99,6 +92,12 @@ def run_execute(profile: str | None = typer.Option(None, "--profile")) -> None:
     if not env_path.exists():
         raise typer.BadParameter(".env not found")
     profile_name = profile or "standard"
-    result = analyze(profile_name, env_path)
+    try:
+        result = analyze(profile_name, env_path)
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    if not result["overrides"]:
+        console.print("No overrides detected - custom profile not written")
+        return
     write_custom_profile(result["overrides"])
     console.print("Custom profile written to config/profiles/custom.yaml")

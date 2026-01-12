@@ -9,21 +9,13 @@ from urllib.request import urlopen
 import typer
 from rich.console import Console
 
-
-def _parse_env_file(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line or line.strip().startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        values[key.strip()] = value.strip()
-    return values
+from cli.profile import parse_env_file
 
 
 def _check_url(url: str) -> bool:
     try:
         with urlopen(url, timeout=2.0) as response:
-            return 200 <= response.status < 500
+            return 200 <= response.status < 300
     except (URLError, TimeoutError):
         return False
 
@@ -50,8 +42,8 @@ def run_doctor(
 
     profile_name = "standard"
     if env_path.exists():
-        env_values = _parse_env_file(env_path)
-        profile_name = env_values.get("CONFIG_PROFILE", "standard")
+        env_values = parse_env_file(env_path)
+        profile_name = env_values.get("CONFIG_PROFILE", "").strip() or "standard"
     profile_path = Path("config/profiles") / f"{profile_name}.yaml"
     if profile_path.exists():
         checks.append({"check": "profile", "status": "ok", "profile": profile_name})

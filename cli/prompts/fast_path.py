@@ -50,14 +50,14 @@ def run_fast_path(
             f"Enter {llm_provider} API key",
             password=True,
             console=console,
-        )
+        ).strip()
         while not validate_api_key(llm_provider, api_key):
             console.print("Invalid key format. Please try again.")
             api_key = Prompt.ask(
                 f"Enter {llm_provider} API key",
                 password=True,
                 console=console,
-            )
+            ).strip()
 
     framework = Prompt.ask(
         "Generate framework starter?",

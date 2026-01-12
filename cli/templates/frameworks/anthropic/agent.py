@@ -9,8 +9,10 @@ RAG_BASE_URL = os.getenv("RAG_BASE_URL", "http://localhost:8000")
 client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 
-def call_mcp_tool(tool_name: str, params: dict) -> str:
-    payload = {"tool": tool_name, "params": params}
+def call_mcp_tool(tool_name: str, arguments: dict) -> str:
+    if "tenant_id" not in arguments:
+        arguments["tenant_id"] = "default"
+    payload = {"tool": tool_name, "arguments": arguments}
     response = httpx.post(f"{RAG_BASE_URL}/api/v1/mcp/call", json=payload, timeout=30.0)
     response.raise_for_status()
     data = response.json()

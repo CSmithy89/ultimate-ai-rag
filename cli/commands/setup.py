@@ -13,6 +13,13 @@ def _prompt_bool(console: Console, label: str, default: bool) -> bool:
     return Confirm.ask(label, default=default, console=console)
 
 
+def _safe_int(value: str, default: int) -> int:
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
 def run_setup(
     category: str | None = typer.Option(None, "--category"),
     profile: str | None = typer.Option(None, "--profile"),
@@ -225,25 +232,27 @@ def run_setup(
         mcp_defaults = protocols_defaults.get("mcp", {})
 
         a2a_enabled = bool(a2a_defaults.get("enabled", True))
-        max_sessions = int(a2a_defaults.get("max_sessions_per_tenant", 100))
-        max_messages = int(a2a_defaults.get("max_messages_per_session", 1000))
+        max_sessions = _safe_int(a2a_defaults.get("max_sessions_per_tenant", 100), 100)
+        max_messages = _safe_int(a2a_defaults.get("max_messages_per_session", 1000), 1000)
         mcp_enabled = bool(mcp_defaults.get("enabled", True))
 
         if not yes:
             a2a_enabled = _prompt_bool(console, "Enable A2A protocol?", a2a_enabled)
-            max_sessions = int(
+            max_sessions = _safe_int(
                 Prompt.ask(
                     "A2A max sessions per tenant",
                     default=str(max_sessions),
                     console=console,
-                )
+                ),
+                max_sessions,
             )
-            max_messages = int(
+            max_messages = _safe_int(
                 Prompt.ask(
                     "A2A max messages per session",
                     default=str(max_messages),
                     console=console,
-                )
+                ),
+                max_messages,
             )
             mcp_enabled = _prompt_bool(console, "Enable MCP protocol?", mcp_enabled)
 

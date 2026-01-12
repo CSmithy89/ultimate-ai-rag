@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import TypedDict
 
-from langgraph.graph import END, StateGraph
+from langgraph.graph import StateGraph
 
 from nodes import query_rag
 
