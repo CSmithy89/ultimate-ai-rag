@@ -323,7 +323,7 @@ development_status:
   18-19-create-configuration-profiles-documentation: done  # Completed 2026-01-13 - See docs/guides/configuration-profiles.md
   # DEPENDS ON 17-8: Document minimal/standard/enterprise profiles
   # NEW (2026-01-11): Comprehensive documentation coverage for all 200+ features
-  18-20-create-advanced-retrieval-deep-dive: backlog
+  18-20-create-advanced-retrieval-deep-dive: done  # Completed 2026-01-13 - See docs/guides/advanced-retrieval-deep-dive.md
   # Cohere/FlashRank/ColBERT reranking, CRAG, sparse vectors, cross-language
   18-21-create-troubleshooting-guide: backlog
   # Common issues, diagnostic commands, debug mode
