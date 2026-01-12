@@ -436,6 +436,135 @@ async def vector_search(query: str, top_k: int = 10) -> list[Document]:
 
 ---
 
+## Client Integration Examples
+
+This section provides configuration examples for connecting various MCP clients to the Agentic RAG MCP server.
+
+### Claude Desktop
+
+Add the following to your `claude_desktop_config.json` (typically located at `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+
+```json
+{
+  "mcpServers": {
+    "agentic-rag": {
+      "command": "uvx",
+      "args": ["agentic-rag-mcp"]
+    }
+  }
+}
+```
+
+For authenticated connections with API key:
+
+```json
+{
+  "mcpServers": {
+    "agentic-rag": {
+      "command": "uvx",
+      "args": ["agentic-rag-mcp"],
+      "env": {
+        "MCP_API_KEY": "your-api-key"
+      }
+    }
+  }
+}
+```
+
+### Cursor
+
+Add the following to your Cursor settings.json:
+
+```json
+{
+  "mcp.servers": {
+    "agentic-rag": {
+      "command": "uvx",
+      "args": ["agentic-rag-mcp"]
+    }
+  }
+}
+```
+
+Alternatively, for HTTP transport (when connecting to a running MCP server):
+
+```json
+{
+  "mcp.servers": {
+    "agentic-rag": {
+      "url": "http://localhost:8080/mcp",
+      "transport": "http"
+    }
+  }
+}
+```
+
+### VS Code + Continue
+
+For VS Code with the Continue extension, add to your Continue configuration:
+
+```json
+{
+  "mcpServers": [
+    {
+      "name": "agentic-rag",
+      "command": "uvx",
+      "args": ["agentic-rag-mcp"]
+    }
+  ]
+}
+```
+
+### Programmatic Usage
+
+For direct programmatic integration with the MCP server:
+
+```python
+from agentic_rag import MCPClient
+
+async with MCPClient("http://localhost:8000/mcp") as client:
+    # Search using hybrid retrieval
+    results = await client.call("hybrid_retrieve", {
+        "query": "authentication flow",
+        "top_k": 10
+    })
+
+    # Ingest content from a URL
+    await client.call("ingest_url", {
+        "url": "https://docs.example.com",
+        "max_depth": 2
+    })
+
+    # Vector search
+    docs = await client.call("vector_search", {
+        "query": "How to configure OAuth?",
+        "top_k": 5
+    })
+
+    # Graph search
+    nodes = await client.call("search_nodes", {
+        "query": "User authentication",
+        "limit": 10
+    })
+```
+
+### Authentication
+
+All MCP endpoints support API key authentication:
+
+- **Header-based**: Include `X-API-Key: your-key` in request headers
+- **Environment variable**: Set `MCP_API_KEY` in client configuration
+
+### Rate Limiting
+
+Default rate limits apply to all clients:
+
+- **Default**: 100 requests/minute per API key
+- **Burst**: 10 concurrent requests
+- Configure via `MCP_RATE_LIMIT_RPM` and `MCP_RATE_LIMIT_BURST` environment variables
+
+---
+
 ## Testing
 
 ### Integration Test Example
