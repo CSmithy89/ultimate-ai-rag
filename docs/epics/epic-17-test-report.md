@@ -1,6 +1,6 @@
 # Epic 17 Test Validation Report
 
-**Date:** 2026-01-12T10:25:24+10:00
+**Date:** 2026-01-12T17:56:51+10:00
 **Branch:** epic/17-developer-experience-cli
 
 ## Test Results
@@ -11,7 +11,7 @@
 
 Notes:
 - Frontend jest completed: 43 suites, 996 tests passed.
-- Backend pytest started (2501 collected) but timed out after 900s.
+- Backend pytest started (2501 collected) but timed out after 1800s.
 - Console warnings during frontend tests (act warnings, mocked media/tts errors) did not fail the suite.
 
 ## Type Check
@@ -43,6 +43,6 @@ Notes:
 **FAIL**
 
 Blocking issues:
-- Backend test suite did not complete within 900s.
+- Backend test suite did not complete within 1800s.
 - Type-check failed (mypy errors).
 - Lint failed (ruff errors).
