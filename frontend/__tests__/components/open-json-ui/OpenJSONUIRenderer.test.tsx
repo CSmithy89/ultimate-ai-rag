@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 /**
  * Tests for OpenJSONUIRenderer Component
  * Story 22-C2: Implement Open-JSON-UI Renderer

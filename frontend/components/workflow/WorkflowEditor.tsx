@@ -27,6 +27,10 @@ const nodeTypes: NodeTypes = {
   workflowNode: WorkflowNode,
 };
 
+const validNodeTypes: WorkflowNodeType[] = [
+  'ingest', 'chunk', 'embed', 'extract', 'index', 'retrieve', 'rerank', 'respond'
+];
+
 interface WorkflowEditorProps {
   enabled?: boolean;
 }
@@ -73,13 +77,6 @@ export function WorkflowEditor({ enabled = true }: WorkflowEditorProps) {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
   }, []);
-
-  /**
-   * Valid node types for runtime validation.
-   */
-  const validNodeTypes: WorkflowNodeType[] = [
-    'ingest', 'chunk', 'embed', 'extract', 'index', 'retrieve', 'rerank', 'respond'
-  ];
 
   /**
    * Handle drop on canvas.

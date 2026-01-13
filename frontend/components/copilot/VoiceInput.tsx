@@ -107,6 +107,41 @@ export const VoiceInput = memo(function VoiceInput({
     }
   }, []);
 
+  const transcribeAudio = useCallback(
+    async (blob: Blob, mimeType: string) => {
+      setIsTranscribing(true);
+      setError(null);
+
+      try {
+        const extension = getFileExtension(mimeType);
+        const formData = new FormData();
+        formData.append("audio", blob, `recording.${extension}`);
+
+        const response = await fetch(`/api/copilot/transcribe?language=${language}`, {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.detail || `Transcription failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (data.text) {
+          onTranscription(data.text);
+        }
+      } catch (err) {
+        console.error("Transcription error:", err);
+        setError(err instanceof Error ? err.message : "Transcription failed");
+      } finally {
+        setIsTranscribing(false);
+      }
+    },
+    [language, onTranscription]
+  );
+
   const startRecording = useCallback(async () => {
     setError(null);
 
@@ -159,7 +194,7 @@ export const VoiceInput = memo(function VoiceInput({
         setError("Failed to start recording");
       }
     }
-  }, [cleanupStream]);
+  }, [cleanupStream, transcribeAudio]);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && isRecording) {
@@ -176,41 +211,6 @@ export const VoiceInput = memo(function VoiceInput({
       setIsRecording(false);
     }
   }, [isRecording]);
-
-  const transcribeAudio = useCallback(
-    async (blob: Blob, mimeType: string) => {
-      setIsTranscribing(true);
-      setError(null);
-
-      try {
-        const extension = getFileExtension(mimeType);
-        const formData = new FormData();
-        formData.append("audio", blob, `recording.${extension}`);
-
-        const response = await fetch(`/api/copilot/transcribe?language=${language}`, {
-          method: "POST",
-          body: formData,
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.detail || `Transcription failed: ${response.status}`);
-        }
-
-        const data = await response.json();
-
-        if (data.text) {
-          onTranscription(data.text);
-        }
-      } catch (err) {
-        console.error("Transcription error:", err);
-        setError(err instanceof Error ? err.message : "Transcription failed");
-      } finally {
-        setIsTranscribing(false);
-      }
-    },
-    [language, onTranscription]
-  );
 
   const handleClick = useCallback(() => {
     if (isRecording) {
