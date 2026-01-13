@@ -1,5 +1,6 @@
 """Configuration management for the Agentic RAG Backend."""
 
+import copy
 import json
 import os
 import secrets
@@ -55,13 +56,19 @@ class ConfigLoader:
         self._config: dict[str, Any] = {}
 
     def load(self) -> dict[str, Any]:
-        profile_path = self.PROFILE_DIR / f"{self.profile}.yaml"
-        if not profile_path.exists():
-            raise ValueError(f"Profile not found: {self.profile}")
-        with profile_path.open("r", encoding="utf-8") as handle:
-            self._config = yaml.safe_load(handle) or {}
-        _validate_profile_config(self.profile, self._config)
+        self._config = copy.deepcopy(_load_profile_from_disk(self.profile))
         return self._config
+
+
+@lru_cache(maxsize=8)
+def _load_profile_from_disk(profile: str) -> dict[str, Any]:
+    profile_path = ConfigLoader.PROFILE_DIR / f"{profile}.yaml"
+    if not profile_path.exists():
+        raise ValueError(f"Profile not found: {profile}")
+    with profile_path.open("r", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle) or {}
+    _validate_profile_config(profile, config)
+    return config
 
 
 class LLMProfile(BaseModel):

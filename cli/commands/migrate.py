@@ -111,7 +111,7 @@ def run_analyze(profile: str | None = typer.Option(None, "--profile")) -> None:
     profile_name = profile or "standard"
     try:
         result = analyze(profile_name, env_path)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ValueError) as exc:
         raise typer.BadParameter(str(exc)) from exc
     console.print(f"Base profile: {result['profile']}")
     console.print(f"Overrides: {result['override_count']}")
@@ -125,10 +125,13 @@ def run_execute(profile: str | None = typer.Option(None, "--profile")) -> None:
     profile_name = profile or "standard"
     try:
         result = analyze(profile_name, env_path)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ValueError) as exc:
         raise typer.BadParameter(str(exc)) from exc
     if not result["overrides"]:
         console.print("No overrides detected - custom profile not written")
         return
-    write_custom_profile(result["overrides"])
+    try:
+        write_custom_profile(result["overrides"])
+    except (PermissionError, OSError) as exc:
+        raise typer.BadParameter(f"Failed to write custom profile: {exc}") from exc
     console.print("Custom profile written to config/profiles/custom.yaml")

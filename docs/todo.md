@@ -40,22 +40,22 @@
 
 ## Epic 17 Review Follow-ups
 ### High Priority
-- [ ] Tighten API key validation for non-prefixed providers (Gemini) in `cli/prompts/shared.py`.
-- [ ] Align CLI health checks so install/doctor use the same success criteria (2xx only).
-- [ ] Add schema validation for CLI profile loading in `cli/profile.py` (reuse backend ProfileConfig).
+- [x] Tighten API key validation for non-prefixed providers (Gemini) in `cli/prompts/shared.py`.
+- [x] Align CLI health checks so install/doctor use the same success criteria (2xx only).
+- [x] Add schema validation for CLI profile loading in `cli/profile.py` (reuse backend ProfileConfig).
 
 ### Medium Priority
-- [ ] Warn when CLI timeout env vars are invalid and defaulting in `cli/commands/install.py`.
-- [ ] Improve secret masking for short keys (mask more than last 4 chars).
-- [ ] Cache backend profile loading (avoid re-reading YAML per call).
-- [ ] Add negative-path tests: invalid YAML profiles, health check timeouts, disk full on .env write, permission errors for profile creation.
-- [ ] Replace magic numbers for RAM thresholds with named constants in `cli/commands/install.py`.
+- [x] Warn when CLI timeout env vars are invalid and defaulting in `cli/commands/install.py`.
+- [x] Improve secret masking for short keys (mask more than last 4 chars).
+- [x] Cache backend profile loading (avoid re-reading YAML per call).
+- [x] Add negative-path tests: invalid YAML profiles, health check timeouts, disk full on .env write, permission errors for profile creation.
+- [x] Replace magic numbers for RAM thresholds with named constants in `cli/commands/install.py`.
 
 ### Low Priority
-- [ ] Parallelize backend/frontend health checks during install to reduce wait time.
-- [ ] Standardize CLI error messages (consistent typer.BadParameter usage).
-- [ ] Normalize import ordering in CLI modules to stdlib/third-party/local.
-- [ ] Add docstrings for CLI public functions where missing.
+- [x] Parallelize backend/frontend health checks during install to reduce wait time.
+- [x] Standardize CLI error messages (consistent typer.BadParameter usage).
+- [x] Normalize import ordering in CLI modules to stdlib/third-party/local.
+- [x] Add docstrings for CLI public functions where missing.
 
 ## Implemented
 - [x] Fix backend app export so `from agentic_rag_backend import app` works.

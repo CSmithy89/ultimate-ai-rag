@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +21,10 @@ from cli.ui.panels import header_panel, success_panel, summary_panel
 
 DEFAULT_SUBPROCESS_TIMEOUT_S = 5.0
 DEFAULT_DOCKER_TIMEOUT_S = 300.0
+MIN_PROFILE_RAM_GB = 16
+ENTERPRISE_PROFILE_RAM_GB = 32
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -38,8 +44,15 @@ def _get_timeout(env_key: str, default: float) -> float:
     if raw_value is None or raw_value.strip() == "":
         return default
     try:
-        return float(raw_value)
+        value = float(raw_value)
+        if value <= 0:
+            raise ValueError("timeout must be positive")
+        return value
     except ValueError:
+        _logger.warning(
+            "invalid_timeout_value",
+            extra={"env_key": env_key, "value": raw_value, "default": default},
+        )
         return default
 
 
@@ -103,9 +116,9 @@ def _recommend_profile() -> tuple[str, list[str]]:
     gpu_info = _detect_gpu()
     profile = "standard"
     if ram_gb is not None:
-        if ram_gb < 16:
+        if ram_gb < MIN_PROFILE_RAM_GB:
             profile = "minimal"
-        elif ram_gb >= 32:
+        elif ram_gb >= ENTERPRISE_PROFILE_RAM_GB:
             profile = "enterprise"
     summary_lines = [f"CPU: {cpu_count} cores"]
     if ram_gb is None:
@@ -152,8 +165,15 @@ def _validate_neo4j_uri(value: str) -> None:
 def _mask_secret(value: str) -> str:
     if not value:
         return ""
+    length = len(value)
+    if length <= 4:
+        return "*" * length
+    if length < 12:
+        head = value[:2]
+        tail = value[-2:]
+        return f"{head}{'*' * max(0, length - 4)}{tail}"
     tail = value[-4:]
-    return f"{'*' * max(0, len(value) - 4)}{tail}"
+    return f"{'*' * max(0, length - 4)}{tail}"
 
 
 def _run_docker_compose(console: Console, dry_run: bool) -> None:
@@ -186,9 +206,21 @@ def _run_docker_compose(console: Console, dry_run: bool) -> None:
 def _check_url(url: str, timeout: float) -> bool:
     try:
         with urlopen(url, timeout=timeout) as response:
-            return 200 <= response.status < 500
+            return 200 <= response.status < 300
     except (URLError, TimeoutError):
         return False
+
+
+def _wait_for_services(console: Console, services: list[tuple[str, str]]) -> None:
+    if len(services) == 1:
+        name, url = services[0]
+        _wait_for_service(console, name, url)
+        return
+
+    with ThreadPoolExecutor(max_workers=len(services)) as executor:
+        futures = [executor.submit(_wait_for_service, console, name, url) for name, url in services]
+        for future in futures:
+            future.result()
 
 
 def _wait_for_service(console: Console, name: str, url: str, timeout_s: float = 30.0) -> None:
@@ -218,6 +250,8 @@ def _write_env(selections: InstallSelections, template_path: Path, output_path: 
         elif selections.llm_provider == "openrouter":
             lines = _update_env_lines(lines, "OPENROUTER_API_KEY", selections.api_key)
         elif selections.llm_provider == "gemini":
+            if not validate_api_key("gemini", selections.api_key):
+                raise typer.BadParameter("Gemini keys start with 'AIza' and are 32+ characters")
             lines = _update_env_lines(lines, "GEMINI_API_KEY", selections.api_key)
 
     lines = _update_env_lines(lines, "EMBEDDING_PROVIDER", selections.embedding_provider)
@@ -349,6 +383,7 @@ def run_install(
     dry_run: bool = typer.Option(False, "--dry-run"),
     with_skills: bool = typer.Option(False, "--with-skills"),
 ) -> None:
+    """Run the interactive install flow for the CLI."""
     console = Console()
     recommended_profile, hardware_lines = _recommend_profile()
 
@@ -380,8 +415,7 @@ def run_install(
     template_path = Path(".env.example")
     output_path = Path(".env")
     if not template_path.exists():
-        console.print("Missing .env.example template. Run from the repo root.")
-        raise typer.Exit(code=1)
+        raise typer.BadParameter("Missing .env.example template. Run from the repo root.")
 
     _write_env(selections, template_path, output_path)
 
@@ -393,8 +427,13 @@ def run_install(
     _run_docker_compose(console, dry_run)
     if not dry_run:
         console.print("Starting services...")
-        _wait_for_service(console, "Backend", "http://localhost:8000/health")
-        _wait_for_service(console, "Frontend", "http://localhost:3000")
+        _wait_for_services(
+            console,
+            [
+                ("Backend", "http://localhost:8000/health"),
+                ("Frontend", "http://localhost:3000"),
+            ],
+        )
 
     success_lines = [
         "Your RAG system configuration is ready.",

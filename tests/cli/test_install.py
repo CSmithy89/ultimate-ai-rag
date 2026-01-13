@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import errno
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from cli.main import app
@@ -136,3 +138,36 @@ def test_profile_standard_from_unknown_ram(monkeypatch) -> None:
     monkeypatch.setattr(install_module, "_read_total_memory_gb", lambda: None)
     profile, _ = install_module._recommend_profile()
     assert profile == "standard"
+
+
+def test_health_check_timeout_returns_false(monkeypatch) -> None:
+    def raise_timeout(*args, **kwargs):
+        raise TimeoutError("timeout")
+
+    monkeypatch.setattr(install_module, "urlopen", raise_timeout)
+    assert install_module._check_url("http://localhost:8000/health", timeout=0.1) is False
+
+
+def test_write_env_propagates_disk_full(tmp_path, monkeypatch) -> None:
+    def raise_disk_full(*args, **kwargs) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    template_path = tmp_path / ".env.example"
+    template_path.write_text("LLM_PROVIDER=openai\n", encoding="utf-8")
+    output_path = tmp_path / ".env"
+
+    selections = install_module.InstallSelections(
+        profile="standard",
+        llm_provider="openai",
+        api_key=None,
+        framework="none",
+        embedding_provider="openai",
+        enable_reranking=False,
+        enable_contextual_retrieval=False,
+        enable_voice=False,
+    )
+
+    monkeypatch.setattr(Path, "write_text", raise_disk_full)
+
+    with pytest.raises(OSError, match="No space left"):
+        install_module._write_env(selections, template_path, output_path)

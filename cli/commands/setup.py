@@ -29,10 +29,13 @@ def run_setup(
     profile_name = (profile or os.getenv("CONFIG_PROFILE", "standard")).strip().lower()
     try:
         base_config = load_profile(profile_name)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ValueError) as exc:
         raise typer.BadParameter(str(exc)) from exc
 
-    custom_config = load_custom_profile()
+    try:
+        custom_config = load_custom_profile()
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     if category is None and not yes:
         target_category = Prompt.ask(
             "Select setup category",
@@ -267,5 +270,8 @@ def run_setup(
             },
         }
 
-    write_custom_profile(custom_config)
+    try:
+        write_custom_profile(custom_config)
+    except (PermissionError, OSError) as exc:
+        raise typer.BadParameter(f"Failed to write custom profile: {exc}") from exc
     console.print("Configuration saved to config/profiles/custom.yaml")

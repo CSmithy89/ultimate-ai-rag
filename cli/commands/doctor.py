@@ -26,6 +26,7 @@ def run_doctor(
     service: str | None = typer.Option(None, "--service"),
     fix: bool = typer.Option(False, "--fix"),
 ) -> None:
+    """Run CLI health checks for environment and services."""
     console = Console()
     checks: list[dict[str, Any]] = []
 
