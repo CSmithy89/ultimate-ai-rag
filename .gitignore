@@ -43,3 +43,6 @@ venv/
 .env
 .env.bak
 config/profiles/custom.yaml
+
+# Playwright MCP test artifacts
+.playwright-mcp/
