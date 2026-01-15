@@ -98,6 +98,7 @@ export function useGenerativeUI(options: UseGenerativeUIOptions = {}) {
   useCopilotAction({
     name: "show_sources",
     description: "Display retrieved sources as citation cards",
+    available: "disabled",  // Render-only action (CopilotKit 1.50+ requires this)
     parameters: [
       {
         name: "sources",
@@ -158,6 +159,7 @@ export function useGenerativeUI(options: UseGenerativeUIOptions = {}) {
   useCopilotAction({
     name: "show_answer",
     description: "Display a formatted answer with markdown and source references",
+    available: "disabled",  // Render-only action (CopilotKit 1.50+ requires this)
     parameters: [
       {
         name: "answer",
@@ -214,6 +216,7 @@ export function useGenerativeUI(options: UseGenerativeUIOptions = {}) {
   useCopilotAction({
     name: "show_knowledge_graph",
     description: "Display a mini knowledge graph visualization",
+    available: "disabled",  // Render-only action (CopilotKit 1.50+ requires this)
     parameters: [
       {
         name: "nodes",

@@ -4,10 +4,14 @@ services:
     command: uvicorn agentic_rag_backend.main:app --host 0.0.0.0 --port 8000 --reload
     env_file:
       - .env
+    environment:
+      - CONFIG_PROFILE_DIR=/app/config/profiles
+      - PYTHONPATH=/app/src
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - ./config:/app/config
     depends_on:
       - postgres
       - neo4j

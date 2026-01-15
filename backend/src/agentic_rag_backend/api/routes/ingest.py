@@ -82,7 +82,8 @@ def success_response(data: Any) -> dict[str, Any]:
 # Dependency injection for database clients from app.state
 async def get_redis(request: Request) -> RedisClient:
     """Get Redis client from app.state."""
-    return request.app.state.redis
+    # Use redis_client which has publish_job method for job queuing
+    return request.app.state.redis_client
 
 
 async def get_postgres(request: Request) -> PostgresClient:
@@ -412,3 +413,5 @@ async def list_jobs(
         "limit": limit,
         "offset": offset,
     })
+
+

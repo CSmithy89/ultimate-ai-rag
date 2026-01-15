@@ -38,6 +38,9 @@ export function AGUIErrorListener(): null {
   const handledRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
+    if (!visibleMessages || !Array.isArray(visibleMessages)) {
+      return;
+    }
     visibleMessages.forEach((message: any) => {
       const status = message?.status;
       if (!status || status.code !== "Failed") {

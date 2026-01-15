@@ -49,7 +49,13 @@ _PROFILE_ENV_MAPPING: dict[tuple[str, ...], str] = {
 class ConfigLoader:
     """Load configuration from profile files with environment overrides."""
 
-    PROFILE_DIR = Path(__file__).resolve().parents[3] / "config" / "profiles"
+    # Allow override via environment variable for Docker deployments
+    _env_profile_dir = os.getenv("CONFIG_PROFILE_DIR")
+    PROFILE_DIR = (
+        Path(_env_profile_dir)
+        if _env_profile_dir
+        else Path(__file__).resolve().parents[3] / "config" / "profiles"
+    )
 
     def __init__(self, profile: str = "standard"):
         self.profile = profile
