@@ -29,6 +29,8 @@ services:
     command: pnpm dev -H 0.0.0.0 -p 3000
     env_file:
       - .env
+    environment:
+      - COPILOT_BACKEND_URL=http://backend:8000
     ports:
       - "3000:3000"
     volumes:
@@ -41,6 +43,58 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Ingestion pipeline workers
+  crawl-worker:
+    build: ./backend
+    command: python -m agentic_rag_backend.indexing.workers.crawl_worker
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app/src
+      - CONSUMER_NAME=crawl-worker-1
+    volumes:
+      - ./backend:/app
+      - ./config:/app/config
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  parse-worker:
+    build: ./backend
+    command: python -m agentic_rag_backend.indexing.workers.parse_worker
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app/src
+      - CONSUMER_NAME=parse-worker-1
+    volumes:
+      - ./backend:/app
+      - ./config:/app/config
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  index-worker:
+    build: ./backend
+    command: python -m agentic_rag_backend.indexing.workers.index_worker
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app/src
+      - CONSUMER_NAME=index-worker-1
+      # Set SKIP_GRAPHITI=1 to run without Neo4j graph ingestion
+      # - SKIP_GRAPHITI=1
+    volumes:
+      - ./backend:/app
+      - ./config:/app/config
+    depends_on:
+      - postgres
+      - neo4j
+      - redis
+    restart: unless-stopped
 
   postgres:
     # Development only - use strong credentials in production.

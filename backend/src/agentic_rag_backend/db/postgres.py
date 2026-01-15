@@ -424,6 +424,49 @@ class PostgresClient:
                 # IVFFlat index creation may fail if no data exists yet
                 logger.warning("scoped_memories_ivfflat_index_skipped", reason="may require data to exist first")
 
+            # Trajectory logging tables (for agent reasoning traces)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS trajectories (
+                    id UUID PRIMARY KEY,
+                    tenant_id UUID NOT NULL,
+                    session_id TEXT,
+                    agent_type TEXT,
+                    has_error BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_trajectories_tenant_id
+                ON trajectories(tenant_id)
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_trajectories_session_id
+                ON trajectories(session_id) WHERE session_id IS NOT NULL
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_trajectories_created_at
+                ON trajectories(created_at)
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS trajectory_events (
+                    id UUID PRIMARY KEY,
+                    trajectory_id UUID NOT NULL REFERENCES trajectories(id) ON DELETE CASCADE,
+                    tenant_id UUID NOT NULL,
+                    event_type TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_trajectory_events_trajectory_id
+                ON trajectory_events(trajectory_id)
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_trajectory_events_tenant_id
+                ON trajectory_events(tenant_id)
+            """)
+
             logger.info("tables_created")
 
     async def create_document(
