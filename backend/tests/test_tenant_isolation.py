@@ -3,6 +3,7 @@ import socket
 
 import pytest
 from psycopg import OperationalError, errors
+from psycopg_pool import PoolTimeout
 
 from agentic_rag_backend.trajectory import EventType, TrajectoryLogger, create_pool
 
@@ -35,14 +36,15 @@ async def test_trajectory_events_isolated_by_tenant() -> None:
 
     tenant_a = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     tenant_b = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-    trajectory_id = await logger.start_trajectory(tenant_a, session_id="session-a")
-    await logger.log_events(
-        tenant_a,
-        trajectory_id,
-        [(EventType.THOUGHT, "a thought"), (EventType.ACTION, "an action")],
-    )
 
     try:
+        trajectory_id = await logger.start_trajectory(tenant_a, session_id="session-a")
+        await logger.log_events(
+            tenant_a,
+            trajectory_id,
+            [(EventType.THOUGHT, "a thought"), (EventType.ACTION, "an action")],
+        )
+
         async with pool.connection() as conn:
             async with conn.cursor() as cursor:
                 await cursor.execute(
@@ -64,7 +66,7 @@ async def test_trajectory_events_isolated_by_tenant() -> None:
                     (trajectory_id, tenant_a),
                 )
                 right_tenant_count = cursor.fetchone()[0]
-    except (OperationalError, errors.UndefinedTable):
+    except (OperationalError, PoolTimeout, errors.UndefinedTable):
         pytest.skip("Database unavailable or migrations not applied")
     finally:
         await pool.close()

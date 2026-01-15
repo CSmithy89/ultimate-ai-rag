@@ -230,12 +230,15 @@ def get_bool_env(key: str, default: str = "false") -> bool:
 
     Args:
         key: Environment variable name
-        default: Default value if not set (default: "false")
+        default: Default value if not set or empty (default: "false")
 
     Returns:
         True if value is "true", "1", or "yes" (case-insensitive), False otherwise
     """
-    return os.getenv(key, default).strip().lower() in {"true", "1", "yes"}
+    raw_value = os.getenv(key, "").strip()
+    # Use default if not set or empty
+    value = raw_value if raw_value else default
+    return value.lower() in {"true", "1", "yes"}
 
 
 def get_int_env(key: str, default: int, min_val: Optional[int] = None) -> int:
