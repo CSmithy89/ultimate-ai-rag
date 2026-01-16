@@ -329,7 +329,10 @@ async def get_knowledge_changes(
 
     try:
         # Get episodes for the tenant in the date range
-        episodes_raw = await graphiti_client.client.get_episodes_by_group_ids(
+        # Use retrieve_episodes with a large last_n to get all episodes for the tenant
+        episodes_raw = await graphiti_client.client.retrieve_episodes(
+            reference_time=end_date,
+            last_n=10000,  # Large enough to get all episodes in date range
             group_ids=[tenant_id],
         )
 

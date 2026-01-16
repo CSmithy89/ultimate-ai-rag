@@ -65,6 +65,8 @@ def _decrypt_events(events: list[dict[str, Any]], crypto: TraceCrypto | None) ->
 def _decimal_to_float(value: Any) -> Any:
     if isinstance(value, Decimal):
         return float(value)
+    if isinstance(value, UUID):
+        return str(value)
     return value
 
 
