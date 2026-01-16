@@ -1,6 +1,7 @@
 """PostgreSQL async client for documents, jobs, chunks, and workspace tables."""
 
 from datetime import datetime
+import json
 import math
 from typing import Any, Optional
 from uuid import UUID
@@ -730,6 +731,9 @@ class PostgresClient:
             True if updated, False if not found
         """
         try:
+            # Serialize progress dict to JSON string for JSONB column
+            progress_json = json.dumps(progress) if progress else None
+
             async with self.pool.acquire() as conn:
                 # Build the update query dynamically
                 if status == JobStatusEnum.RUNNING:
@@ -742,7 +746,7 @@ class PostgresClient:
                         job_id,
                         tenant_id,
                         status.value,
-                        progress,
+                        progress_json,
                     )
                 elif status in (JobStatusEnum.COMPLETED, JobStatusEnum.FAILED):
                     result = await conn.execute(
@@ -754,7 +758,7 @@ class PostgresClient:
                         job_id,
                         tenant_id,
                         status.value,
-                        progress,
+                        progress_json,
                         error_message,
                     )
                 else:
@@ -767,7 +771,7 @@ class PostgresClient:
                         job_id,
                         tenant_id,
                         status.value,
-                        progress,
+                        progress_json,
                     )
 
                 updated = result == "UPDATE 1"
@@ -946,6 +950,9 @@ class PostgresClient:
                     _validate_embedding(embedding)
                     embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
 
+                # Serialize metadata dict to JSON string for JSONB column
+                metadata_json = json.dumps(metadata) if metadata else None
+
                 row = await conn.fetchrow(
                     """
                     INSERT INTO chunks (tenant_id, document_id, content, chunk_index, token_count, embedding, metadata)
@@ -958,7 +965,7 @@ class PostgresClient:
                     chunk_index,
                     token_count,
                     embedding_str,
-                    metadata,
+                    metadata_json,
                 )
                 chunk_id = row["id"]
                 logger.debug(

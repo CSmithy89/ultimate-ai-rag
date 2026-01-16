@@ -12,13 +12,13 @@ from agentic_rag_backend.db.postgres import PostgresClient, get_postgres_client
 from agentic_rag_backend.db.redis import (
     CRAWL_CONSUMER_GROUP,
     CRAWL_JOBS_STREAM,
-    PARSE_JOBS_STREAM,
+    INDEX_JOBS_STREAM,
     RedisClient,
     get_redis_client,
 )
 from agentic_rag_backend.indexing.crawler import CrawlerService
 from agentic_rag_backend.models.documents import CrawledPage
-from agentic_rag_backend.models.ingest import CrawlOptions, JobStatusEnum
+from agentic_rag_backend.models.ingest import CrawlOptions, JobStatusEnum, JobType
 
 logger = structlog.get_logger(__name__)
 
@@ -31,7 +31,8 @@ class CrawlWorker:
     1. Consume job from crawl.jobs stream
     2. Execute crawl using CrawlerService
     3. Update job progress in PostgreSQL
-    4. Queue crawled content to parse.jobs stream
+    4. Create document and index job for each page
+    5. Queue crawled content to index.jobs stream
     """
 
     def __init__(
@@ -94,36 +95,38 @@ class CrawlWorker:
         crawled_pages: list[CrawledPage] = []
 
         try:
-            async for page in self.crawler.crawl(url, max_depth=max_depth, options=options):
-                pages_crawled += 1
-                pages_discovered += len(page.links)
-                crawled_pages.append(page)
+            # Use CrawlerService as async context manager to initialize browser
+            async with self.crawler:
+                async for page in self.crawler.crawl(url, max_depth=max_depth, options=options):
+                    pages_crawled += 1
+                    pages_discovered += len(page.links)
+                    crawled_pages.append(page)
 
-                # Update progress periodically
-                if pages_crawled % 5 == 0:
-                    await self.postgres.update_job_status(
-                        job_id=job_id,
-                        tenant_id=tenant_id,
-                        status=JobStatusEnum.RUNNING,
-                        progress={
-                            "pages_crawled": pages_crawled,
-                            "pages_discovered": pages_discovered,
-                            "pages_failed": pages_failed,
-                            "current_url": page.url,
-                        },
+                    # Update progress periodically
+                    if pages_crawled % 5 == 0:
+                        await self.postgres.update_job_status(
+                            job_id=job_id,
+                            tenant_id=tenant_id,
+                            status=JobStatusEnum.RUNNING,
+                            progress={
+                                "pages_crawled": pages_crawled,
+                                "pages_discovered": pages_discovered,
+                                "pages_failed": pages_failed,
+                                "current_url": page.url,
+                            },
+                        )
+
+                    logger.debug(
+                        "page_crawled",
+                        job_id=str(job_id),
+                        url=page.url,
+                        pages_crawled=pages_crawled,
                     )
 
-                logger.debug(
-                    "page_crawled",
-                    job_id=str(job_id),
-                    url=page.url,
-                    pages_crawled=pages_crawled,
-                )
-
-            # Queue crawled content for parsing
+            # Queue crawled content for indexing
             for page in crawled_pages:
-                await self._queue_for_parsing(
-                    job_id=job_id,
+                await self._queue_for_indexing(
+                    parent_job_id=job_id,
                     tenant_id=tenant_id,
                     page=page,
                 )
@@ -164,36 +167,61 @@ class CrawlWorker:
                 error_message=str(e),
             )
 
-    async def _queue_for_parsing(
+    async def _queue_for_indexing(
         self,
-        job_id: UUID,
+        parent_job_id: UUID,
         tenant_id: UUID,
         page: CrawledPage,
     ) -> None:
         """
-        Queue a crawled page for the parsing pipeline.
+        Queue a crawled page for the indexing pipeline.
+
+        Creates a document record and index job, then queues to index.jobs.
 
         Args:
-            job_id: Parent crawl job ID
+            parent_job_id: Parent crawl job ID
             tenant_id: Tenant identifier
             page: Crawled page data
         """
+        # Create document record for this crawled page
+        doc_id = await self.postgres.create_document(
+            tenant_id=tenant_id,
+            source_type="url",
+            content_hash=page.content_hash,
+            filename=page.title or page.url,
+            file_size=len(page.content.encode("utf-8")),
+        )
+
+        # Create index job
+        job_id = await self.postgres.create_job(
+            tenant_id=tenant_id,
+            job_type=JobType.INDEX,
+            document_id=doc_id,
+        )
+
+        # Queue for indexing
         await self.redis.publish_job(
-            stream=PARSE_JOBS_STREAM,
+            stream=INDEX_JOBS_STREAM,
             job_data={
-                "parent_job_id": str(job_id),
+                "job_id": str(job_id),
                 "tenant_id": str(tenant_id),
-                "source_type": "url",
-                "source_url": page.url,
+                "document_id": str(doc_id),
                 "content": page.content,
                 "content_hash": page.content_hash,
-                "title": page.title or "",
-                "crawl_timestamp": page.crawl_timestamp.isoformat(),
+                "metadata": {
+                    "title": page.title,
+                    "source_url": page.url,
+                    "crawl_timestamp": page.crawl_timestamp.isoformat(),
+                },
+                "source_type": "url",
+                "filename": page.title or page.url,
             },
         )
         logger.debug(
-            "page_queued_for_parsing",
+            "page_queued_for_indexing",
+            parent_job_id=str(parent_job_id),
             job_id=str(job_id),
+            document_id=str(doc_id),
             url=page.url,
         )
 

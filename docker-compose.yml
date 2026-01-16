@@ -51,6 +51,7 @@ services:
     env_file:
       - .env
     environment:
+      - CONFIG_PROFILE_DIR=/app/config/profiles
       - PYTHONPATH=/app/src
       - CONSUMER_NAME=crawl-worker-1
     volumes:
@@ -67,6 +68,7 @@ services:
     env_file:
       - .env
     environment:
+      - CONFIG_PROFILE_DIR=/app/config/profiles
       - PYTHONPATH=/app/src
       - CONSUMER_NAME=parse-worker-1
     volumes:
@@ -83,6 +85,7 @@ services:
     env_file:
       - .env
     environment:
+      - CONFIG_PROFILE_DIR=/app/config/profiles
       - PYTHONPATH=/app/src
       - CONSUMER_NAME=index-worker-1
       # Set SKIP_GRAPHITI=1 to run without Neo4j graph ingestion
