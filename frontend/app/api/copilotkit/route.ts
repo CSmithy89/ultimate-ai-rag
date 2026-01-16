@@ -8,6 +8,12 @@ import { NextRequest, NextResponse } from "next/server";
  * The backend at /api/v1/copilot implements the AG-UI protocol with SSE streaming,
  * handling LLM orchestration, tool execution, and multi-tenancy.
  *
+ * This route handles:
+ * - POST requests: Proxies to backend for chat processing
+ * - GET: Health check
+ *
+ * Note: GET /info is handled by a separate route at /api/copilotkit/info
+ *
  * Environment variables:
  * - COPILOT_BACKEND_URL: Backend URL (default: http://localhost:8000)
  *   In Docker: http://backend:8000
@@ -84,7 +90,7 @@ export const POST = async (req: NextRequest) => {
   }
 };
 
-// Also handle GET requests for potential health checks
+// Handle GET requests for health checks
 export const GET = async () => {
   try {
     const response = await fetch(`${BACKEND_URL}/health`);

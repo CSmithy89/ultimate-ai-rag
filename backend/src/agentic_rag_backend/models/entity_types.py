@@ -1,33 +1,19 @@
 """Custom entity types for Graphiti temporal knowledge graph.
 
-Defines domain-specific entity types that extend Graphiti's EntityModel
-for technical documentation and code-related knowledge extraction.
+Defines domain-specific entity types as Pydantic models for use with
+Graphiti's add_episode entity_types parameter.
+
+Note: Custom entity types should extend BaseModel, not EntityNode.
+Fields like 'name' and 'uuid' are protected/reserved by Graphiti.
+The __doc__ string is used as the entity type description.
 """
 
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
-if TYPE_CHECKING:
-    from graphiti_core.nodes import EntityNode as EntityNodeBase
-else:
-    try:
-        from graphiti_core.nodes import EntityNode as EntityNodeBase
-    except ImportError:
-        # Fallback for when graphiti-core is not installed
-        class EntityNodeBase(BaseModel):
-            """Fallback EntityNode when graphiti-core is not available."""
 
-            name: str
-            uuid: str = ""
-            group_id: str = ""
-            created_at: Optional[str] = None
-            summary: str = ""
-
-EntityNode = EntityNodeBase
-
-
-class TechnicalConcept(EntityNode):
+class TechnicalConcept(BaseModel):
     """Technical concept extracted from documentation.
 
     Represents frameworks, patterns, algorithms, or other technical
@@ -48,7 +34,7 @@ class TechnicalConcept(EntityNode):
     )
 
 
-class CodePattern(EntityNode):
+class CodePattern(BaseModel):
     """Code pattern or programming construct.
 
     Represents reusable code patterns, design patterns, or
@@ -69,7 +55,7 @@ class CodePattern(EntityNode):
     )
 
 
-class APIEndpoint(EntityNode):
+class APIEndpoint(BaseModel):
     """API endpoint definition.
 
     Represents REST API endpoints, GraphQL operations, or other
@@ -94,7 +80,7 @@ class APIEndpoint(EntityNode):
     )
 
 
-class ConfigurationOption(EntityNode):
+class ConfigurationOption(BaseModel):
     """Configuration option or setting.
 
     Represents environment variables, config file options,

@@ -45,12 +45,13 @@ class EpisodeIngestionResult:
 
 
 # Custom entity types for Graphiti episode ingestion
-EPISODE_ENTITY_TYPES = [
-    TechnicalConcept,
-    CodePattern,
-    APIEndpoint,
-    ConfigurationOption,
-]
+# Must be a dict mapping type name to class (graphiti-core API requirement)
+EPISODE_ENTITY_TYPES: dict[str, type] = {
+    "TechnicalConcept": TechnicalConcept,
+    "CodePattern": CodePattern,
+    "APIEndpoint": APIEndpoint,
+    "ConfigurationOption": ConfigurationOption,
+}
 
 
 async def ingest_document_as_episode(
