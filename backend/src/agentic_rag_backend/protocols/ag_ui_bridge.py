@@ -203,13 +203,16 @@ class AGUIBridge:
                 steps = self._format_thought_steps(result.thoughts)
 
                 # Emit state snapshot with steps (changed from "thoughts" key)
+                # AG-UI protocol: threadId and runId required on all events
                 state_event = StateSnapshotEvent(
                     state={
                         "currentStep": "completed",
                         "steps": steps,
                         "retrievalStrategy": result.retrieval_strategy.value,
                         "trajectoryId": str(result.trajectory_id) if result.trajectory_id else None,
-                    }
+                    },
+                    threadId=run_thread_id,
+                    runId=run_id,
                 )
                 metrics.event_emitted(state_event.type.value)
                 yield state_event

@@ -117,12 +117,25 @@ class TextDeltaEvent(AGUIEvent):
 class StateSnapshotEvent(AGUIEvent):
     """Event for agent state updates."""
     type: Literal[AGUIEventType.STATE_SNAPSHOT] = AGUIEventType.STATE_SNAPSHOT
+    threadId: str = Field(default_factory=lambda: f"thread-{uuid.uuid4().hex[:12]}")
+    runId: str = Field(default_factory=lambda: f"run-{uuid.uuid4().hex[:12]}")
     snapshot: dict[str, Any] = Field(default_factory=dict)
 
-    def __init__(self, state: Optional[dict[str, Any]] = None, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        state: Optional[dict[str, Any]] = None,
+        threadId: Optional[str] = None,
+        runId: Optional[str] = None,
+        **kwargs: Any,
+    ) -> None:
         # AG-UI protocol: state data goes in 'snapshot' field at top level
+        # AG-UI protocol: threadId and runId are required on all events
         if state is not None:
             kwargs["snapshot"] = state
+        if threadId is not None:
+            kwargs["threadId"] = threadId
+        if runId is not None:
+            kwargs["runId"] = runId
         super().__init__(**kwargs)
 
 

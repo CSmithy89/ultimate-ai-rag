@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -113,8 +114,8 @@ class CostSummaryResponse(BaseModel):
 
 
 class CostEventResponse(BaseModel):
-    id: str
-    trajectory_id: Optional[str] = None
+    id: UUID
+    trajectory_id: Optional[UUID] = None
     model_id: str
     prompt_tokens: int
     completion_tokens: int
@@ -156,7 +157,7 @@ class AlertsResponse(BaseModel):
 
 
 class TrajectorySummaryResponse(BaseModel):
-    id: str
+    id: UUID
     session_id: Optional[str] = None
     agent_type: Optional[str] = None
     created_at: datetime
@@ -175,14 +176,14 @@ class TrajectoryListResponse(BaseModel):
 
 
 class TrajectoryEventResponse(BaseModel):
-    id: str
+    id: UUID
     event_type: str
     content: str
     created_at: datetime
 
 
 class TrajectoryInfoResponse(BaseModel):
-    id: str
+    id: UUID
     session_id: Optional[str] = None
     agent_type: Optional[str] = None
     created_at: datetime
