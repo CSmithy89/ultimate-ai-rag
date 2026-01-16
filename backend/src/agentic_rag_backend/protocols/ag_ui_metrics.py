@@ -17,7 +17,7 @@ Metrics defined:
 Usage:
     async with track_agui_stream(tenant_id) as metrics:
         for event in generate_events():
-            metrics.event_emitted(event.event.value, len(event.to_sse()))
+            metrics.event_emitted(event.type.value, len(event.to_sse()))
             yield event
 
 Story: 22-B1 - Implement AG-UI Stream Metrics
@@ -215,7 +215,7 @@ class AGUIMetricsCollector:
         collector = AGUIMetricsCollector(tenant_id)
         collector.stream_started()
         for event in events:
-            collector.event_emitted(event.event.value, len(event.to_sse()))
+            collector.event_emitted(event.type.value, len(event.to_sse()))
         collector.stream_completed("success")
 
     Attributes:
@@ -352,7 +352,7 @@ async def track_agui_stream(tenant_id: str) -> AsyncIterator[AGUIMetricsCollecto
     Example:
         async with track_agui_stream(tenant_id) as metrics:
             async for event in generate_events():
-                metrics.event_emitted(event.event.value, len(event.to_sse()))
+                metrics.event_emitted(event.type.value, len(event.to_sse()))
                 yield event
     """
     collector = AGUIMetricsCollector(tenant_id)

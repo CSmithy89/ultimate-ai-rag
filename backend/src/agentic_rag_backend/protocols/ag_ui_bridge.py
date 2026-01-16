@@ -151,7 +151,7 @@ class AGUIBridge:
             if not tenant_id:
                 logger.warning("copilot_request_missing_tenant_id")
                 event = RunStartedEvent()
-                metrics.event_emitted(event.event.value)
+                metrics.event_emitted(event.type.value)
                 yield event
                 from ..config import get_settings, is_development_env
                 from ..core.errors import TenantRequiredError
@@ -159,26 +159,9 @@ class AGUIBridge:
                 settings = get_settings()
                 is_debug = is_development_env(settings.app_env)
                 error_event = create_error_event(TenantRequiredError(), is_debug=is_debug)
-                metrics.event_emitted(error_event.event.value)
+                metrics.event_emitted(error_event.type.value)
                 yield error_event
-
-                # Emit a plain-text fallback for legacy clients
-                event = TextMessageStartEvent()
-                metrics.event_emitted(event.event.value)
-                yield event
-
-                error_msg = "Error: tenant_id is required in request configuration."
-                event = TextDeltaEvent(content=error_msg)
-                metrics.event_emitted(event.event.value, len(error_msg))
-                yield event
-
-                event = TextMessageEndEvent()
-                metrics.event_emitted(event.event.value)
-                yield event
-
-                event = RunFinishedEvent()
-                metrics.event_emitted(event.event.value)
-                yield event
+                # AG-UI protocol: RUN_ERROR is terminal - no events allowed after it
                 return
 
             # Get the latest user message
@@ -190,18 +173,23 @@ class AGUIBridge:
 
             if not user_message:
                 event = RunStartedEvent()
-                metrics.event_emitted(event.event.value)
+                metrics.event_emitted(event.type.value)
                 yield event
 
                 event = RunFinishedEvent()
-                metrics.event_emitted(event.event.value)
+                metrics.event_emitted(event.type.value)
                 yield event
                 return
 
+            # Generate consistent IDs for the entire run
+            # AG-UI protocol requires same threadId/runId for RUN_STARTED and RUN_FINISHED
+            run_thread_id = f"thread-{uuid.uuid4().hex[:12]}"
+            run_id = f"run-{uuid.uuid4().hex[:12]}"
+
             # Emit run started
-            event = RunStartedEvent()
-            metrics.event_emitted(event.event.value)
-            yield event
+            run_started = RunStartedEvent(threadId=run_thread_id, runId=run_id)
+            metrics.event_emitted(run_started.type.value)
+            yield run_started
 
             try:
                 # Run the orchestrator
@@ -215,7 +203,7 @@ class AGUIBridge:
                 steps = self._format_thought_steps(result.thoughts)
 
                 # Emit state snapshot with steps (changed from "thoughts" key)
-                event = StateSnapshotEvent(
+                state_event = StateSnapshotEvent(
                     state={
                         "currentStep": "completed",
                         "steps": steps,
@@ -223,8 +211,8 @@ class AGUIBridge:
                         "trajectoryId": str(result.trajectory_id) if result.trajectory_id else None,
                     }
                 )
-                metrics.event_emitted(event.event.value)
-                yield event
+                metrics.event_emitted(state_event.type.value)
+                yield state_event
 
                 if self._hitl_manager and result.evidence and result.evidence.vector:
                     sources = self._build_hitl_sources(result.evidence.vector)
@@ -235,27 +223,30 @@ class AGUIBridge:
                             tenant_id=tenant_id,
                         )
                         for hitl_event in self._hitl_manager.get_checkpoint_events(checkpoint):
-                            metrics.event_emitted(hitl_event.event.value)
+                            metrics.event_emitted(hitl_event.type.value)
                             yield hitl_event
                         checkpoint = await self._hitl_manager.wait_for_validation(
                             checkpoint_id=checkpoint.checkpoint_id,
                         )
                         for hitl_event in self._hitl_manager.get_completion_events(checkpoint):
-                            metrics.event_emitted(hitl_event.event.value)
+                            metrics.event_emitted(hitl_event.type.value)
                             yield hitl_event
 
                 # Stream the answer as text with proper envelope events
-                event = TextMessageStartEvent()
-                metrics.event_emitted(event.event.value)
-                yield event
+                # AG-UI protocol requires same messageId for START, CONTENT, and END
+                message_id = f"msg-{uuid.uuid4().hex[:12]}"
 
-                event = TextDeltaEvent(content=result.answer)
-                metrics.event_emitted(event.event.value, len(result.answer))
-                yield event
+                text_start = TextMessageStartEvent(messageId=message_id)
+                metrics.event_emitted(text_start.type.value)
+                yield text_start
 
-                event = TextMessageEndEvent()
-                metrics.event_emitted(event.event.value)
-                yield event
+                text_content = TextDeltaEvent(content=result.answer, messageId=message_id)
+                metrics.event_emitted(text_content.type.value, len(result.answer))
+                yield text_content
+
+                text_end = TextMessageEndEvent(messageId=message_id)
+                metrics.event_emitted(text_end.type.value)
+                yield text_end
 
             except Exception as e:
                 # Log full error server-side but return sanitized message to client
@@ -269,29 +260,18 @@ class AGUIBridge:
                 is_debug = is_development_env(settings.app_env)
 
                 error_event = create_error_event(e, is_debug=is_debug)
-                metrics.event_emitted(error_event.event.value)
+                metrics.event_emitted(error_event.type.value)
                 yield error_event
-
-                # Also emit the error as a text message for backward compatibility
-                event = TextMessageStartEvent()
-                metrics.event_emitted(event.event.value)
-                yield event
-
-                event = TextDeltaEvent(content=GENERIC_ERROR_MESSAGE)
-                metrics.event_emitted(event.event.value, len(GENERIC_ERROR_MESSAGE))
-                yield event
-
-                event = TextMessageEndEvent()
-                metrics.event_emitted(event.event.value)
-                yield event
+                # AG-UI protocol: RUN_ERROR is terminal - no events allowed after it
             else:
                 # Issue #1 Fix: Only mark success if inner try completed without exception
                 stream_error = False
 
-            # Emit run finished
-            event = RunFinishedEvent()
-            metrics.event_emitted(event.event.value)
-            yield event
+                # Emit run finished (only on success path - RUN_ERROR is terminal)
+                # AG-UI protocol requires same threadId/runId as RUN_STARTED
+                run_finished = RunFinishedEvent(threadId=run_thread_id, runId=run_id)
+                metrics.event_emitted(run_finished.type.value)
+                yield run_finished
 
         finally:
             # Record stream completion with appropriate status

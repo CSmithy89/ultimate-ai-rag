@@ -1,4 +1,10 @@
-"""Pydantic models for CopilotKit AG-UI protocol."""
+"""Pydantic models for CopilotKit AG-UI protocol.
+
+AG-UI Protocol Event Format:
+- Events use 'type' as the discriminator field (not 'event')
+- Event-specific data is at the top level (not nested under 'data')
+- Example: {"type": "TEXT_MESSAGE_START", "messageId": "...", "role": "assistant"}
+"""
 
 import uuid
 from enum import Enum
@@ -45,71 +51,124 @@ class AGUIEventType(str, Enum):
     TOOL_CALL_END = "TOOL_CALL_END"
     TOOL_CALL_RESULT = "TOOL_CALL_RESULT"
     STATE_SNAPSHOT = "STATE_SNAPSHOT"
+    STATE_DELTA = "STATE_DELTA"
     ACTION_REQUEST = "ACTION_REQUEST"
 
 
+def _generate_message_id() -> str:
+    """Generate a unique message ID for AG-UI events."""
+    return f"msg-{uuid.uuid4().hex[:12]}"
+
+
 class AGUIEvent(BaseModel):
-    """Base AG-UI event."""
-    event: AGUIEventType
-    data: dict[str, Any] = Field(default_factory=dict)
+    """Base AG-UI event.
+
+    AG-UI Protocol uses 'type' as the discriminator field.
+    All event-specific fields are at the top level.
+    """
+    type: AGUIEventType = Field(..., description="Event type discriminator")
+
+    class Config:
+        # Use 'type' as the field name in JSON serialization
+        populate_by_name = True
 
 
 class RunStartedEvent(AGUIEvent):
     """Event emitted when agent run starts."""
-    event: AGUIEventType = AGUIEventType.RUN_STARTED
+    type: Literal[AGUIEventType.RUN_STARTED] = AGUIEventType.RUN_STARTED
+    threadId: str = Field(default_factory=lambda: f"thread-{uuid.uuid4().hex[:12]}")
+    runId: str = Field(default_factory=lambda: f"run-{uuid.uuid4().hex[:12]}")
+
+    def __init__(self, threadId: Optional[str] = None, runId: Optional[str] = None, **kwargs: Any) -> None:
+        if threadId is not None:
+            kwargs["threadId"] = threadId
+        if runId is not None:
+            kwargs["runId"] = runId
+        super().__init__(**kwargs)
 
 
 class RunFinishedEvent(AGUIEvent):
     """Event emitted when agent run finishes."""
-    event: AGUIEventType = AGUIEventType.RUN_FINISHED
+    type: Literal[AGUIEventType.RUN_FINISHED] = AGUIEventType.RUN_FINISHED
+    threadId: str = Field(default_factory=lambda: f"thread-{uuid.uuid4().hex[:12]}")
+    runId: str = Field(default_factory=lambda: f"run-{uuid.uuid4().hex[:12]}")
+
+    def __init__(self, threadId: Optional[str] = None, runId: Optional[str] = None, **kwargs: Any) -> None:
+        if threadId is not None:
+            kwargs["threadId"] = threadId
+        if runId is not None:
+            kwargs["runId"] = runId
+        super().__init__(**kwargs)
 
 
 class TextDeltaEvent(AGUIEvent):
-    """Event for streaming text content."""
-    event: AGUIEventType = AGUIEventType.TEXT_MESSAGE_CONTENT
+    """Event for streaming text content (TEXT_MESSAGE_CONTENT)."""
+    type: Literal[AGUIEventType.TEXT_MESSAGE_CONTENT] = AGUIEventType.TEXT_MESSAGE_CONTENT
+    messageId: str = Field(default_factory=_generate_message_id)
+    delta: str = ""
 
-    def __init__(self, content: str, **kwargs: Any) -> None:
-        super().__init__(data={"content": content}, **kwargs)
+    def __init__(self, content: str = "", messageId: Optional[str] = None, **kwargs: Any) -> None:
+        # AG-UI protocol uses 'delta' field for text content chunks at top level
+        if messageId is not None:
+            kwargs["messageId"] = messageId
+        super().__init__(delta=content, **kwargs)
 
 
 class StateSnapshotEvent(AGUIEvent):
     """Event for agent state updates."""
-    event: AGUIEventType = AGUIEventType.STATE_SNAPSHOT
+    type: Literal[AGUIEventType.STATE_SNAPSHOT] = AGUIEventType.STATE_SNAPSHOT
+    snapshot: dict[str, Any] = Field(default_factory=dict)
 
-    def __init__(self, state: dict[str, Any], **kwargs: Any) -> None:
-        super().__init__(data={"state": state}, **kwargs)
+    def __init__(self, state: Optional[dict[str, Any]] = None, **kwargs: Any) -> None:
+        # AG-UI protocol: state data goes in 'snapshot' field at top level
+        if state is not None:
+            kwargs["snapshot"] = state
+        super().__init__(**kwargs)
 
 
 class ToolCallEvent(AGUIEvent):
     """Event for tool invocations."""
-    event: AGUIEventType = AGUIEventType.TOOL_CALL_START
+    type: Literal[AGUIEventType.TOOL_CALL_START] = AGUIEventType.TOOL_CALL_START
+    toolCallId: str = Field(default_factory=lambda: f"call-{uuid.uuid4().hex[:12]}")
+    toolName: str = ""
+    args: dict[str, Any] = Field(default_factory=dict)
 
-    def __init__(self, tool_name: str, args: dict[str, Any], **kwargs: Any) -> None:
-        super().__init__(
-            data={"tool_name": tool_name, "args": args},
-            **kwargs
-        )
+    def __init__(self, tool_name: str = "", args: Optional[dict[str, Any]] = None, **kwargs: Any) -> None:
+        super().__init__(toolName=tool_name, args=args or {}, **kwargs)
 
 
 class ActionRequestEvent(AGUIEvent):
     """Event requesting frontend action."""
-    event: AGUIEventType = AGUIEventType.ACTION_REQUEST
+    type: Literal[AGUIEventType.ACTION_REQUEST] = AGUIEventType.ACTION_REQUEST
+    action: str = ""
+    args: dict[str, Any] = Field(default_factory=dict)
 
-    def __init__(self, action: str, args: dict[str, Any], **kwargs: Any) -> None:
-        super().__init__(
-            data={"action": action, "args": args},
-            **kwargs
-        )
+    def __init__(self, action: str = "", args: Optional[dict[str, Any]] = None, **kwargs: Any) -> None:
+        super().__init__(action=action, args=args or {}, **kwargs)
 
 
 class TextMessageStartEvent(AGUIEvent):
     """Event signaling start of text message streaming."""
-    event: AGUIEventType = AGUIEventType.TEXT_MESSAGE_START
+    type: Literal[AGUIEventType.TEXT_MESSAGE_START] = AGUIEventType.TEXT_MESSAGE_START
+    messageId: str = Field(default_factory=_generate_message_id)
+    role: str = "assistant"
+
+    def __init__(self, role: str = "assistant", messageId: Optional[str] = None, **kwargs: Any) -> None:
+        # AG-UI protocol: role specifies the sender (defaults to 'assistant')
+        if messageId is not None:
+            kwargs["messageId"] = messageId
+        super().__init__(role=role, **kwargs)
 
 
 class TextMessageEndEvent(AGUIEvent):
     """Event signaling end of text message streaming."""
-    event: AGUIEventType = AGUIEventType.TEXT_MESSAGE_END
+    type: Literal[AGUIEventType.TEXT_MESSAGE_END] = AGUIEventType.TEXT_MESSAGE_END
+    messageId: str = Field(default_factory=_generate_message_id)
+
+    def __init__(self, messageId: Optional[str] = None, **kwargs: Any) -> None:
+        if messageId is not None:
+            kwargs["messageId"] = messageId
+        super().__init__(**kwargs)
 
 
 # ============================================
@@ -119,38 +178,33 @@ class TextMessageEndEvent(AGUIEvent):
 
 class ToolCallStartEvent(AGUIEvent):
     """Event for triggering a tool/action call that may render UI."""
+    type: Literal[AGUIEventType.TOOL_CALL_START] = AGUIEventType.TOOL_CALL_START
+    toolCallId: str = Field(default_factory=lambda: f"call-{uuid.uuid4().hex[:12]}")
+    toolName: str = ""
 
-    event: Literal[AGUIEventType.TOOL_CALL_START] = AGUIEventType.TOOL_CALL_START
-
-    def __init__(self, tool_call_id: str, tool_name: str, **kwargs: Any) -> None:
-        super().__init__(
-            data={"tool_call_id": tool_call_id, "tool_name": tool_name},
-            **kwargs
-        )
+    def __init__(self, tool_call_id: Optional[str] = None, tool_name: str = "", **kwargs: Any) -> None:
+        if tool_call_id is not None:
+            kwargs["toolCallId"] = tool_call_id
+        super().__init__(toolName=tool_name, **kwargs)
 
 
 class ToolCallArgsEvent(AGUIEvent):
     """Event containing arguments for a tool call."""
+    type: Literal[AGUIEventType.TOOL_CALL_ARGS] = AGUIEventType.TOOL_CALL_ARGS
+    toolCallId: str = ""
+    args: dict[str, Any] = Field(default_factory=dict)
 
-    event: Literal[AGUIEventType.TOOL_CALL_ARGS] = AGUIEventType.TOOL_CALL_ARGS
-
-    def __init__(self, tool_call_id: str, args: dict[str, Any], **kwargs: Any) -> None:
-        super().__init__(
-            data={"tool_call_id": tool_call_id, "args": args},
-            **kwargs
-        )
+    def __init__(self, tool_call_id: str = "", args: Optional[dict[str, Any]] = None, **kwargs: Any) -> None:
+        super().__init__(toolCallId=tool_call_id, args=args or {}, **kwargs)
 
 
 class ToolCallEndEvent(AGUIEvent):
     """Event indicating tool call completion."""
+    type: Literal[AGUIEventType.TOOL_CALL_END] = AGUIEventType.TOOL_CALL_END
+    toolCallId: str = ""
 
-    event: Literal[AGUIEventType.TOOL_CALL_END] = AGUIEventType.TOOL_CALL_END
-
-    def __init__(self, tool_call_id: str, **kwargs: Any) -> None:
-        super().__init__(
-            data={"tool_call_id": tool_call_id},
-            **kwargs
-        )
+    def __init__(self, tool_call_id: str = "", **kwargs: Any) -> None:
+        super().__init__(toolCallId=tool_call_id, **kwargs)
 
 
 # ============================================

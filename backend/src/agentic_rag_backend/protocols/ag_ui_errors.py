@@ -90,17 +90,25 @@ class AGUIErrorEvent(AGUIEvent):
     - Optional details dict for debugging (only in debug mode)
     - Optional retry_after hint for rate-limited requests
 
-    Example SSE output:
-        event: RUN_ERROR
-        data: {"code": "RATE_LIMITED", "message": "Request rate limit exceeded.",
-               "http_status": 429, "details": {}, "retry_after": 60}
+    Example SSE output (AG-UI protocol format):
+        data: {"type": "RUN_ERROR", "code": "RATE_LIMITED", "message": "...",
+               "httpStatus": 429, "retryAfter": 60}
 
     Attributes:
-        event: Always RUN_ERROR for error events
-        data: Dictionary containing error details (code, message, http_status, etc.)
+        type: Always RUN_ERROR for error events (AG-UI discriminator)
+        code: Standardized error code
+        message: Human-readable error message
+        httpStatus: HTTP status code
+        details: Optional debug details
+        retryAfter: Optional retry hint in seconds
     """
 
-    event: AGUIEventType = AGUIEventType.RUN_ERROR
+    type: AGUIEventType = AGUIEventType.RUN_ERROR
+    code: str = ""
+    message: str = ""
+    httpStatus: int = 500
+    details: dict[str, Any] | None = None
+    retryAfter: int | None = None
 
     def __init__(
         self,
@@ -125,19 +133,15 @@ class AGUIErrorEvent(AGUIEvent):
         if http_status is None:
             http_status = ERROR_CODE_HTTP_STATUS.get(code, 500)
 
-        # Build the data payload
-        data: dict[str, Any] = {
-            "code": code.value,
-            "message": message,
-            "http_status": http_status,
-            "details": details or {},
-        }
-
-        # Only include retry_after if specified
-        if retry_after is not None:
-            data["retry_after"] = retry_after
-
-        super().__init__(data=data, **kwargs)
+        # AG-UI protocol: fields at top level, not nested under 'data'
+        super().__init__(
+            code=code.value,
+            message=message,
+            httpStatus=http_status,
+            details=details,
+            retryAfter=retry_after,
+            **kwargs,
+        )
 
         logger.debug(
             "agui_error_event_created",

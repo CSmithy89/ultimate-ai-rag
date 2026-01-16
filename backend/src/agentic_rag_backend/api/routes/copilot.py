@@ -49,6 +49,7 @@ async def copilot_handler(
     http_request: Request,
     orchestrator: OrchestratorAgent = Depends(get_orchestrator),
     limiter: RateLimiter = Depends(get_rate_limiter),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
 ) -> StreamingResponse:
     """
     Handle AG-UI protocol requests from CopilotKit.
@@ -59,10 +60,18 @@ async def copilot_handler(
     - state_snapshot: Agent state updates
     - action_request: Frontend action requests
     """
-    # Extract tenant_id for rate limiting
-    tenant_id = "anonymous"
-    if request.config and request.config.configurable:
+    # Extract tenant_id: prefer header, fall back to config
+    tenant_id = x_tenant_id or "anonymous"
+    if tenant_id == "anonymous" and request.config and request.config.configurable:
         tenant_id = request.config.configurable.get("tenant_id", "anonymous")
+
+    # Inject tenant_id into request config for downstream processing
+    if request.config is None:
+        from ...models.copilot import CopilotConfig
+        request.config = CopilotConfig()
+    if not request.config.configurable:
+        request.config.configurable = {}
+    request.config.configurable["tenant_id"] = tenant_id
 
     # Check rate limit
     if not await limiter.allow(tenant_id):

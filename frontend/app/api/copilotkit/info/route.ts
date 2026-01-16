@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 /**
  * CopilotKit /info endpoint for runtime sync.
@@ -9,7 +9,11 @@ import { NextResponse } from "next/server";
  * CopilotKit expects a "default" agent to be present. We also register
  * "orchestrator" for useCoAgentStateRender hooks.
  */
-export const GET = async () => {
+export const GET = async (req: NextRequest) => {
+  console.log("[CopilotKit /info] GET request received", {
+    url: req.url,
+    headers: Object.fromEntries(req.headers.entries()),
+  });
   return NextResponse.json({
     version: "1.0.0",
     agents: {
@@ -27,7 +31,13 @@ export const GET = async () => {
 };
 
 // Also handle POST requests as some CopilotKit versions use POST
-export const POST = async () => {
+export const POST = async (req: NextRequest) => {
+  const body = await req.text();
+  console.log("[CopilotKit /info] POST request received", {
+    url: req.url,
+    headers: Object.fromEntries(req.headers.entries()),
+    body: body.substring(0, 500),
+  });
   return NextResponse.json({
     version: "1.0.0",
     agents: {

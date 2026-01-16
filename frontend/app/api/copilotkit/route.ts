@@ -1,91 +1,76 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  CopilotRuntime,
+  OpenAIAdapter,
+  copilotRuntimeNextJSAppRouterEndpoint,
+} from "@copilotkit/runtime";
+// Import from the langgraph subpath to avoid deprecation error
+import { LangGraphHttpAgent } from "@copilotkit/runtime/langgraph";
+import OpenAI from "openai";
 
 /**
- * CopilotKit API route that proxies requests to the FastAPI backend.
+ * CopilotKit API route using CopilotRuntime with LangGraphHttpAgent.
  *
- * Story 6-2: Implements the backend proxy for CopilotKit integration.
+ * Story 6-2: Implements the backend integration for CopilotKit.
  *
- * The backend at /api/v1/copilot implements the AG-UI protocol with SSE streaming,
- * handling LLM orchestration, tool execution, and multi-tenancy.
- *
- * This route handles:
- * - POST requests: Proxies to backend for chat processing
- * - GET: Health check
- *
- * Note: GET /info is handled by a separate route at /api/copilotkit/info
+ * The backend at /api/v1/copilot implements the AG-UI protocol with SSE streaming.
+ * CopilotRuntime handles protocol translation between CopilotKit and our backend.
  *
  * Environment variables:
  * - COPILOT_BACKEND_URL: Backend URL (default: http://localhost:8000)
  *   In Docker: http://backend:8000
+ * - OPENAI_API_KEY: Required for OpenAIAdapter
+ * - DEFAULT_TENANT_ID: Default tenant for multi-tenancy
  */
 
 const BACKEND_URL = process.env.COPILOT_BACKEND_URL || "http://localhost:8000";
-const COPILOT_ENDPOINT = `${BACKEND_URL}/api/v1/copilot`;
+const DEFAULT_TENANT_ID =
+  process.env.DEFAULT_TENANT_ID || "550e8400-e29b-41d4-a716-446655440000";
+
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || "dummy-key-for-passthrough",
+});
+
+// Create service adapter
+const serviceAdapter = new OpenAIAdapter({ openai } as any);
+
+// Configure the LangGraphHttpAgent to connect to our backend
+const ragAgent = new LangGraphHttpAgent({
+  url: `${BACKEND_URL}/api/v1/copilot`,
+  // Add custom headers for multi-tenancy
+  headers: {
+    "X-Tenant-ID": DEFAULT_TENANT_ID,
+  },
+});
+
+// Create CopilotRuntime with our agent
+const runtime = new CopilotRuntime({
+  agents: {
+    default: ragAgent,
+  },
+});
 
 export const POST = async (req: NextRequest) => {
   try {
-    // Get the request body
-    const body = await req.json();
-
-    // Forward headers that might be needed (tenant ID, etc.)
-    const headers: HeadersInit = {
-      "Content-Type": "application/json",
-    };
-
-    // Forward tenant ID if present in the request config
-    const tenantId = body?.config?.configurable?.tenant_id;
-    if (tenantId) {
-      headers["X-Tenant-ID"] = tenantId;
-    }
-
-    // Make request to backend
-    const backendResponse = await fetch(COPILOT_ENDPOINT, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
+    const { handleRequest } = copilotRuntimeNextJSAppRouterEndpoint({
+      runtime,
+      serviceAdapter,
+      endpoint: "/api/copilotkit",
     });
 
-    // Check if the response is SSE (Server-Sent Events)
-    const contentType = backendResponse.headers.get("content-type") || "";
-
-    if (contentType.includes("text/event-stream")) {
-      // Stream the SSE response
-      const readable = backendResponse.body;
-
-      if (!readable) {
-        return NextResponse.json(
-          { error: "No response body from backend" },
-          { status: 502 }
-        );
-      }
-
-      // Create a streaming response
-      return new Response(readable, {
-        status: backendResponse.status,
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-        },
-      });
-    }
-
-    // For non-SSE responses, forward as JSON
-    const data = await backendResponse.json();
-    return NextResponse.json(data, { status: backendResponse.status });
+    return handleRequest(req);
   } catch (error) {
-    console.error("CopilotKit proxy error:", error);
-
-    // Return a proper error response
+    console.error("CopilotKit runtime error:", error);
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";
 
     return NextResponse.json(
       {
-        error: "Failed to proxy request to backend",
+        error: "CopilotKit runtime error",
         detail: errorMessage,
       },
-      { status: 502 }
+      { status: 500 }
     );
   }
 };
@@ -98,14 +83,14 @@ export const GET = async () => {
     return NextResponse.json({
       status: "ok",
       backend: data,
-      endpoint: COPILOT_ENDPOINT,
+      endpoint: `${BACKEND_URL}/api/v1/copilot`,
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       {
         status: "error",
         error: "Backend not reachable",
-        endpoint: COPILOT_ENDPOINT,
+        endpoint: `${BACKEND_URL}/api/v1/copilot`,
       },
       { status: 503 }
     );
