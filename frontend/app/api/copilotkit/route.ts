@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   CopilotRuntime,
+  EmptyAdapter,
   OpenAIAdapter,
   copilotRuntimeNextJSAppRouterEndpoint,
 } from "@copilotkit/runtime";
@@ -27,13 +28,17 @@ const BACKEND_URL = process.env.COPILOT_BACKEND_URL || "http://localhost:8000";
 const DEFAULT_TENANT_ID =
   process.env.DEFAULT_TENANT_ID || "550e8400-e29b-41d4-a716-446655440000";
 
-// Initialize OpenAI client
+const SERVICE_ADAPTER = process.env.COPILOT_SERVICE_ADAPTER ?? "empty";
+
+// Initialize OpenAI client (only used when explicitly configured).
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || "dummy-key-for-passthrough",
 });
 
-// Create service adapter
-const serviceAdapter = new OpenAIAdapter({ openai } as any);
+const serviceAdapter =
+  SERVICE_ADAPTER === "openai"
+    ? new OpenAIAdapter({ openai } as any)
+    : new EmptyAdapter();
 
 // Configure the LangGraphHttpAgent to connect to our backend
 const ragAgent = new LangGraphHttpAgent({

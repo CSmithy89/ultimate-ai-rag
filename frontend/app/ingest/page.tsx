@@ -81,6 +81,21 @@ export default function IngestPage() {
   }, [loadJobs]);
 
   useEffect(() => {
+    jobs.forEach((job) => {
+      if (!job.error_message) {
+        return;
+      }
+      const jobId = job.job_id ?? job.id ?? "unknown";
+      console.error("Ingestion job failed", {
+        jobId,
+        jobType: job.job_type ?? "unknown",
+        status: job.status ?? "unknown",
+        error: job.error_message,
+      });
+    });
+  }, [jobs]);
+
+  useEffect(() => {
     const focus = searchParams.get("focus");
     if (focus === "url") {
       urlInputRef.current?.focus();
@@ -297,7 +312,7 @@ export default function IngestPage() {
                   </div>
                   {job.error_message ? (
                     <p className="text-xs text-red-600 mt-1">
-                      {job.error_message}
+                      Job failed. Check the logs for details.
                     </p>
                   ) : null}
                 </div>
