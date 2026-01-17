@@ -18,7 +18,6 @@ from agentic_rag_backend.core.errors import (
     AppError,
     FileTooLargeError,
     InvalidDocumentError,
-    InvalidPdfError,
     InvalidUrlError,
     JobNotFoundError,
     StorageError,
@@ -263,11 +262,10 @@ async def upload_document(
 
     # Validate document type is supported
     if doc_type is None:
-        supported_types = list(MIME_TYPE_MAP.keys()) + list(EXTENSION_TYPE_MAP.keys())
         raise InvalidDocumentError(
             file.filename or "unknown",
             file.content_type,
-            f"Unsupported file type. Supported: PDF, Word, Excel, PowerPoint, Images, Markdown, Text",
+            "Unsupported file type. Supported: PDF, Word, Excel, PowerPoint, Images, Markdown, Text",
         )
 
     # Set source type and extension based on document type
