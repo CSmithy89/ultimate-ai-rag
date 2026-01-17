@@ -211,13 +211,12 @@ export function useProgrammaticChat(): ProgrammaticChatReturn {
   /**
    * Convert CopilotKit messages to simplified ChatMessage format.
    */
-  const messages = useMemo<ChatMessage[]>(
-    () =>
-      visibleMessages.map((msg) =>
-        toChatMessage(msg as { id: string; role?: string; content?: string })
-      ),
-    [visibleMessages]
-  );
+  const messages = useMemo<ChatMessage[]>(() => {
+    const safeMessages = Array.isArray(visibleMessages) ? visibleMessages : [];
+    return safeMessages.map((msg) =>
+      toChatMessage(msg as { id: string; role?: string; content?: string })
+    );
+  }, [visibleMessages]);
 
   /**
    * Get the count of visible messages.

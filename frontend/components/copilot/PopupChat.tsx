@@ -4,6 +4,7 @@
  * PopupChat component - floating popup chat option.
  *
  * Story 21-F1: Implement CopilotPopup Component
+ * Story 21-A5: Static suggestions to avoid AG-UI protocol errors
  *
  * Features:
  * - Floating button with expandable chat window
@@ -19,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { ThoughtTraceStepper } from "./ThoughtTraceStepper";
 import { CopilotErrorBoundary } from "./CopilotErrorBoundary";
 import { GenerativeUIRenderer } from "./GenerativeUIRenderer";
+import { useChatSuggestions } from "@/hooks/use-chat-suggestions";
 
 export type PopupPosition = "bottom-right" | "bottom-left" | "top-right" | "top-left";
 
@@ -89,6 +91,9 @@ export function PopupChat({
   clickOutsideToClose = true,
   className,
 }: PopupChatProps) {
+  // Get static page-context suggestions (avoids AG-UI protocol errors)
+  const suggestions = useChatSuggestions();
+
   return (
     <CopilotErrorBoundary>
       <CopilotPopup
@@ -99,6 +104,7 @@ export function PopupChat({
         defaultOpen={defaultOpen}
         clickOutsideToClose={clickOutsideToClose}
         className={cn("copilot-popup", getPositionClass(position), RESPONSIVE_CLASSES, className)}
+        suggestions={suggestions}
       >
         <ThoughtTraceStepper />
         <GenerativeUIRenderer />

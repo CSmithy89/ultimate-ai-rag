@@ -1,6 +1,6 @@
 "use client";
 
-import { useCoAgentStateRender } from "@copilotkit/react-core";
+import { useCoAgentStateRender, useCopilotChat } from "@copilotkit/react-core";
 import type { ThoughtStep } from "@/types/copilot";
 import {
   ChevronDown,
@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Loader2,
   Circle,
+  BrainCircuit,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -129,13 +130,22 @@ export function StepIndicator({
  * ThoughtTraceStepper displays the agent's thought process
  * as a vertical progress indicator with expandable steps.
  *
- * Uses CopilotKit's useCoAgentStateRender hook to receive
- * state updates from the backend orchestrator agent.
- *
  * Story 6-2: Chat Sidebar Interface
+ *
+ * This component has two rendering modes:
+ * 1. When the backend provides STATE_SNAPSHOT events through a CoAgent,
+ *    detailed steps are displayed using useCoAgentStateRender.
+ * 2. When no CoAgent state is available but the agent is loading,
+ *    a simple "thinking" indicator is shown.
+ *
+ * Note: The CoAgent state rendering requires the backend to be a proper
+ * LangGraph agent. If using a custom AG-UI backend, the fallback loading
+ * indicator will be shown instead.
  */
 export function ThoughtTraceStepper() {
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
+  const [hasCoAgentState, setHasCoAgentState] = useState(false);
+  const { isLoading } = useCopilotChat();
 
   const toggleStep = (stepKey: string) => {
     setExpandedSteps((prev) => {
@@ -149,11 +159,16 @@ export function ThoughtTraceStepper() {
     });
   };
 
+  // Try to render CoAgent state if available (for LangGraph backends)
   useCoAgentStateRender<{ steps: ThoughtStep[] }>({
-    name: "orchestrator",
+    name: "default", // Match the agent name in CopilotRuntime
     render: ({ state }) => {
-      if (!state?.steps?.length) return null;
+      if (!state?.steps?.length) {
+        setHasCoAgentState(false);
+        return null;
+      }
 
+      setHasCoAgentState(true);
       return (
         <div className="flex flex-col gap-2 p-4 font-mono text-sm border-t border-slate-200">
           <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
@@ -176,6 +191,17 @@ export function ThoughtTraceStepper() {
     },
   });
 
-  // Render is handled by useCoAgentStateRender hook
+  // Fallback: Show simple loading indicator when no CoAgent state but agent is working
+  if (isLoading && !hasCoAgentState) {
+    return (
+      <div className="flex items-center gap-2 p-4 border-t border-slate-200">
+        <BrainCircuit className="h-4 w-4 text-indigo-600 animate-pulse" />
+        <span className="text-sm text-slate-600">Thinking...</span>
+        <Loader2 className="h-3 w-3 text-indigo-600 animate-spin ml-auto" />
+      </div>
+    );
+  }
+
+  // CoAgent state render handles display when state is available
   return null;
 }

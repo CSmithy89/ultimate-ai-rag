@@ -4,7 +4,6 @@ import { useGenerativeUI, type GraphPreviewNode } from "@/hooks/use-generative-u
 import { useSourceValidation } from "@/hooks/use-source-validation";
 import { useCopilotActions } from "@/hooks/use-copilot-actions";
 import { useCopilotContext } from "@/hooks/use-copilot-context";
-import { useChatSuggestions } from "@/hooks/use-chat-suggestions";
 import { useToolCallRenderers } from "./tool-renderers";
 import type { Source, ActionableContent } from "@/types/copilot";
 
@@ -105,9 +104,10 @@ export function GenerativeUIRenderer({
   // Exposes app state to AI: page, session, query history, preferences
   useCopilotContext();
 
-  // Initialize chat suggestions (Story 21-A5)
-  // Generates contextual follow-up suggestions based on current page
-  useChatSuggestions();
+  // Note: Chat suggestions (Story 21-A5) are now handled via the suggestions prop
+  // on CopilotSidebar/CopilotChat. Use useChatSuggestions() hook to get static
+  // page-context suggestions and pass them to the chat component's suggestions prop.
+  // This avoids AG-UI protocol errors from CopilotKit's internal AI suggestion calls.
 
   // Initialize source validation hooks (Story 6-4, 21-A2)
   // Dialog is now rendered inside useHumanInTheLoop's render function

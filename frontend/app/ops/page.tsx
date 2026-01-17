@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
+import Link from "next/link";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   useCostSummary,
@@ -69,6 +70,16 @@ function OpsDashboard() {
           </h1>
           <p className="text-slate-600">
             Monitor LLM usage, costs, and operational thresholds.
+          </p>
+          <p className="text-sm text-slate-500">
+            Need deeper inspection?{" "}
+            <Link
+              href="/ops/trajectories"
+              className="text-indigo-600 hover:text-indigo-700"
+            >
+              Open trajectories
+            </Link>
+            .
           </p>
           {!tenantId ? (
             <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -186,18 +197,24 @@ function OpsDashboard() {
             <h2 className="text-lg font-semibold text-slate-800">
               Alerts &amp; Thresholds
             </h2>
-            {summaryQuery.data?.alerts?.enabled ? (
+            {alertsQuery.isLoading ? (
+              <p className="text-sm text-slate-500">Loading alerts...</p>
+            ) : alertsQuery.error ? (
+              <p className="text-sm text-red-600">
+                Failed to load alerts: {alertsQuery.error.message}
+              </p>
+            ) : alertsEnabled ? (
               <div className="text-sm text-slate-600 space-y-1">
                 <p>
                   Daily total:{" "}
                   <span className="font-medium text-slate-800">
-                    {formatCurrency(summaryQuery.data.alerts.daily_total_usd ?? 0)}
+                    {formatCurrency(summaryQuery.data?.alerts?.daily_total_usd ?? 0)}
                   </span>
                 </p>
                 <p>
                   Monthly total:{" "}
                   <span className="font-medium text-slate-800">
-                    {formatCurrency(summaryQuery.data.alerts.monthly_total_usd ?? 0)}
+                    {formatCurrency(summaryQuery.data?.alerts?.monthly_total_usd ?? 0)}
                   </span>
                 </p>
               </div>

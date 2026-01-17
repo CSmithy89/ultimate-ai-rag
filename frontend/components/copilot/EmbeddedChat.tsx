@@ -4,6 +4,7 @@
  * EmbeddedChat component - inline embedded chat panel.
  *
  * Story 21-F2: Implement CopilotChat Embedded Component
+ * Story 21-A5: Static suggestions to avoid AG-UI protocol errors
  *
  * Features:
  * - Embedded chat panel within page content
@@ -19,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { ThoughtTraceStepper } from "./ThoughtTraceStepper";
 import { CopilotErrorBoundary } from "./CopilotErrorBoundary";
 import { GenerativeUIRenderer } from "./GenerativeUIRenderer";
+import { useChatSuggestions } from "@/hooks/use-chat-suggestions";
 
 export interface EmbeddedChatProps {
   /** Additional class names */
@@ -57,6 +59,9 @@ export function EmbeddedChat({
   welcomeMessage = "Welcome! Ask me anything about your documents.",
   title = "AI Assistant",
 }: EmbeddedChatProps) {
+  // Get static page-context suggestions (avoids AG-UI protocol errors)
+  const suggestions = useChatSuggestions();
+
   return (
     <CopilotErrorBoundary>
       <div className={cn("embedded-chat-container", className)}>
@@ -66,6 +71,7 @@ export function EmbeddedChat({
             initial: welcomeMessage,
           }}
           className="h-full"
+          suggestions={suggestions}
         >
           <ThoughtTraceStepper />
           <GenerativeUIRenderer />

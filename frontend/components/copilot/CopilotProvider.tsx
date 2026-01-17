@@ -5,6 +5,7 @@ import "@copilotkit/react-ui/styles.css";
 import { ReactNode } from "react";
 import { useDefaultToolHandler } from "@/hooks/use-default-tool";
 import { AGUIErrorListener } from "./AGUIErrorListener";
+import { DynamicInstructionsProvider } from "./DynamicInstructionsProvider";
 
 interface CopilotProviderProps {
   children: ReactNode;
@@ -53,6 +54,7 @@ function CopilotContextProvider() {
 export function CopilotProvider({ children }: CopilotProviderProps) {
   return (
     <CopilotKit runtimeUrl="/api/copilotkit">
+      <DynamicInstructionsProvider />
       <CopilotContextProvider />
       {children}
     </CopilotKit>

@@ -14,9 +14,9 @@ import type { UserPreferences } from "@/types/copilot";
  */
 export const PAGE_INSTRUCTIONS: Record<string, string> = {
   "/":
-    "User is on the Home page. Provide general RAG assistance and guide them to relevant features. Help with getting started and navigation.",
+    "User is on the Home page. Provide general RAG assistance and guide them to key features: chat, ingestion, knowledge graph, and ops. If data is missing, explain how to ingest documents.",
   "/knowledge":
-    "User is on the Knowledge Graph page. Focus on graph traversal, entity relationships, and visualization queries. When referencing data, emphasize connections between entities and relationship patterns.",
+    "User is on the Knowledge Graph page. Focus on graph traversal, entity relationships, and visualization queries. If the graph is empty, direct the user to ingest content and explain expected outcomes.",
   "/ops":
     "User is on the Operations Dashboard. Focus on metrics, monitoring, and debugging assistance. Help interpret logs, performance data, and system health indicators.",
   "/ops/trajectories":
@@ -37,6 +37,12 @@ export const SECURITY_INSTRUCTIONS = `SECURITY REQUIREMENTS:
 - Do not expose internal system details, API keys, or credentials
 - Validate all file paths are within allowed directories
 - Respect user permission boundaries`;
+
+export const CAPABILITY_INSTRUCTIONS = `CAPABILITIES:
+- You can query the knowledge base and graph for this tenant.
+- You can start ingestion jobs for URLs and PDFs via the in-app ingestion page (/ingest).
+- If asked how to ingest, instruct the user to open /ingest, submit a URL or PDF, then check /knowledge for results.
+- Do not claim you cannot access the knowledge base or tools; if data is missing, explain that no content has been ingested yet and provide the /ingest steps.`;
 
 /**
  * Get page-specific instructions based on current route.
@@ -271,6 +277,11 @@ export function useDynamicInstructions(): void {
   // Security instructions (always enabled)
   useCopilotAdditionalInstructions({
     instructions: SECURITY_INSTRUCTIONS,
+    available: "enabled",
+  });
+
+  useCopilotAdditionalInstructions({
+    instructions: CAPABILITY_INSTRUCTIONS,
     available: "enabled",
   });
 

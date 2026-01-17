@@ -6,6 +6,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   KnowledgeGraph,
@@ -122,6 +123,12 @@ function EmptyState() {
         <p className="text-gray-400 text-sm mt-2">
           Start by ingesting documents to populate the graph.
         </p>
+        <Link
+          href="/ingest"
+          className="inline-flex mt-4 text-sm text-indigo-600 hover:text-indigo-700"
+        >
+          Go to ingestion
+        </Link>
       </div>
     </div>
   );
@@ -241,13 +248,21 @@ function KnowledgePageContent() {
     <div className="min-h-screen bg-gray-100">
       {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <h1 className="text-xl font-bold text-gray-900">Knowledge Graph</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Visualize entities and their relationships
-          </p>
+        <div className="max-w-7xl mx-auto px-4 py-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Knowledge Graph</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              Visualize entities and their relationships
+            </p>
+          </div>
+          <Link
+            href="/ingest"
+            className="text-sm text-indigo-600 hover:text-indigo-700"
+          >
+            Ingest content
+          </Link>
           {!tenantId ? (
-            <p className="mt-3 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            <p className="w-full mt-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
               Set NEXT_PUBLIC_TENANT_ID to view knowledge graph data for a tenant.
             </p>
           ) : null}

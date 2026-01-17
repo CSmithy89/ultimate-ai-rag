@@ -8,6 +8,7 @@
  * Access via: /chat
  */
 
+import Link from "next/link";
 import { EmbeddedChat } from "@/components/copilot/EmbeddedChat";
 
 export const metadata = {
@@ -26,6 +27,27 @@ export default function ChatPage() {
           Ask questions about your documents and knowledge base
         </p>
       </header>
+
+      <div className="flex flex-wrap gap-3 mb-4 text-sm">
+        <Link
+          href="/ingest"
+          className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-slate-700 hover:border-slate-300"
+        >
+          Ingest content
+        </Link>
+        <Link
+          href="/knowledge"
+          className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-slate-700 hover:border-slate-300"
+        >
+          Explore knowledge graph
+        </Link>
+        <Link
+          href="/ops/trajectories"
+          className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-slate-700 hover:border-slate-300"
+        >
+          View trajectories
+        </Link>
+      </div>
 
       <main className="flex-1 min-h-0">
         <EmbeddedChat

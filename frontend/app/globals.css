@@ -85,3 +85,13 @@ body {
     animation: none;
   }
 }
+
+/* Hide CopilotKit inspector in normal UI */
+body[data-hide-copilotkit-inspector="true"] button[aria-label="Web Inspector"],
+body[data-hide-copilotkit-inspector="true"] button:has(img[alt="Inspector logo"]) {
+  display: none !important;
+}
+
+body[data-hide-copilotkit-inspector="true"] cpk-web-inspector {
+  display: none !important;
+}

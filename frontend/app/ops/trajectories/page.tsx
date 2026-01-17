@@ -7,7 +7,7 @@ import {
   useTrajectoryDetail,
 } from "@/hooks/use-ops-dashboard";
 
-const DEMO_TENANT_ID = "00000000-0000-0000-0000-000000000001";
+const tenantId = process.env.NEXT_PUBLIC_TENANT_ID ?? "";
 
 function formatTimestamp(value: string | null | undefined) {
   if (!value) return "n/a";
@@ -19,13 +19,13 @@ function TrajectoryViewer() {
   const [agentFilter, setAgentFilter] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const trajectoriesQuery = useTrajectories(DEMO_TENANT_ID, {
+  const trajectoriesQuery = useTrajectories(tenantId, {
     status: statusFilter === "all" ? undefined : statusFilter,
     agentType: agentFilter || undefined,
     limit: 50,
   });
 
-  const detailQuery = useTrajectoryDetail(DEMO_TENANT_ID, selectedId);
+  const detailQuery = useTrajectoryDetail(tenantId, selectedId);
 
   const selectedTrajectory = useMemo(() => {
     return trajectoriesQuery.data?.find((item) => item.id === selectedId);
@@ -42,6 +42,11 @@ function TrajectoryViewer() {
             Inspect past agent sessions, filter by status, and review event
             timelines.
           </p>
+          {!tenantId ? (
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Set NEXT_PUBLIC_TENANT_ID to view trajectories for a tenant.
+            </p>
+          ) : null}
         </header>
 
         <section className="bg-white border border-slate-200 rounded-xl p-4 space-y-4">

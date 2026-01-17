@@ -14,6 +14,7 @@ from pydantic import ValidationError
 import redis.asyncio as redis
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse, Response
 import structlog
 
@@ -1000,6 +1001,19 @@ router = APIRouter()
 
 
 def install_middleware(app: FastAPI) -> None:
+    # CORS middleware for frontend-backend communication
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://frontend:3000",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     @app.middleware("http")
     async def enforce_request_size(request: Request, call_next):
         settings = request.app.state.settings

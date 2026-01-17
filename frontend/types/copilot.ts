@@ -499,7 +499,11 @@ export interface QuickActionConfig {
   /** Display label for the button */
   label: string;
   /** Message to send when clicked */
-  message: string;
+  message?: string;
+  /** Action behavior override */
+  action?: "send" | "navigate";
+  /** Navigation target when action is navigate */
+  href?: string;
   /** Optional icon name (for future use) */
   icon?: string;
   /** Optional description for tooltip */
@@ -536,7 +540,9 @@ export const ChatMessageSchema = z.object({
 
 export const QuickActionConfigSchema = z.object({
   label: z.string(),
-  message: z.string(),
+  message: z.string().optional(),
+  action: z.enum(["send", "navigate"]).optional(),
+  href: z.string().optional(),
   icon: z.string().optional(),
   description: z.string().optional(),
 });

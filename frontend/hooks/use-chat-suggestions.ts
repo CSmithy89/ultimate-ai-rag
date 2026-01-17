@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-import { useCopilotChatSuggestions } from "@copilotkit/react-core";
 import { usePathname } from "next/navigation";
 
 /**
@@ -30,10 +29,10 @@ const PAGE_SUGGESTION_MAP: Record<string, PageSuggestionContext> = {
 - View their recent activity
 - Navigate to other features`,
     exampleSuggestions: [
-      "Search the knowledge base",
-      "Import a document",
-      "View recent queries",
-      "Explore the graph",
+      "Search the knowledge base for a topic",
+      "Ingest a URL into the knowledge base",
+      "Upload a PDF for ingestion",
+      "Show knowledge graph stats",
     ],
   },
   "/knowledge": {
@@ -44,9 +43,9 @@ const PAGE_SUGGESTION_MAP: Record<string, PageSuggestionContext> = {
 - Understand the structure of their knowledge base
 - Navigate to related concepts`,
     exampleSuggestions: [
-      "Show related entities",
-      "Find connections",
-      "Explore node details",
+      "Show related entities for a node",
+      "Find shortest path between two entities",
+      "List orphan entities",
       "Filter by entity type",
     ],
   },
@@ -59,9 +58,9 @@ const PAGE_SUGGESTION_MAP: Record<string, PageSuggestionContext> = {
 - Debug issues`,
     exampleSuggestions: [
       "Show recent trajectories",
-      "View system metrics",
-      "Check agent performance",
-      "Analyze query costs",
+      "Summarize cost trends for the last 7 days",
+      "Check alerts and thresholds",
+      "Analyze query costs by model",
     ],
   },
   "/ops/trajectories": {
@@ -72,10 +71,10 @@ const PAGE_SUGGESTION_MAP: Record<string, PageSuggestionContext> = {
 - Compare execution patterns
 - Identify failed operations`,
     exampleSuggestions: [
-      "Filter by status",
+      "Filter trajectories by status",
       "Show failed runs",
-      "Compare trajectories",
-      "View step details",
+      "Compare two trajectories",
+      "Explain a timeline step",
     ],
   },
   "/workflow": {
@@ -86,8 +85,8 @@ const PAGE_SUGGESTION_MAP: Record<string, PageSuggestionContext> = {
 - Test workflow execution
 - Save or export configurations`,
     exampleSuggestions: [
-      "Add a new node",
-      "Connect steps",
+      "Add an ingest node",
+      "Connect retrieval and rerank steps",
       "Test the workflow",
       "Save configuration",
     ],
@@ -105,10 +104,10 @@ const DEFAULT_SUGGESTION_CONTEXT: PageSuggestionContext = {
 - Navigate to different sections
 - Perform common actions`,
   exampleSuggestions: [
-    "Search for a topic",
-    "How can I help?",
-    "Show available features",
-    "Get started",
+    "Search the knowledge base",
+    "Explain available features",
+    "How do I ingest documents?",
+    "Get started with a sample query",
   ],
 };
 
@@ -154,92 +153,77 @@ export function getPageSuggestionContext(pathname: string): PageSuggestionContex
 }
 
 /**
- * Build the complete instructions string for suggestion generation.
- *
- * @param context - The page suggestion context
- * @returns Formatted instruction string for AI
+ * Suggestion item format compatible with CopilotKit's suggestions prop.
+ * Matches the CopilotChatSuggestion type from @copilotkit/react-ui.
  */
-function buildInstructions(context: PageSuggestionContext): string {
-  const exampleList = context.exampleSuggestions
-    .map((s, i) => `${i + 1}. "${s}"`)
-    .join("\n");
-
-  return `You are generating helpful follow-up suggestions for a RAG (Retrieval-Augmented Generation) copilot assistant.
-
-Current page: ${context.pageName}
-
-${context.specificInstructions}
-
-Generate 2-4 concise, actionable suggestions that:
-1. Are relevant to the "${context.pageName}" page context
-2. Are under 50 characters each
-3. Start with an action verb (Show, Find, Explore, View, Search, etc.)
-4. Help the user accomplish tasks or explore features
-5. Are specific enough to be immediately useful
-
-Example suggestions for this context:
-${exampleList}
-
-Generate suggestions that match this style but vary based on the conversation context.`;
+export interface SuggestionItem {
+  /** Display title for the suggestion chip */
+  title: string;
+  /** Message sent to chat when suggestion is clicked */
+  message: string;
 }
 
 /**
- * useChatSuggestions hook registers AI-powered suggestion generation with CopilotKit.
+ * useChatSuggestions hook provides static, context-aware suggestions for CopilotKit.
  *
  * Story 21-A5: Implement useCopilotChatSuggestions for Smart Follow-ups
  *
  * This hook provides contextual suggestions that appear as clickable chips below
- * the chat input in CopilotSidebar. Suggestions are automatically generated:
- * - When the chat is first opened
- * - After each message exchange completes
- *
- * The suggestions are context-aware, changing based on the current page:
+ * the chat input in CopilotSidebar/CopilotChat. Suggestions are based on the
+ * current page context:
  * - Home: General navigation and search suggestions
  * - Knowledge Graph: Entity exploration and relationship suggestions
  * - Operations: Monitoring and debugging suggestions
  * - Workflow: Editing and configuration suggestions
  *
+ * **Important:** This hook returns static suggestions instead of using
+ * `useCopilotChatSuggestions` because the AI-powered suggestions feature
+ * triggers internal CopilotKit API calls that bypass our AG-UI compliant backend,
+ * causing ZodError validation failures. Static suggestions avoid this issue.
+ *
+ * @returns Array of suggestion items for the current page context
+ *
  * @example
  * ```tsx
- * // In GenerativeUIRenderer or CopilotProvider
- * function MyComponent() {
- *   useChatSuggestions();
- *   return null;
+ * // Use with CopilotSidebar
+ * function ChatWrapper() {
+ *   const suggestions = useChatSuggestions();
+ *   return (
+ *     <CopilotSidebar suggestions={suggestions}>
+ *       <GenerativeUIRenderer />
+ *     </CopilotSidebar>
+ *   );
  * }
  * ```
  *
  * @example
  * ```tsx
- * // The hook works with CopilotSidebar's default suggestions="auto" mode.
- * // No additional configuration is needed - just call the hook.
- * <CopilotSidebar>
- *   <GenerativeUIRenderer />  // Calls useChatSuggestions internally
- * </CopilotSidebar>
+ * // Use with CopilotChat (embedded)
+ * function EmbeddedChatWrapper() {
+ *   const suggestions = useChatSuggestions();
+ *   return (
+ *     <CopilotChat suggestions={suggestions}>
+ *       <GenerativeUIRenderer />
+ *     </CopilotChat>
+ *   );
+ * }
  * ```
  */
-export function useChatSuggestions(): void {
+export function useChatSuggestions(): SuggestionItem[] {
   // Handle null pathname (Issue 2.1)
   const rawPathname = usePathname();
   const pathname = rawPathname ?? "/";
 
-  // Get page-specific context
-  const suggestionContext = useMemo(
-    () => getPageSuggestionContext(pathname),
-    [pathname]
-  );
+  // Get page-specific context and convert to suggestion items
+  const suggestions = useMemo(() => {
+    const context = getPageSuggestionContext(pathname);
+    return context.exampleSuggestions.map((suggestion) => ({
+      title: suggestion,
+      message: suggestion,
+    }));
+  }, [pathname]);
 
-  // Build instructions for suggestion generation
-  const instructions = useMemo(
-    () => buildInstructions(suggestionContext),
-    [suggestionContext]
-  );
-
-  // Register suggestions with CopilotKit
-  useCopilotChatSuggestions({
-    instructions,
-    minSuggestions: 2,
-    maxSuggestions: 4,
-  });
+  return suggestions;
 }
 
 export default useChatSuggestions;

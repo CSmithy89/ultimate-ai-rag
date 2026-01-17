@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   FileText,
@@ -20,18 +21,21 @@ export const DEFAULT_QUICK_ACTIONS: QuickActionConfig[] = [
   {
     label: "Summarize",
     message: "Summarize the current document or conversation context",
+    action: "send",
     icon: "FileText",
     description: "Get a concise summary",
   },
   {
     label: "Key Insights",
     message: "Extract the key insights and important points",
+    action: "send",
     icon: "Lightbulb",
     description: "Identify main takeaways",
   },
   {
     label: "Related Topics",
     message: "Find related topics and suggest further exploration areas",
+    action: "send",
     icon: "Search",
     description: "Discover related content",
   },
@@ -121,6 +125,7 @@ export const QuickActions = memo(function QuickActions({
   size = "md",
   className,
 }: QuickActionsProps) {
+  const router = useRouter();
   const {
     sendMessage,
     regenerateLastResponse,
@@ -177,8 +182,16 @@ export const QuickActions = memo(function QuickActions({
           <button
             key={action.label}
             type="button"
-            onClick={() => sendMessage(action.message)}
-            disabled={isLoading}
+            onClick={() => {
+              if (action.action === "navigate" && action.href) {
+                router.push(action.href);
+                return;
+              }
+              if (action.message) {
+                void sendMessage(action.message);
+              }
+            }}
+            disabled={isLoading || (action.action === "navigate" && !action.href)}
             className={buttonBase}
             title={action.description || action.label}
             aria-label={action.label}
