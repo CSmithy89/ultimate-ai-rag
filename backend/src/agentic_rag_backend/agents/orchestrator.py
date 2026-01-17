@@ -327,6 +327,20 @@ class OrchestratorAgent:
         events.append((EventType.ACTION, strategy_note))
         logger.debug("retrieval_strategy_selected", strategy=strategy.value)
 
+        if self._is_ingest_question(query):
+            answer = self._build_ingest_answer()
+            events.append((EventType.OBSERVATION, "Returned ingest guidance response"))
+            if self._logger and trajectory_id:
+                await self._logger.log_events(tenant_id, trajectory_id, events)
+            return OrchestratorResult(
+                answer=answer,
+                plan=completed_plan,
+                thoughts=thoughts,
+                retrieval_strategy=strategy,
+                trajectory_id=trajectory_id,
+                evidence=None,
+            )
+
         vector_hits: list[VectorHit] = []
         graph_result: GraphTraversalResult | None = None
         routed = False
@@ -851,9 +865,25 @@ class OrchestratorAgent:
         vector_hits: list[VectorHit],
         graph_result: GraphTraversalResult | None,
     ) -> str:
-        if not vector_hits and not graph_result:
-            return query
         return build_hybrid_prompt(query, vector_hits, graph_result)
+
+    def _is_ingest_question(self, query: str) -> bool:
+        return bool(
+            re.search(
+                r"\b(ingest|upload|crawl|index|import|add (?:documents|docs|data))\b",
+                query,
+                re.IGNORECASE,
+            )
+        )
+
+    def _build_ingest_answer(self) -> str:
+        return (
+            "To ingest content in this app, open /ingest and choose one of the two flows:\n"
+            "1) Ingest a URL to crawl documentation (set max depth, then start crawl).\n"
+            "2) Upload a PDF to parse and ingest.\n\n"
+            "Make sure a tenant ID is configured (NEXT_PUBLIC_TENANT_ID) so jobs run. "
+            "After the job finishes, open /knowledge to explore the graph or ask questions in /chat."
+        )
 
     async def _run_graph_traversal(
         self,
