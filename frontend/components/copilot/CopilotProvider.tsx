@@ -2,7 +2,7 @@
 
 import { CopilotKit } from "@copilotkit/react-core";
 import "@copilotkit/react-ui/styles.css";
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
 import { useDefaultToolHandler } from "@/hooks/use-default-tool";
 import { AGUIErrorListener } from "./AGUIErrorListener";
 import { DynamicInstructionsProvider } from "./DynamicInstructionsProvider";
@@ -26,6 +26,16 @@ function CopilotContextProvider() {
   // - Toast notifications on completion
   // - Generic loading indicator during execution
   useDefaultToolHandler();
+
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_SHOW_COPILOT_INSPECTOR === "true") {
+      return;
+    }
+    const inspector = document.querySelector("cpk-web-inspector");
+    if (inspector) {
+      inspector.remove();
+    }
+  }, []);
 
   return <AGUIErrorListener />;
 }

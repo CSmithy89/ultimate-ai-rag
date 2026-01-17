@@ -28,11 +28,20 @@ def build_hybrid_prompt(
     graph_result: GraphTraversalResult | None,
 ) -> str:
     """Build a hybrid prompt combining vector and graph evidence."""
+    has_graph_nodes = bool(graph_result and graph_result.nodes)
+    has_vector_hits = bool(vector_hits)
+    has_evidence = has_vector_hits or has_graph_nodes
     prompt_parts = [
         "Answer the user question using the evidence below.",
         "Cite sources inline using [vector:chunk_id] or [graph:entity_id].",
         f"Question: {query}",
     ]
+
+    if not has_evidence:
+        prompt_parts.append(
+            "No evidence was retrieved. Explain that the knowledge base is empty for this tenant, "
+            "and give the user steps to ingest content via /ingest (URL crawl or PDF upload) before querying again."
+        )
 
     ranked_vectors = rank_vector_hits(vector_hits)[:MAX_VECTOR_HITS]
     if ranked_vectors:

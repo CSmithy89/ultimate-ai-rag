@@ -407,9 +407,17 @@ class OrchestratorAgent:
 
         agent = self._get_agent(selected_model_id)
         if agent:
-            response = await asyncio.to_thread(agent.run, prompt)
-            content = getattr(response, "content", response)
-            answer = str(content)
+            try:
+                response = await asyncio.to_thread(agent.run, prompt)
+                content = getattr(response, "content", response)
+                answer = str(content)
+            except Exception as exc:
+                logger.exception("orchestrator_agent_run_failed", error=str(exc))
+                answer = (
+                    "I could not complete the request due to a backend error. "
+                    "If this is the first run, ensure your LLM provider credentials are configured. "
+                    "If you are trying to query content, ingest data via /ingest and retry."
+                )
         else:
             logger.warning("agno_agent_unavailable")
             answer = f"Received query: {query}"
