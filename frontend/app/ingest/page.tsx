@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
@@ -29,7 +29,7 @@ type JobCreateResponse = {
   };
 };
 
-export default function IngestPage() {
+function IngestPageContent() {
   const searchParams = useSearchParams();
   const urlInputRef = useRef<HTMLInputElement | null>(null);
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
@@ -332,5 +332,28 @@ export default function IngestPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+function IngestPageFallback() {
+  return (
+    <main className="min-h-screen bg-slate-50">
+      <div className="container mx-auto py-10 space-y-8">
+        <header className="space-y-2">
+          <h1 className="text-3xl font-semibold text-slate-900">
+            Ingest Content
+          </h1>
+          <p className="text-slate-600">Loading...</p>
+        </header>
+      </div>
+    </main>
+  );
+}
+
+export default function IngestPage() {
+  return (
+    <Suspense fallback={<IngestPageFallback />}>
+      <IngestPageContent />
+    </Suspense>
   );
 }

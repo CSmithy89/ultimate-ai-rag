@@ -48,11 +48,8 @@ export function initializeWidgetsSync(): void {
   }
 
   // Import widgets synchronously (requires bundler support)
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { StepProgressWidget } = require("@/components/widgets/StepProgressWidget");
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { ApprovalDialogWidget } = require("@/components/widgets/ApprovalDialogWidget");
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { DataTableWidget } = require("@/components/widgets/DataTableWidget");
 
   registerWidget("step_progress", StepProgressWidget);

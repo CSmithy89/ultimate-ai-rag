@@ -8,6 +8,7 @@ import { GenerativeUIRenderer } from "./GenerativeUIRenderer";
 import { useChatSuggestions } from "@/hooks/use-chat-suggestions";
 import { usePathname } from "next/navigation";
 import { QuickActions } from "./QuickActions";
+import type { QuickActionConfig } from "@/types/copilot";
 
 /**
  * ChatSidebar component wrapping CopilotKit's CopilotSidebar
@@ -28,7 +29,7 @@ export function ChatSidebar() {
   // Get static page-context suggestions (avoids AG-UI protocol errors)
   const pageSuggestions = useChatSuggestions();
   const suggestions = isHome ? [] : pageSuggestions;
-  const homeActions = [
+  const homeActions: QuickActionConfig[] = [
     {
       label: "Search KB",
       message:

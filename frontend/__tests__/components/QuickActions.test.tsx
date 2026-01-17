@@ -6,6 +6,16 @@
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 
+// Mock next/navigation
+jest.mock("next/navigation", () => ({
+  usePathname: () => "/",
+  useRouter: () => ({
+    push: jest.fn(),
+    replace: jest.fn(),
+    back: jest.fn(),
+  }),
+}));
+
 // Mock the hook before importing the component
 const mockSendMessage = jest.fn();
 const mockRegenerateLastResponse = jest.fn();

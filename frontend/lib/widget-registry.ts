@@ -343,7 +343,7 @@ export function renderWidget(value: RenderUIEventValue): React.ReactElement | nu
 // DEFAULT EXPORTS
 // ============================================
 
-export default {
+const widgetRegistryAPI = {
   widgetRegistry,
   registerWidget,
   getWidget,
@@ -352,3 +352,5 @@ export default {
   isRenderUIEvent,
   renderWidget,
 };
+
+export default widgetRegistryAPI;

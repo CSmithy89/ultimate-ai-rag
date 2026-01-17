@@ -29,7 +29,7 @@ describe("useChatSuggestions utilities", () => {
         expect(context.pageName).toBe("Home");
         expect(context.specificInstructions).toContain("home page");
         expect(context.exampleSuggestions).toHaveLength(4);
-        expect(context.exampleSuggestions).toContain("Search the knowledge base");
+        expect(context.exampleSuggestions).toContain("Search the knowledge base for a topic");
       });
 
       it("returns Knowledge Graph context for /knowledge", () => {
@@ -37,8 +37,8 @@ describe("useChatSuggestions utilities", () => {
 
         expect(context.pageName).toBe("Knowledge Graph");
         expect(context.specificInstructions).toContain("Knowledge Graph");
-        expect(context.exampleSuggestions).toContain("Show related entities");
-        expect(context.exampleSuggestions).toContain("Find connections");
+        expect(context.exampleSuggestions).toContain("Show related entities for a node");
+        expect(context.exampleSuggestions).toContain("Find shortest path between two entities");
       });
 
       it("returns Operations Dashboard context for /ops", () => {
@@ -47,7 +47,7 @@ describe("useChatSuggestions utilities", () => {
         expect(context.pageName).toBe("Operations Dashboard");
         expect(context.specificInstructions).toContain("Operations Dashboard");
         expect(context.exampleSuggestions).toContain("Show recent trajectories");
-        expect(context.exampleSuggestions).toContain("View system metrics");
+        expect(context.exampleSuggestions).toContain("Summarize cost trends for the last 7 days");
       });
 
       it("returns Trajectory Debugging context for /ops/trajectories", () => {
@@ -55,7 +55,7 @@ describe("useChatSuggestions utilities", () => {
 
         expect(context.pageName).toBe("Trajectory Debugging");
         expect(context.specificInstructions).toContain("debugging agent trajectories");
-        expect(context.exampleSuggestions).toContain("Filter by status");
+        expect(context.exampleSuggestions).toContain("Filter trajectories by status");
         expect(context.exampleSuggestions).toContain("Show failed runs");
       });
 
@@ -64,7 +64,7 @@ describe("useChatSuggestions utilities", () => {
 
         expect(context.pageName).toBe("Visual Workflow Editor");
         expect(context.specificInstructions).toContain("Workflow Editor");
-        expect(context.exampleSuggestions).toContain("Add a new node");
+        expect(context.exampleSuggestions).toContain("Add an ingest node");
         expect(context.exampleSuggestions).toContain("Save configuration");
       });
     });
@@ -90,7 +90,7 @@ describe("useChatSuggestions utilities", () => {
 
         expect(context.pageName).toBe("Application");
         expect(context.specificInstructions).toContain("exploring the application");
-        expect(context.exampleSuggestions).toContain("Search for a topic");
+        expect(context.exampleSuggestions).toContain("Search the knowledge base");
       });
 
       it("returns default context for unknown nested path", () => {
@@ -148,10 +148,13 @@ describe("useChatSuggestions utilities", () => {
         const actionVerbs = [
           "Search",
           "Import",
+          "Ingest",
+          "Upload",
           "View",
           "Explore",
           "Show",
           "Find",
+          "List",
           "Filter",
           "Add",
           "Connect",
@@ -160,6 +163,8 @@ describe("useChatSuggestions utilities", () => {
           "Check",
           "Analyze",
           "Compare",
+          "Summarize",
+          "Explain",
           "Get",
           "How",
         ];
@@ -235,9 +240,9 @@ describe("useChatSuggestions utilities", () => {
       const context = getPageSuggestionContext("/");
       const suggestions = context.exampleSuggestions;
 
-      // Should have search and import options
+      // Should have search and ingest options
       expect(suggestions.some((s) => s.toLowerCase().includes("search"))).toBe(true);
-      expect(suggestions.some((s) => s.toLowerCase().includes("import"))).toBe(true);
+      expect(suggestions.some((s) => s.toLowerCase().includes("ingest"))).toBe(true);
     });
 
     it("knowledge suggestions are graph-focused", () => {

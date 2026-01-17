@@ -8,6 +8,30 @@ import React from "react";
 import { render, screen } from "@testing-library/react";
 import { ChatSidebar } from "../../../components/copilot/ChatSidebar";
 
+// Mock next/navigation
+jest.mock("next/navigation", () => ({
+  usePathname: () => "/",
+  useRouter: () => ({
+    push: jest.fn(),
+    replace: jest.fn(),
+    back: jest.fn(),
+  }),
+}));
+
+// Mock useChatSuggestions hook
+jest.mock("../../../hooks/use-chat-suggestions", () => ({
+  useChatSuggestions: () => [],
+}));
+
+// Mock QuickActions component (has complex CopilotKit dependencies)
+jest.mock("../../../components/copilot/QuickActions", () => ({
+  QuickActions: ({ actions }: { actions: unknown[] }) => (
+    <div data-testid="quick-actions">
+      {actions?.length || 0} actions
+    </div>
+  ),
+}));
+
 // Mock CopilotKit components
 jest.mock("@copilotkit/react-ui", () => ({
   CopilotSidebar: ({

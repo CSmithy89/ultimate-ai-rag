@@ -21,6 +21,13 @@ jest.mock("@copilotkit/react-core", () => ({
   }) => {
     mockRenderCallback = render as unknown as typeof mockRenderCallback;
   },
+  useCopilotChat: () => ({
+    appendMessage: jest.fn(),
+    setMessages: jest.fn(),
+    messages: [],
+    isLoading: false,
+    error: null,
+  }),
 }));
 
 describe("ThoughtTraceStepper", () => {

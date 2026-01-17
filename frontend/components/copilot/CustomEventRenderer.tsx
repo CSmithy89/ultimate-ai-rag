@@ -15,7 +15,7 @@
  * ```
  */
 
-import { useEffect, useState, memo, type ReactElement } from "react";
+import React, { useEffect, useState, memo, type ReactElement } from "react";
 import {
   isRenderUIEvent,
   getWidget,
@@ -68,8 +68,8 @@ function renderWidgetFromEvent(value: RenderUIEventValue): ReactElement | null {
     return null;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return <Widget {...(value.props as any)} />;
+  const WidgetComponent = Widget as unknown as React.ComponentType<Record<string, unknown>>;
+  return <WidgetComponent {...value.props} />;
 }
 
 /**
@@ -138,12 +138,12 @@ function CustomEventRendererComponent({
         },
       };
 
-      const Widget = getWidget(renderUIValue.type as WidgetType);
-      if (Widget) {
+      const WrappedWidget = getWidget(renderUIValue.type as WidgetType);
+      if (WrappedWidget) {
+        const WrappedWidgetComponent = WrappedWidget as unknown as React.ComponentType<Record<string, unknown>>;
         return (
           <div className={className}>
-            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-            <Widget {...(wrappedProps as any)} />
+            <WrappedWidgetComponent {...wrappedProps} />
           </div>
         );
       }
