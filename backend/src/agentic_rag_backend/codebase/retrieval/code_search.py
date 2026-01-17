@@ -17,13 +17,21 @@ logger = structlog.get_logger(__name__)
 class CodeSearchService:
     """Perform semantic search over indexed code chunks."""
 
+    # Lower similarity threshold for code search (code embeddings match
+    # natural language queries less precisely than document embeddings)
+    CODE_SIMILARITY_THRESHOLD = 0.4
+
     def __init__(
         self,
         postgres: PostgresClient,
         embedding_generator: EmbeddingGenerator,
         neo4j: Optional[Neo4jClient] = None,
     ) -> None:
-        self._vector_search = VectorSearchService(postgres, embedding_generator)
+        self._vector_search = VectorSearchService(
+            postgres,
+            embedding_generator,
+            similarity_threshold=self.CODE_SIMILARITY_THRESHOLD,
+        )
         self._neo4j = neo4j
 
     async def search(

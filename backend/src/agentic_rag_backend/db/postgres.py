@@ -502,6 +502,9 @@ class PostgresClient:
         """
         try:
             async with self.pool.acquire() as conn:
+                # Serialize metadata dict to JSON string for JSONB column
+                metadata_json = json.dumps(metadata) if metadata else None
+
                 row = await conn.fetchrow(
                     """
                     INSERT INTO documents (tenant_id, source_type, source_url, filename, content_hash, file_size, page_count, metadata)
@@ -517,7 +520,7 @@ class PostgresClient:
                     content_hash,
                     file_size,
                     page_count,
-                    metadata,
+                    metadata_json,
                 )
                 doc_id = row["id"]
                 logger.info("document_created", document_id=str(doc_id), tenant_id=str(tenant_id))
@@ -693,7 +696,11 @@ class PostgresClient:
 
                 progress = None
                 if row["progress"]:
-                    progress = JobProgress(**row["progress"])
+                    # Handle both dict (from asyncpg JSONB) and string (legacy data)
+                    progress_data = row["progress"]
+                    if isinstance(progress_data, str):
+                        progress_data = json.loads(progress_data)
+                    progress = JobProgress(**progress_data)
 
                 return JobStatus(
                     job_id=row["id"],
@@ -731,9 +738,7 @@ class PostgresClient:
             True if updated, False if not found
         """
         try:
-            # Serialize progress dict to JSON string for JSONB column
-            progress_json = json.dumps(progress) if progress else None
-
+            # asyncpg handles JSONB serialization automatically - pass dict directly
             async with self.pool.acquire() as conn:
                 # Build the update query dynamically
                 if status == JobStatusEnum.RUNNING:
@@ -746,7 +751,7 @@ class PostgresClient:
                         job_id,
                         tenant_id,
                         status.value,
-                        progress_json,
+                        progress,
                     )
                 elif status in (JobStatusEnum.COMPLETED, JobStatusEnum.FAILED):
                     result = await conn.execute(
@@ -758,7 +763,7 @@ class PostgresClient:
                         job_id,
                         tenant_id,
                         status.value,
-                        progress_json,
+                        progress,
                         error_message,
                     )
                 else:
@@ -771,7 +776,7 @@ class PostgresClient:
                         job_id,
                         tenant_id,
                         status.value,
-                        progress_json,
+                        progress,
                     )
 
                 updated = result == "UPDATE 1"
@@ -894,7 +899,11 @@ class PostgresClient:
                 for row in rows:
                     progress = None
                     if row["progress"]:
-                        progress = JobProgress(**row["progress"])
+                        # Handle both dict (from asyncpg JSONB) and string (legacy data)
+                        progress_data = row["progress"]
+                        if isinstance(progress_data, str):
+                            progress_data = json.loads(progress_data)
+                        progress = JobProgress(**progress_data)
 
                     jobs.append(JobStatus(
                         job_id=row["id"],
@@ -1073,7 +1082,14 @@ class PostgresClient:
                     similarity_threshold,
                     limit,
                 )
-                return [dict(row) for row in rows]
+                results = []
+                for row in rows:
+                    row_dict = dict(row)
+                    # Deserialize metadata if it's a JSON string
+                    if isinstance(row_dict.get("metadata"), str):
+                        row_dict["metadata"] = json.loads(row_dict["metadata"])
+                    results.append(row_dict)
+                return results
         except asyncpg.PostgresError as e:
             raise DatabaseError("search_similar_chunks", str(e)) from e
 

@@ -1,6 +1,7 @@
 """Neo4j async client for knowledge graph operations."""
 
 import asyncio
+import json
 import re
 from typing import Any, Optional
 
@@ -194,10 +195,14 @@ class Neo4jClient:
             Dictionary with created/updated entity properties
         """
         try:
+            # Serialize properties dict to JSON string for Neo4j storage
+            properties_json = json.dumps(properties) if properties else None
+
             async with self.driver.session() as session:
                 result = await session.run(
                     """
                     MERGE (e:Entity {id: $id, tenant_id: $tenant_id})
+                    ON CREATE SET e.created_at = datetime()
                     SET e.name = $name,
                         e.type = $type,
                         e.description = COALESCE($description, e.description),
@@ -208,7 +213,6 @@ class Neo4jClient:
                             ELSE COALESCE(e.source_chunks, [])
                         END,
                         e.updated_at = datetime()
-                    ON CREATE SET e.created_at = datetime()
                     RETURN e
                     """,
                     id=entity_id,
@@ -216,7 +220,7 @@ class Neo4jClient:
                     name=name,
                     type=entity_type,
                     description=description,
-                    properties=properties,
+                    properties=properties_json,
                     chunk_id=source_chunk_id,
                 )
                 record = await result.single()
@@ -507,12 +511,12 @@ class Neo4jClient:
                 result = await session.run(
                     """
                     MERGE (d:Document {id: $id, tenant_id: $tenant_id})
+                    ON CREATE SET d.created_at = datetime()
                     SET d.title = COALESCE($title, d.title),
                         d.source_url = COALESCE($source_url, d.source_url),
                         d.source_type = COALESCE($source_type, d.source_type),
                         d.content_hash = COALESCE($content_hash, d.content_hash),
                         d.updated_at = datetime()
-                    ON CREATE SET d.created_at = datetime()
                     RETURN d
                     """,
                     id=document_id,
