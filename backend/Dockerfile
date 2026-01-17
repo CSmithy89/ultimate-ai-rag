@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies for Playwright and general utilities
+# Install system dependencies for Playwright, Docling, and general utilities
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Playwright dependencies
     libnss3 \
@@ -22,6 +22,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2 \
     libpango-1.0-0 \
     libcairo2 \
+    # Docling PDF rendering dependencies (OpenGL/OpenCV)
+    libgl1 \
+    libglib2.0-0 \
     # Additional utilities
     curl \
     && rm -rf /var/lib/apt/lists/*
