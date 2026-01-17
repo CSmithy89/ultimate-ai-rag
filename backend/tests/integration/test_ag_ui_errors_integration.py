@@ -76,24 +76,24 @@ class TestAGUIBridgeErrorEvents:
         error_events = [
             e for e in events
             if isinstance(e, AGUIErrorEvent)
-            or (hasattr(e, "event") and e.event == AGUIEventType.RUN_ERROR)
+            or (hasattr(e, "type") and e.type == AGUIEventType.RUN_ERROR)
         ]
 
         assert len(error_events) >= 1, "Expected at least one error event"
 
         # Verify the error event structure
         error_event = error_events[0]
-        assert error_event.event == AGUIEventType.RUN_ERROR
-        assert error_event.data["code"] == "TIMEOUT"
-        assert error_event.data["http_status"] == 504
+        assert error_event.type == AGUIEventType.RUN_ERROR
+        assert error_event.code == "TIMEOUT"
+        assert error_event.httpStatus == 504
 
     @pytest.mark.asyncio
-    async def test_ag_ui_bridge_emits_run_error_before_stream_ends(
+    async def test_ag_ui_bridge_emits_run_error_as_terminal_event(
         self,
         mock_orchestrator: MagicMock,
         copilot_request: CopilotRequest,
     ) -> None:
-        """Test error event is emitted before RUN_FINISHED (AC: 11)."""
+        """Test RUN_ERROR is terminal (no RUN_FINISHED after it) per AG-UI protocol."""
         # Configure orchestrator to raise an exception
         mock_orchestrator.run = AsyncMock(
             side_effect=ValueError("Internal error")
@@ -105,21 +105,16 @@ class TestAGUIBridgeErrorEvents:
         async for event in bridge.process_request(copilot_request):
             events.append(event)
 
-        # RUN_ERROR should appear before RUN_FINISHED
-        run_error_indices = [
-            i for i, e in enumerate(events)
-            if e.event == AGUIEventType.RUN_ERROR
-        ]
-        run_finished_indices = [
-            i for i, e in enumerate(events)
-            if e.event == AGUIEventType.RUN_FINISHED
-        ]
+        # RUN_ERROR should be present
+        run_error_events = [e for e in events if e.type == AGUIEventType.RUN_ERROR]
+        assert len(run_error_events) >= 1, "Expected RUN_ERROR event"
 
-        assert len(run_error_indices) >= 1, "Expected RUN_ERROR event"
-        assert len(run_finished_indices) >= 1, "Expected RUN_FINISHED event"
+        # AG-UI protocol: RUN_ERROR is terminal - RUN_FINISHED should NOT be emitted
+        run_finished_events = [e for e in events if e.type == AGUIEventType.RUN_FINISHED]
+        assert len(run_finished_events) == 0, "RUN_FINISHED should not be emitted after RUN_ERROR"
 
-        # Error should come before finished
-        assert min(run_error_indices) < max(run_finished_indices)
+        # RUN_ERROR should be the last event in the stream
+        assert events[-1].type == AGUIEventType.RUN_ERROR
 
     @pytest.mark.asyncio
     async def test_ag_ui_bridge_rate_limit_error_includes_retry_after(
@@ -147,13 +142,13 @@ class TestAGUIBridgeErrorEvents:
         # Find the error event
         error_events = [
             e for e in events
-            if e.event == AGUIEventType.RUN_ERROR
+            if e.type == AGUIEventType.RUN_ERROR
         ]
 
         assert len(error_events) >= 1
         error_event = error_events[0]
-        assert error_event.data["code"] == "RATE_LIMITED"
-        assert error_event.data["retry_after"] == 120
+        assert error_event.code == "RATE_LIMITED"
+        assert error_event.retryAfter == 120
 
 
 class TestErrorEventSSEStream:
@@ -205,7 +200,7 @@ class TestErrorEventDebugMode:
 
         event = create_error_event(exc, is_debug=True)
 
-        assert event.data["details"]["error_type"] == "RuntimeError"
+        assert event.details["error_type"] == "RuntimeError"
 
     def test_non_debug_mode_excludes_error_type(self) -> None:
         """Test non-debug mode excludes exception type (AC: 6)."""
@@ -214,7 +209,7 @@ class TestErrorEventDebugMode:
         event = create_error_event(exc, is_debug=False)
 
         # Details should be empty or not contain error_type
-        details = event.data.get("details", {})
+        details = event.details or {}
         assert "error_type" not in details
 
     @pytest.mark.asyncio
@@ -254,14 +249,14 @@ class TestErrorEventDebugMode:
             # Find error event
             error_events = [
                 e for e in events
-                if e.event == AGUIEventType.RUN_ERROR
+                if e.type == AGUIEventType.RUN_ERROR
             ]
 
             # In development, should include error details
             assert len(error_events) >= 1
             error_event = error_events[0]
             # The error should have details with error_type
-            assert error_event.data["details"].get("error_type") == "ValueError"
+            assert (error_event.details or {}).get("error_type") == "ValueError"
 
 
 class TestErrorEventMapping:
@@ -343,5 +338,5 @@ class TestErrorEventMapping:
         # Map to error event
         event = create_error_event(exc)
 
-        assert event.data["code"] == expected_code
-        assert event.data["http_status"] == expected_status
+        assert event.code == expected_code
+        assert event.httpStatus == expected_status

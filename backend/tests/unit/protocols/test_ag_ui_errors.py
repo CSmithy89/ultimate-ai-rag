@@ -71,11 +71,11 @@ class TestAGUIErrorEvent:
             message="Test error message",
         )
 
-        assert event.event == AGUIEventType.RUN_ERROR
-        assert event.data["code"] == "AGENT_EXECUTION_ERROR"
-        assert event.data["message"] == "Test error message"
-        assert event.data["http_status"] == 500
-        assert event.data["details"] == {}
+        assert event.type == AGUIEventType.RUN_ERROR
+        assert event.code == "AGENT_EXECUTION_ERROR"
+        assert event.message == "Test error message"
+        assert event.httpStatus == 500
+        assert event.details is None  # Default is None when not provided
 
     def test_agui_error_event_initialization_with_all_fields(self) -> None:
         """Test error event with all fields populated (AC: 2)."""
@@ -87,11 +87,11 @@ class TestAGUIErrorEvent:
             retry_after=60,
         )
 
-        assert event.data["code"] == "RATE_LIMITED"
-        assert event.data["message"] == "Rate limit exceeded"
-        assert event.data["http_status"] == 429
-        assert event.data["details"] == {"limit": 60, "window": "minute"}
-        assert event.data["retry_after"] == 60
+        assert event.code == "RATE_LIMITED"
+        assert event.message == "Rate limit exceeded"
+        assert event.httpStatus == 429
+        assert event.details == {"limit": 60, "window": "minute"}
+        assert event.retryAfter == 60
 
     def test_agui_error_event_uses_default_http_status(self) -> None:
         """Test that error events use default HTTP status from mapping."""
@@ -110,7 +110,7 @@ class TestAGUIErrorEvent:
 
         for code, expected_status in test_cases:
             event = AGUIErrorEvent(code=code, message="Test")
-            assert event.data["http_status"] == expected_status, f"Failed for {code}"
+            assert event.httpStatus == expected_status, f"Failed for {code}"
 
     def test_agui_error_event_serialization_json(self) -> None:
         """Test error event serializes to valid JSON (AC: 8)."""
@@ -156,9 +156,9 @@ class TestCreateErrorEvent:
 
         event = create_error_event(exc)
 
-        assert event.data["code"] == "RATE_LIMITED"
-        assert event.data["http_status"] == 429
-        assert event.data["retry_after"] == 120  # From exception details
+        assert event.code == "RATE_LIMITED"
+        assert event.httpStatus == 429
+        assert event.retryAfter == 120  # From exception details
 
     def test_create_error_event_session_limit(self) -> None:
         """Test A2ASessionLimitExceeded maps to RATE_LIMITED (AC: 4)."""
@@ -168,8 +168,8 @@ class TestCreateErrorEvent:
 
         event = create_error_event(exc)
 
-        assert event.data["code"] == "RATE_LIMITED"
-        assert event.data["http_status"] == 429
+        assert event.code == "RATE_LIMITED"
+        assert event.httpStatus == 429
 
     def test_create_error_event_message_limit(self) -> None:
         """Test A2AMessageLimitExceeded maps to RATE_LIMITED (AC: 4)."""
@@ -179,8 +179,8 @@ class TestCreateErrorEvent:
 
         event = create_error_event(exc)
 
-        assert event.data["code"] == "RATE_LIMITED"
-        assert event.data["http_status"] == 429
+        assert event.code == "RATE_LIMITED"
+        assert event.httpStatus == 429
 
     def test_create_error_event_timeout(self) -> None:
         """Test TimeoutError maps to TIMEOUT (AC: 5)."""
@@ -188,9 +188,9 @@ class TestCreateErrorEvent:
 
         event = create_error_event(exc)
 
-        assert event.data["code"] == "TIMEOUT"
-        assert event.data["http_status"] == 504
-        assert "timed out" in event.data["message"].lower()
+        assert event.code == "TIMEOUT"
+        assert event.httpStatus == 504
+        assert "timed out" in event.message.lower()
 
     def test_create_error_event_asyncio_timeout(self) -> None:
         """Test asyncio.TimeoutError maps to TIMEOUT (AC: 5)."""
@@ -198,8 +198,8 @@ class TestCreateErrorEvent:
 
         event = create_error_event(exc)
 
-        assert event.data["code"] == "TIMEOUT"
-        assert event.data["http_status"] == 504
+        assert event.code == "TIMEOUT"
+        assert event.httpStatus == 504
 
     def test_create_error_event_unknown_no_debug(self) -> None:
         """Test unknown exception without debug details (AC: 6)."""
@@ -207,11 +207,11 @@ class TestCreateErrorEvent:
 
         event = create_error_event(exc, is_debug=False)
 
-        assert event.data["code"] == "AGENT_EXECUTION_ERROR"
-        assert event.data["http_status"] == 500
-        assert event.data["details"] == {} or event.data["details"] is None
+        assert event.code == "AGENT_EXECUTION_ERROR"
+        assert event.httpStatus == 500
+        assert event.details == {} or event.details is None
         # Should not expose error type
-        assert "ValueError" not in str(event.data.get("details", {}))
+        assert "ValueError" not in str((event.details or {}))
 
     def test_create_error_event_unknown_with_debug(self) -> None:
         """Test unknown exception with debug details (AC: 7)."""
@@ -219,9 +219,9 @@ class TestCreateErrorEvent:
 
         event = create_error_event(exc, is_debug=True)
 
-        assert event.data["code"] == "AGENT_EXECUTION_ERROR"
-        assert event.data["http_status"] == 500
-        assert event.data["details"]["error_type"] == "ValueError"
+        assert event.code == "AGENT_EXECUTION_ERROR"
+        assert event.httpStatus == 500
+        assert event.details["error_type"] == "ValueError"
 
     def test_create_error_event_agent_not_found(self) -> None:
         """Test A2AAgentNotFoundError maps to CAPABILITY_NOT_FOUND (AC: 3)."""
@@ -231,8 +231,8 @@ class TestCreateErrorEvent:
 
         event = create_error_event(exc)
 
-        assert event.data["code"] == "CAPABILITY_NOT_FOUND"
-        assert event.data["http_status"] == 404
+        assert event.code == "CAPABILITY_NOT_FOUND"
+        assert event.httpStatus == 404
 
     def test_create_error_event_capability_not_found(self) -> None:
         """Test A2ACapabilityNotFoundError maps to CAPABILITY_NOT_FOUND (AC: 3)."""
@@ -242,8 +242,8 @@ class TestCreateErrorEvent:
 
         event = create_error_event(exc)
 
-        assert event.data["code"] == "CAPABILITY_NOT_FOUND"
-        assert event.data["http_status"] == 404
+        assert event.code == "CAPABILITY_NOT_FOUND"
+        assert event.httpStatus == 404
 
     def test_create_error_event_httpx_timeout(self) -> None:
         """Test httpx.TimeoutException maps to TIMEOUT (AC: 5)."""
@@ -251,8 +251,8 @@ class TestCreateErrorEvent:
 
         event = create_error_event(exc)
 
-        assert event.data["code"] == "TIMEOUT"
-        assert event.data["http_status"] == 504
+        assert event.code == "TIMEOUT"
+        assert event.httpStatus == 504
 
     def test_create_error_event_httpx_status_error(self) -> None:
         """Test httpx.HTTPStatusError maps to UPSTREAM_ERROR (AC: 3)."""
@@ -269,8 +269,8 @@ class TestCreateErrorEvent:
 
         event = create_error_event(exc)
 
-        assert event.data["code"] == "UPSTREAM_ERROR"
-        assert event.data["http_status"] == 502
+        assert event.code == "UPSTREAM_ERROR"
+        assert event.httpStatus == 502
 
     def test_create_error_event_tenant_required(self) -> None:
         """Test TenantRequiredError maps to TENANT_REQUIRED."""
@@ -280,8 +280,8 @@ class TestCreateErrorEvent:
 
         event = create_error_event(exc)
 
-        assert event.data["code"] == "TENANT_REQUIRED"
-        assert event.data["http_status"] == 401
+        assert event.code == "TENANT_REQUIRED"
+        assert event.httpStatus == 401
 
     def test_create_error_event_permission_error(self) -> None:
         """Test A2APermissionError maps to TENANT_UNAUTHORIZED."""
@@ -291,8 +291,8 @@ class TestCreateErrorEvent:
 
         event = create_error_event(exc)
 
-        assert event.data["code"] == "TENANT_UNAUTHORIZED"
-        assert event.data["http_status"] == 403
+        assert event.code == "TENANT_UNAUTHORIZED"
+        assert event.httpStatus == 403
 
     def test_create_error_event_validation_error(self) -> None:
         """Test ValidationError maps to INVALID_REQUEST."""
@@ -302,8 +302,8 @@ class TestCreateErrorEvent:
 
         event = create_error_event(exc)
 
-        assert event.data["code"] == "INVALID_REQUEST"
-        assert event.data["http_status"] == 400
+        assert event.code == "INVALID_REQUEST"
+        assert event.httpStatus == 400
 
     def test_create_error_event_session_not_found(self) -> None:
         """Test A2ASessionNotFoundError maps to SESSION_NOT_FOUND."""
@@ -313,8 +313,8 @@ class TestCreateErrorEvent:
 
         event = create_error_event(exc)
 
-        assert event.data["code"] == "SESSION_NOT_FOUND"
-        assert event.data["http_status"] == 404
+        assert event.code == "SESSION_NOT_FOUND"
+        assert event.httpStatus == 404
 
     def test_create_error_event_service_unavailable(self) -> None:
         """Test A2AServiceUnavailableError maps to SERVICE_UNAVAILABLE."""
@@ -324,8 +324,8 @@ class TestCreateErrorEvent:
 
         event = create_error_event(exc)
 
-        assert event.data["code"] == "SERVICE_UNAVAILABLE"
-        assert event.data["http_status"] == 503
+        assert event.code == "SERVICE_UNAVAILABLE"
+        assert event.httpStatus == 503
 
 
 class TestAGUIErrorEventSerialization:
@@ -382,8 +382,8 @@ class TestAGUIErrorEventFromMiddleware:
 
         event = create_error_event(exc)
 
-        assert event.data["code"] == "CAPABILITY_NOT_FOUND"
-        assert event.data["http_status"] == 404
+        assert event.code == "CAPABILITY_NOT_FOUND"
+        assert event.httpStatus == 404
 
     def test_middleware_capability_not_found_error(self) -> None:
         """Test middleware A2ACapabilityNotFoundError (not AppError)."""
@@ -395,5 +395,5 @@ class TestAGUIErrorEventFromMiddleware:
 
         event = create_error_event(exc)
 
-        assert event.data["code"] == "CAPABILITY_NOT_FOUND"
-        assert event.data["http_status"] == 404
+        assert event.code == "CAPABILITY_NOT_FOUND"
+        assert event.httpStatus == 404

@@ -118,14 +118,16 @@ class StubHitlManager:
         checkpoint.status = HITLStatus.APPROVED
         return checkpoint
 
-    def get_completion_events(self, checkpoint):
+    def get_completion_events(self, checkpoint, thread_id=None, run_id=None):
         return [
             ToolCallEndEvent(tool_call_id=checkpoint.checkpoint_id),
             StateSnapshotEvent(
                 state={
                     "hitl_checkpoint": checkpoint.to_dict(),
                     "approved_sources": checkpoint.sources,
-                }
+                },
+                threadId=thread_id,
+                runId=run_id,
             ),
         ]
 
@@ -206,8 +208,8 @@ class TestAGUIBridgeEventTransformation:
         state_events = [e for e in events if e.type == AGUIEventType.STATE_SNAPSHOT]
         assert len(state_events) == 2
         assert any(isinstance(event, StateSnapshotEvent) for event in state_events)
-        assert any("currentStep" in event.data["state"] for event in state_events)
-        assert any("hitl_checkpoint" in event.data["state"] for event in state_events)
+        assert any("currentStep" in event.snapshot for event in state_events)
+        assert any("hitl_checkpoint" in event.snapshot for event in state_events)
 
     @pytest.mark.asyncio
     async def test_process_request_emits_text_message_sequence(
@@ -252,7 +254,7 @@ class TestAGUIBridgeEventTransformation:
 
         text_events = [e for e in events if e.type == AGUIEventType.TEXT_MESSAGE_CONTENT]
         assert len(text_events) == 1
-        assert text_events[0].data["content"] == expected_answer
+        assert text_events[0].delta == expected_answer
 
 
 class TestAGUIBridgeMultiTenancy:
@@ -294,12 +296,13 @@ class TestAGUIBridgeMultiTenancy:
         async for event in bridge.process_request(request):
             events.append(event)
 
-        # Should emit an error via TextDeltaEvent
-        text_events = [e for e in events if e.type == AGUIEventType.TEXT_MESSAGE_CONTENT]
-        assert len(text_events) >= 1
-        # Check for error indication
-        assert "error" in text_events[0].data["content"].lower() or \
-               events[-1].type == AGUIEventType.RUN_FINISHED
+        # Should emit an AGUIErrorEvent with TENANT_REQUIRED code
+        error_events = [e for e in events if e.type == AGUIEventType.RUN_ERROR]
+        assert len(error_events) >= 1
+        # Check for TENANT_REQUIRED error code
+        assert error_events[0].code == "TENANT_REQUIRED"
+        # AG-UI protocol: RUN_ERROR is terminal, RUN_FINISHED should NOT follow
+        assert events[-1].type == AGUIEventType.RUN_ERROR
 
     @pytest.mark.asyncio
     async def test_process_request_extracts_session_id(
@@ -343,13 +346,13 @@ class TestAGUIBridgeErrorHandling:
 
         # Should still emit events without exposing internal error details
         assert events[0].type == AGUIEventType.RUN_STARTED
-        assert events[-1].type == AGUIEventType.RUN_FINISHED
 
-        # Error message should be sanitized
-        text_events = [e for e in events if e.type == AGUIEventType.TEXT_MESSAGE_CONTENT]
-        if text_events:
-            # Should NOT contain internal error details
-            assert "Database connection" not in text_events[0].data["content"]
+        # Should emit error event with sanitized message
+        error_events = [e for e in events if e.type == AGUIEventType.RUN_ERROR]
+        assert len(error_events) == 1
+        # Error message should NOT expose internal details
+        assert "Database connection" not in error_events[0].message
+        assert error_events[0].code == "AGENT_EXECUTION_ERROR"
 
     @pytest.mark.asyncio
     async def test_process_request_empty_messages(
