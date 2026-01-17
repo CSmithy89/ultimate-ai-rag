@@ -738,7 +738,10 @@ class PostgresClient:
             True if updated, False if not found
         """
         try:
-            # asyncpg handles JSONB serialization automatically - pass dict directly
+            progress_payload = progress
+            if progress_payload is not None and not isinstance(progress_payload, str):
+                progress_payload = json.dumps(progress_payload)
+
             async with self.pool.acquire() as conn:
                 # Build the update query dynamically
                 if status == JobStatusEnum.RUNNING:
@@ -751,7 +754,7 @@ class PostgresClient:
                         job_id,
                         tenant_id,
                         status.value,
-                        progress,
+                        progress_payload,
                     )
                 elif status in (JobStatusEnum.COMPLETED, JobStatusEnum.FAILED):
                     result = await conn.execute(
@@ -763,7 +766,7 @@ class PostgresClient:
                         job_id,
                         tenant_id,
                         status.value,
-                        progress,
+                        progress_payload,
                         error_message,
                     )
                 else:
@@ -776,7 +779,7 @@ class PostgresClient:
                         job_id,
                         tenant_id,
                         status.value,
-                        progress,
+                        progress_payload,
                     )
 
                 updated = result == "UPDATE 1"

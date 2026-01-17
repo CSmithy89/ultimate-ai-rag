@@ -310,6 +310,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             app.state.postgres = PostgresClient(settings.database_url)
             await app.state.postgres.connect()
             await app.state.postgres.create_tables()
+            struct_logger.info(
+                "postgres_pool_check_after_connect",
+                pool_is_none=app.state.postgres._pool is None,
+                pool_type=str(type(app.state.postgres._pool)),
+                app_id=id(app),
+            )
             app.state.cost_tracker = CostTracker(
                 app.state.postgres.pool,
                 pricing_json=settings.model_pricing_json,
@@ -941,6 +947,18 @@ def create_app() -> FastAPI:
         HTTPException,
         cast(Callable[[Request, Exception], Awaitable[Response]], http_exception_handler),
     )
+
+    # Debug endpoint to check app.state
+    @app.get("/debug/state")
+    async def debug_state(request: Request) -> dict:
+        """Debug endpoint to check app.state."""
+        postgres = request.app.state.postgres
+        return {
+            "postgres_exists": postgres is not None,
+            "postgres_type": str(type(postgres)),
+            "postgres_pool": str(type(postgres._pool)) if postgres and hasattr(postgres, '_pool') else None,
+            "postgres_pool_is_none": postgres._pool is None if postgres and hasattr(postgres, '_pool') else True,
+        }
 
     # Register routers
     app.include_router(router)  # Query router
