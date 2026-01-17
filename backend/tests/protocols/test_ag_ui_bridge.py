@@ -145,7 +145,7 @@ class TestAGUIBridgeEventTransformation:
             events.append(event)
 
         assert len(events) > 0
-        assert events[0].event == AGUIEventType.RUN_STARTED
+        assert events[0].type == AGUIEventType.RUN_STARTED
         assert isinstance(events[0], RunStartedEvent)
 
     @pytest.mark.asyncio
@@ -160,7 +160,7 @@ class TestAGUIBridgeEventTransformation:
             events.append(event)
 
         assert len(events) > 0
-        assert events[-1].event == AGUIEventType.RUN_FINISHED
+        assert events[-1].type == AGUIEventType.RUN_FINISHED
         assert isinstance(events[-1], RunFinishedEvent)
 
     @pytest.mark.asyncio
@@ -174,7 +174,7 @@ class TestAGUIBridgeEventTransformation:
         async for event in bridge.process_request(sample_copilot_request):
             events.append(event)
 
-        state_events = [e for e in events if e.event == AGUIEventType.STATE_SNAPSHOT]
+        state_events = [e for e in events if e.type == AGUIEventType.STATE_SNAPSHOT]
         assert len(state_events) == 1
 
     @pytest.mark.asyncio
@@ -199,11 +199,11 @@ class TestAGUIBridgeEventTransformation:
         async for event in bridge.process_request(sample_copilot_request):
             events.append(event)
 
-        event_types = [event.event for event in events]
+        event_types = [event.type for event in events]
         assert AGUIEventType.TOOL_CALL_START in event_types
         assert AGUIEventType.TOOL_CALL_ARGS in event_types
         assert AGUIEventType.TOOL_CALL_END in event_types
-        state_events = [e for e in events if e.event == AGUIEventType.STATE_SNAPSHOT]
+        state_events = [e for e in events if e.type == AGUIEventType.STATE_SNAPSHOT]
         assert len(state_events) == 2
         assert any(isinstance(event, StateSnapshotEvent) for event in state_events)
         assert any("currentStep" in event.data["state"] for event in state_events)
@@ -221,9 +221,9 @@ class TestAGUIBridgeEventTransformation:
             events.append(event)
 
         # Find text message events
-        text_start = [e for e in events if e.event == AGUIEventType.TEXT_MESSAGE_START]
-        text_content = [e for e in events if e.event == AGUIEventType.TEXT_MESSAGE_CONTENT]
-        text_end = [e for e in events if e.event == AGUIEventType.TEXT_MESSAGE_END]
+        text_start = [e for e in events if e.type == AGUIEventType.TEXT_MESSAGE_START]
+        text_content = [e for e in events if e.type == AGUIEventType.TEXT_MESSAGE_CONTENT]
+        text_end = [e for e in events if e.type == AGUIEventType.TEXT_MESSAGE_END]
 
         assert len(text_start) == 1
         assert len(text_content) == 1
@@ -250,7 +250,7 @@ class TestAGUIBridgeEventTransformation:
         async for event in bridge.process_request(sample_copilot_request):
             events.append(event)
 
-        text_events = [e for e in events if e.event == AGUIEventType.TEXT_MESSAGE_CONTENT]
+        text_events = [e for e in events if e.type == AGUIEventType.TEXT_MESSAGE_CONTENT]
         assert len(text_events) == 1
         assert text_events[0].data["content"] == expected_answer
 
@@ -295,11 +295,11 @@ class TestAGUIBridgeMultiTenancy:
             events.append(event)
 
         # Should emit an error via TextDeltaEvent
-        text_events = [e for e in events if e.event == AGUIEventType.TEXT_MESSAGE_CONTENT]
+        text_events = [e for e in events if e.type == AGUIEventType.TEXT_MESSAGE_CONTENT]
         assert len(text_events) >= 1
         # Check for error indication
         assert "error" in text_events[0].data["content"].lower() or \
-               events[-1].event == AGUIEventType.RUN_FINISHED
+               events[-1].type == AGUIEventType.RUN_FINISHED
 
     @pytest.mark.asyncio
     async def test_process_request_extracts_session_id(
@@ -342,11 +342,11 @@ class TestAGUIBridgeErrorHandling:
             events.append(event)
 
         # Should still emit events without exposing internal error details
-        assert events[0].event == AGUIEventType.RUN_STARTED
-        assert events[-1].event == AGUIEventType.RUN_FINISHED
+        assert events[0].type == AGUIEventType.RUN_STARTED
+        assert events[-1].type == AGUIEventType.RUN_FINISHED
 
         # Error message should be sanitized
-        text_events = [e for e in events if e.event == AGUIEventType.TEXT_MESSAGE_CONTENT]
+        text_events = [e for e in events if e.type == AGUIEventType.TEXT_MESSAGE_CONTENT]
         if text_events:
             # Should NOT contain internal error details
             assert "Database connection" not in text_events[0].data["content"]
@@ -368,7 +368,7 @@ class TestAGUIBridgeErrorHandling:
             events.append(event)
 
         # Should emit RUN_FINISHED without calling orchestrator
-        assert events[-1].event == AGUIEventType.RUN_FINISHED
+        assert events[-1].type == AGUIEventType.RUN_FINISHED
         mock_orchestrator.run.assert_not_called()
 
     @pytest.mark.asyncio
@@ -390,7 +390,7 @@ class TestAGUIBridgeErrorHandling:
             events.append(event)
 
         # Should emit RUN_FINISHED without calling orchestrator
-        assert events[-1].event == AGUIEventType.RUN_FINISHED
+        assert events[-1].type == AGUIEventType.RUN_FINISHED
         mock_orchestrator.run.assert_not_called()
 
 
@@ -400,38 +400,40 @@ class TestAGUIBridgeEventModels:
     def test_run_started_event_structure(self):
         """Test RunStartedEvent has correct structure."""
         event = RunStartedEvent()
-        assert event.event == AGUIEventType.RUN_STARTED
+        assert event.type == AGUIEventType.RUN_STARTED
         data = event.model_dump()
-        assert "event" in data
-        assert "data" in data
+        assert "type" in data
+        assert "threadId" in data
+        assert "runId" in data
 
     def test_run_finished_event_structure(self):
         """Test RunFinishedEvent has correct structure."""
         event = RunFinishedEvent()
-        assert event.event == AGUIEventType.RUN_FINISHED
+        assert event.type == AGUIEventType.RUN_FINISHED
         data = event.model_dump()
-        assert "event" in data
-        assert "data" in data
+        assert "type" in data
+        assert "threadId" in data
+        assert "runId" in data
 
     def test_text_delta_event_structure(self):
         """Test TextDeltaEvent has correct structure."""
         event = TextDeltaEvent(content="Hello world")
-        assert event.event == AGUIEventType.TEXT_MESSAGE_CONTENT
-        assert event.data["content"] == "Hello world"
+        assert event.type == AGUIEventType.TEXT_MESSAGE_CONTENT
+        assert event.delta == "Hello world"
 
     def test_text_message_start_event_structure(self):
         """Test TextMessageStartEvent has correct structure."""
         event = TextMessageStartEvent()
-        assert event.event == AGUIEventType.TEXT_MESSAGE_START
+        assert event.type == AGUIEventType.TEXT_MESSAGE_START
 
     def test_text_message_end_event_structure(self):
         """Test TextMessageEndEvent has correct structure."""
         event = TextMessageEndEvent()
-        assert event.event == AGUIEventType.TEXT_MESSAGE_END
+        assert event.type == AGUIEventType.TEXT_MESSAGE_END
 
     def test_state_snapshot_event_structure(self):
         """Test StateSnapshotEvent has correct structure."""
         state = {"currentStep": "completed", "thoughts": []}
         event = StateSnapshotEvent(state=state)
-        assert event.event == AGUIEventType.STATE_SNAPSHOT
-        assert event.data["state"] == state
+        assert event.type == AGUIEventType.STATE_SNAPSHOT
+        assert event.snapshot == state

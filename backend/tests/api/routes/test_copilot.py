@@ -137,7 +137,7 @@ class TestCopilotEndpointDirect:
         )
         
         events = await collect_sse_events(response)
-        event_types = [e["event"] for e in events]
+        event_types = [e["type"] for e in events]
         
         assert "RUN_STARTED" in event_types
         assert "RUN_FINISHED" in event_types
@@ -217,14 +217,14 @@ class TestCopilotMultiTenancy:
         events = await collect_sse_events(response)
         
         # Should still have proper event sequence
-        event_types = [e["event"] for e in events]
+        event_types = [e["type"] for e in events]
         assert "RUN_STARTED" in event_types
         assert "RUN_FINISHED" in event_types
         
         # Error message about tenant_id should be in content
-        text_events = [e for e in events if e["event"] == "TEXT_MESSAGE_CONTENT"]
+        text_events = [e for e in events if e["type"] == "TEXT_MESSAGE_CONTENT"]
         assert len(text_events) >= 1
-        assert "tenant_id" in text_events[0]["data"]["content"].lower()
+        assert "tenant_id" in text_events[0]["delta"].lower()
 
 
 class TestCopilotRateLimiting:
@@ -291,7 +291,7 @@ class TestCopilotSSEFormat:
         )
         
         events = await collect_sse_events(response)
-        event_types = [e["event"] for e in events]
+        event_types = [e["type"] for e in events]
         
         # Find indices
         start_idx = event_types.index("TEXT_MESSAGE_START")
@@ -323,14 +323,14 @@ class TestCopilotErrorHandling:
         events = await collect_sse_events(response)
         
         # Should still emit proper event sequence
-        event_types = [e["event"] for e in events]
+        event_types = [e["type"] for e in events]
         assert "RUN_STARTED" in event_types
         assert "RUN_FINISHED" in event_types
         
         # Error message should be sanitized (not expose internal details)
-        text_events = [e for e in events if e["event"] == "TEXT_MESSAGE_CONTENT"]
+        text_events = [e for e in events if e["type"] == "TEXT_MESSAGE_CONTENT"]
         if text_events:
-            content = text_events[0]["data"]["content"]
+            content = text_events[0]["delta"]
             assert "Internal database error" not in content
             assert "error" in content.lower() or "occurred" in content.lower()
 
@@ -353,7 +353,7 @@ class TestCopilotErrorHandling:
         events = await collect_sse_events(response)
         
         # Should emit RUN_FINISHED without calling orchestrator
-        event_types = [e["event"] for e in events]
+        event_types = [e["type"] for e in events]
         assert "RUN_FINISHED" in event_types
         assert orchestrator.call_count == 0
 
@@ -378,7 +378,7 @@ class TestCopilotErrorHandling:
         events = await collect_sse_events(response)
         
         # Should emit RUN_FINISHED without calling orchestrator
-        event_types = [e["event"] for e in events]
+        event_types = [e["type"] for e in events]
         assert "RUN_FINISHED" in event_types
         assert orchestrator.call_count == 0
 

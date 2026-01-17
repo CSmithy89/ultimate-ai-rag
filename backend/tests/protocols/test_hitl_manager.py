@@ -110,6 +110,7 @@ class TestHITLManager:
 
     def test_get_checkpoint_events(self, manager):
         """Test generating AG-UI events for checkpoint."""
+        import json
         checkpoint = HITLCheckpoint(
             checkpoint_id="test-123",
             sources=MOCK_SOURCES,
@@ -120,12 +121,13 @@ class TestHITLManager:
 
         assert len(events) == 2
         # First event should be TOOL_CALL_START
-        assert events[0].data["tool_call_id"] == "test-123"
-        assert events[0].data["tool_name"] == "validate_sources"
+        assert events[0].toolCallId == "test-123"
+        assert events[0].toolCallName == "validate_sources"
         # Second event should be TOOL_CALL_ARGS
-        assert events[1].data["tool_call_id"] == "test-123"
-        assert events[1].data["args"]["sources"] == MOCK_SOURCES
-        assert events[1].data["args"]["query"] == "test query"
+        assert events[1].toolCallId == "test-123"
+        args = json.loads(events[1].delta)
+        assert args["sources"] == MOCK_SOURCES
+        assert args["query"] == "test query"
 
     @pytest.mark.asyncio
     async def test_receive_validation_response_approved(self, manager):
@@ -281,10 +283,10 @@ class TestHITLManager:
 
         assert len(events) == 2
         # First event should be TOOL_CALL_END
-        assert events[0].data["tool_call_id"] == "test-123"
+        assert events[0].toolCallId == "test-123"
         # Second event should be STATE_SNAPSHOT
-        assert "hitl_checkpoint" in events[1].data["state"]
-        assert "approved_sources" in events[1].data["state"]
+        assert "hitl_checkpoint" in events[1].snapshot
+        assert "approved_sources" in events[1].snapshot
 
 
 class TestCreateValidateSourcesEvents:
@@ -292,15 +294,17 @@ class TestCreateValidateSourcesEvents:
 
     def test_create_events_basic(self):
         """Test basic event creation."""
+        import json
         events = create_validate_sources_events(
             sources=MOCK_SOURCES,
             query="test query",
         )
 
         assert len(events) == 2
-        assert events[0].data["tool_name"] == "validate_sources"
-        assert events[1].data["args"]["sources"] == MOCK_SOURCES
-        assert events[1].data["args"]["query"] == "test query"
+        assert events[0].toolCallName == "validate_sources"
+        args = json.loads(events[1].delta)
+        assert args["sources"] == MOCK_SOURCES
+        assert args["query"] == "test query"
 
     def test_create_events_with_custom_id(self):
         """Test event creation with custom checkpoint ID."""
@@ -310,8 +314,8 @@ class TestCreateValidateSourcesEvents:
             checkpoint_id="custom-123",
         )
 
-        assert events[0].data["tool_call_id"] == "custom-123"
-        assert events[1].data["tool_call_id"] == "custom-123"
+        assert events[0].toolCallId == "custom-123"
+        assert events[1].toolCallId == "custom-123"
 
     def test_create_events_generates_id(self):
         """Test that checkpoint ID is generated if not provided."""
@@ -321,5 +325,5 @@ class TestCreateValidateSourcesEvents:
         )
 
         # Should have generated a valid UUID
-        assert events[0].data["tool_call_id"] is not None
-        assert len(events[0].data["tool_call_id"]) == 36  # UUID format
+        assert events[0].toolCallId is not None
+        assert len(events[0].toolCallId) == 36  # UUID format

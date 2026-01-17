@@ -125,11 +125,11 @@ class TestAGUIErrorEvent:
         json_data = event.model_dump_json()
         parsed = json.loads(json_data)
 
-        assert parsed["event"] == "RUN_ERROR"
-        assert parsed["data"]["code"] == "RATE_LIMITED"
-        assert parsed["data"]["message"] == "Request rate limit exceeded."
-        assert parsed["data"]["http_status"] == 429
-        assert parsed["data"]["retry_after"] == 60
+        assert parsed["type"] == "RUN_ERROR"
+        assert parsed["code"] == "RATE_LIMITED"
+        assert parsed["message"] == "Request rate limit exceeded."
+        assert parsed["httpStatus"] == 429
+        assert parsed["retryAfter"] == 60
 
     def test_agui_error_event_retry_after_optional(self) -> None:
         """Test retry_after is not included when not specified."""
@@ -137,8 +137,8 @@ class TestAGUIErrorEvent:
             code=AGUIErrorCode.AGENT_EXECUTION_ERROR,
             message="Test error",
         )
-
-        assert "retry_after" not in event.data
+        dumped = event.model_dump()
+        assert dumped.get("retryAfter") is None
 
 
 class TestCreateErrorEvent:
@@ -342,15 +342,15 @@ class TestAGUIErrorEventSerialization:
         )
 
         # Simulate SSE format
-        event_type = event.event.value
-        event_data = event.model_dump()["data"]
+        event_type = event.type.value
+        event_data = event.model_dump()
 
         # Verify structure matches expected SSE format
         assert event_type == "RUN_ERROR"
         assert event_data["code"] == "RATE_LIMITED"
         assert event_data["message"] == "Request rate limit exceeded."
-        assert event_data["http_status"] == 429
-        assert event_data["retry_after"] == 60
+        assert event_data["httpStatus"] == 429
+        assert event_data["retryAfter"] == 60
 
     def test_all_error_codes_serialize_correctly(self) -> None:
         """Test all error codes produce valid JSON (AC: 12)."""
@@ -364,8 +364,8 @@ class TestAGUIErrorEventSerialization:
             json_str = event.model_dump_json()
             parsed = json.loads(json_str)
 
-            assert parsed["event"] == "RUN_ERROR"
-            assert parsed["data"]["code"] == code.value
+            assert parsed["type"] == "RUN_ERROR"
+            assert parsed["code"] == code.value
 
 
 class TestAGUIErrorEventFromMiddleware:

@@ -87,7 +87,7 @@ async def test_ag_ui_streams_events() -> None:
     )
 
     events = await collect_sse_events(response)
-    event_types = {event["event"] for event in events}
+    event_types = {event["type"] for event in events}
 
     assert "RUN_STARTED" in event_types
     assert "STATE_SNAPSHOT" in event_types
@@ -127,7 +127,7 @@ async def test_ag_ui_handles_empty_messages() -> None:
     )
 
     events = await collect_sse_events(response)
-    assert events[-1]["event"] == "RUN_FINISHED"
+    assert events[-1]["type"] == "RUN_FINISHED"
 
 
 @pytest.mark.asyncio
@@ -148,7 +148,7 @@ async def test_ag_ui_fallback_emits_error_events(monkeypatch) -> None:
     )
 
     events = await collect_sse_events(response)
-    event_types = [event["event"] for event in events]
+    event_types = [event["type"] for event in events]
 
     assert event_types == [
         "TEXT_MESSAGE_START",
@@ -156,7 +156,7 @@ async def test_ag_ui_fallback_emits_error_events(monkeypatch) -> None:
         "TEXT_MESSAGE_END",
         "RUN_FINISHED",
     ]
-    assert events[1]["data"]["content"] == "An error occurred while processing your request."
+    assert events[1]["delta"] == "An error occurred while processing your request."
 
 
 def test_ag_ui_rejects_invalid_actions() -> None:

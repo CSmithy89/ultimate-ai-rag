@@ -174,9 +174,9 @@ class TestErrorEventSSEStream:
         # Parse back
         parsed = json.loads(json_str)
 
-        assert parsed["event"] == "RUN_ERROR"
-        assert parsed["data"]["code"] == "RATE_LIMITED"
-        assert parsed["data"]["retry_after"] == 60
+        assert parsed["type"] == "RUN_ERROR"
+        assert parsed["code"] == "RATE_LIMITED"
+        assert parsed["retryAfter"] == 60
 
     def test_error_event_sse_format(self) -> None:
         """Test error event matches expected SSE format."""
@@ -187,12 +187,12 @@ class TestErrorEventSSEStream:
             details={"error_type": "ValueError"},
         )
 
-        # Build SSE line
-        data = json.dumps(event.model_dump()["data"])
-        sse_line = f"event: {event.event.value}\ndata: {data}\n\n"
+        # Build SSE line (AG-UI protocol uses data: prefix with full event JSON)
+        data = event.model_dump_json()
+        sse_line = f"data: {data}\n\n"
 
         # Verify format
-        assert "event: RUN_ERROR" in sse_line
+        assert '"type": "RUN_ERROR"' in sse_line or '"type":"RUN_ERROR"' in sse_line
         assert '"code": "AGENT_EXECUTION_ERROR"' in sse_line or '"code":"AGENT_EXECUTION_ERROR"' in sse_line
 
 
