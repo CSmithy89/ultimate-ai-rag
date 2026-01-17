@@ -1,13 +1,24 @@
-"""Async parse worker for PDF document processing.
+"""Async parse worker for document processing.
 
 This worker consumes jobs from the Redis Streams 'parse.jobs' queue,
-processes PDF documents using Docling, and queues results for indexing.
+processes documents using Docling (PDFs) or direct parsing (text, markdown,
+Office documents), and queues results for indexing.
+
+Supported formats:
+- PDF (.pdf) - via Docling
+- Text (.txt) - direct reading
+- Markdown (.md, .markdown) - direct reading
+- Word (.docx) - via python-docx
+- Excel (.xlsx) - via openpyxl
+- PowerPoint (.pptx) - via python-pptx
+- Images (.png, .jpg, etc.) - via Docling OCR
 """
 
 import asyncio
+import hashlib
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 import structlog
@@ -23,9 +34,73 @@ from agentic_rag_backend.db.redis import (
     get_redis_client,
 )
 from agentic_rag_backend.indexing.parser import parse_pdf
+from agentic_rag_backend.indexing.multimodal import (
+    DocumentType,
+    EXTENSION_TYPE_MAP,
+    OfficeParser,
+)
 from agentic_rag_backend.models.ingest import JobStatusEnum
 
 logger = structlog.get_logger(__name__)
+
+
+def detect_document_type(file_path: Path) -> DocumentType:
+    """Detect document type from file extension.
+
+    Args:
+        file_path: Path to the file
+
+    Returns:
+        DocumentType enum value
+    """
+    ext = file_path.suffix.lower()
+    return EXTENSION_TYPE_MAP.get(ext, DocumentType.UNKNOWN)
+
+
+def parse_text_file(file_path: Path) -> tuple[str, dict[str, Any]]:
+    """Parse a plain text file.
+
+    Args:
+        file_path: Path to the text file
+
+    Returns:
+        Tuple of (content, metadata)
+    """
+    content = file_path.read_text(encoding="utf-8")
+    metadata = {
+        "source_type": "text",
+        "file_size": file_path.stat().st_size,
+        "line_count": content.count("\n") + 1,
+    }
+    return content, metadata
+
+
+def parse_markdown_file(file_path: Path) -> tuple[str, dict[str, Any]]:
+    """Parse a markdown file.
+
+    Args:
+        file_path: Path to the markdown file
+
+    Returns:
+        Tuple of (content, metadata)
+    """
+    content = file_path.read_text(encoding="utf-8")
+
+    # Extract headers for section info
+    headers = []
+    for line in content.split("\n"):
+        if line.startswith("#"):
+            level = len(line) - len(line.lstrip("#"))
+            title = line.lstrip("#").strip()
+            headers.append({"level": level, "title": title})
+
+    metadata = {
+        "source_type": "markdown",
+        "file_size": file_path.stat().st_size,
+        "line_count": content.count("\n") + 1,
+        "sections": headers,
+    }
+    return content, metadata
 
 
 async def process_parse_job(
@@ -88,18 +163,104 @@ async def process_parse_job(
         if not file_path.exists():
             raise ParseError(filename, f"File not found: {file_path}")
 
-        # Parse the PDF (runs in thread pool to avoid blocking)
-        loop = asyncio.get_running_loop()
-        parsed_doc = await loop.run_in_executor(
-            None,
-            parse_pdf,
-            file_path,
-            document_id,
-            tenant_id,
-            table_mode,
+        # Detect document type from file extension
+        doc_type = detect_document_type(file_path)
+        logger.info(
+            "document_type_detected",
+            job_id=str(job_id),
+            doc_type=doc_type.value,
+            file_extension=file_path.suffix,
         )
 
-        # Calculate processing time (NFR2)
+        # Parse based on document type
+        loop = asyncio.get_running_loop()
+        content = ""
+        metadata: dict[str, Any] = {}
+        page_count = 1
+        source_type = doc_type.value
+
+        if doc_type == DocumentType.PDF:
+            # Parse PDF using Docling
+            parsed_doc = await loop.run_in_executor(
+                None,
+                parse_pdf,
+                file_path,
+                document_id,
+                tenant_id,
+                table_mode,
+            )
+            unified_doc = parsed_doc.to_unified_document()
+            content = unified_doc.content
+            metadata = unified_doc.metadata.model_dump(mode="json")
+            page_count = parsed_doc.page_count
+
+        elif doc_type == DocumentType.TEXT:
+            # Parse plain text file
+            content, metadata = await loop.run_in_executor(
+                None, parse_text_file, file_path
+            )
+
+        elif doc_type == DocumentType.MARKDOWN:
+            # Parse markdown file
+            content, metadata = await loop.run_in_executor(
+                None, parse_markdown_file, file_path
+            )
+
+        elif doc_type in (DocumentType.WORD, DocumentType.EXCEL, DocumentType.POWERPOINT):
+            # Parse Office documents
+            office_parser = OfficeParser()
+            if doc_type == DocumentType.WORD:
+                word_content = await loop.run_in_executor(
+                    None, office_parser.parse_word, file_path
+                )
+                content = word_content.full_text
+                metadata = {
+                    "source_type": "word",
+                    "paragraph_count": len(word_content.paragraphs),
+                    "table_count": len(word_content.tables),
+                    "doc_metadata": word_content.metadata,
+                }
+            elif doc_type == DocumentType.EXCEL:
+                excel_content = await loop.run_in_executor(
+                    None, office_parser.parse_excel, file_path
+                )
+                # Convert sheets to markdown format
+                content = "\n\n".join(sheet.to_markdown() for sheet in excel_content.sheets)
+                metadata = {
+                    "source_type": "excel",
+                    "sheet_count": excel_content.sheet_count,
+                    "sheets": [s.name for s in excel_content.sheets],
+                }
+            elif doc_type == DocumentType.POWERPOINT:
+                pptx_content = await loop.run_in_executor(
+                    None, office_parser.parse_powerpoint, file_path
+                )
+                content = pptx_content.full_text
+                page_count = pptx_content.slide_count
+                metadata = {
+                    "source_type": "powerpoint",
+                    "slide_count": pptx_content.slide_count,
+                }
+
+        elif doc_type == DocumentType.IMAGE:
+            # For images, use Docling's OCR capabilities (falls back to PDF parser)
+            parsed_doc = await loop.run_in_executor(
+                None,
+                parse_pdf,
+                file_path,
+                document_id,
+                tenant_id,
+                table_mode,
+            )
+            unified_doc = parsed_doc.to_unified_document()
+            content = unified_doc.content
+            metadata = unified_doc.metadata.model_dump(mode="json")
+            source_type = "image"
+
+        else:
+            raise ParseError(filename, f"Unsupported document type: {doc_type.value}")
+
+        # Calculate processing time
         processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 
         # Update job processing time
@@ -113,11 +274,11 @@ async def process_parse_job(
         await postgres.update_document_page_count(
             document_id=document_id,
             tenant_id=tenant_id,
-            page_count=parsed_doc.page_count,
+            page_count=page_count,
         )
 
-        # Convert to unified document for indexing
-        unified_doc = parsed_doc.to_unified_document()
+        # Compute content hash
+        content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
         # Queue for indexing
         await redis.publish_job(
@@ -126,10 +287,10 @@ async def process_parse_job(
                 "job_id": str(job_id),
                 "tenant_id": str(tenant_id),
                 "document_id": str(document_id),
-                "content": unified_doc.content,
-                "content_hash": unified_doc.content_hash,
-                "metadata": unified_doc.metadata.model_dump(mode="json"),
-                "source_type": "pdf",
+                "content": content,
+                "content_hash": content_hash,
+                "metadata": metadata,
+                "source_type": source_type,
                 "filename": filename,
             },
         )
@@ -140,10 +301,9 @@ async def process_parse_job(
             tenant_id=tenant_id,
             status=JobStatusEnum.COMPLETED,
             progress={
-                "pages_parsed": parsed_doc.page_count,
-                "total_pages": parsed_doc.page_count,
-                "tables_extracted": len(parsed_doc.tables),
-                "sections_extracted": len(parsed_doc.sections),
+                "pages_parsed": page_count,
+                "total_pages": page_count,
+                "doc_type": doc_type.value,
                 "processing_time_ms": processing_time_ms,
             },
         )
@@ -158,9 +318,9 @@ async def process_parse_job(
         logger.info(
             "parse_job_completed",
             job_id=str(job_id),
-            page_count=parsed_doc.page_count,
-            tables_count=len(parsed_doc.tables),
-            sections_count=len(parsed_doc.sections),
+            doc_type=doc_type.value,
+            page_count=page_count,
+            content_length=len(content),
             processing_time_ms=processing_time_ms,
         )
 

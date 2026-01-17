@@ -123,7 +123,7 @@ def parse_pdf_elements(
     """
     try:
         # Import Docling here to allow graceful failure if not installed
-        from docling.document_converter import DocumentConverter
+        from docling.document_converter import DocumentConverter, PdfFormatOption
         from docling.datamodel.base_models import InputFormat
         from docling.datamodel.pipeline_options import (
             PdfPipelineOptions,
@@ -150,7 +150,7 @@ def parse_pdf_elements(
 
         converter = DocumentConverter(
             format_options={
-                InputFormat.PDF: pipeline_options,  # type: ignore[dict-item]
+                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
             }
         )
 
