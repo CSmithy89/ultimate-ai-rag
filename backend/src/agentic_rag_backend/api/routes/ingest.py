@@ -17,6 +17,7 @@ from agentic_rag_backend.config import get_settings
 from agentic_rag_backend.core.errors import (
     AppError,
     FileTooLargeError,
+    InvalidDocumentError,
     InvalidPdfError,
     InvalidUrlError,
     JobNotFoundError,
@@ -29,6 +30,7 @@ from agentic_rag_backend.db.redis import (
     RedisClient,
 )
 from agentic_rag_backend.indexing.crawler import is_valid_url
+from agentic_rag_backend.indexing.multimodal import EXTENSION_TYPE_MAP, MIME_TYPE_MAP
 from agentic_rag_backend.models.ingest import (
     CrawlRequest,
     CrawlResponse,
@@ -88,7 +90,16 @@ async def get_redis(request: Request) -> RedisClient:
 
 async def get_postgres(request: Request) -> PostgresClient:
     """Get PostgreSQL client from app.state."""
-    return request.app.state.postgres
+    postgres = request.app.state.postgres
+    logger.info(
+        "get_postgres_dependency",
+        postgres_exists=postgres is not None,
+        postgres_type=str(type(postgres)) if postgres else None,
+        pool_exists=hasattr(postgres, '_pool') if postgres else False,
+        pool_is_none=postgres._pool is None if postgres and hasattr(postgres, '_pool') else True,
+        app_id=id(request.app),
+    )
+    return postgres
 
 
 @router.post(
@@ -178,30 +189,39 @@ async def create_crawl_job(
 @router.post(
     "/document",
     response_model=SuccessResponse,
-    summary="Upload and parse PDF document",
-    description="Upload a PDF document for parsing via the Docling pipeline.",
+    summary="Upload and parse document",
+    description="Upload a document for parsing via Docling. Supports PDF, Word, Excel, PowerPoint, Images, Markdown, and Text.",
 )
 @limiter.limit("5/minute")
 async def upload_document(
     request: Request,
-    file: UploadFile = File(..., description="PDF file to upload"),
+    file: UploadFile = File(..., description="Document file to upload (PDF, DOCX, XLSX, PPTX, PNG, JPG, MD, TXT)"),
     tenant_id: UUID = Form(..., description="Tenant identifier"),
     metadata: Optional[str] = Form(None, description="JSON metadata string"),
     redis: RedisClient = Depends(get_redis),
     postgres: PostgresClient = Depends(get_postgres),
 ) -> dict[str, Any]:
     """
-    Upload and queue a PDF document for parsing.
+    Upload and queue a document for parsing.
 
     This endpoint:
-    1. Validates the uploaded file (PDF format, size limit)
+    1. Validates the uploaded file (supported format, size limit)
     2. Saves the file to temporary storage
     3. Creates document and job records
     4. Queues the job for async parsing via Redis Streams
 
+    Supported formats:
+    - PDF (.pdf)
+    - Word (.docx, .doc)
+    - Excel (.xlsx, .xls)
+    - PowerPoint (.pptx, .ppt)
+    - Images (.png, .jpg, .jpeg, .gif, .webp)
+    - Markdown (.md, .markdown)
+    - Plain text (.txt)
+
     Args:
         request: FastAPI request object (used by rate limiter)
-        file: Uploaded PDF file
+        file: Uploaded document file
         tenant_id: Tenant identifier for multi-tenancy
         metadata: Optional JSON string with additional metadata
         redis: Redis client for job queue
@@ -211,7 +231,7 @@ async def upload_document(
         Success response with job_id, status, filename, and file_size
 
     Raises:
-        InvalidPdfError: If file is not a valid PDF
+        InvalidDocumentError: If file type is not supported
         FileTooLargeError: If file exceeds size limit
         StorageError: If file storage fails
     """
@@ -225,12 +245,45 @@ async def upload_document(
         tenant_id=str(tenant_id),
     )
 
-    # Validate content type
-    if file.content_type != "application/pdf":
-        raise InvalidPdfError(
+    # Determine document type from MIME type or file extension
+    doc_type = None
+    source_type = "unknown"
+    file_extension = ".bin"
+
+    # Try MIME type first
+    if file.content_type and file.content_type in MIME_TYPE_MAP:
+        doc_type = MIME_TYPE_MAP[file.content_type]
+
+    # Fall back to file extension
+    if doc_type is None and file.filename:
+        ext = Path(file.filename).suffix.lower()
+        if ext in EXTENSION_TYPE_MAP:
+            doc_type = EXTENSION_TYPE_MAP[ext]
+            file_extension = ext
+
+    # Validate document type is supported
+    if doc_type is None:
+        supported_types = list(MIME_TYPE_MAP.keys()) + list(EXTENSION_TYPE_MAP.keys())
+        raise InvalidDocumentError(
             file.filename or "unknown",
-            "File must be a PDF document (application/pdf)",
+            file.content_type,
+            f"Unsupported file type. Supported: PDF, Word, Excel, PowerPoint, Images, Markdown, Text",
         )
+
+    # Set source type and extension based on document type
+    source_type = doc_type.value.lower()
+    extension_map = {
+        "pdf": ".pdf", "word": ".docx", "excel": ".xlsx",
+        "powerpoint": ".pptx", "image": ".png", "markdown": ".md", "text": ".txt"
+    }
+    file_extension = extension_map.get(source_type, Path(file.filename or "").suffix or ".bin")
+
+    logger.info(
+        "document_type_detected",
+        doc_type=source_type,
+        content_type=file.content_type,
+        filename=file.filename,
+    )
 
     try:
         # Read file content
@@ -244,20 +297,13 @@ async def upload_document(
                 settings.max_upload_size_mb,
             )
 
-        # Validate PDF magic bytes
-        if not contents.startswith(b"%PDF"):
-            raise InvalidPdfError(
-                file.filename or "unknown",
-                "File does not appear to be a valid PDF document",
-            )
-
         # Compute content hash for deduplication
         content_hash = hashlib.sha256(contents).hexdigest()
 
         # Create document record
         doc_id = await postgres.create_document(
             tenant_id=tenant_id,
-            source_type="pdf",
+            source_type=source_type,
             content_hash=content_hash,
             filename=file.filename,
             file_size=file_size,
@@ -273,7 +319,7 @@ async def upload_document(
         # Save to temp storage
         temp_dir = Path(settings.temp_upload_dir) / str(tenant_id)
         temp_dir.mkdir(parents=True, exist_ok=True)
-        temp_path = temp_dir / f"{job_id}.pdf"
+        temp_path = temp_dir / f"{job_id}{file_extension}"
 
         try:
             async with aiofiles.open(temp_path, "wb") as f:

@@ -23,6 +23,7 @@ class ErrorCode(str, Enum):
     INTERNAL_ERROR = "internal_error"
     # Story 4.2 - PDF Document Parsing error codes
     INVALID_PDF = "invalid_pdf"
+    INVALID_DOCUMENT = "invalid_document"
     FILE_TOO_LARGE = "file_too_large"
     PASSWORD_PROTECTED = "password_protected"
     PARSE_FAILED = "parse_failed"
@@ -200,6 +201,22 @@ class InvalidPdfError(AppError):
             message=f"Invalid PDF: {reason}",
             status=400,
             details={"filename": filename},
+        )
+
+
+class InvalidDocumentError(AppError):
+    """Error for unsupported document types."""
+
+    def __init__(self, filename: str, content_type: str | None = None, reason: str | None = None) -> None:
+        if reason:
+            message = f"Invalid document: {reason}"
+        else:
+            message = f"Unsupported document type: {content_type or 'unknown'}"
+        super().__init__(
+            code=ErrorCode.INVALID_DOCUMENT,
+            message=message,
+            status=400,
+            details={"filename": filename, "content_type": content_type},
         )
 
 
