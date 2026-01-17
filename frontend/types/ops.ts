@@ -48,8 +48,8 @@ export const CostSummarySchema = z.object({
     monthly_threshold_usd: z.number().nullable().optional(),
     daily_total_usd: z.number().nullable().optional(),
     monthly_total_usd: z.number().nullable().optional(),
-    daily_exceeded: z.boolean().optional(),
-    monthly_exceeded: z.boolean().optional(),
+    daily_exceeded: z.boolean().nullable().optional(),
+    monthly_exceeded: z.boolean().nullable().optional(),
   }),
 });
 
