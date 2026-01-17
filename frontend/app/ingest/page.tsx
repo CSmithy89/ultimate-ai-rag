@@ -74,7 +74,7 @@ export default function IngestPage() {
     } catch (error) {
       setJobsStatus(error instanceof Error ? error.message : "Failed to load jobs.");
     }
-  }, [tenantId]);
+  }, []);
 
   useEffect(() => {
     void loadJobs();
