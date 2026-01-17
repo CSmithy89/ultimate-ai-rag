@@ -46,3 +46,4 @@ config/profiles/custom.yaml
 
 # Playwright MCP test artifacts
 .playwright-mcp/
+.env.backup
