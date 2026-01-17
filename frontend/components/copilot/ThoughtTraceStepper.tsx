@@ -10,7 +10,7 @@ import {
   Circle,
   BrainCircuit,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -147,6 +147,9 @@ export function ThoughtTraceStepper() {
   const [hasCoAgentState, setHasCoAgentState] = useState(false);
   const { isLoading } = useCopilotChat();
 
+  // Track the latest state from CoAgent to update hasCoAgentState via useEffect
+  const coAgentStateRef = useRef<{ steps: ThoughtStep[] } | null>(null);
+
   const toggleStep = (stepKey: string) => {
     setExpandedSteps((prev) => {
       const next = new Set(prev);
@@ -159,16 +162,27 @@ export function ThoughtTraceStepper() {
     });
   };
 
+  // Update hasCoAgentState based on ref changes (avoids setState during render)
+  // This effect intentionally runs after every render to sync the ref to state
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const hasSteps = Boolean(coAgentStateRef.current?.steps?.length);
+    if (hasSteps !== hasCoAgentState) {
+      setHasCoAgentState(hasSteps);
+    }
+  });
+
   // Try to render CoAgent state if available (for LangGraph backends)
   useCoAgentStateRender<{ steps: ThoughtStep[] }>({
     name: "default", // Match the agent name in CopilotRuntime
     render: ({ state }) => {
+      // Store state in ref (doesn't trigger re-render during render phase)
+      coAgentStateRef.current = state;
+
       if (!state?.steps?.length) {
-        setHasCoAgentState(false);
         return null;
       }
 
-      setHasCoAgentState(true);
       return (
         <div className="flex flex-col gap-2 p-4 font-mono text-sm border-t border-slate-200">
           <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
