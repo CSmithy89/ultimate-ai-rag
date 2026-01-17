@@ -19,11 +19,19 @@ from ..models.copilot import (
     TextMessageStartEvent,
     TextMessageEndEvent,
     StateSnapshotEvent,
+    StateDeltaEvent,
     RunStartedEvent,
     RunFinishedEvent,
     ToolCallStartEvent,
     ToolCallArgsEvent,
     ToolCallEndEvent,
+    ToolCallResultEvent,
+    ThinkingStartEvent,
+    ThinkingTextMessageContentEvent,
+    ThinkingEndEvent,
+    ActivitySnapshotEvent,
+    ActivityDeltaEvent,
+    CustomEvent,
 )
 from ..schemas import VectorCitation
 from .ag_ui_errors import create_error_event
@@ -198,6 +206,38 @@ class AGUIBridge:
                     tenant_id=tenant_id,
                     session_id=session_id,
                 )
+
+                # AG-UI Enhancement: Emit THINKING events for agent reasoning
+                # This allows the frontend to display the agent's thinking process
+                if result.thoughts:
+                    thinking_start = ThinkingStartEvent(
+                        threadId=run_thread_id,
+                        runId=run_id,
+                    )
+                    metrics.event_emitted(thinking_start.type.value)
+                    yield thinking_start
+
+                    # Emit each thought as thinking content
+                    for thought in result.thoughts:
+                        thought_content = (
+                            thought if isinstance(thought, str)
+                            else thought.content if hasattr(thought, "content")
+                            else str(thought)
+                        )
+                        thinking_content = ThinkingTextMessageContentEvent(
+                            content=thought_content,
+                            threadId=run_thread_id,
+                            runId=run_id,
+                        )
+                        metrics.event_emitted(thinking_content.type.value)
+                        yield thinking_content
+
+                    thinking_end = ThinkingEndEvent(
+                        threadId=run_thread_id,
+                        runId=run_id,
+                    )
+                    metrics.event_emitted(thinking_end.type.value)
+                    yield thinking_end
 
                 # Format thoughts into steps for frontend useCoAgentStateRender
                 steps = self._format_thought_steps(result.thoughts)
@@ -609,6 +649,9 @@ class HITLManager:
         """
         Get AG-UI events to signal validation completion.
 
+        AG-UI Protocol Enhancement: TOOL_CALL_RESULT is now emitted before
+        TOOL_CALL_END to provide tool execution results.
+
         Args:
             checkpoint: The completed checkpoint
             thread_id: Thread ID for consistent event correlation
@@ -617,15 +660,29 @@ class HITLManager:
         Returns:
             List of AG-UI events to emit
         """
+        # Prepare the validation result
+        approved_sources = [
+            s for s in checkpoint.sources
+            if s["id"] in checkpoint.approved_source_ids
+        ]
+        validation_result = {
+            "status": checkpoint.status.value,
+            "approved_count": len(checkpoint.approved_source_ids),
+            "rejected_count": len(checkpoint.rejected_source_ids),
+            "approved_source_ids": checkpoint.approved_source_ids,
+        }
+
         return [
+            # AG-UI Enhancement: Emit TOOL_CALL_RESULT before END
+            ToolCallResultEvent(
+                tool_call_id=checkpoint.checkpoint_id,
+                result=json.dumps(validation_result),
+            ),
             ToolCallEndEvent(tool_call_id=checkpoint.checkpoint_id),
             StateSnapshotEvent(
                 state={
                     "hitl_checkpoint": checkpoint.to_dict(),
-                    "approved_sources": [
-                        s for s in checkpoint.sources
-                        if s["id"] in checkpoint.approved_source_ids
-                    ],
+                    "approved_sources": approved_sources,
                 },
                 threadId=thread_id,
                 runId=run_id,

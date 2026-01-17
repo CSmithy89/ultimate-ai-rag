@@ -39,19 +39,55 @@ class CopilotRequest(BaseModel):
 
 
 class AGUIEventType(str, Enum):
-    """AG-UI event types."""
+    """AG-UI event types.
+
+    Full AG-UI Protocol Event Types:
+    - Run lifecycle: RUN_STARTED, RUN_FINISHED, RUN_ERROR
+    - Text messages: TEXT_MESSAGE_START, TEXT_MESSAGE_CONTENT, TEXT_MESSAGE_END
+    - Tool calls: TOOL_CALL_START, TOOL_CALL_ARGS, TOOL_CALL_RESULT, TOOL_CALL_END
+    - State management: STATE_SNAPSHOT, STATE_DELTA
+    - Message history: MESSAGES_SNAPSHOT
+    - Activities: ACTIVITY_SNAPSHOT, ACTIVITY_DELTA
+    - Agent reasoning: THINKING_START, THINKING_TEXT_MESSAGE_CONTENT, THINKING_END
+    - Custom events: CUSTOM
+    - Actions: ACTION_REQUEST
+    """
+    # Run lifecycle events
     RUN_STARTED = "RUN_STARTED"
     RUN_FINISHED = "RUN_FINISHED"
     RUN_ERROR = "RUN_ERROR"  # Story 22-B2: Extended error events
+
+    # Text message events
     TEXT_MESSAGE_START = "TEXT_MESSAGE_START"
     TEXT_MESSAGE_CONTENT = "TEXT_MESSAGE_CONTENT"
     TEXT_MESSAGE_END = "TEXT_MESSAGE_END"
+
+    # Tool call events
     TOOL_CALL_START = "TOOL_CALL_START"
     TOOL_CALL_ARGS = "TOOL_CALL_ARGS"
-    TOOL_CALL_END = "TOOL_CALL_END"
     TOOL_CALL_RESULT = "TOOL_CALL_RESULT"
+    TOOL_CALL_END = "TOOL_CALL_END"
+
+    # State management events
     STATE_SNAPSHOT = "STATE_SNAPSHOT"
     STATE_DELTA = "STATE_DELTA"
+
+    # Message history events
+    MESSAGES_SNAPSHOT = "MESSAGES_SNAPSHOT"
+
+    # Activity tracking events (for long-running operations)
+    ACTIVITY_SNAPSHOT = "ACTIVITY_SNAPSHOT"
+    ACTIVITY_DELTA = "ACTIVITY_DELTA"
+
+    # Agent reasoning/thinking events
+    THINKING_START = "THINKING_START"
+    THINKING_TEXT_MESSAGE_CONTENT = "THINKING_TEXT_MESSAGE_CONTENT"
+    THINKING_END = "THINKING_END"
+
+    # Custom events for application-specific data
+    CUSTOM = "CUSTOM"
+
+    # Action request events
     ACTION_REQUEST = "ACTION_REQUEST"
 
 
@@ -225,6 +261,300 @@ class ToolCallEndEvent(AGUIEvent):
 
     def __init__(self, tool_call_id: str = "", **kwargs: Any) -> None:
         super().__init__(toolCallId=tool_call_id, **kwargs)
+
+
+class ToolCallResultEvent(AGUIEvent):
+    """Event containing the result of a tool call.
+
+    AG-UI Protocol: TOOL_CALL_RESULT should be emitted after tool execution
+    completes and before TOOL_CALL_END. The result field contains the
+    JSON-serialized tool output.
+    """
+    type: Literal[AGUIEventType.TOOL_CALL_RESULT] = AGUIEventType.TOOL_CALL_RESULT
+    toolCallId: str = ""
+    result: str = ""  # JSON-serialized result string
+
+    def __init__(
+        self,
+        tool_call_id: str = "",
+        result: Optional[str] = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(toolCallId=tool_call_id, result=result or "", **kwargs)
+
+
+# ============================================
+# STATE DELTA EVENTS - AG-UI Protocol Enhancement
+# ============================================
+
+
+class StateDeltaEvent(AGUIEvent):
+    """Event for incremental state updates using RFC 6902 JSON Patch format.
+
+    AG-UI Protocol: STATE_DELTA provides efficient incremental state updates
+    instead of full STATE_SNAPSHOT events. Use for frequent small updates
+    like step status changes.
+
+    JSON Patch operations:
+    - {"op": "add", "path": "/steps/-", "value": {...}}
+    - {"op": "replace", "path": "/steps/0/status", "value": "completed"}
+    - {"op": "remove", "path": "/steps/0"}
+
+    Example:
+        yield StateDeltaEvent(delta=[
+            {"op": "replace", "path": "/steps/0/status", "value": "completed"},
+            {"op": "replace", "path": "/currentStep", "value": 1},
+        ])
+    """
+    type: Literal[AGUIEventType.STATE_DELTA] = AGUIEventType.STATE_DELTA
+    threadId: str = Field(default_factory=lambda: f"thread-{uuid.uuid4().hex[:12]}")
+    runId: str = Field(default_factory=lambda: f"run-{uuid.uuid4().hex[:12]}")
+    delta: list[dict[str, Any]] = Field(default_factory=list)
+
+    def __init__(
+        self,
+        delta: Optional[list[dict[str, Any]]] = None,
+        threadId: Optional[str] = None,
+        runId: Optional[str] = None,
+        **kwargs: Any,
+    ) -> None:
+        if delta is not None:
+            kwargs["delta"] = delta
+        if threadId is not None:
+            kwargs["threadId"] = threadId
+        if runId is not None:
+            kwargs["runId"] = runId
+        super().__init__(**kwargs)
+
+
+# ============================================
+# MESSAGES SNAPSHOT EVENT - AG-UI Protocol Enhancement
+# ============================================
+
+
+class MessagesSnapshotEvent(AGUIEvent):
+    """Event for syncing full conversation history.
+
+    AG-UI Protocol: MESSAGES_SNAPSHOT provides the full conversation history
+    to the frontend for synchronization. Useful after reconnection or
+    when frontend needs to restore state.
+    """
+    type: Literal[AGUIEventType.MESSAGES_SNAPSHOT] = AGUIEventType.MESSAGES_SNAPSHOT
+    threadId: str = Field(default_factory=lambda: f"thread-{uuid.uuid4().hex[:12]}")
+    runId: str = Field(default_factory=lambda: f"run-{uuid.uuid4().hex[:12]}")
+    messages: list[dict[str, Any]] = Field(default_factory=list)
+
+    def __init__(
+        self,
+        messages: Optional[list[dict[str, Any]]] = None,
+        threadId: Optional[str] = None,
+        runId: Optional[str] = None,
+        **kwargs: Any,
+    ) -> None:
+        if messages is not None:
+            kwargs["messages"] = messages
+        if threadId is not None:
+            kwargs["threadId"] = threadId
+        if runId is not None:
+            kwargs["runId"] = runId
+        super().__init__(**kwargs)
+
+
+# ============================================
+# ACTIVITY EVENTS - AG-UI Protocol Enhancement
+# For long-running operations like document ingestion
+# ============================================
+
+
+class ActivitySnapshotEvent(AGUIEvent):
+    """Event for tracking long-running operation progress.
+
+    AG-UI Protocol: ACTIVITY_SNAPSHOT provides full activity state for
+    long-running operations. Use for initial activity state or major changes.
+
+    Activity structure:
+        {
+            "id": "activity-uuid",
+            "type": "indexing" | "search" | "processing",
+            "progress": 0.0 to 1.0,
+            "message": "Processing page 3/7...",
+            "metadata": {...}
+        }
+    """
+    type: Literal[AGUIEventType.ACTIVITY_SNAPSHOT] = AGUIEventType.ACTIVITY_SNAPSHOT
+    threadId: str = Field(default_factory=lambda: f"thread-{uuid.uuid4().hex[:12]}")
+    runId: str = Field(default_factory=lambda: f"run-{uuid.uuid4().hex[:12]}")
+    activity: dict[str, Any] = Field(default_factory=dict)
+
+    def __init__(
+        self,
+        activity: Optional[dict[str, Any]] = None,
+        threadId: Optional[str] = None,
+        runId: Optional[str] = None,
+        **kwargs: Any,
+    ) -> None:
+        if activity is not None:
+            kwargs["activity"] = activity
+        if threadId is not None:
+            kwargs["threadId"] = threadId
+        if runId is not None:
+            kwargs["runId"] = runId
+        super().__init__(**kwargs)
+
+
+class ActivityDeltaEvent(AGUIEvent):
+    """Event for incremental activity progress updates.
+
+    AG-UI Protocol: ACTIVITY_DELTA provides efficient incremental updates
+    using RFC 6902 JSON Patch format.
+
+    Example:
+        yield ActivityDeltaEvent(delta=[
+            {"op": "replace", "path": "/progress", "value": 0.45},
+            {"op": "replace", "path": "/message", "value": "Processing page 3/7..."},
+        ])
+    """
+    type: Literal[AGUIEventType.ACTIVITY_DELTA] = AGUIEventType.ACTIVITY_DELTA
+    threadId: str = Field(default_factory=lambda: f"thread-{uuid.uuid4().hex[:12]}")
+    runId: str = Field(default_factory=lambda: f"run-{uuid.uuid4().hex[:12]}")
+    delta: list[dict[str, Any]] = Field(default_factory=list)
+
+    def __init__(
+        self,
+        delta: Optional[list[dict[str, Any]]] = None,
+        threadId: Optional[str] = None,
+        runId: Optional[str] = None,
+        **kwargs: Any,
+    ) -> None:
+        if delta is not None:
+            kwargs["delta"] = delta
+        if threadId is not None:
+            kwargs["threadId"] = threadId
+        if runId is not None:
+            kwargs["runId"] = runId
+        super().__init__(**kwargs)
+
+
+# ============================================
+# THINKING EVENTS - AG-UI Protocol Enhancement
+# For exposing agent reasoning to the frontend
+# ============================================
+
+
+class ThinkingStartEvent(AGUIEvent):
+    """Event signaling start of agent reasoning/thinking phase.
+
+    AG-UI Protocol: THINKING_START marks the beginning of an agent's
+    internal reasoning process that will be exposed to the user.
+    """
+    type: Literal[AGUIEventType.THINKING_START] = AGUIEventType.THINKING_START
+    threadId: str = Field(default_factory=lambda: f"thread-{uuid.uuid4().hex[:12]}")
+    runId: str = Field(default_factory=lambda: f"run-{uuid.uuid4().hex[:12]}")
+
+    def __init__(
+        self,
+        threadId: Optional[str] = None,
+        runId: Optional[str] = None,
+        **kwargs: Any,
+    ) -> None:
+        if threadId is not None:
+            kwargs["threadId"] = threadId
+        if runId is not None:
+            kwargs["runId"] = runId
+        super().__init__(**kwargs)
+
+
+class ThinkingTextMessageContentEvent(AGUIEvent):
+    """Event containing agent reasoning content.
+
+    AG-UI Protocol: THINKING_TEXT_MESSAGE_CONTENT streams the agent's
+    reasoning/thinking content to the frontend for display.
+    """
+    type: Literal[AGUIEventType.THINKING_TEXT_MESSAGE_CONTENT] = AGUIEventType.THINKING_TEXT_MESSAGE_CONTENT
+    threadId: str = Field(default_factory=lambda: f"thread-{uuid.uuid4().hex[:12]}")
+    runId: str = Field(default_factory=lambda: f"run-{uuid.uuid4().hex[:12]}")
+    content: str = ""
+
+    def __init__(
+        self,
+        content: str = "",
+        threadId: Optional[str] = None,
+        runId: Optional[str] = None,
+        **kwargs: Any,
+    ) -> None:
+        if threadId is not None:
+            kwargs["threadId"] = threadId
+        if runId is not None:
+            kwargs["runId"] = runId
+        super().__init__(content=content, **kwargs)
+
+
+class ThinkingEndEvent(AGUIEvent):
+    """Event signaling end of agent reasoning/thinking phase.
+
+    AG-UI Protocol: THINKING_END marks the completion of an agent's
+    internal reasoning process.
+    """
+    type: Literal[AGUIEventType.THINKING_END] = AGUIEventType.THINKING_END
+    threadId: str = Field(default_factory=lambda: f"thread-{uuid.uuid4().hex[:12]}")
+    runId: str = Field(default_factory=lambda: f"run-{uuid.uuid4().hex[:12]}")
+
+    def __init__(
+        self,
+        threadId: Optional[str] = None,
+        runId: Optional[str] = None,
+        **kwargs: Any,
+    ) -> None:
+        if threadId is not None:
+            kwargs["threadId"] = threadId
+        if runId is not None:
+            kwargs["runId"] = runId
+        super().__init__(**kwargs)
+
+
+# ============================================
+# CUSTOM EVENTS - AG-UI Protocol Enhancement
+# For application-specific events
+# ============================================
+
+
+class CustomEvent(AGUIEvent):
+    """Event for application-specific custom data.
+
+    AG-UI Protocol: CUSTOM events allow sending arbitrary application-specific
+    data through the AG-UI stream. Can be used for declarative UI rendering,
+    custom widgets, or any domain-specific events.
+
+    Example:
+        yield CustomEvent(
+            name="render_ui",
+            value={
+                "type": "approval_dialog",
+                "props": {"title": "Approve Sources", "items": sources}
+            }
+        )
+    """
+    type: Literal[AGUIEventType.CUSTOM] = AGUIEventType.CUSTOM
+    threadId: str = Field(default_factory=lambda: f"thread-{uuid.uuid4().hex[:12]}")
+    runId: str = Field(default_factory=lambda: f"run-{uuid.uuid4().hex[:12]}")
+    name: str = ""
+    value: dict[str, Any] = Field(default_factory=dict)
+
+    def __init__(
+        self,
+        name: str = "",
+        value: Optional[dict[str, Any]] = None,
+        threadId: Optional[str] = None,
+        runId: Optional[str] = None,
+        **kwargs: Any,
+    ) -> None:
+        if value is not None:
+            kwargs["value"] = value
+        if threadId is not None:
+            kwargs["threadId"] = threadId
+        if runId is not None:
+            kwargs["runId"] = runId
+        super().__init__(name=name, **kwargs)
 
 
 # ============================================

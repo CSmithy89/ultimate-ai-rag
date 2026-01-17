@@ -45,23 +45,59 @@ _registry = get_metrics_registry()
 # =============================================================================
 
 KNOWN_EVENT_TYPES: frozenset[str] = frozenset({
+    # Run lifecycle events
     "RUN_STARTED",
     "RUN_FINISHED",
     "RUN_ERROR",  # Story 22-B2: Extended error events
+
+    # Text message events
     "TEXT_MESSAGE_START",
     "TEXT_MESSAGE_CONTENT",
     "TEXT_MESSAGE_END",
+
+    # Tool call events
     "TOOL_CALL_START",
     "TOOL_CALL_ARGS",
+    "TOOL_CALL_RESULT",  # AG-UI Enhancement: Tool execution results
     "TOOL_CALL_END",
+
+    # State management events
     "STATE_SNAPSHOT",
     "STATE_DELTA",
+
+    # Message history events
     "MESSAGES_SNAPSHOT",
+
+    # Activity tracking events (AG-UI Enhancement)
+    "ACTIVITY_SNAPSHOT",
+    "ACTIVITY_DELTA",
+
+    # Thinking/reasoning events (AG-UI Enhancement)
+    "THINKING_START",
+    "THINKING_TEXT_MESSAGE_CONTENT",
+    "THINKING_END",
+
+    # Custom events (AG-UI Enhancement)
+    "CUSTOM",
+
+    # Action events
+    "ACTION_REQUEST",
 })
 """Known AG-UI event types for cardinality control.
 
 Any event type not in this set will be mapped to 'OTHER' to prevent
 Prometheus label cardinality explosion from unexpected event types.
+
+Full AG-UI Protocol Event Types:
+- Run lifecycle: RUN_STARTED, RUN_FINISHED, RUN_ERROR
+- Text messages: TEXT_MESSAGE_START, TEXT_MESSAGE_CONTENT, TEXT_MESSAGE_END
+- Tool calls: TOOL_CALL_START, TOOL_CALL_ARGS, TOOL_CALL_RESULT, TOOL_CALL_END
+- State management: STATE_SNAPSHOT, STATE_DELTA
+- Message history: MESSAGES_SNAPSHOT
+- Activities: ACTIVITY_SNAPSHOT, ACTIVITY_DELTA
+- Agent reasoning: THINKING_START, THINKING_TEXT_MESSAGE_CONTENT, THINKING_END
+- Custom events: CUSTOM
+- Actions: ACTION_REQUEST
 """
 
 # =============================================================================

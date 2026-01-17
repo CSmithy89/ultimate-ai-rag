@@ -160,6 +160,47 @@ function getSessionStart(): string {
   }
 }
 
+// ============================================
+// AG-UI Enhancement: Extended Context Types
+// ============================================
+
+/**
+ * Currently viewed document context.
+ * AG-UI Enhancement: Provides document-specific context to the AI.
+ */
+export interface DocumentContext {
+  /** Document ID */
+  id: string;
+  /** Document title */
+  title: string;
+  /** Document type (pdf, markdown, etc.) */
+  type: string;
+  /** Brief summary (first 500 chars) */
+  summary?: string;
+  /** Document metadata */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Current search context including filters and results.
+ * AG-UI Enhancement: Provides search state to the AI.
+ */
+export interface SearchContext {
+  /** Active filters */
+  activeFilters: {
+    dateRange?: { start: string; end: string };
+    documentTypes?: string[];
+    collections?: string[];
+    minSimilarity?: number;
+  };
+  /** Number of results found */
+  resultCount: number;
+  /** Top source titles (first 3) */
+  topSources: string[];
+  /** Current query if any */
+  currentQuery?: string;
+}
+
 /**
  * Return type for useCopilotContext hook.
  */
@@ -174,6 +215,10 @@ export interface UseCopilotContextReturn {
   updatePreferences: (updates: Partial<UserPreferences>) => void;
   /** Add a query to history */
   addQueryToHistory: (query: string) => void;
+  /** Set document context (when viewing a document) */
+  setDocumentContext: (doc: DocumentContext | null) => void;
+  /** Set search context (when search results are available) */
+  setSearchContext: (search: SearchContext | null) => void;
 }
 
 /**
@@ -233,6 +278,10 @@ export function useCopilotContext(): UseCopilotContextReturn {
   const { queries: recentQueries, addQuery: addQueryToHistory } = useQueryHistory();
   const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
   const [isPreferencesLoaded, setIsPreferencesLoaded] = useState(false);
+
+  // AG-UI Enhancement: Document and search context state
+  const [documentContext, setDocumentContext] = useState<DocumentContext | null>(null);
+  const [searchContext, setSearchContext] = useState<SearchContext | null>(null);
 
   // Load preferences on mount
   useEffect(() => {
@@ -294,6 +343,20 @@ export function useCopilotContext(): UseCopilotContextReturn {
     available: isPreferencesLoaded ? "enabled" : "disabled",
   });
 
+  // AG-UI Enhancement: Register document context when viewing specific documents
+  useCopilotReadable({
+    description: "Currently viewed document. Use this to understand what specific document the user is examining and provide document-specific answers.",
+    value: documentContext,
+    available: documentContext ? "enabled" : "disabled",
+  });
+
+  // AG-UI Enhancement: Register search context with filters and results summary
+  useCopilotReadable({
+    description: "Current search filters and results summary. Use this to understand what the user has searched for and what filters they've applied.",
+    value: searchContext,
+    available: searchContext ? "enabled" : "disabled",
+  });
+
   // Update preferences handler with useCallback for stable reference
   const updatePreferences = useCallback((updates: Partial<UserPreferences>) => {
     setPreferences((prev) => {
@@ -303,12 +366,23 @@ export function useCopilotContext(): UseCopilotContextReturn {
     });
   }, []);
 
+  // AG-UI Enhancement: Callbacks for setting document and search context
+  const setDocumentContextCallback = useCallback((doc: DocumentContext | null) => {
+    setDocumentContext(doc);
+  }, []);
+
+  const setSearchContextCallback = useCallback((search: SearchContext | null) => {
+    setSearchContext(search);
+  }, []);
+
   return {
     pageContext,
     sessionContext,
     preferences,
     updatePreferences,
     addQueryToHistory,
+    setDocumentContext: setDocumentContextCallback,
+    setSearchContext: setSearchContextCallback,
   };
 }
 

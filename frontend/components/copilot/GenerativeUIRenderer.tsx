@@ -1,11 +1,17 @@
 "use client";
 
+import { useEffect } from "react";
 import { useGenerativeUI, type GraphPreviewNode } from "@/hooks/use-generative-ui";
 import { useSourceValidation } from "@/hooks/use-source-validation";
 import { useCopilotActions } from "@/hooks/use-copilot-actions";
 import { useCopilotContext } from "@/hooks/use-copilot-context";
 import { useToolCallRenderers } from "./tool-renderers";
+import { initializeWidgetsSync, areWidgetsInitialized } from "@/lib/widget-init";
 import type { Source, ActionableContent } from "@/types/copilot";
+
+// Re-export CustomEventRenderer for convenience
+export { CustomEventRenderer, isCustomEvent } from "./CustomEventRenderer";
+export type { CustomEvent } from "./CustomEventRenderer";
 
 interface GenerativeUIRendererProps {
   /** Callback when a source card is clicked */
@@ -153,6 +159,14 @@ export function GenerativeUIRenderer({
       : undefined,
     onFollowUp,
   });
+
+  // Initialize widgets on first render (AG-UI Enhancement)
+  // Ensures widget registry is populated before any CUSTOM events are received
+  useEffect(() => {
+    if (!areWidgetsInitialized()) {
+      initializeWidgetsSync();
+    }
+  }, []);
 
   // Dialog rendering is now handled by useHumanInTheLoop internally
   // No need to render SourceValidationDialog or SourceValidationPanel externally

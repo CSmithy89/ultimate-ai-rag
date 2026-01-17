@@ -24,12 +24,21 @@ from agentic_rag_backend.models.copilot import (
     RunFinishedEvent,
     RunStartedEvent,
     StateSnapshotEvent,
+    StateDeltaEvent,
     TextDeltaEvent,
     TextMessageStartEvent,
     TextMessageEndEvent,
     ToolCallArgsEvent,
     ToolCallEndEvent,
     ToolCallStartEvent,
+    ToolCallResultEvent,
+    ThinkingStartEvent,
+    ThinkingTextMessageContentEvent,
+    ThinkingEndEvent,
+    ActivitySnapshotEvent,
+    ActivityDeltaEvent,
+    MessagesSnapshotEvent,
+    CustomEvent,
 )
 from agentic_rag_backend.protocols.ag_ui_bridge import (
     AGUIBridge,
@@ -115,11 +124,24 @@ class StubHitlManager:
         checkpoint = self._checkpoint
         assert checkpoint is not None
         checkpoint.approved_source_ids = [source["id"] for source in checkpoint.sources]
+        checkpoint.rejected_source_ids = []
         checkpoint.status = HITLStatus.APPROVED
         return checkpoint
 
     def get_completion_events(self, checkpoint, thread_id=None, run_id=None):
+        import json
+        validation_result = {
+            "status": checkpoint.status.value,
+            "approved_count": len(checkpoint.approved_source_ids),
+            "rejected_count": len(checkpoint.rejected_source_ids),
+            "approved_source_ids": checkpoint.approved_source_ids,
+        }
         return [
+            # AG-UI Enhancement: Emit TOOL_CALL_RESULT before END
+            ToolCallResultEvent(
+                tool_call_id=checkpoint.checkpoint_id,
+                result=json.dumps(validation_result),
+            ),
             ToolCallEndEvent(tool_call_id=checkpoint.checkpoint_id),
             StateSnapshotEvent(
                 state={
@@ -440,3 +462,232 @@ class TestAGUIBridgeEventModels:
         event = StateSnapshotEvent(state=state)
         assert event.type == AGUIEventType.STATE_SNAPSHOT
         assert event.snapshot == state
+
+
+class TestAGUIEnhancedEventModels:
+    """Tests for AG-UI Protocol Enhancement event models."""
+
+    def test_state_delta_event_structure(self):
+        """Test StateDeltaEvent has correct RFC 6902 structure."""
+        delta = [
+            {"op": "replace", "path": "/steps/0/status", "value": "completed"},
+            {"op": "add", "path": "/steps/-", "value": {"step": "New step"}},
+        ]
+        event = StateDeltaEvent(delta=delta)
+        assert event.type == AGUIEventType.STATE_DELTA
+        assert event.delta == delta
+        data = event.model_dump()
+        assert "threadId" in data
+        assert "runId" in data
+        assert "delta" in data
+
+    def test_tool_call_result_event_structure(self):
+        """Test ToolCallResultEvent has correct structure."""
+        event = ToolCallResultEvent(
+            tool_call_id="call-123",
+            result='{"status": "success", "data": [1, 2, 3]}',
+        )
+        assert event.type == AGUIEventType.TOOL_CALL_RESULT
+        assert event.toolCallId == "call-123"
+        assert "success" in event.result
+
+    def test_messages_snapshot_event_structure(self):
+        """Test MessagesSnapshotEvent has correct structure."""
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!"},
+        ]
+        event = MessagesSnapshotEvent(messages=messages)
+        assert event.type == AGUIEventType.MESSAGES_SNAPSHOT
+        assert event.messages == messages
+
+    def test_activity_snapshot_event_structure(self):
+        """Test ActivitySnapshotEvent has correct structure."""
+        activity = {
+            "id": "activity-123",
+            "type": "indexing",
+            "progress": 0.0,
+            "message": "Starting document processing...",
+        }
+        event = ActivitySnapshotEvent(activity=activity)
+        assert event.type == AGUIEventType.ACTIVITY_SNAPSHOT
+        assert event.activity == activity
+
+    def test_activity_delta_event_structure(self):
+        """Test ActivityDeltaEvent has correct RFC 6902 structure."""
+        delta = [
+            {"op": "replace", "path": "/progress", "value": 0.45},
+            {"op": "replace", "path": "/message", "value": "Processing page 3/7..."},
+        ]
+        event = ActivityDeltaEvent(delta=delta)
+        assert event.type == AGUIEventType.ACTIVITY_DELTA
+        assert event.delta == delta
+
+    def test_thinking_start_event_structure(self):
+        """Test ThinkingStartEvent has correct structure."""
+        event = ThinkingStartEvent(threadId="thread-123", runId="run-456")
+        assert event.type == AGUIEventType.THINKING_START
+        assert event.threadId == "thread-123"
+        assert event.runId == "run-456"
+
+    def test_thinking_text_message_content_event_structure(self):
+        """Test ThinkingTextMessageContentEvent has correct structure."""
+        event = ThinkingTextMessageContentEvent(
+            content="Analyzing the query to determine retrieval strategy...",
+            threadId="thread-123",
+            runId="run-456",
+        )
+        assert event.type == AGUIEventType.THINKING_TEXT_MESSAGE_CONTENT
+        assert "retrieval strategy" in event.content
+
+    def test_thinking_end_event_structure(self):
+        """Test ThinkingEndEvent has correct structure."""
+        event = ThinkingEndEvent(threadId="thread-123", runId="run-456")
+        assert event.type == AGUIEventType.THINKING_END
+        assert event.threadId == "thread-123"
+
+    def test_custom_event_structure(self):
+        """Test CustomEvent has correct structure."""
+        event = CustomEvent(
+            name="render_ui",
+            value={
+                "type": "approval_dialog",
+                "props": {"title": "Approve Sources", "items": []},
+            },
+        )
+        assert event.type == AGUIEventType.CUSTOM
+        assert event.name == "render_ui"
+        assert event.value["type"] == "approval_dialog"
+
+
+class TestAGUIThinkingEventsEmission:
+    """Tests for THINKING events emission in AG-UI bridge."""
+
+    @pytest.mark.asyncio
+    async def test_process_request_emits_thinking_events(
+        self, mock_orchestrator, sample_copilot_request
+    ):
+        """Test that THINKING events are emitted for orchestrator thoughts."""
+        bridge = AGUIBridge(mock_orchestrator)
+        events = []
+
+        async for event in bridge.process_request(sample_copilot_request):
+            events.append(event)
+
+        # Check for THINKING_START
+        thinking_start_events = [e for e in events if e.type == AGUIEventType.THINKING_START]
+        assert len(thinking_start_events) == 1
+
+        # Check for THINKING_TEXT_MESSAGE_CONTENT
+        thinking_content_events = [e for e in events if e.type == AGUIEventType.THINKING_TEXT_MESSAGE_CONTENT]
+        assert len(thinking_content_events) >= 1
+
+        # Check for THINKING_END
+        thinking_end_events = [e for e in events if e.type == AGUIEventType.THINKING_END]
+        assert len(thinking_end_events) == 1
+
+        # Verify order: START before CONTENT before END
+        start_idx = events.index(thinking_start_events[0])
+        content_idx = events.index(thinking_content_events[0])
+        end_idx = events.index(thinking_end_events[0])
+        assert start_idx < content_idx < end_idx
+
+    @pytest.mark.asyncio
+    async def test_thinking_events_contain_thought_content(
+        self, mock_orchestrator, sample_copilot_request
+    ):
+        """Test that THINKING_TEXT_MESSAGE_CONTENT contains thought text."""
+        expected_thoughts = ["Analyzing query", "Determining retrieval strategy"]
+        mock_orchestrator.run.return_value = MockOrchestratorResult(thoughts=expected_thoughts)
+
+        bridge = AGUIBridge(mock_orchestrator)
+        events = []
+
+        async for event in bridge.process_request(sample_copilot_request):
+            events.append(event)
+
+        thinking_content_events = [
+            e for e in events
+            if e.type == AGUIEventType.THINKING_TEXT_MESSAGE_CONTENT
+        ]
+
+        # Should have one content event per thought
+        assert len(thinking_content_events) == len(expected_thoughts)
+
+        # Verify content matches thoughts
+        for i, event in enumerate(thinking_content_events):
+            assert event.content == expected_thoughts[i]
+
+
+class TestAGUIToolCallResultEmission:
+    """Tests for TOOL_CALL_RESULT events in HITL flow."""
+
+    @pytest.mark.asyncio
+    async def test_hitl_emits_tool_call_result(self, sample_copilot_request):
+        """Test that HITL completion emits TOOL_CALL_RESULT before TOOL_CALL_END."""
+        orchestrator = MagicMock()
+        citations = [
+            VectorCitation(
+                chunk_id="chunk-1",
+                document_id="doc-1",
+                similarity=0.9,
+                source="doc-1",
+                content_preview="preview",
+                metadata=None,
+            )
+        ]
+        evidence = RetrievalEvidence(vector=citations)
+        orchestrator.run = AsyncMock(return_value=MockOrchestratorResult(evidence=evidence))
+
+        bridge = AGUIBridge(orchestrator, hitl_manager=StubHitlManager())
+        events = []
+
+        async for event in bridge.process_request(sample_copilot_request):
+            events.append(event)
+
+        # Check for TOOL_CALL_RESULT
+        result_events = [e for e in events if e.type == AGUIEventType.TOOL_CALL_RESULT]
+        assert len(result_events) == 1
+
+        # Check for TOOL_CALL_END
+        end_events = [e for e in events if e.type == AGUIEventType.TOOL_CALL_END]
+        assert len(end_events) == 1
+
+        # Verify order: RESULT before END
+        result_idx = events.index(result_events[0])
+        end_idx = events.index(end_events[0])
+        assert result_idx < end_idx
+
+    @pytest.mark.asyncio
+    async def test_tool_call_result_contains_validation_data(self, sample_copilot_request):
+        """Test that TOOL_CALL_RESULT contains validation result data."""
+        import json
+
+        orchestrator = MagicMock()
+        citations = [
+            VectorCitation(
+                chunk_id="chunk-1",
+                document_id="doc-1",
+                similarity=0.9,
+                source="doc-1",
+                content_preview="preview",
+                metadata=None,
+            )
+        ]
+        evidence = RetrievalEvidence(vector=citations)
+        orchestrator.run = AsyncMock(return_value=MockOrchestratorResult(evidence=evidence))
+
+        bridge = AGUIBridge(orchestrator, hitl_manager=StubHitlManager())
+        events = []
+
+        async for event in bridge.process_request(sample_copilot_request):
+            events.append(event)
+
+        result_events = [e for e in events if e.type == AGUIEventType.TOOL_CALL_RESULT]
+        assert len(result_events) == 1
+
+        # Parse and verify result content
+        result_data = json.loads(result_events[0].result)
+        assert "status" in result_data
+        assert "approved_count" in result_data
+        assert result_data["status"] == "approved"
