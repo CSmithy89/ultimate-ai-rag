@@ -6,11 +6,32 @@ AG-UI Protocol Event Format:
 - Example: {"type": "TEXT_MESSAGE_START", "messageId": "...", "role": "assistant"}
 """
 
+import base64
 import uuid
 from enum import Enum
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# Maximum allowed size for binary content (10MB) - matches frontend
+MAX_BINARY_CONTENT_SIZE = 10 * 1024 * 1024
+
+# Allowed MIME types for binary content
+ALLOWED_BINARY_MEDIA_TYPES = frozenset({
+    # Images
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    # Audio
+    "audio/wav",
+    "audio/mp3",
+    "audio/mpeg",
+    "audio/ogg",
+    # Documents
+    "application/pdf",
+    "text/plain",
+})
 
 
 class MessageRole(str, Enum):
@@ -58,9 +79,36 @@ class BinaryInputContent(BaseModel):
     data: str = Field(..., description="Base64-encoded binary data")
     filename: Optional[str] = Field(None, description="Original filename if available")
 
+    @field_validator("media_type")
+    @classmethod
+    def validate_media_type(cls, v: str) -> str:
+        """Validate that media_type is in the allowed list."""
+        if v not in ALLOWED_BINARY_MEDIA_TYPES:
+            raise ValueError(
+                f"Unsupported media type: {v}. "
+                f"Allowed types: {', '.join(sorted(ALLOWED_BINARY_MEDIA_TYPES))}"
+            )
+        return v
+
+    @field_validator("data")
+    @classmethod
+    def validate_data_size(cls, v: str) -> str:
+        """Validate that base64 data doesn't exceed size limit."""
+        try:
+            decoded = base64.b64decode(v)
+            if len(decoded) > MAX_BINARY_CONTENT_SIZE:
+                raise ValueError(
+                    f"Binary content too large: {len(decoded)} bytes. "
+                    f"Maximum allowed: {MAX_BINARY_CONTENT_SIZE // (1024 * 1024)}MB"
+                )
+        except Exception as e:
+            if "too large" in str(e):
+                raise
+            raise ValueError(f"Invalid base64 data: {e}")
+        return v
+
     def get_size_bytes(self) -> int:
         """Calculate the approximate size of the binary data in bytes."""
-        import base64
         # Base64 encoding increases size by ~33%
         return len(base64.b64decode(self.data))
 

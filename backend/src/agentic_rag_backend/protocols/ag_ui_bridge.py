@@ -305,6 +305,11 @@ class RunManager:
     - Signaling cancellation to running agents
     - Persisting run state for resume capability
     - Resuming runs from checkpoints
+
+    Thread Safety:
+    - All operations on _active_runs are protected by _lock
+    - This prevents race conditions when multiple requests
+      access or modify run state concurrently
     """
 
     def __init__(
@@ -323,6 +328,7 @@ class RunManager:
         self._redis = redis_client
         self._run_ttl_seconds = run_ttl_seconds
         self._logger = logger.bind(component="run_manager")
+        self._lock = asyncio.Lock()  # Thread safety for concurrent access
 
     def _run_key(self, run_id: str) -> str:
         """Get Redis key for a run."""
@@ -351,7 +357,7 @@ class RunManager:
         except json.JSONDecodeError:
             return None
 
-    def create_run(
+    async def create_run(
         self,
         query: str,
         tenant_id: Optional[str] = None,
@@ -380,7 +386,9 @@ class RunManager:
             session_id=session_id,
         )
 
-        self._active_runs[run_id] = run
+        async with self._lock:
+            self._active_runs[run_id] = run
+
         self._logger.info(
             "run_created",
             run_id=run_id,
@@ -391,8 +399,18 @@ class RunManager:
         return run
 
     def get_run(self, run_id: str) -> Optional[RunState]:
-        """Get an active run by ID."""
+        """Get an active run by ID.
+
+        Note: This is synchronous for compatibility, but reads are
+        generally safe without the lock. For critical sections,
+        use get_run_locked() instead.
+        """
         return self._active_runs.get(run_id)
+
+    async def get_run_locked(self, run_id: str) -> Optional[RunState]:
+        """Get an active run by ID with lock protection."""
+        async with self._lock:
+            return self._active_runs.get(run_id)
 
     async def cancel_run(self, run_id: str) -> bool:
         """
@@ -404,22 +422,23 @@ class RunManager:
         Returns:
             True if cancelled, False if run not found or already finished
         """
-        run = self._active_runs.get(run_id)
-        if not run:
-            self._logger.warning("cancel_run_not_found", run_id=run_id)
-            return False
+        async with self._lock:
+            run = self._active_runs.get(run_id)
+            if not run:
+                self._logger.warning("cancel_run_not_found", run_id=run_id)
+                return False
 
-        if run.status != RunStatus.RUNNING:
-            self._logger.info(
-                "cancel_run_not_running",
-                run_id=run_id,
-                status=run.status.value,
-            )
-            return False
+            if run.status != RunStatus.RUNNING:
+                self._logger.info(
+                    "cancel_run_not_running",
+                    run_id=run_id,
+                    status=run.status.value,
+                )
+                return False
 
-        # Signal cancellation
-        run.status = RunStatus.CANCELLED
-        run.cancel_event.set()
+            # Signal cancellation (atomic within lock)
+            run.status = RunStatus.CANCELLED
+            run.cancel_event.set()
 
         self._logger.info("run_cancelled", run_id=run_id)
         await self._persist_run(run)

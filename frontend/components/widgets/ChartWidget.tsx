@@ -226,12 +226,19 @@ function PieChart({
   data: ChartDataPoint[];
   width: number;
   height: number;
-}) {
-  const total = data.reduce((sum, d) => sum + d.value, 0) || 1;
-  const centerX = width / 2;
-  const centerY = height / 2;
-  const radius = Math.min(width, height) / 2 - 20;
+}): React.ReactElement {
+  // Memoize derived values to prevent unnecessary recalculations
+  const chartDimensions = useMemo(() => {
+    const total = data.reduce((sum, d) => sum + d.value, 0) || 1;
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const radius = Math.min(width, height) / 2 - 20;
+    return { total, centerX, centerY, radius };
+  }, [data, width, height]);
 
+  const { total, centerX, centerY, radius } = chartDimensions;
+
+  // Memoize slices with stable dependencies
   const slices = useMemo(() => {
     let currentAngle = -Math.PI / 2;
     return data.map((point, i) => {
@@ -265,7 +272,7 @@ function PieChart({
         labelY,
       };
     });
-  }, [data, total, centerX, centerY, radius]);
+  }, [data, chartDimensions]);
 
   return (
     <svg width={width} height={height} className="overflow-visible">
@@ -334,11 +341,29 @@ export function ChartWidget({
     );
   }
 
-  const ChartComponent = {
+  // Map chart types to components with type safety
+  const chartComponents = {
     bar: BarChart,
     line: LineChart,
     pie: PieChart,
-  }[type];
+  } as const;
+
+  const ChartComponent = chartComponents[type];
+
+  // Handle invalid chart type gracefully
+  if (!ChartComponent) {
+    return (
+      <div
+        className={cn(
+          "flex items-center justify-center p-4 text-red-500 text-sm",
+          className
+        )}
+        role="alert"
+      >
+        Invalid chart type: {type}
+      </div>
+    );
+  }
 
   return (
     <div className={cn("rounded-lg border bg-white p-4", className)}>

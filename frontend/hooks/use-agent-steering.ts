@@ -6,14 +6,25 @@
  * Provides ability to inject steering guidance into running agents.
  * This allows users to redirect agent execution mid-flow.
  *
+ * IMPORTANT: Steering can only be applied to runs with "running" status.
+ * The hook provides `canSteer` to check if a run can be steered.
+ *
  * @example
  * ```tsx
  * function SteeringInput({ runId }: { runId: string }) {
- *   const { steerAgent, isSteering } = useAgentSteering();
+ *   const { steerAgent, isSteering, canSteer, checkRunStatus } = useAgentSteering();
+ *
+ *   // Check if run can be steered before showing UI
+ *   const isSteerableRun = await checkRunStatus(runId);
  *
  *   const handleSubmit = async (instruction: string) => {
- *     await steerAgent(runId, instruction);
+ *     const success = await steerAgent(runId, instruction);
+ *     if (!success) {
+ *       // Handle failure (run may have completed)
+ *     }
  *   };
+ *
+ *   if (!isSteerableRun) return null;
  *
  *   return (
  *     <form onSubmit={e => handleSubmit(e.target.instruction.value)}>
@@ -26,14 +37,10 @@
  */
 
 import { useState, useCallback, useMemo } from "react";
+import type { SteeringContext, SteeringResult } from "@/types/ag-ui";
 
-/**
- * Steering instruction context.
- */
-export interface SteeringContext {
-  /** Additional context data */
-  [key: string]: unknown;
-}
+// Re-export types for convenience
+export type { SteeringContext, SteeringResult } from "@/types/ag-ui";
 
 /**
  * Return type for useAgentSteering hook.
@@ -53,15 +60,8 @@ export interface UseAgentSteeringResult {
   error: string | null;
   /** Clear the error */
   clearError: () => void;
-}
-
-/**
- * Result of a steering operation.
- */
-export interface SteeringResult {
-  runId: string;
-  status: string;
-  message: string;
+  /** Check if a run can be steered (is in running state) */
+  checkRunStatus: (runId: string) => Promise<boolean>;
 }
 
 /**
@@ -95,6 +95,30 @@ export function useAgentSteering(
     setError(null);
   }, []);
 
+  // Check if a run is in a state that can be steered
+  const checkRunStatus = useCallback(
+    async (runId: string): Promise<boolean> => {
+      try {
+        const response = await fetch(`${baseUrl}/copilot/run/${runId}`, {
+          headers: {
+            ...(tenantId ? { "X-Tenant-ID": tenantId } : {}),
+          },
+        });
+
+        if (!response.ok) {
+          return false; // Can't steer if we can't get status
+        }
+
+        const runState = await response.json();
+        // Only "running" status can be steered
+        return runState.status === "running";
+      } catch {
+        return false;
+      }
+    },
+    [baseUrl, tenantId]
+  );
+
   // Send steering instruction
   const steerAgent = useCallback(
     async (
@@ -104,6 +128,13 @@ export function useAgentSteering(
     ): Promise<boolean> => {
       if (!runId || !instruction) {
         setError("Run ID and instruction are required");
+        return false;
+      }
+
+      // Pre-check: verify run is still active before attempting to steer
+      const canSteer = await checkRunStatus(runId);
+      if (!canSteer) {
+        setError("Cannot steer: run is not in 'running' status");
         return false;
       }
 
@@ -144,7 +175,7 @@ export function useAgentSteering(
         setIsSteering(false);
       }
     },
-    [baseUrl, tenantId, onSuccess, onError]
+    [baseUrl, tenantId, onSuccess, onError, checkRunStatus]
   );
 
   return useMemo(
@@ -154,8 +185,9 @@ export function useAgentSteering(
       lastResult,
       error,
       clearError,
+      checkRunStatus,
     }),
-    [steerAgent, isSteering, lastResult, error, clearError]
+    [steerAgent, isSteering, lastResult, error, clearError, checkRunStatus]
   );
 }
 

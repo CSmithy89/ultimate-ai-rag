@@ -22,27 +22,21 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { useCopilotChat } from "@copilotkit/react-core";
+import type { RunState } from "@/types/ag-ui";
+
+// Re-export types for backward compatibility
+export type { RunStatus, RunState } from "@/types/ag-ui";
 
 /**
- * Run status from backend.
+ * Result of getRunState operation - distinguishes between "not found" and "error".
  */
-export type RunStatus = "running" | "cancelled" | "completed" | "error" | "paused";
-
-/**
- * Run state from backend.
- */
-export interface RunState {
-  run_id: string;
-  thread_id: string;
-  status: RunStatus;
-  query: string;
-  tenant_id?: string;
-  session_id?: string;
-  created_at: string;
-  current_step: number;
-  total_steps: number;
-  partial_result?: string;
-  error_message?: string;
+export interface GetRunStateResult {
+  /** The run state if found */
+  run: RunState | null;
+  /** Whether the run was not found (404) */
+  notFound: boolean;
+  /** Whether there was a network/server error */
+  error: Error | null;
 }
 
 /**
@@ -61,8 +55,8 @@ export interface UseRunControlResult {
   cancelRun: () => Promise<boolean>;
   /** Resume a cancelled/paused run */
   resumeRun: (runId: string) => Promise<boolean>;
-  /** Get state of a run */
-  getRunState: (runId: string) => Promise<RunState | null>;
+  /** Get state of a run with explicit not-found/error distinction */
+  getRunState: (runId: string) => Promise<GetRunStateResult>;
   /** List active runs for the current tenant */
   listActiveRuns: () => Promise<RunState[]>;
   /** Error message if any operation failed */
@@ -174,8 +168,8 @@ export function useRunControl(config: UseRunControlConfig = {}): UseRunControlRe
     }
   }, [baseUrl, tenantId, onResume, onError]);
 
-  // Get state of a run
-  const getRunState = useCallback(async (runId: string): Promise<RunState | null> => {
+  // Get state of a run with explicit not-found/error distinction
+  const getRunState = useCallback(async (runId: string): Promise<GetRunStateResult> => {
     try {
       const response = await fetch(`${baseUrl}/copilot/run/${runId}`, {
         headers: {
@@ -185,17 +179,24 @@ export function useRunControl(config: UseRunControlConfig = {}): UseRunControlRe
 
       if (!response.ok) {
         if (response.status === 404) {
-          return null;
+          // Not found is not an error - it's a valid state
+          return { run: null, notFound: true, error: null };
         }
-        throw new Error(`Failed to get run state: ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        const error = new Error(errorData.detail || `Failed to get run state: ${response.status}`);
+        setError(error.message);
+        onError?.(error);
+        return { run: null, notFound: false, error };
       }
 
-      return await response.json();
+      const run = await response.json();
+      return { run, notFound: false, error: null };
     } catch (err) {
+      // Network or parsing error
       const error = err instanceof Error ? err : new Error(String(err));
       setError(error.message);
       onError?.(error);
-      return null;
+      return { run: null, notFound: false, error };
     }
   }, [baseUrl, tenantId, onError]);
 

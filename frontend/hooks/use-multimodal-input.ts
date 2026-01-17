@@ -33,63 +33,26 @@
  */
 
 import { useState, useCallback, useMemo } from "react";
+import {
+  SUPPORTED_MEDIA_TYPES,
+  MAX_FILE_SIZE,
+  MAX_ATTACHMENTS,
+  type SupportedMediaType,
+  type TextInputContent,
+  type BinaryInputContent,
+  type MultimodalContentPart,
+  type Attachment,
+} from "@/types/ag-ui";
 
-/**
- * Supported media types for binary content.
- */
-export const SUPPORTED_MEDIA_TYPES = {
-  // Images
-  "image/png": { extension: ".png", category: "image" },
-  "image/jpeg": { extension: ".jpg", category: "image" },
-  "image/gif": { extension: ".gif", category: "image" },
-  "image/webp": { extension: ".webp", category: "image" },
-  // Audio
-  "audio/wav": { extension: ".wav", category: "audio" },
-  "audio/mp3": { extension: ".mp3", category: "audio" },
-  "audio/mpeg": { extension: ".mp3", category: "audio" },
-  "audio/ogg": { extension: ".ogg", category: "audio" },
-  // Documents
-  "application/pdf": { extension: ".pdf", category: "document" },
-  "text/plain": { extension: ".txt", category: "document" },
-} as const;
-
-export type SupportedMediaType = keyof typeof SUPPORTED_MEDIA_TYPES;
-
-/**
- * Text content part of a multimodal message.
- */
-export interface TextInputContent {
-  type: "text";
-  content: string;
-}
-
-/**
- * Binary content part of a multimodal message.
- */
-export interface BinaryInputContent {
-  type: "binary";
-  media_type: string;
-  data: string; // base64 encoded
-  filename?: string;
-}
-
-/**
- * A content part (text or binary) in a multimodal message.
- */
-export type MultimodalContentPart = TextInputContent | BinaryInputContent;
-
-/**
- * An attachment ready to be sent.
- */
-export interface Attachment {
-  id: string;
-  type: "binary";
-  media_type: string;
-  data: string;
-  filename: string;
-  size: number;
-  preview?: string; // For images, a data URL for preview
-}
+// Re-export types for backward compatibility
+export {
+  SUPPORTED_MEDIA_TYPES,
+  type SupportedMediaType,
+  type TextInputContent,
+  type BinaryInputContent,
+  type MultimodalContentPart,
+  type Attachment,
+} from "@/types/ag-ui";
 
 /**
  * Return type for useMultimodalInput hook.
@@ -170,8 +133,8 @@ export function useMultimodalInput(
   config: UseMultimodalInputConfig = {}
 ): UseMultimodalInputResult {
   const {
-    maxFileSize = 10 * 1024 * 1024, // 10MB
-    maxAttachments = 5,
+    maxFileSize = MAX_FILE_SIZE,
+    maxAttachments = MAX_ATTACHMENTS,
     onSend,
     onError,
   } = config;

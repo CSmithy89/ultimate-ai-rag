@@ -324,7 +324,18 @@ class ActiveRunsResponse(BaseModel):
     count: int
 
 
-@router.post("/cancel/{run_id}", response_model=CancelRunResponse)
+@router.post(
+    "/cancel/{run_id}",
+    response_model=CancelRunResponse,
+    summary="Cancel a running agent",
+    description="Signals the running agent to stop execution. The agent will emit a RUN_FINISHED event with cancelled status.",
+    responses={
+        200: {"description": "Run cancelled successfully or already finished"},
+        403: {"description": "Not authorized to cancel this run"},
+        404: {"description": "Run not found"},
+        503: {"description": "Run manager not configured"},
+    },
+)
 async def cancel_run(
     run_id: str,
     request: Request,
@@ -361,7 +372,18 @@ async def cancel_run(
     )
 
 
-@router.post("/resume/{run_id}", response_model=RunStateResponse)
+@router.post(
+    "/resume/{run_id}",
+    response_model=RunStateResponse,
+    summary="Resume a cancelled or paused run",
+    description="Resumes a run from its last checkpoint. Full resume implementation requires orchestrator support.",
+    responses={
+        200: {"description": "Run state returned for resumption"},
+        403: {"description": "Not authorized to resume this run"},
+        404: {"description": "Run not found or not resumable"},
+        503: {"description": "Run manager not configured"},
+    },
+)
 async def resume_run(
     run_id: str,
     request: Request,
@@ -396,7 +418,18 @@ async def resume_run(
     return RunStateResponse(**run_data)
 
 
-@router.get("/run/{run_id}", response_model=RunStateResponse)
+@router.get(
+    "/run/{run_id}",
+    response_model=RunStateResponse,
+    summary="Get run state",
+    description="Returns the current state of a run including status, progress, and checkpoint data.",
+    responses={
+        200: {"description": "Run state returned successfully"},
+        403: {"description": "Not authorized to view this run"},
+        404: {"description": "Run not found"},
+        503: {"description": "Run manager not configured"},
+    },
+)
 async def get_run_state(
     run_id: str,
     request: Request,
@@ -432,7 +465,16 @@ async def get_run_state(
     return RunStateResponse(**run.to_dict())
 
 
-@router.get("/runs", response_model=ActiveRunsResponse)
+@router.get(
+    "/runs",
+    response_model=ActiveRunsResponse,
+    summary="List active runs",
+    description="Returns all active runs for the authenticated tenant.",
+    responses={
+        200: {"description": "List of active runs"},
+        503: {"description": "Run manager not configured"},
+    },
+)
 async def list_active_runs(
     request: Request,
     tenant_id: Optional[str] = Depends(get_tenant_id_from_header),
@@ -484,7 +526,19 @@ class SteeringResponse(BaseModel):
     message: str
 
 
-@router.post("/steer", response_model=SteeringResponse)
+@router.post(
+    "/steer",
+    response_model=SteeringResponse,
+    summary="Steer a running agent",
+    description="Inject steering guidance into a running agent to redirect its execution mid-flow.",
+    responses={
+        200: {"description": "Steering instruction applied"},
+        400: {"description": "Cannot steer - run not in 'running' status"},
+        403: {"description": "Not authorized to steer this run"},
+        404: {"description": "Run not found"},
+        503: {"description": "Run manager not configured"},
+    },
+)
 async def steer_agent(
     steering: SteeringRequest,
     request: Request,

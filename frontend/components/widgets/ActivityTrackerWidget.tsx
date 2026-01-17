@@ -24,26 +24,10 @@
 
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
+import type { ActivityState } from "@/types/ag-ui";
 
-/**
- * Activity state from AG-UI ACTIVITY events.
- */
-export interface ActivityState {
-  /** Unique activity identifier */
-  id: string;
-  /** Type of activity (e.g., "query_processing", "indexing") */
-  type: string;
-  /** Human-readable status message */
-  message: string;
-  /** Progress as a decimal (0.0 to 1.0) */
-  progress: number;
-  /** Total number of steps in the activity */
-  totalSteps: number;
-  /** Current step number (1-indexed) */
-  currentStep: number;
-  /** Additional metadata about the activity */
-  metadata?: Record<string, unknown>;
-}
+// Re-export for backward compatibility
+export type { ActivityState } from "@/types/ag-ui";
 
 /**
  * Props for ActivityTrackerWidget.

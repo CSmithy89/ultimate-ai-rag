@@ -22,21 +22,21 @@
  * ```
  */
 
-import { useState, useCallback, useEffect, useMemo } from "react";
-import type { ActivityState } from "@/components/widgets/ActivityTrackerWidget";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  ActivityState,
+  JSONPatchOperation,
+  ACTIVITY_STATE_KEYS,
+  EMPTY_ACTIVITY,
+  ACTIVITY_RESET_DELAY_MS,
+} from "@/types/ag-ui";
 
-/**
- * RFC 6902 JSON Patch operation.
- */
-interface JSONPatchOperation {
-  op: "add" | "remove" | "replace" | "move" | "copy" | "test";
-  path: string;
-  value?: unknown;
-  from?: string;
-}
+// Re-export types for convenience
+export type { ActivityState, JSONPatchOperation };
 
 /**
  * Apply a single JSON Patch operation to an activity state.
+ * Only applies operations to valid ActivityState keys for type safety.
  */
 function applyPatchOperation(
   activity: ActivityState,
@@ -46,15 +46,49 @@ function applyPatchOperation(
   const pathParts = path.split("/");
 
   if (pathParts.length === 1) {
-    // Top-level property
-    const key = pathParts[0] as keyof ActivityState;
+    // Top-level property - validate key
+    const key = pathParts[0];
+
+    // Type-safe validation: only allow known ActivityState keys
+    if (!ACTIVITY_STATE_KEYS.has(key as keyof ActivityState)) {
+      // Ignore unknown keys for security (prevents prototype pollution)
+      return activity;
+    }
+
+    const validKey = key as keyof ActivityState;
+
     switch (op.op) {
       case "replace":
       case "add":
-        return { ...activity, [key]: op.value };
+        // Validate value types for each key
+        if (validKey === "progress" && typeof op.value !== "number") {
+          return activity;
+        }
+        if (
+          (validKey === "totalSteps" || validKey === "currentStep") &&
+          typeof op.value !== "number"
+        ) {
+          return activity;
+        }
+        if (
+          (validKey === "id" ||
+            validKey === "type" ||
+            validKey === "message") &&
+          typeof op.value !== "string"
+        ) {
+          return activity;
+        }
+        return { ...activity, [validKey]: op.value };
       case "remove": {
         const copy = { ...activity };
-        delete (copy as Record<string, unknown>)[key];
+        // Reset to default value instead of deleting
+        if (validKey === "progress" || validKey === "totalSteps" || validKey === "currentStep") {
+          (copy as Record<string, unknown>)[validKey] = 0;
+        } else if (validKey === "metadata") {
+          copy.metadata = {};
+        } else {
+          (copy as Record<string, unknown>)[validKey] = "";
+        }
         return copy;
       }
       default:
@@ -90,19 +124,6 @@ function applyPatches(
 }
 
 /**
- * Default empty activity state.
- */
-const emptyActivity: ActivityState = {
-  id: "",
-  type: "",
-  message: "",
-  progress: 0,
-  totalSteps: 0,
-  currentStep: 0,
-  metadata: {},
-};
-
-/**
  * Return type for useActivityTracker hook.
  */
 export interface UseActivityTrackerResult {
@@ -129,14 +150,24 @@ export interface UseActivityTrackerResult {
  */
 export function useActivityTracker(): UseActivityTrackerResult {
   const [activity, setActivity] = useState<ActivityState | null>(null);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track the activity ID that triggered the reset timer
+  const resetActivityIdRef = useRef<string | null>(null);
 
   // Reset the activity tracker
   const reset = useCallback(() => {
     setActivity(null);
+    resetActivityIdRef.current = null;
   }, []);
 
   // Process an ACTIVITY_SNAPSHOT event
   const processSnapshot = useCallback((snapshot: Record<string, unknown>) => {
+    // Clear any pending reset timer since we have a new activity
+    if (resetTimerRef.current) {
+      clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = null;
+    }
+
     const newActivity: ActivityState = {
       id: String(snapshot.id || ""),
       type: String(snapshot.type || ""),
@@ -147,6 +178,7 @@ export function useActivityTracker(): UseActivityTrackerResult {
       metadata: (snapshot.metadata as Record<string, unknown>) || {},
     };
     setActivity(newActivity);
+    resetActivityIdRef.current = newActivity.id;
   }, []);
 
   // Process an ACTIVITY_DELTA event
@@ -154,39 +186,79 @@ export function useActivityTracker(): UseActivityTrackerResult {
     setActivity((prev) => {
       if (!prev) {
         // If no previous activity, create a new one with the delta
-        return applyPatches(emptyActivity, delta);
+        const newActivity = applyPatches({ ...EMPTY_ACTIVITY }, delta);
+        resetActivityIdRef.current = newActivity.id;
+        return newActivity;
       }
       return applyPatches(prev, delta);
     });
   }, []);
 
-  // Derived state
+  // Derived state - memoized separately to avoid unnecessary object recreation
   const isActive = activity !== null && activity.id !== "";
   const isComplete = activity !== null && activity.progress >= 1.0;
   const progressPercent = activity ? Math.round(activity.progress * 100) : 0;
 
   // Auto-reset after completion (with delay for UI feedback)
+  // Uses ref to prevent race condition with new activities
   useEffect(() => {
-    if (isComplete) {
-      const timer = setTimeout(() => {
-        reset();
-      }, 3000); // Reset after 3 seconds
-      return () => clearTimeout(timer);
-    }
-  }, [isComplete, reset]);
+    if (isComplete && activity) {
+      const completedActivityId = activity.id;
 
+      // Clear any existing timer
+      if (resetTimerRef.current) {
+        clearTimeout(resetTimerRef.current);
+      }
+
+      resetTimerRef.current = setTimeout(() => {
+        // Only reset if the activity ID hasn't changed
+        // This prevents resetting a new activity that started during the delay
+        if (resetActivityIdRef.current === completedActivityId) {
+          reset();
+        }
+        resetTimerRef.current = null;
+      }, ACTIVITY_RESET_DELAY_MS);
+
+      return () => {
+        if (resetTimerRef.current) {
+          clearTimeout(resetTimerRef.current);
+          resetTimerRef.current = null;
+        }
+      };
+    }
+  }, [isComplete, activity?.id, reset]);
+
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current) {
+        clearTimeout(resetTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Memoize callbacks object separately from data
+  // This prevents re-renders when only activity data changes
+  const callbacks = useMemo(
+    () => ({
+      reset,
+      setActivity,
+      processSnapshot,
+      processDelta,
+    }),
+    [reset, processSnapshot, processDelta]
+  );
+
+  // Memoize the full result
   return useMemo(
     () => ({
       activity,
       isActive,
       isComplete,
       progressPercent,
-      reset,
-      setActivity,
-      processSnapshot,
-      processDelta,
+      ...callbacks,
     }),
-    [activity, isActive, isComplete, progressPercent, reset, processSnapshot, processDelta]
+    [activity, isActive, isComplete, progressPercent, callbacks]
   );
 }
 
