@@ -143,11 +143,11 @@ class ToolCallEvent(AGUIEvent):
     """Event for tool invocations."""
     type: Literal[AGUIEventType.TOOL_CALL_START] = AGUIEventType.TOOL_CALL_START
     toolCallId: str = Field(default_factory=lambda: f"call-{uuid.uuid4().hex[:12]}")
-    toolName: str = ""
+    toolCallName: str = ""  # AG-UI protocol uses toolCallName, not toolName
     args: dict[str, Any] = Field(default_factory=dict)
 
     def __init__(self, tool_name: str = "", args: Optional[dict[str, Any]] = None, **kwargs: Any) -> None:
-        super().__init__(toolName=tool_name, args=args or {}, **kwargs)
+        super().__init__(toolCallName=tool_name, args=args or {}, **kwargs)
 
 
 class ActionRequestEvent(AGUIEvent):
@@ -193,22 +193,29 @@ class ToolCallStartEvent(AGUIEvent):
     """Event for triggering a tool/action call that may render UI."""
     type: Literal[AGUIEventType.TOOL_CALL_START] = AGUIEventType.TOOL_CALL_START
     toolCallId: str = Field(default_factory=lambda: f"call-{uuid.uuid4().hex[:12]}")
-    toolName: str = ""
+    toolCallName: str = ""  # AG-UI protocol uses toolCallName, not toolName
 
     def __init__(self, tool_call_id: Optional[str] = None, tool_name: str = "", **kwargs: Any) -> None:
         if tool_call_id is not None:
             kwargs["toolCallId"] = tool_call_id
-        super().__init__(toolName=tool_name, **kwargs)
+        super().__init__(toolCallName=tool_name, **kwargs)
 
 
 class ToolCallArgsEvent(AGUIEvent):
-    """Event containing arguments for a tool call."""
+    """Event containing arguments for a tool call.
+
+    AG-UI protocol uses 'delta' (JSON string), not 'args' (dict).
+    The delta field contains a JSON-serialized string of the arguments.
+    """
     type: Literal[AGUIEventType.TOOL_CALL_ARGS] = AGUIEventType.TOOL_CALL_ARGS
     toolCallId: str = ""
-    args: dict[str, Any] = Field(default_factory=dict)
+    delta: str = ""  # AG-UI protocol: delta is a JSON string
 
     def __init__(self, tool_call_id: str = "", args: Optional[dict[str, Any]] = None, **kwargs: Any) -> None:
-        super().__init__(toolCallId=tool_call_id, args=args or {}, **kwargs)
+        import json
+        # AG-UI protocol expects delta as a JSON string
+        delta_str = json.dumps(args or {})
+        super().__init__(toolCallId=tool_call_id, delta=delta_str, **kwargs)
 
 
 class ToolCallEndEvent(AGUIEvent):

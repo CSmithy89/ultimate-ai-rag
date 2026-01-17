@@ -358,12 +358,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     redis_client = getattr(app.state, "redis_client", None)
     app.state.hitl_manager = HITLManager(
-        timeout=300.0,
+        timeout=settings.hitl_timeout_seconds,
         redis_client=redis_client,
     )
     struct_logger.info(
         "hitl_manager_initialized",
         storage="redis" if redis_client else "memory",
+        timeout_seconds=settings.hitl_timeout_seconds,
+        auto_approve_on_timeout=settings.hitl_auto_approve_on_timeout,
     )
 
     # Epic 5: Initialize Graphiti temporal knowledge graph

@@ -80,8 +80,22 @@ async def copilot_handler(
     bridge = AGUIBridge(orchestrator, hitl_manager=get_hitl_manager(http_request))
 
     async def event_generator():
-        async for event in bridge.process_request(request):
-            yield f"data: {event.model_dump_json()}\n\n"
+        try:
+            async for event in bridge.process_request(request):
+                yield f"data: {event.model_dump_json()}\n\n"
+        except Exception as exc:
+            # Fallback if bridge fails before emitting error events - ensure terminal event
+            logger.exception("copilot_stream_failed", error=str(exc))
+            from ...models.copilot import (
+                RunFinishedEvent as RunFinished,
+                TextDeltaEvent,
+                TextMessageEndEvent,
+                TextMessageStartEvent,
+            )
+            yield f"data: {TextMessageStartEvent().model_dump_json()}\n\n"
+            yield f"data: {TextDeltaEvent(content='An error occurred while processing your request.').model_dump_json()}\n\n"
+            yield f"data: {TextMessageEndEvent().model_dump_json()}\n\n"
+            yield f"data: {RunFinished().model_dump_json()}\n\n"
 
     return StreamingResponse(
         event_generator(),

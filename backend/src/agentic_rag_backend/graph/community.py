@@ -1174,28 +1174,30 @@ KEYWORDS: keyword1, keyword2, keyword3
 
         async with self._neo4j.driver.session() as session:
             # Build query with text matching
+            # Note: Use $search_query instead of $query to avoid collision with
+            # session.run()'s first positional parameter which is also named 'query'
             if level is not None:
                 cypher = """
                     MATCH (c:Community {tenant_id: $tenant_id, level: $level})
-                    WHERE toLower(c.name) CONTAINS toLower($query)
-                       OR toLower(c.summary) CONTAINS toLower($query)
-                       OR any(kw IN c.keywords WHERE toLower(kw) CONTAINS toLower($query))
+                    WHERE toLower(c.name) CONTAINS toLower($search_query)
+                       OR toLower(c.summary) CONTAINS toLower($search_query)
+                       OR any(kw IN c.keywords WHERE toLower(kw) CONTAINS toLower($search_query))
                     RETURN c
                     ORDER BY c.entity_count DESC
                     LIMIT $limit
                 """
-                params = {"tenant_id": tenant_id, "level": level, "query": query, "limit": limit}
+                params = {"tenant_id": tenant_id, "level": level, "search_query": query, "limit": limit}
             else:
                 cypher = """
                     MATCH (c:Community {tenant_id: $tenant_id})
-                    WHERE toLower(c.name) CONTAINS toLower($query)
-                       OR toLower(c.summary) CONTAINS toLower($query)
-                       OR any(kw IN c.keywords WHERE toLower(kw) CONTAINS toLower($query))
+                    WHERE toLower(c.name) CONTAINS toLower($search_query)
+                       OR toLower(c.summary) CONTAINS toLower($search_query)
+                       OR any(kw IN c.keywords WHERE toLower(kw) CONTAINS toLower($search_query))
                     RETURN c
                     ORDER BY c.level, c.entity_count DESC
                     LIMIT $limit
                 """
-                params = {"tenant_id": tenant_id, "query": query, "limit": limit}
+                params = {"tenant_id": tenant_id, "search_query": query, "limit": limit}
 
             result = await session.run(cypher, **params)
             records = await result.data()

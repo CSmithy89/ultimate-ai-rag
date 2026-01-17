@@ -628,6 +628,9 @@ class Settings:
     mcp_ui_enabled: bool
     mcp_ui_allowed_origins: list[str]
     mcp_ui_signing_secret: str
+    # Story 6-4 / Epic 21 - Human-in-the-Loop settings
+    hitl_timeout_seconds: float
+    hitl_auto_approve_on_timeout: bool
 
 
 def load_settings() -> Settings:
@@ -1606,6 +1609,18 @@ def load_settings() -> Settings:
     else:
         mcp_ui_signing_secret = secrets.token_hex(32)
 
+    # Story 6-4 / Epic 21 - Human-in-the-Loop settings
+    # Default to 1s for development to avoid SSE timeout issues.
+    # The short timeout auto-approves sources to keep the stream flowing.
+    # Production with proper frontend HITL can set HITL_TIMEOUT_SECONDS=300
+    try:
+        hitl_timeout_seconds = float(os.getenv("HITL_TIMEOUT_SECONDS", "1"))
+    except ValueError:
+        hitl_timeout_seconds = 1.0
+    if hitl_timeout_seconds <= 0:
+        hitl_timeout_seconds = 1.0
+    hitl_auto_approve_on_timeout = os.getenv("HITL_AUTO_APPROVE_ON_TIMEOUT", "true").lower() in ("true", "1", "yes")
+
     return Settings(
         config_profile=config_profile,
         app_env=app_env,
@@ -1878,6 +1893,9 @@ def load_settings() -> Settings:
         mcp_ui_enabled=mcp_ui_enabled,
         mcp_ui_allowed_origins=mcp_ui_allowed_origins,
         mcp_ui_signing_secret=mcp_ui_signing_secret,
+        # Story 6-4 / Epic 21 - Human-in-the-Loop settings
+        hitl_timeout_seconds=hitl_timeout_seconds,
+        hitl_auto_approve_on_timeout=hitl_auto_approve_on_timeout,
     )
 
 

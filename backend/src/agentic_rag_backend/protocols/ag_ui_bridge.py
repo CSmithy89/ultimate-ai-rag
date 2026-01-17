@@ -231,7 +231,11 @@ class AGUIBridge:
                         checkpoint = await self._hitl_manager.wait_for_validation(
                             checkpoint_id=checkpoint.checkpoint_id,
                         )
-                        for hitl_event in self._hitl_manager.get_completion_events(checkpoint):
+                        for hitl_event in self._hitl_manager.get_completion_events(
+                            checkpoint,
+                            thread_id=run_thread_id,
+                            run_id=run_id,
+                        ):
                             metrics.event_emitted(hitl_event.type.value)
                             yield hitl_event
 
@@ -599,12 +603,16 @@ class HITLManager:
     def get_completion_events(
         self,
         checkpoint: HITLCheckpoint,
+        thread_id: Optional[str] = None,
+        run_id: Optional[str] = None,
     ) -> List[AGUIEvent]:
         """
         Get AG-UI events to signal validation completion.
 
         Args:
             checkpoint: The completed checkpoint
+            thread_id: Thread ID for consistent event correlation
+            run_id: Run ID for consistent event correlation
 
         Returns:
             List of AG-UI events to emit
@@ -618,7 +626,9 @@ class HITLManager:
                         s for s in checkpoint.sources
                         if s["id"] in checkpoint.approved_source_ids
                     ],
-                }
+                },
+                threadId=thread_id,
+                runId=run_id,
             ),
         ]
 
