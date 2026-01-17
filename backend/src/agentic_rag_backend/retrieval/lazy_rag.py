@@ -427,10 +427,18 @@ class LazyRAGRetriever:
                 entities.append(entity)
 
             logger.debug(
-                "seed_entities_found",
+                "graphiti_seed_entities_found",
                 count=len(entities),
                 query=query[:LOG_QUERY_TRUNCATE_LENGTH],
             )
+
+            # If Graphiti returned no results, try fallback search
+            if not entities:
+                logger.debug(
+                    "graphiti_search_empty_using_fallback",
+                    query=query[:LOG_QUERY_TRUNCATE_LENGTH],
+                )
+                return await self._fallback_seed_search(query, tenant_id, num_results)
 
             return entities
 
@@ -484,10 +492,10 @@ class LazyRAGRetriever:
         tenant_id: str,
         num_results: int,
     ) -> list[LazyRAGEntity]:
-        """Fallback seed search using direct Neo4j text matching.
+        """Fallback seed search using Neo4j fulltext search.
 
-        Used when Graphiti is not available. Performs simple text matching
-        on entity names and descriptions.
+        Used when Graphiti is not available or returns no results.
+        Uses fulltext index for better semantic matching.
 
         Args:
             query: Search query
@@ -502,26 +510,77 @@ class LazyRAGRetriever:
             return []
 
         try:
-            # Extract key terms from query for matching
-            query_lower = query.lower()
-
+            # Try fulltext search first (uses node_name_and_summary index)
             async with self._neo4j.driver.session() as session:
+                # Use fulltext index with group_id filter
                 result = await session.run(
                     """
-                    MATCH (e:Entity {tenant_id: $tenant_id})
-                    WHERE toLower(e.name) CONTAINS $query_lower
-                       OR toLower(e.description) CONTAINS $query_lower
-                       OR toLower(e.summary) CONTAINS $query_lower
-                    RETURN e.id AS id, e.name AS name, e.type AS type,
-                           e.description AS description, e.summary AS summary
+                    CALL db.index.fulltext.queryNodes('node_name_and_summary', $search_query)
+                    YIELD node, score
+                    WHERE node.group_id = $tenant_id
+                    RETURN node.uuid AS id, node.name AS name, 'Entity' AS type,
+                           node.summary AS description, node.summary AS summary, score
+                    ORDER BY score DESC
                     LIMIT $limit
                     """,
                     tenant_id=tenant_id,
-                    query_lower=query_lower,
+                    search_query=query,
                     limit=num_results,
                 )
                 records = await result.data()
 
+            if records:
+                logger.debug(
+                    "fallback_fulltext_search_success",
+                    count=len(records),
+                    query=query[:LOG_QUERY_TRUNCATE_LENGTH],
+                )
+                return [
+                    LazyRAGEntity(
+                        id=str(r.get("id", "")),
+                        name=r.get("name", ""),
+                        type=r.get("type", "Entity"),
+                        description=r.get("description"),
+                        summary=r.get("summary"),
+                    )
+                    for r in records
+                ]
+
+            # Fallback to simple keyword matching if fulltext returns nothing
+            # Extract significant words (3+ chars, not stop words)
+            stop_words = {"the", "is", "at", "which", "on", "about", "what", "how", "why", "when", "where", "who"}
+            keywords = [
+                w.lower() for w in re.findall(r"\b\w{3,}\b", query)
+                if w.lower() not in stop_words
+            ]
+
+            if not keywords:
+                return []
+
+            async with self._neo4j.driver.session() as session:
+                # Search for any keyword match
+                result = await session.run(
+                    """
+                    MATCH (e:Entity {group_id: $tenant_id})
+                    WHERE ANY(keyword IN $keywords WHERE
+                        toLower(e.name) CONTAINS keyword OR
+                        toLower(e.summary) CONTAINS keyword
+                    )
+                    RETURN e.uuid AS id, e.name AS name, 'Entity' AS type,
+                           e.summary AS description, e.summary AS summary
+                    LIMIT $limit
+                    """,
+                    tenant_id=tenant_id,
+                    keywords=keywords,
+                    limit=num_results,
+                )
+                records = await result.data()
+
+            logger.debug(
+                "fallback_keyword_search_success",
+                count=len(records),
+                keywords=keywords[:5],
+            )
             return [
                 LazyRAGEntity(
                     id=str(r.get("id", "")),
@@ -571,8 +630,8 @@ class LazyRAGRetriever:
                 # Expand subgraph from seeds
                 expansion_result = await session.run(
                     """
-                    MATCH (seed:Entity {tenant_id: $tenant_id})
-                    WHERE seed.id IN $seed_ids
+                    MATCH (seed:Entity {group_id: $tenant_id})
+                    WHERE seed.uuid IN $seed_ids
                     CALL apoc.path.subgraphAll(seed, {
                         maxLevel: $max_hops,
                         relationshipFilter: null,
@@ -581,9 +640,9 @@ class LazyRAGRetriever:
                     YIELD nodes, relationships
                     UNWIND nodes AS n
                     WITH DISTINCT n
-                    WHERE n.tenant_id = $tenant_id
-                    RETURN n.id AS id, n.name AS name, n.type AS type,
-                           n.description AS description, n.summary AS summary
+                    WHERE n.group_id = $tenant_id
+                    RETURN n.uuid AS id, n.name AS name, 'Entity' AS type,
+                           n.summary AS description, n.summary AS summary
                     LIMIT $limit
                     """,
                     tenant_id=tenant_id,
@@ -611,12 +670,12 @@ class LazyRAGRetriever:
                 async with self._neo4j.driver.session() as session:
                     expansion_result = await session.run(
                         f"""
-                        MATCH (seed:Entity {{tenant_id: $tenant_id}})
-                        WHERE seed.id IN $seed_ids
-                        MATCH path = (seed)-{hop_pattern}-(related:Entity {{tenant_id: $tenant_id}})
+                        MATCH (seed:Entity {{group_id: $tenant_id}})
+                        WHERE seed.uuid IN $seed_ids
+                        MATCH path = (seed)-{hop_pattern}-(related:Entity {{group_id: $tenant_id}})
                         WITH DISTINCT related
-                        RETURN related.id AS id, related.name AS name, related.type AS type,
-                               related.description AS description, related.summary AS summary
+                        RETURN related.uuid AS id, related.name AS name, 'Entity' AS type,
+                               related.summary AS description, related.summary AS summary
                         LIMIT $limit
                         """,
                         tenant_id=tenant_id,
@@ -682,9 +741,9 @@ class LazyRAGRetriever:
             async with self._neo4j.driver.session() as session:
                 result = await session.run(
                     """
-                    MATCH (a:Entity {tenant_id: $tenant_id})-[r]->(b:Entity {tenant_id: $tenant_id})
-                    WHERE a.id IN $entity_ids AND b.id IN $entity_ids
-                    RETURN a.id AS source_id, type(r) AS rel_type, r.fact AS fact, b.id AS target_id
+                    MATCH (a:Entity {group_id: $tenant_id})-[r]->(b:Entity {group_id: $tenant_id})
+                    WHERE a.uuid IN $entity_ids AND b.uuid IN $entity_ids
+                    RETURN a.uuid AS source_id, type(r) AS rel_type, r.fact AS fact, b.uuid AS target_id
                     """,
                     tenant_id=tenant_id,
                     entity_ids=entity_ids,
@@ -730,9 +789,9 @@ class LazyRAGRetriever:
             async with self._neo4j.driver.session() as session:
                 result = await session.run(
                     """
-                    MATCH (e:Entity {tenant_id: $tenant_id})-[:BELONGS_TO]->(c:Community {tenant_id: $tenant_id})
-                    WHERE e.id IN $entity_ids
-                    RETURN DISTINCT c.id AS id, c.name AS name, c.summary AS summary,
+                    MATCH (e:Entity {group_id: $tenant_id})-[:BELONGS_TO]->(c:Community {group_id: $tenant_id})
+                    WHERE e.uuid IN $entity_ids
+                    RETURN DISTINCT c.uuid AS id, c.name AS name, c.summary AS summary,
                            c.keywords AS keywords, c.level AS level
                     ORDER BY c.level DESC
                     LIMIT 5
