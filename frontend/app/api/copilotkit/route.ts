@@ -6,7 +6,7 @@ import {
   copilotRuntimeNextJSAppRouterEndpoint,
 } from "@copilotkit/runtime";
 // Import from the langgraph subpath to avoid deprecation error
-import { LangGraphHttpAgent } from "@copilotkit/runtime/langgraph";
+import { HttpAgent } from "@ag-ui/client";
 import OpenAI from "openai";
 
 /**
@@ -40,8 +40,8 @@ const serviceAdapter =
     ? new OpenAIAdapter({ openai } as any)
     : new EmptyAdapter();
 
-// Configure the LangGraphHttpAgent to connect to our backend
-const ragAgent = new LangGraphHttpAgent({
+// Configure the AG-UI HTTP agent to connect to our backend
+const ragAgent = new HttpAgent({
   url: `${BACKEND_URL}/api/v1/copilot`,
   // Add custom headers for multi-tenancy
   headers: {
