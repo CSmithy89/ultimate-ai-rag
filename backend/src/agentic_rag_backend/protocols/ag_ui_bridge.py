@@ -45,6 +45,529 @@ HITL_CHECKPOINT_PREFIX = "hitl:checkpoint"
 HITL_TENANT_PREFIX = "hitl:tenant"
 
 
+class ActivityType(str, Enum):
+    """Types of tracked activities for AG-UI ACTIVITY events."""
+    QUERY_PROCESSING = "query_processing"
+    RETRIEVAL = "retrieval"
+    HITL_VALIDATION = "hitl_validation"
+    RESPONSE_GENERATION = "response_generation"
+
+
+# ============================================
+# SUB-AGENT COMPOSITION - Phase 7.1
+# ============================================
+
+
+@dataclass
+class SubAgentContext:
+    """
+    Context for sub-agent delegation with parent tracing.
+
+    Phase 7.1: Sub-Agent Composition
+
+    This enables nested agent delegation where:
+    - Parent run context is preserved
+    - Sub-agent runs are tracked separately
+    - Results flow back to parent agent
+    """
+    parent_run_id: str
+    parent_thread_id: str
+    subagent_name: str
+    scope: Dict[str, Any] = field(default_factory=dict)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "parent_run_id": self.parent_run_id,
+            "parent_thread_id": self.parent_thread_id,
+            "subagent_name": self.subagent_name,
+            "scope": self.scope,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class SubAgentManager:
+    """
+    Manager for sub-agent delegation and composition.
+
+    Phase 7.1: Sub-Agent Composition
+
+    This class manages:
+    - Creating sub-agent contexts from parent runs
+    - Tracking sub-agent execution
+    - Aggregating results back to parent
+    """
+
+    def __init__(self) -> None:
+        self._active_subagents: Dict[str, SubAgentContext] = {}
+        self._logger = logger.bind(component="subagent_manager")
+
+    def create_subagent_context(
+        self,
+        parent_run_id: str,
+        parent_thread_id: str,
+        subagent_name: str,
+        scope: Optional[Dict[str, Any]] = None,
+    ) -> SubAgentContext:
+        """
+        Create a context for delegating to a sub-agent.
+
+        Args:
+            parent_run_id: The parent run's ID
+            parent_thread_id: The parent run's thread ID
+            subagent_name: Name of the sub-agent to delegate to
+            scope: Scoped data to pass to the sub-agent
+
+        Returns:
+            SubAgentContext for the delegation
+        """
+        context = SubAgentContext(
+            parent_run_id=parent_run_id,
+            parent_thread_id=parent_thread_id,
+            subagent_name=subagent_name,
+            scope=scope or {},
+        )
+
+        subagent_id = f"sub-{uuid.uuid4().hex[:12]}"
+        self._active_subagents[subagent_id] = context
+
+        self._logger.info(
+            "subagent_context_created",
+            subagent_id=subagent_id,
+            parent_run_id=parent_run_id,
+            subagent_name=subagent_name,
+        )
+
+        return context
+
+    def get_subagent_start_events(
+        self,
+        context: SubAgentContext,
+    ) -> List[AGUIEvent]:
+        """
+        Get AG-UI events for starting a sub-agent run.
+
+        Args:
+            context: The sub-agent context
+
+        Returns:
+            List of AG-UI events to emit
+        """
+        subagent_run_id = f"sub-{uuid.uuid4().hex[:12]}"
+
+        return [
+            RunStartedEvent(
+                threadId=context.parent_thread_id,
+                runId=subagent_run_id,
+            ),
+            StateSnapshotEvent(
+                state={
+                    "subagent": {
+                        "name": context.subagent_name,
+                        "parent_run_id": context.parent_run_id,
+                        "scope": context.scope,
+                    },
+                },
+                threadId=context.parent_thread_id,
+                runId=subagent_run_id,
+            ),
+        ]
+
+    def get_subagent_end_events(
+        self,
+        context: SubAgentContext,
+        subagent_run_id: str,
+        result: Optional[Dict[str, Any]] = None,
+    ) -> List[AGUIEvent]:
+        """
+        Get AG-UI events for completing a sub-agent run.
+
+        Args:
+            context: The sub-agent context
+            subagent_run_id: The sub-agent's run ID
+            result: Optional result from the sub-agent
+
+        Returns:
+            List of AG-UI events to emit
+        """
+        events: List[AGUIEvent] = []
+
+        if result:
+            events.append(
+                StateSnapshotEvent(
+                    state={
+                        "subagent_result": {
+                            "name": context.subagent_name,
+                            "result": result,
+                        },
+                    },
+                    threadId=context.parent_thread_id,
+                    runId=subagent_run_id,
+                )
+            )
+
+        events.append(
+            RunFinishedEvent(
+                threadId=context.parent_thread_id,
+                runId=subagent_run_id,
+            )
+        )
+
+        return events
+
+    def cleanup_subagent(self, subagent_id: str) -> None:
+        """Remove a sub-agent from tracking."""
+        if subagent_id in self._active_subagents:
+            del self._active_subagents[subagent_id]
+            self._logger.debug("subagent_cleaned_up", subagent_id=subagent_id)
+
+    def get_active_subagents(
+        self, parent_run_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get active sub-agents, optionally filtered by parent run.
+
+        Args:
+            parent_run_id: Optional filter by parent run ID
+
+        Returns:
+            List of active sub-agent context dicts
+        """
+        result = []
+        for subagent_id, context in self._active_subagents.items():
+            if parent_run_id is None or context.parent_run_id == parent_run_id:
+                ctx_dict = context.to_dict()
+                ctx_dict["subagent_id"] = subagent_id
+                result.append(ctx_dict)
+        return result
+
+
+class RunStatus(str, Enum):
+    """Status of an agent run for Cancel/Resume support (Phase 6)."""
+    RUNNING = "running"
+    CANCELLED = "cancelled"
+    COMPLETED = "completed"
+    ERROR = "error"
+    PAUSED = "paused"
+
+
+@dataclass
+class RunState:
+    """
+    Tracks state of an agent run for Cancel/Resume support.
+
+    Phase 6.1: Cancel/Resume Agent Runs
+
+    This allows users to:
+    - Cancel a running agent mid-execution
+    - Resume a paused/cancelled run from its last state
+    """
+    run_id: str
+    thread_id: str
+    status: RunStatus
+    query: str
+    tenant_id: Optional[str] = None
+    session_id: Optional[str] = None
+    cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_checkpoint: Optional[Dict[str, Any]] = None
+    current_step: int = 0
+    total_steps: int = 4
+    partial_result: Optional[str] = None
+    error_message: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "run_id": self.run_id,
+            "thread_id": self.thread_id,
+            "status": self.status.value,
+            "query": self.query,
+            "tenant_id": self.tenant_id,
+            "session_id": self.session_id,
+            "created_at": self.created_at.isoformat(),
+            "current_step": self.current_step,
+            "total_steps": self.total_steps,
+            "partial_result": self.partial_result,
+            "error_message": self.error_message,
+        }
+
+
+class RunManager:
+    """
+    Manager for cancellable and resumable agent runs.
+
+    Phase 6.1: Cancel/Resume Agent Runs
+
+    This class manages:
+    - Tracking active runs and their state
+    - Signaling cancellation to running agents
+    - Persisting run state for resume capability
+    - Resuming runs from checkpoints
+    """
+
+    def __init__(
+        self,
+        redis_client: Optional[RedisClient] = None,
+        run_ttl_seconds: int = 3600,
+    ):
+        """
+        Initialize RunManager.
+
+        Args:
+            redis_client: Optional Redis client for persistence
+            run_ttl_seconds: TTL for persisted run states (default 1 hour)
+        """
+        self._active_runs: Dict[str, RunState] = {}
+        self._redis = redis_client
+        self._run_ttl_seconds = run_ttl_seconds
+        self._logger = logger.bind(component="run_manager")
+
+    def _run_key(self, run_id: str) -> str:
+        """Get Redis key for a run."""
+        return f"ag_ui:run:{run_id}"
+
+    async def _persist_run(self, run: RunState) -> None:
+        """Persist run state to Redis if available."""
+        if not self._redis:
+            return
+        payload = json.dumps(run.to_dict())
+        await self._redis.client.set(
+            self._run_key(run.run_id),
+            payload,
+            ex=self._run_ttl_seconds,
+        )
+
+    async def _load_run(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """Load run state from Redis."""
+        if not self._redis:
+            return None
+        raw = await self._redis.client.get(self._run_key(run_id))
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+
+    def create_run(
+        self,
+        query: str,
+        tenant_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> RunState:
+        """
+        Create a new run and track it.
+
+        Args:
+            query: The user query
+            tenant_id: Tenant ID for multi-tenancy
+            session_id: Session ID for conversation tracking
+
+        Returns:
+            The created RunState
+        """
+        run_id = f"run-{uuid.uuid4().hex[:12]}"
+        thread_id = f"thread-{uuid.uuid4().hex[:12]}"
+
+        run = RunState(
+            run_id=run_id,
+            thread_id=thread_id,
+            status=RunStatus.RUNNING,
+            query=query,
+            tenant_id=tenant_id,
+            session_id=session_id,
+        )
+
+        self._active_runs[run_id] = run
+        self._logger.info(
+            "run_created",
+            run_id=run_id,
+            thread_id=thread_id,
+            tenant_id=tenant_id,
+        )
+
+        return run
+
+    def get_run(self, run_id: str) -> Optional[RunState]:
+        """Get an active run by ID."""
+        return self._active_runs.get(run_id)
+
+    async def cancel_run(self, run_id: str) -> bool:
+        """
+        Cancel a running agent.
+
+        Args:
+            run_id: The run ID to cancel
+
+        Returns:
+            True if cancelled, False if run not found or already finished
+        """
+        run = self._active_runs.get(run_id)
+        if not run:
+            self._logger.warning("cancel_run_not_found", run_id=run_id)
+            return False
+
+        if run.status != RunStatus.RUNNING:
+            self._logger.info(
+                "cancel_run_not_running",
+                run_id=run_id,
+                status=run.status.value,
+            )
+            return False
+
+        # Signal cancellation
+        run.status = RunStatus.CANCELLED
+        run.cancel_event.set()
+
+        self._logger.info("run_cancelled", run_id=run_id)
+        await self._persist_run(run)
+
+        return True
+
+    def is_cancelled(self, run_id: str) -> bool:
+        """Check if a run has been cancelled."""
+        run = self._active_runs.get(run_id)
+        return run is not None and run.cancel_event.is_set()
+
+    async def update_checkpoint(
+        self,
+        run_id: str,
+        current_step: int,
+        checkpoint_data: Optional[Dict[str, Any]] = None,
+        partial_result: Optional[str] = None,
+    ) -> None:
+        """
+        Update the checkpoint for a run (allows resume from this point).
+
+        Args:
+            run_id: The run ID
+            current_step: Current step number
+            checkpoint_data: Optional checkpoint state data
+            partial_result: Optional partial result generated so far
+        """
+        run = self._active_runs.get(run_id)
+        if not run:
+            return
+
+        run.current_step = current_step
+        if checkpoint_data:
+            run.last_checkpoint = checkpoint_data
+        if partial_result:
+            run.partial_result = partial_result
+
+        await self._persist_run(run)
+
+    async def complete_run(
+        self,
+        run_id: str,
+        status: RunStatus = RunStatus.COMPLETED,
+        error_message: Optional[str] = None,
+    ) -> None:
+        """
+        Mark a run as complete.
+
+        Args:
+            run_id: The run ID
+            status: Final status (COMPLETED or ERROR)
+            error_message: Optional error message if status is ERROR
+        """
+        run = self._active_runs.get(run_id)
+        if not run:
+            return
+
+        run.status = status
+        if error_message:
+            run.error_message = error_message
+
+        await self._persist_run(run)
+        self._logger.info(
+            "run_completed",
+            run_id=run_id,
+            status=status.value,
+        )
+
+    async def get_resumable_run(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get run state for potential resume.
+
+        Args:
+            run_id: The run ID to resume
+
+        Returns:
+            Run state dict if resumable, None otherwise
+        """
+        # Check in-memory first
+        run = self._active_runs.get(run_id)
+        if run:
+            if run.status in (RunStatus.CANCELLED, RunStatus.PAUSED):
+                return run.to_dict()
+            return None
+
+        # Check Redis for persisted state
+        run_data = await self._load_run(run_id)
+        if not run_data:
+            return None
+
+        # Only allow resume for cancelled or paused runs
+        if run_data.get("status") in (RunStatus.CANCELLED.value, RunStatus.PAUSED.value):
+            return run_data
+
+        return None
+
+    def cleanup_run(self, run_id: str) -> None:
+        """Remove a run from active tracking."""
+        if run_id in self._active_runs:
+            del self._active_runs[run_id]
+            self._logger.debug("run_cleaned_up", run_id=run_id)
+
+    def get_active_runs(self, tenant_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get all active runs, optionally filtered by tenant.
+
+        Args:
+            tenant_id: Optional tenant ID filter
+
+        Returns:
+            List of active run dicts
+        """
+        runs = []
+        for run in self._active_runs.values():
+            if run.status == RunStatus.RUNNING:
+                if tenant_id is None or run.tenant_id == tenant_id:
+                    runs.append(run.to_dict())
+        return runs
+
+
+@dataclass
+class ActivityState:
+    """
+    Tracks state of an activity for AG-UI ACTIVITY events.
+
+    Phase 5: ACTIVITY Events support for long-running operations.
+    """
+    activity_id: str
+    activity_type: ActivityType
+    message: str
+    progress: float = 0.0
+    total_steps: int = 0
+    current_step: int = 0
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for AG-UI event payload."""
+        return {
+            "id": self.activity_id,
+            "type": self.activity_type.value,
+            "message": self.message,
+            "progress": self.progress,
+            "totalSteps": self.total_steps,
+            "currentStep": self.current_step,
+            "metadata": self.metadata,
+        }
+
+
 class AGUIBridge:
     """Bridge between Agno agent responses and AG-UI protocol events."""
 
@@ -55,6 +578,98 @@ class AGUIBridge:
     ) -> None:
         self._orchestrator = orchestrator
         self._hitl_manager = hitl_manager
+        self._current_activity: Optional[ActivityState] = None
+
+    def _create_activity_snapshot(
+        self,
+        activity_type: ActivityType,
+        message: str,
+        total_steps: int = 4,
+        thread_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> ActivitySnapshotEvent:
+        """
+        Create an ACTIVITY_SNAPSHOT event for long-running operations.
+
+        Phase 5: ACTIVITY Events for progress tracking.
+
+        Args:
+            activity_type: Type of activity being performed
+            message: Human-readable description of the activity
+            total_steps: Total number of steps in the activity
+            thread_id: AG-UI thread ID
+            run_id: AG-UI run ID
+            metadata: Additional metadata for the activity
+
+        Returns:
+            ActivitySnapshotEvent to emit
+        """
+        activity_id = f"activity-{uuid.uuid4().hex[:12]}"
+        self._current_activity = ActivityState(
+            activity_id=activity_id,
+            activity_type=activity_type,
+            message=message,
+            progress=0.0,
+            total_steps=total_steps,
+            current_step=0,
+            metadata=metadata or {},
+        )
+        return ActivitySnapshotEvent(
+            activity=self._current_activity.to_dict(),
+            threadId=thread_id,
+            runId=run_id,
+        )
+
+    def _create_activity_delta(
+        self,
+        current_step: int,
+        message: str,
+        thread_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        additional_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[ActivityDeltaEvent]:
+        """
+        Create an ACTIVITY_DELTA event for progress updates.
+
+        Phase 5: ACTIVITY Events for incremental progress.
+
+        Args:
+            current_step: Current step number (1-indexed)
+            message: Updated status message
+            thread_id: AG-UI thread ID
+            run_id: AG-UI run ID
+            additional_metadata: Additional metadata to merge
+
+        Returns:
+            ActivityDeltaEvent to emit, or None if no activity is tracked
+        """
+        if not self._current_activity:
+            return None
+
+        # Update activity state
+        self._current_activity.current_step = current_step
+        self._current_activity.message = message
+        self._current_activity.progress = (
+            current_step / self._current_activity.total_steps
+            if self._current_activity.total_steps > 0
+            else 0.0
+        )
+        if additional_metadata:
+            self._current_activity.metadata.update(additional_metadata)
+
+        # Create RFC 6902 JSON Patch operations
+        delta = [
+            {"op": "replace", "path": "/currentStep", "value": current_step},
+            {"op": "replace", "path": "/progress", "value": self._current_activity.progress},
+            {"op": "replace", "path": "/message", "value": message},
+        ]
+
+        return ActivityDeltaEvent(
+            delta=delta,
+            threadId=thread_id,
+            runId=run_id,
+        )
 
     def _format_thought_steps(self, thoughts: list[Any]) -> list[dict[str, Any]]:
         """
@@ -199,6 +814,18 @@ class AGUIBridge:
             metrics.event_emitted(run_started.type.value)
             yield run_started
 
+            # Phase 5: Emit ACTIVITY_SNAPSHOT to track request progress
+            activity_snapshot = self._create_activity_snapshot(
+                activity_type=ActivityType.QUERY_PROCESSING,
+                message="Processing your query...",
+                total_steps=4,
+                thread_id=run_thread_id,
+                run_id=run_id,
+                metadata={"query_preview": user_message[:100] if user_message else ""},
+            )
+            metrics.event_emitted(activity_snapshot.type.value)
+            yield activity_snapshot
+
             try:
                 # Run the orchestrator
                 result = await self._orchestrator.run(
@@ -206,6 +833,21 @@ class AGUIBridge:
                     tenant_id=tenant_id,
                     session_id=session_id,
                 )
+
+                # Phase 5: Emit ACTIVITY_DELTA for retrieval completion
+                activity_delta = self._create_activity_delta(
+                    current_step=1,
+                    message="Retrieving relevant information...",
+                    thread_id=run_thread_id,
+                    run_id=run_id,
+                    additional_metadata={
+                        "retrieval_strategy": result.retrieval_strategy.value,
+                        "evidence_count": len(result.evidence.vector) if result.evidence and result.evidence.vector else 0,
+                    },
+                )
+                if activity_delta:
+                    metrics.event_emitted(activity_delta.type.value)
+                    yield activity_delta
 
                 # AG-UI Enhancement: Emit THINKING events for agent reasoning
                 # This allows the frontend to display the agent's thinking process
@@ -239,6 +881,18 @@ class AGUIBridge:
                     metrics.event_emitted(thinking_end.type.value)
                     yield thinking_end
 
+                    # Phase 5: Emit ACTIVITY_DELTA for analysis completion
+                    activity_delta = self._create_activity_delta(
+                        current_step=2,
+                        message="Analyzing retrieved information...",
+                        thread_id=run_thread_id,
+                        run_id=run_id,
+                        additional_metadata={"thought_count": len(result.thoughts)},
+                    )
+                    if activity_delta:
+                        metrics.event_emitted(activity_delta.type.value)
+                        yield activity_delta
+
                 # Format thoughts into steps for frontend useCoAgentStateRender
                 steps = self._format_thought_steps(result.thoughts)
 
@@ -260,6 +914,18 @@ class AGUIBridge:
                 if self._hitl_manager and result.evidence and result.evidence.vector:
                     sources = self._build_hitl_sources(result.evidence.vector)
                     if sources:
+                        # Phase 5: Emit ACTIVITY_DELTA for HITL validation start
+                        activity_delta = self._create_activity_delta(
+                            current_step=3,
+                            message="Waiting for source validation...",
+                            thread_id=run_thread_id,
+                            run_id=run_id,
+                            additional_metadata={"source_count": len(sources)},
+                        )
+                        if activity_delta:
+                            metrics.event_emitted(activity_delta.type.value)
+                            yield activity_delta
+
                         checkpoint = await self._hitl_manager.create_checkpoint(
                             sources=sources,
                             query=user_message,
@@ -278,6 +944,17 @@ class AGUIBridge:
                         ):
                             metrics.event_emitted(hitl_event.type.value)
                             yield hitl_event
+
+                # Phase 5: Emit ACTIVITY_DELTA for response generation
+                activity_delta = self._create_activity_delta(
+                    current_step=4,
+                    message="Generating response...",
+                    thread_id=run_thread_id,
+                    run_id=run_id,
+                )
+                if activity_delta:
+                    metrics.event_emitted(activity_delta.type.value)
+                    yield activity_delta
 
                 # Stream the answer as text with proper envelope events
                 # AG-UI protocol requires same messageId for START, CONTENT, and END

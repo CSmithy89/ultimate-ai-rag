@@ -5,6 +5,7 @@ import "@copilotkit/react-ui/styles.css";
 import { ThoughtTraceStepper } from "./ThoughtTraceStepper";
 import { CopilotErrorBoundary } from "./CopilotErrorBoundary";
 import { GenerativeUIRenderer } from "./GenerativeUIRenderer";
+import { ActivityProgress } from "./ActivityProgress";
 import { useChatSuggestions } from "@/hooks/use-chat-suggestions";
 import { usePathname } from "next/navigation";
 import { QuickActions } from "./QuickActions";
@@ -80,6 +81,7 @@ export function ChatSidebar() {
             className="px-4 pt-2"
           />
         ) : null}
+        <ActivityProgress />
         <ThoughtTraceStepper />
         <GenerativeUIRenderer />
       </CopilotSidebar>

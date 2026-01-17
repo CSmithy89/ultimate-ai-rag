@@ -26,6 +26,99 @@ class CopilotMessage(BaseModel):
     content: str
 
 
+# ============================================
+# MULTIMODAL CONTENT TYPES - Phase 7.2
+# For handling files, images, audio, and mixed content
+# ============================================
+
+
+class TextInputContent(BaseModel):
+    """Text content in a multimodal message.
+
+    Used for text portions of messages that may also contain
+    binary content like images or audio.
+    """
+    type: Literal["text"] = "text"
+    content: str = Field(..., description="The text content")
+
+
+class BinaryInputContent(BaseModel):
+    """Binary content (files, images, audio) in a multimodal message.
+
+    AG-UI Protocol: Binary content is base64-encoded and includes
+    a media type for proper handling.
+
+    Supported media types:
+    - Images: image/png, image/jpeg, image/gif, image/webp
+    - Audio: audio/wav, audio/mp3, audio/ogg
+    - Documents: application/pdf, text/plain
+    """
+    type: Literal["binary"] = "binary"
+    media_type: str = Field(..., description="MIME type (e.g., 'image/png', 'audio/wav')")
+    data: str = Field(..., description="Base64-encoded binary data")
+    filename: Optional[str] = Field(None, description="Original filename if available")
+
+    def get_size_bytes(self) -> int:
+        """Calculate the approximate size of the binary data in bytes."""
+        import base64
+        # Base64 encoding increases size by ~33%
+        return len(base64.b64decode(self.data))
+
+
+class MultimodalMessage(BaseModel):
+    """A message containing mixed text and binary content.
+
+    AG-UI Protocol: Multimodal messages support rich content types
+    for use cases like image analysis, audio transcription, and
+    document processing.
+
+    Example:
+        message = MultimodalMessage(
+            role=MessageRole.USER,
+            content=[
+                TextInputContent(content="What's in this image?"),
+                BinaryInputContent(
+                    media_type="image/png",
+                    data="base64encodeddata...",
+                    filename="screenshot.png"
+                ),
+            ]
+        )
+    """
+    role: MessageRole
+    content: list[TextInputContent | BinaryInputContent] = Field(
+        ..., description="List of content parts (text and/or binary)"
+    )
+
+    def get_text_content(self) -> str:
+        """Extract all text content from the message."""
+        return " ".join(
+            part.content for part in self.content
+            if isinstance(part, TextInputContent)
+        )
+
+    def get_binary_content(self) -> list[BinaryInputContent]:
+        """Extract all binary content from the message."""
+        return [
+            part for part in self.content
+            if isinstance(part, BinaryInputContent)
+        ]
+
+    def has_images(self) -> bool:
+        """Check if message contains any image content."""
+        return any(
+            isinstance(part, BinaryInputContent) and part.media_type.startswith("image/")
+            for part in self.content
+        )
+
+    def has_audio(self) -> bool:
+        """Check if message contains any audio content."""
+        return any(
+            isinstance(part, BinaryInputContent) and part.media_type.startswith("audio/")
+            for part in self.content
+        )
+
+
 class CopilotConfig(BaseModel):
     """Configuration for CopilotKit request."""
     configurable: dict[str, Any] = Field(default_factory=dict)
@@ -89,6 +182,9 @@ class AGUIEventType(str, Enum):
 
     # Action request events
     ACTION_REQUEST = "ACTION_REQUEST"
+
+    # RAW events for external protocol wrapping
+    RAW = "RAW"
 
 
 def _generate_message_id() -> str:
@@ -555,6 +651,72 @@ class CustomEvent(AGUIEvent):
         if runId is not None:
             kwargs["runId"] = runId
         super().__init__(name=name, **kwargs)
+
+
+# ============================================
+# RAW EVENTS - Phase 7.3
+# For wrapping external protocol events (MCP, A2A)
+# ============================================
+
+
+class RawEvent(AGUIEvent):
+    """Event for wrapping external protocol events in AG-UI stream.
+
+    AG-UI Protocol: RAW events allow passing through events from external
+    protocols (like MCP or A2A) without modification, while maintaining
+    the AG-UI event stream format.
+
+    Use cases:
+    - Wrapping MCP (Model Context Protocol) tool responses
+    - Forwarding A2A (Agent-to-Agent) delegation events
+    - Passing through events from external agent frameworks
+
+    Example:
+        # Wrap an MCP tool response
+        yield RawEvent(
+            event=mcp_response.model_dump(),
+            source="mcp",
+            protocol_version="1.0"
+        )
+
+        # Wrap an A2A delegation event
+        yield RawEvent(
+            event=a2a_event.to_dict(),
+            source="a2a",
+            metadata={"delegated_agent": "research_agent"}
+        )
+    """
+    type: Literal[AGUIEventType.RAW] = AGUIEventType.RAW
+    threadId: str = Field(default_factory=lambda: f"thread-{uuid.uuid4().hex[:12]}")
+    runId: str = Field(default_factory=lambda: f"run-{uuid.uuid4().hex[:12]}")
+    event: dict[str, Any] = Field(default_factory=dict, description="The wrapped external event")
+    source: Optional[str] = Field(None, description="Source protocol identifier (e.g., 'mcp', 'a2a')")
+    protocol_version: Optional[str] = Field(None, description="Version of the source protocol")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+
+    def __init__(
+        self,
+        event: Optional[dict[str, Any]] = None,
+        source: Optional[str] = None,
+        protocol_version: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+        threadId: Optional[str] = None,
+        runId: Optional[str] = None,
+        **kwargs: Any,
+    ) -> None:
+        if event is not None:
+            kwargs["event"] = event
+        if source is not None:
+            kwargs["source"] = source
+        if protocol_version is not None:
+            kwargs["protocol_version"] = protocol_version
+        if metadata is not None:
+            kwargs["metadata"] = metadata
+        if threadId is not None:
+            kwargs["threadId"] = threadId
+        if runId is not None:
+            kwargs["runId"] = runId
+        super().__init__(**kwargs)
 
 
 # ============================================

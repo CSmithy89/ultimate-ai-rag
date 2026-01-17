@@ -39,6 +39,10 @@ from agentic_rag_backend.models.copilot import (
     ActivityDeltaEvent,
     MessagesSnapshotEvent,
     CustomEvent,
+    RawEvent,
+    TextInputContent,
+    BinaryInputContent,
+    MultimodalMessage,
 )
 from agentic_rag_backend.protocols.ag_ui_bridge import (
     AGUIBridge,
@@ -691,3 +695,325 @@ class TestAGUIToolCallResultEmission:
         assert "status" in result_data
         assert "approved_count" in result_data
         assert result_data["status"] == "approved"
+
+
+class TestAGUIActivityEventsEmission:
+    """Tests for ACTIVITY events emission in AG-UI bridge (Phase 5)."""
+
+    @pytest.mark.asyncio
+    async def test_process_request_emits_activity_snapshot(
+        self, mock_orchestrator, sample_copilot_request
+    ):
+        """Test that ACTIVITY_SNAPSHOT is emitted at start of request."""
+        bridge = AGUIBridge(mock_orchestrator)
+        events = []
+
+        async for event in bridge.process_request(sample_copilot_request):
+            events.append(event)
+
+        # Check for ACTIVITY_SNAPSHOT
+        snapshot_events = [e for e in events if e.type == AGUIEventType.ACTIVITY_SNAPSHOT]
+        assert len(snapshot_events) == 1
+
+        # Verify snapshot content
+        snapshot = snapshot_events[0]
+        assert "id" in snapshot.activity
+        assert "type" in snapshot.activity
+        assert snapshot.activity["type"] == "query_processing"
+        assert "progress" in snapshot.activity
+        assert snapshot.activity["progress"] == 0.0
+        assert "message" in snapshot.activity
+
+    @pytest.mark.asyncio
+    async def test_process_request_emits_activity_deltas(
+        self, mock_orchestrator, sample_copilot_request
+    ):
+        """Test that ACTIVITY_DELTA events are emitted for progress updates."""
+        bridge = AGUIBridge(mock_orchestrator)
+        events = []
+
+        async for event in bridge.process_request(sample_copilot_request):
+            events.append(event)
+
+        # Check for ACTIVITY_DELTA events
+        delta_events = [e for e in events if e.type == AGUIEventType.ACTIVITY_DELTA]
+        # Should have at least retrieval and response generation deltas
+        assert len(delta_events) >= 2
+
+        # Verify delta structure (RFC 6902 JSON Patch)
+        for delta_event in delta_events:
+            assert isinstance(delta_event.delta, list)
+            for op in delta_event.delta:
+                assert "op" in op
+                assert "path" in op
+                assert "value" in op
+                assert op["op"] in ["add", "remove", "replace", "move", "copy", "test"]
+
+    @pytest.mark.asyncio
+    async def test_activity_events_order(
+        self, mock_orchestrator, sample_copilot_request
+    ):
+        """Test that ACTIVITY events are emitted in correct order."""
+        bridge = AGUIBridge(mock_orchestrator)
+        events = []
+
+        async for event in bridge.process_request(sample_copilot_request):
+            events.append(event)
+
+        # Get activity events
+        snapshot_events = [e for e in events if e.type == AGUIEventType.ACTIVITY_SNAPSHOT]
+        delta_events = [e for e in events if e.type == AGUIEventType.ACTIVITY_DELTA]
+
+        assert len(snapshot_events) == 1
+        assert len(delta_events) >= 1
+
+        # Snapshot should come before deltas
+        snapshot_idx = events.index(snapshot_events[0])
+        first_delta_idx = events.index(delta_events[0])
+        assert snapshot_idx < first_delta_idx
+
+        # Snapshot should come after RUN_STARTED
+        run_started_events = [e for e in events if e.type == AGUIEventType.RUN_STARTED]
+        run_started_idx = events.index(run_started_events[0])
+        assert run_started_idx < snapshot_idx
+
+    @pytest.mark.asyncio
+    async def test_activity_delta_progress_increments(
+        self, mock_orchestrator, sample_copilot_request
+    ):
+        """Test that ACTIVITY_DELTA progress values increment."""
+        bridge = AGUIBridge(mock_orchestrator)
+        events = []
+
+        async for event in bridge.process_request(sample_copilot_request):
+            events.append(event)
+
+        delta_events = [e for e in events if e.type == AGUIEventType.ACTIVITY_DELTA]
+        assert len(delta_events) >= 2
+
+        # Extract progress values from deltas
+        progress_values = []
+        for delta_event in delta_events:
+            for op in delta_event.delta:
+                if op["path"] == "/progress":
+                    progress_values.append(op["value"])
+
+        # Progress should be monotonically increasing
+        for i in range(1, len(progress_values)):
+            assert progress_values[i] >= progress_values[i - 1]
+
+        # Final progress should be 1.0 (100%)
+        assert progress_values[-1] == 1.0
+
+    @pytest.mark.asyncio
+    async def test_activity_events_have_thread_and_run_ids(
+        self, mock_orchestrator, sample_copilot_request
+    ):
+        """Test that ACTIVITY events include threadId and runId."""
+        bridge = AGUIBridge(mock_orchestrator)
+        events = []
+
+        async for event in bridge.process_request(sample_copilot_request):
+            events.append(event)
+
+        # Get RUN_STARTED to extract expected IDs
+        run_started = [e for e in events if e.type == AGUIEventType.RUN_STARTED][0]
+        expected_thread_id = run_started.threadId
+        expected_run_id = run_started.runId
+
+        # Verify snapshot has correct IDs
+        snapshot = [e for e in events if e.type == AGUIEventType.ACTIVITY_SNAPSHOT][0]
+        assert snapshot.threadId == expected_thread_id
+        assert snapshot.runId == expected_run_id
+
+        # Verify deltas have correct IDs
+        deltas = [e for e in events if e.type == AGUIEventType.ACTIVITY_DELTA]
+        for delta in deltas:
+            assert delta.threadId == expected_thread_id
+            assert delta.runId == expected_run_id
+
+
+class TestAGUIRawEventModel:
+    """Tests for RAW event model (Phase 7.3)."""
+
+    def test_raw_event_structure(self):
+        """Test RawEvent has correct structure."""
+        event = RawEvent(
+            event={"type": "mcp_tool_response", "data": {"result": "success"}},
+            source="mcp",
+            protocol_version="1.0",
+            metadata={"tool_name": "web_search"},
+        )
+        assert event.type == AGUIEventType.RAW
+        assert event.source == "mcp"
+        assert event.protocol_version == "1.0"
+        assert event.event["type"] == "mcp_tool_response"
+        assert event.metadata["tool_name"] == "web_search"
+
+    def test_raw_event_minimal(self):
+        """Test RawEvent with minimal fields."""
+        event = RawEvent(
+            event={"some": "data"},
+        )
+        assert event.type == AGUIEventType.RAW
+        assert event.event == {"some": "data"}
+        assert event.source is None
+        assert event.metadata == {}
+
+    def test_raw_event_has_thread_and_run_ids(self):
+        """Test RawEvent includes threadId and runId."""
+        event = RawEvent(
+            event={},
+            threadId="thread-123",
+            runId="run-456",
+        )
+        data = event.model_dump()
+        assert data["threadId"] == "thread-123"
+        assert data["runId"] == "run-456"
+
+    def test_raw_event_for_a2a_delegation(self):
+        """Test RawEvent can wrap A2A delegation events."""
+        a2a_event = {
+            "type": "delegation_response",
+            "agent": "research_agent",
+            "result": {"findings": ["item1", "item2"]},
+            "status": "completed",
+        }
+        event = RawEvent(
+            event=a2a_event,
+            source="a2a",
+            metadata={"delegated_agent": "research_agent", "task_id": "task-789"},
+        )
+        assert event.source == "a2a"
+        assert event.event["agent"] == "research_agent"
+        assert event.event["status"] == "completed"
+
+
+class TestAGUIMultimodalModels:
+    """Tests for multimodal content models (Phase 7.2)."""
+
+    def test_text_input_content_structure(self):
+        """Test TextInputContent has correct structure."""
+        content = TextInputContent(content="Hello, world!")
+        assert content.type == "text"
+        assert content.content == "Hello, world!"
+
+    def test_binary_input_content_structure(self):
+        """Test BinaryInputContent has correct structure."""
+        import base64
+        test_data = base64.b64encode(b"test binary data").decode()
+        content = BinaryInputContent(
+            media_type="image/png",
+            data=test_data,
+            filename="test.png",
+        )
+        assert content.type == "binary"
+        assert content.media_type == "image/png"
+        assert content.data == test_data
+        assert content.filename == "test.png"
+
+    def test_binary_input_content_size_calculation(self):
+        """Test BinaryInputContent can calculate data size."""
+        import base64
+        original_data = b"test binary data for size calculation"
+        encoded_data = base64.b64encode(original_data).decode()
+        content = BinaryInputContent(
+            media_type="application/octet-stream",
+            data=encoded_data,
+        )
+        # Size should match original data size (not base64 size)
+        assert content.get_size_bytes() == len(original_data)
+
+    def test_multimodal_message_structure(self):
+        """Test MultimodalMessage with mixed content."""
+        import base64
+        image_data = base64.b64encode(b"fake image data").decode()
+        message = MultimodalMessage(
+            role=MessageRole.USER,
+            content=[
+                TextInputContent(content="What's in this image?"),
+                BinaryInputContent(
+                    media_type="image/png",
+                    data=image_data,
+                    filename="screenshot.png",
+                ),
+            ],
+        )
+        assert message.role == MessageRole.USER
+        assert len(message.content) == 2
+        assert message.content[0].type == "text"
+        assert message.content[1].type == "binary"
+
+    def test_multimodal_message_get_text_content(self):
+        """Test extracting text content from multimodal message."""
+        import base64
+        image_data = base64.b64encode(b"fake").decode()
+        message = MultimodalMessage(
+            role=MessageRole.USER,
+            content=[
+                TextInputContent(content="First part"),
+                BinaryInputContent(media_type="image/png", data=image_data),
+                TextInputContent(content="Second part"),
+            ],
+        )
+        text = message.get_text_content()
+        assert text == "First part Second part"
+
+    def test_multimodal_message_get_binary_content(self):
+        """Test extracting binary content from multimodal message."""
+        import base64
+        image1 = base64.b64encode(b"image1").decode()
+        image2 = base64.b64encode(b"image2").decode()
+        message = MultimodalMessage(
+            role=MessageRole.USER,
+            content=[
+                TextInputContent(content="Text"),
+                BinaryInputContent(media_type="image/png", data=image1, filename="img1.png"),
+                BinaryInputContent(media_type="image/jpeg", data=image2, filename="img2.jpg"),
+            ],
+        )
+        binaries = message.get_binary_content()
+        assert len(binaries) == 2
+        assert binaries[0].filename == "img1.png"
+        assert binaries[1].filename == "img2.jpg"
+
+    def test_multimodal_message_has_images(self):
+        """Test detecting image content in multimodal message."""
+        import base64
+        image_data = base64.b64encode(b"fake image").decode()
+        message_with_image = MultimodalMessage(
+            role=MessageRole.USER,
+            content=[
+                TextInputContent(content="Text"),
+                BinaryInputContent(media_type="image/png", data=image_data),
+            ],
+        )
+        message_without_image = MultimodalMessage(
+            role=MessageRole.USER,
+            content=[
+                TextInputContent(content="Just text"),
+            ],
+        )
+        assert message_with_image.has_images() is True
+        assert message_without_image.has_images() is False
+
+    def test_multimodal_message_has_audio(self):
+        """Test detecting audio content in multimodal message."""
+        import base64
+        audio_data = base64.b64encode(b"fake audio").decode()
+        message_with_audio = MultimodalMessage(
+            role=MessageRole.USER,
+            content=[
+                TextInputContent(content="Transcribe this"),
+                BinaryInputContent(media_type="audio/wav", data=audio_data),
+            ],
+        )
+        message_without_audio = MultimodalMessage(
+            role=MessageRole.USER,
+            content=[
+                TextInputContent(content="No audio here"),
+                BinaryInputContent(media_type="image/png", data=audio_data),
+            ],
+        )
+        assert message_with_audio.has_audio() is True
+        assert message_without_audio.has_audio() is False

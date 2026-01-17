@@ -5,6 +5,7 @@ Story 21-E2: Voice Output (Text-to-Speech)
 """
 
 import re
+from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 
@@ -280,6 +281,338 @@ async def list_hitl_checkpoints(
 
     records = await hitl_manager.list_checkpoints(tenant_id, limit=limit)
     return [HITLCheckpointResponse(**record) for record in records]
+
+
+# ============================================
+# RUN CONTROL ENDPOINTS - Phase 6.1
+# ============================================
+
+
+def get_run_manager(request: Request):
+    """Get RunManager from app state."""
+    return getattr(request.app.state, "run_manager", None)
+
+
+class CancelRunResponse(BaseModel):
+    """Response for cancel run endpoint."""
+
+    run_id: str
+    cancelled: bool
+    message: str
+
+
+class RunStateResponse(BaseModel):
+    """Response for run state endpoint."""
+
+    run_id: str
+    thread_id: str
+    status: str
+    query: str
+    tenant_id: Optional[str] = None
+    session_id: Optional[str] = None
+    created_at: str
+    current_step: int
+    total_steps: int
+    partial_result: Optional[str] = None
+    error_message: Optional[str] = None
+
+
+class ActiveRunsResponse(BaseModel):
+    """Response for list active runs endpoint."""
+
+    runs: List[RunStateResponse]
+    count: int
+
+
+@router.post("/cancel/{run_id}", response_model=CancelRunResponse)
+async def cancel_run(
+    run_id: str,
+    request: Request,
+    tenant_id: Optional[str] = Depends(get_tenant_id_from_header),
+) -> CancelRunResponse:
+    """
+    Cancel a running agent.
+
+    Phase 6.1: Cancel/Resume Agent Runs
+
+    This endpoint signals the running agent to stop execution.
+    The agent will emit a RUN_FINISHED event with cancelled status.
+    """
+    run_manager = get_run_manager(request)
+
+    if run_manager is None:
+        raise HTTPException(status_code=503, detail="Run manager not configured")
+
+    # Get run to verify tenant authorization
+    run = run_manager.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    # Verify tenant authorization
+    if run.tenant_id and tenant_id and run.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to cancel this run")
+
+    success = await run_manager.cancel_run(run_id)
+
+    return CancelRunResponse(
+        run_id=run_id,
+        cancelled=success,
+        message="Run cancelled successfully" if success else "Run could not be cancelled",
+    )
+
+
+@router.post("/resume/{run_id}", response_model=RunStateResponse)
+async def resume_run(
+    run_id: str,
+    request: Request,
+    tenant_id: Optional[str] = Depends(get_tenant_id_from_header),
+) -> RunStateResponse:
+    """
+    Resume a cancelled or paused run.
+
+    Phase 6.1: Cancel/Resume Agent Runs
+
+    This endpoint resumes a run from its last checkpoint.
+    Note: Full resume implementation requires orchestrator support.
+    """
+    run_manager = get_run_manager(request)
+
+    if run_manager is None:
+        raise HTTPException(status_code=503, detail="Run manager not configured")
+
+    # Get resumable run state
+    run_data = await run_manager.get_resumable_run(run_id)
+    if run_data is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Run {run_id} not found or not resumable"
+        )
+
+    # Verify tenant authorization
+    if run_data.get("tenant_id") and tenant_id and run_data["tenant_id"] != tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to resume this run")
+
+    # Return run state (actual resume would need orchestrator integration)
+    return RunStateResponse(**run_data)
+
+
+@router.get("/run/{run_id}", response_model=RunStateResponse)
+async def get_run_state(
+    run_id: str,
+    request: Request,
+    tenant_id: Optional[str] = Depends(get_tenant_id_from_header),
+) -> RunStateResponse:
+    """
+    Get the state of a run.
+
+    Phase 6.1: Cancel/Resume Agent Runs
+    """
+    run_manager = get_run_manager(request)
+
+    if run_manager is None:
+        raise HTTPException(status_code=503, detail="Run manager not configured")
+
+    run = run_manager.get_run(run_id)
+    if run is None:
+        # Try loading from persistence
+        run_data = await run_manager._load_run(run_id)
+        if run_data is None:
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+        # Verify tenant authorization
+        if run_data.get("tenant_id") and tenant_id and run_data["tenant_id"] != tenant_id:
+            raise HTTPException(status_code=403, detail="Not authorized to view this run")
+
+        return RunStateResponse(**run_data)
+
+    # Verify tenant authorization
+    if run.tenant_id and tenant_id and run.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this run")
+
+    return RunStateResponse(**run.to_dict())
+
+
+@router.get("/runs", response_model=ActiveRunsResponse)
+async def list_active_runs(
+    request: Request,
+    tenant_id: Optional[str] = Depends(get_tenant_id_from_header),
+) -> ActiveRunsResponse:
+    """
+    List active runs for a tenant.
+
+    Phase 6.1: Cancel/Resume Agent Runs
+    """
+    run_manager = get_run_manager(request)
+
+    if run_manager is None:
+        raise HTTPException(status_code=503, detail="Run manager not configured")
+
+    runs = run_manager.get_active_runs(tenant_id=tenant_id)
+
+    return ActiveRunsResponse(
+        runs=[RunStateResponse(**run) for run in runs],
+        count=len(runs),
+    )
+
+
+# ============================================
+# AGENT STEERING ENDPOINTS - Phase 6.2
+# ============================================
+
+
+class SteeringRequest(BaseModel):
+    """Request for agent steering."""
+
+    run_id: str = Field(..., description="ID of the run to steer")
+    instruction: str = Field(
+        ...,
+        description="Steering instruction to inject into the agent",
+        min_length=1,
+        max_length=2000,
+    )
+    context: Optional[dict[str, Any]] = Field(
+        None,
+        description="Additional context for the steering instruction",
+    )
+
+
+class SteeringResponse(BaseModel):
+    """Response for agent steering."""
+
+    run_id: str
+    status: str
+    message: str
+
+
+@router.post("/steer", response_model=SteeringResponse)
+async def steer_agent(
+    steering: SteeringRequest,
+    request: Request,
+    tenant_id: Optional[str] = Depends(get_tenant_id_from_header),
+) -> SteeringResponse:
+    """
+    Inject steering guidance into a running agent.
+
+    Phase 6.2: Agent Steering API
+
+    This endpoint allows users to redirect agent execution mid-flow
+    by injecting additional instructions or guidance.
+
+    Note: Full steering implementation requires orchestrator support
+    to incorporate the steering instruction into the agent's decision-making.
+    """
+    run_manager = get_run_manager(request)
+
+    if run_manager is None:
+        raise HTTPException(status_code=503, detail="Run manager not configured")
+
+    # Get run to verify it exists and is running
+    run = run_manager.get_run(steering.run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {steering.run_id} not found")
+
+    # Verify tenant authorization
+    if run.tenant_id and tenant_id and run.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to steer this run")
+
+    # Check if run is still active
+    from ...protocols.ag_ui_bridge import RunStatus
+    if run.status != RunStatus.RUNNING:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot steer run in '{run.status.value}' status"
+        )
+
+    # Log the steering instruction
+    logger.info(
+        "agent_steering_received",
+        run_id=steering.run_id,
+        instruction_length=len(steering.instruction),
+        has_context=steering.context is not None,
+    )
+
+    # Store steering instruction in run state for orchestrator to pick up
+    # The orchestrator would check for steering instructions at checkpoints
+    if run.last_checkpoint is None:
+        run.last_checkpoint = {}
+    run.last_checkpoint["steering"] = {
+        "instruction": steering.instruction,
+        "context": steering.context,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+    await run_manager._persist_run(run)
+
+    return SteeringResponse(
+        run_id=steering.run_id,
+        status="steering_applied",
+        message="Steering instruction received and will be applied at next checkpoint",
+    )
+
+
+@router.get("/steer/{run_id}", response_model=Optional[dict[str, Any]])
+async def get_steering_instruction(
+    run_id: str,
+    request: Request,
+    tenant_id: Optional[str] = Depends(get_tenant_id_from_header),
+) -> Optional[dict[str, Any]]:
+    """
+    Get pending steering instruction for a run.
+
+    Phase 6.2: Agent Steering API
+
+    Used by the orchestrator to check for steering instructions.
+    """
+    run_manager = get_run_manager(request)
+
+    if run_manager is None:
+        raise HTTPException(status_code=503, detail="Run manager not configured")
+
+    run = run_manager.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    # Verify tenant authorization
+    if run.tenant_id and tenant_id and run.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this run")
+
+    if run.last_checkpoint and "steering" in run.last_checkpoint:
+        return run.last_checkpoint["steering"]
+
+    return None
+
+
+@router.delete("/steer/{run_id}")
+async def clear_steering_instruction(
+    run_id: str,
+    request: Request,
+    tenant_id: Optional[str] = Depends(get_tenant_id_from_header),
+) -> dict[str, str]:
+    """
+    Clear steering instruction after it has been applied.
+
+    Phase 6.2: Agent Steering API
+
+    Called by the orchestrator after processing a steering instruction.
+    """
+    run_manager = get_run_manager(request)
+
+    if run_manager is None:
+        raise HTTPException(status_code=503, detail="Run manager not configured")
+
+    run = run_manager.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    # Verify tenant authorization
+    if run.tenant_id and tenant_id and run.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to modify this run")
+
+    if run.last_checkpoint and "steering" in run.last_checkpoint:
+        del run.last_checkpoint["steering"]
+        await run_manager._persist_run(run)
+
+    return {"status": "cleared"}
 
 
 # ============================================

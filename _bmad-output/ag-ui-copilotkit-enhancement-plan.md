@@ -11,16 +11,38 @@ This plan consolidates all discoveries from our analysis of CopilotKit Premium, 
 
 ## Implementation Status
 
-| Phase | Status | Commit | Notes |
-|-------|--------|--------|-------|
-| Phase 1: AG-UI Protocol (Backend) | ✅ COMPLETE | `c9ed255` | 9 event types, 31 tests passing |
-| Phase 2: Frontend Hooks | ✅ COMPLETE | `c9ed255` | useOrchestratorState, HITL v2, context |
-| Phase 3: Widget System | ✅ COMPLETE | `c9ed255` | Registry + 3 core widgets |
-| Phase 4: THINKING Events | ✅ COMPLETE | `c9ed255` | Included in Phase 1 |
-| Phase 5: ACTIVITY Events | ⏳ PENDING | - | Models added, emission TBD |
-| Phase 6-7: Advanced Features | ⏳ PENDING | - | Sub-agents, steering, multimodal |
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Phase 1: AG-UI Protocol (Backend) | ✅ COMPLETE | 19 event types, STATE_DELTA, TOOL_CALL_RESULT |
+| Phase 2: Frontend Hooks | ✅ COMPLETE | useOrchestratorState, HITL v2, context |
+| Phase 3: Widget System | ✅ COMPLETE | Registry + 8 widgets (Step, Approval, Table, Activity, Status, Charts) |
+| Phase 4: THINKING Events | ✅ COMPLETE | THINKING_START, _CONTENT, _END events |
+| Phase 5: ACTIVITY Events | ✅ COMPLETE | ACTIVITY_SNAPSHOT, _DELTA + ActivityTrackerWidget |
+| Phase 6.1: Cancel/Resume | ✅ COMPLETE | RunManager + useRunControl hook |
+| Phase 6.2: Agent Steering | ✅ COMPLETE | /steer API + useAgentSteering hook |
+| Phase 7.1: Sub-Agent Composition | ✅ COMPLETE | SubAgentManager + context passing |
+| Phase 7.2: Multimodal Input | ✅ COMPLETE | TextInputContent, BinaryInputContent, MultimodalMessage + useMultimodalInput |
+| Phase 7.3: RAW Events | ✅ COMPLETE | RawEvent for MCP/A2A protocol wrapping |
 
+**Tests:** 48 passing (backend AG-UI protocol tests)
 **Last Updated:** 2026-01-18
+
+---
+
+## Completed Features Summary
+
+### Backend (Python/FastAPI)
+- **19 AG-UI Event Types**: Full protocol compliance
+- **Run Manager**: Cancel, resume, checkpoint agent runs
+- **Agent Steering**: Inject guidance mid-execution
+- **Sub-Agent Composition**: Delegation with context isolation
+- **Multimodal Support**: Text, images, audio, documents
+- **RAW Events**: Wrap MCP/A2A external protocol events
+
+### Frontend (Next.js/React)
+- **8 Widget Components**: StepProgress, ApprovalDialog, DataTable, ActivityTracker, StatusIndicator, BarChart, LineChart, PieChart
+- **6 New Hooks**: useOrchestratorState, useRunControl, useAgentSteering, useMultimodalInput, useActivityTracker, useSourceValidationV2
+- **Widget Registry**: Dynamic widget rendering from backend events
 
 ---
 

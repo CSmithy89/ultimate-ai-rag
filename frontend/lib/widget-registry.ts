@@ -205,6 +205,35 @@ export interface CodeBlockWidgetProps {
   copyable?: boolean;
 }
 
+/**
+ * Props for ActivityTrackerWidget.
+ */
+export interface ActivityTrackerWidgetProps {
+  /** Current activity state */
+  activity: {
+    /** Unique activity identifier */
+    id: string;
+    /** Type of activity (e.g., "query_processing", "retrieval") */
+    type: string;
+    /** Human-readable status message */
+    message: string;
+    /** Progress as a decimal (0.0 to 1.0) */
+    progress: number;
+    /** Total number of steps in the activity */
+    totalSteps: number;
+    /** Current step number (1-indexed) */
+    currentStep: number;
+    /** Additional metadata about the activity */
+    metadata?: Record<string, unknown>;
+  };
+  /** Whether to show metadata details */
+  showMetadata?: boolean;
+  /** Whether to show step indicators */
+  showSteps?: boolean;
+  /** Custom class name */
+  className?: string;
+}
+
 // ============================================
 // WIDGET TYPE MAP
 // ============================================
@@ -225,6 +254,7 @@ export interface WidgetPropsMap {
   filter_form: FilterFormWidgetProps;
   markdown_content: MarkdownContentWidgetProps;
   code_block: CodeBlockWidgetProps;
+  activity_tracker: ActivityTrackerWidgetProps;
 }
 
 /**
