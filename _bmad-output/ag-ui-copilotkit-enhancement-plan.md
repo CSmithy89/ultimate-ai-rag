@@ -24,6 +24,7 @@ This plan consolidates all discoveries from our analysis of CopilotKit Premium, 
 | Phase 7.2: Multimodal Input | ✅ COMPLETE | TextInputContent, BinaryInputContent, MultimodalMessage + useMultimodalInput |
 | Phase 7.3: RAW Events | ✅ COMPLETE | RawEvent for MCP/A2A protocol wrapping |
 | Phase 8: Code Review Fixes | ✅ COMPLETE | Security, type safety, tests, documentation |
+| Phase 9: E2E Protocol Compliance | ✅ COMPLETE | 6 AG-UI fixes: events, tenant UUID, thinking sequence |
 
 **Tests:** 48 passing (backend), 1043 passing (frontend)
 **Last Updated:** 2026-01-18
@@ -989,3 +990,146 @@ cd backend && uv run pytest  # 48 passing
 # Frontend tests
 cd frontend && pnpm test     # 1043 passing (47 suites)
 ```
+
+---
+
+## Part 12: E2E Testing & Protocol Compliance Fixes ✅ COMPLETE
+
+End-to-end testing with Playwright revealed 6 critical AG-UI protocol compliance issues that were causing the "Run ended without emitting a terminal event" error. All have been resolved.
+
+**Date:** 2026-01-18
+
+### 12.1 Issues Discovered
+
+| Issue | Symptom | Root Cause |
+|-------|---------|------------|
+| 1. Missing `useSingleEndpoint` | "Invalid single-route payload" | CopilotKit v1.50 requires prop |
+| 2. Wrong ActivitySnapshotEvent format | Zod validation errors | Used `activity` dict instead of `messageId`, `activityType`, `content` |
+| 3. Wrong ActivityDeltaEvent format | Zod validation errors | Used `delta` instead of `patch` (RFC 6902) |
+| 4. Wrong ThinkingTextMessageContent format | Zod validation errors | Used `content` instead of `delta` |
+| 5. Invalid tenant_id | `InvalidTextRepresentation` DB error | "anonymous" string not valid UUID |
+| 6. Missing THINKING_TEXT_MESSAGE_START/END | "No active thinking message found" | AG-UI requires START/END events around CONTENT |
+
+### 12.2 Fixes Applied
+
+#### Fix 1: CopilotKit useSingleEndpoint
+**File:** `frontend/components/copilot/CopilotProvider.tsx`
+```tsx
+// Before
+<CopilotKit runtimeUrl="/api/copilotkit">
+
+// After
+<CopilotKit runtimeUrl="/api/copilotkit" useSingleEndpoint>
+```
+
+#### Fix 2: ActivitySnapshotEvent Format
+**File:** `backend/src/agentic_rag_backend/models/copilot.py`
+```python
+# Before
+class ActivitySnapshotEvent(AGUIEvent):
+    activity: Dict[str, Any]
+
+# After (AG-UI spec compliant)
+class ActivitySnapshotEvent(AGUIEvent):
+    messageId: str
+    activityType: str
+    content: Dict[str, Any]
+    replace: bool = True
+```
+
+#### Fix 3: ActivityDeltaEvent Format
+**File:** `backend/src/agentic_rag_backend/models/copilot.py`
+```python
+# Before
+class ActivityDeltaEvent(AGUIEvent):
+    delta: List[Dict[str, Any]]
+
+# After (RFC 6902 JSON Patch)
+class ActivityDeltaEvent(AGUIEvent):
+    messageId: str
+    activityType: str
+    patch: List[Dict[str, Any]]
+```
+
+#### Fix 4: ThinkingTextMessageContentEvent Format
+**File:** `backend/src/agentic_rag_backend/models/copilot.py`
+```python
+# Before
+class ThinkingTextMessageContentEvent(AGUIEvent):
+    content: str
+
+# After
+class ThinkingTextMessageContentEvent(AGUIEvent):
+    messageId: str
+    delta: str
+```
+
+#### Fix 5: Anonymous Tenant UUID
+**File:** `backend/src/agentic_rag_backend/validation.py`
+```python
+# Added constant
+ANONYMOUS_TENANT_ID = "00000000-0000-0000-0000-000000000000"
+```
+
+**Files Updated:** `copilot.py`, `telemetry.py` - Changed `"anonymous"` → `ANONYMOUS_TENANT_ID`
+
+#### Fix 6: Thinking Event Sequence
+**Files:** `models/copilot.py`, `protocols/ag_ui_bridge.py`
+
+Added missing event types:
+```python
+class ThinkingTextMessageStartEvent(AGUIEvent):
+    messageId: str
+
+class ThinkingTextMessageEndEvent(AGUIEvent):
+    messageId: str
+```
+
+Correct AG-UI sequence now emitted:
+```
+THINKING_START
+  └→ THINKING_TEXT_MESSAGE_START (messageId)
+      └→ THINKING_TEXT_MESSAGE_CONTENT (×n, same messageId)
+  └→ THINKING_TEXT_MESSAGE_END (messageId)
+THINKING_END
+```
+
+### 12.3 Files Modified
+
+| File | Changes |
+|------|---------|
+| `frontend/components/copilot/CopilotProvider.tsx` | Added `useSingleEndpoint` prop |
+| `backend/src/agentic_rag_backend/validation.py` | Added `ANONYMOUS_TENANT_ID` constant |
+| `backend/src/agentic_rag_backend/models/copilot.py` | Fixed event models, added START/END events |
+| `backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py` | Fixed event emission sequence |
+| `backend/src/agentic_rag_backend/protocols/ag_ui_metrics.py` | Added new event types to metrics |
+| `backend/src/agentic_rag_backend/api/routes/copilot.py` | Updated tenant handling |
+| `backend/src/agentic_rag_backend/api/routes/telemetry.py` | Updated tenant handling |
+| `backend/tests/protocols/test_ag_ui_bridge.py` | Updated tests for new field names |
+| `backend/tests/protocols/test_hitl_manager.py` | Updated tests |
+| `backend/tests/protocols/compliance/test_ag_ui_compliance.py` | Updated compliance tests |
+
+### 12.4 Verification
+
+```bash
+# Backend tests - all pass
+cd backend && uv run pytest tests/protocols/test_ag_ui_bridge.py
+# 48 passed
+
+# E2E test - chat working
+# 1. Navigate to http://localhost:3000/chat
+# 2. Send message "What features do you offer?"
+# 3. ✅ AI responds correctly
+# 4. ✅ No "Run ended without emitting a terminal event" error
+```
+
+### 12.5 Remaining E2E Tests
+
+The following were planned but not yet tested:
+
+| Test | Status | Notes |
+|------|--------|-------|
+| Chat interface | ✅ COMPLETE | Fixed and verified |
+| Activity tracker widget | ⏳ PENDING | Needs ingestion to trigger long operation |
+| Run control (cancel) | ⏳ PENDING | Requires active run to cancel |
+| HITL source validation | ⏳ PENDING | Requires documents in knowledge base |
