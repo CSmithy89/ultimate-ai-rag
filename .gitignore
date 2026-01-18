@@ -47,3 +47,6 @@ config/profiles/custom.yaml
 # Playwright MCP test artifacts
 .playwright-mcp/
 .env.backup
+
+# Backup directories
+frontend/.next-backup-root-owned/
