@@ -1,10 +1,10 @@
 # Ultimate AI RAG - Comprehensive UI/UX Upgrade Plan
 
-**Document Version:** 1.1
+**Document Version:** 1.2
 **Created:** 2026-01-17
 **Updated:** 2026-01-18
 **Author:** BMAD Party Mode (Sally, Caravaggio, Maya, Winston, Amelia, Mary, Bob, Murat, Dr. Quinn)
-**Status:** Ready for Implementation (Audit Corrections Applied)
+**Status:** Ready for Implementation (Audit Corrections + New Features Applied)
 
 ---
 
@@ -22,9 +22,14 @@ This document outlines a comprehensive UI/UX upgrade plan for the Ultimate AI RA
 > **A2UI Protocol Status:** A2UI (Google's declarative agent UI spec, v0.8 preview) is **deferred to Phase 7+**. The codebase already implements rich UI rendering via OpenJSON-UI (`frontend/components/open-json-ui/`) and MCP-UI (`frontend/components/mcp-ui/`). Adding A2UI would create a fourth rendering path requiring significant architectural decisions. Revisit when A2UI reaches v1.0 stability.
 
 ### Key Metrics
-- **47 features** across 7 tiers
-- **7 implementation phases** (including Phase 0: Prerequisites)
+- **79 features** across 10 tiers
+- **8 implementation phases** (including Phase 0: Prerequisites)
 - **4 user personas** supported (Developer, Researcher, Ops Engineer, Data Engineer)
+
+### New Features Added (v1.2)
+- ✨ **TIER 8: Adaptive Chat Interface** (10 features) - Flexible chat modes (sidebar/bubble/bottom bar), drag-and-drop positioning, resizable windows, multimodal file input
+- ✨ **TIER 9: Settings Dashboard** (11 features) - Comprehensive settings page with env config display, connection testing, import/export, workflow sync
+- ✨ **TIER 10: Workflow Configuration Hub** (11 features) - Pre-populated RAG workflows from CLI, visual editor, two-way settings sync, backwards CLI compatibility
 
 ### Audit Corrections Applied (v1.1)
 This version addresses findings from codebase audit validation:
@@ -43,14 +48,24 @@ This version addresses findings from codebase audit validation:
 ## Table of Contents
 
 1. [Current State Analysis](#1-current-state-analysis)
-   - 1.4 [Component Inventory & Upgrade Strategy](#14-component-inventory--upgrade-strategy) *(NEW)*
+   - 1.4 [Component Inventory & Upgrade Strategy](#14-component-inventory--upgrade-strategy)
 2. [Protocol Capabilities Research](#2-protocol-capabilities-research)
 3. [Design System Foundation](#3-design-system-foundation)
 4. [Feature Implementation Plan](#4-feature-implementation-plan)
+   - 4.8 [TIER 8: Adaptive Chat Interface](#48-tier-8-adaptive-chat-interface-p1-new) *(NEW v1.2)*
+   - 4.9 [TIER 9: Settings Dashboard](#49-tier-9-settings-dashboard-p2-new) *(NEW v1.2)*
+   - 4.10 [TIER 10: Workflow Configuration Hub](#410-tier-10-workflow-configuration-hub-p2-new) *(NEW v1.2)*
 5. [Code Implementation Guide](#5-code-implementation-guide)
 6. [Component Architecture](#6-component-architecture)
 7. [Phase-by-Phase Roadmap](#7-phase-by-phase-roadmap)
-   - 7.0 [Phase 0: Prerequisites](#phase-0-prerequisites-sprint-0) *(NEW)*
+   - 7.0 [Phase 0: Prerequisites](#phase-0-prerequisites-sprint-0)
+   - 7.1 [Phase 1: Foundation](#phase-1-foundation-sprint-1)
+   - 7.2 [Phase 2: Chat Hero](#phase-2-chat-hero-sprint-2) *(TIER 8 added v1.2)*
+   - 7.3 [Phase 3: Trust & HITL](#phase-3-trust--hitl-sprint-3)
+   - 7.4 [Phase 4: Visualizations](#phase-4-visualizations-sprint-4)
+   - 7.5 [Phase 5: Polish](#phase-5-polish-sprint-5)
+   - 7.6 [Phase 6: Advanced](#phase-6-advanced-future)
+   - 7.7 [Phase 7: Configuration Hub](#phase-7-configuration-hub-sprint-6-7---new-v12) *(TIERs 9-10 NEW v1.2)*
 8. [Testing & Validation](#8-testing--validation)
 9. [References & Citations](#9-references--citations)
 
@@ -543,6 +558,253 @@ useHumanInTheLoop({
 | 7.4 | **Keyboard Shortcuts** | Power user shortcuts | Custom hook + hints |
 | 7.5 | **Mobile Responsive** | Full mobile optimization | Tailwind responsive utilities |
 | 7.6 | **Accessibility Audit** | WCAG 2.1 AA compliance | axe-core + manual testing |
+
+### 4.8 TIER 8: Adaptive Chat Interface (P1) *(NEW)*
+
+> **Goal:** Transform the fixed sidebar chat into a flexible, adaptive interface that users can position, resize, and interact with in multiple modes. Supports multimodal input (documents, images) for the enhanced RAG experience.
+
+| ID | Feature | Description | Implementation |
+|----|---------|-------------|----------------|
+| 8.1 | **Chat Bubble Minimization** | Sidebar collapses to floating chat bubble when minimized | Create `ChatBubble.tsx` with expand/collapse animation, persist position in localStorage |
+| 8.2 | **Horizontal Bottom Bar Mode** | Chat input as horizontal bar at bottom of screen | Create `ChatBottomBar.tsx` with slide-up message panel, keyboard shortcut to toggle |
+| 8.3 | **Drag-and-Drop Positioning** | Chat window draggable to any screen position | Use `react-draggable` or `@dnd-kit/core`, save position to localStorage |
+| 8.4 | **Resizable Chat Window** | User can resize chat to any dimension | Use `react-resizable` or CSS resize property, min/max constraints |
+| 8.5 | **Multimodal File Drop Zone** | Drop documents/images directly into chat | Create `FileDropZone.tsx` with drag-over visual feedback, file type validation |
+| 8.6 | **File Search & Add Button** | Button to search/browse files for upload | Create `FilePickerButton.tsx` with file browser modal, recent files list |
+| 8.7 | **Image Preview in Chat** | Dropped images shown as thumbnails in input area | Create `ImagePreview.tsx` with remove button, zoom on click |
+| 8.8 | **Document Preview Cards** | Uploaded PDFs/docs shown as cards with metadata | Create `DocumentPreviewCard.tsx` with file type icon, size, page count |
+| 8.9 | **Chat Mode Switcher** | UI toggle between Sidebar/Bubble/BottomBar modes | Create `ChatModeSwitcher.tsx` in header or as floating control |
+| 8.10 | **Position Memory** | Remember user's preferred chat position/size per page | Use localStorage with page-specific keys, restore on mount |
+
+**User Interaction Flow:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  SIDEBAR MODE (Default)                                          │
+│  ┌──────────────┐                                                │
+│  │   Chat       │  ← Fixed right side, full height              │
+│  │   Messages   │                                                │
+│  │   ...        │                                                │
+│  │   [Input]    │                                                │
+│  │   [─] [□]    │  ← Minimize to bubble, toggle mode            │
+│  └──────────────┘                                                │
+├─────────────────────────────────────────────────────────────────┤
+│  BUBBLE MODE (Minimized)                                         │
+│                                              ┌───┐               │
+│                                              │ 💬│ ← Floating    │
+│                                              └───┘   bubble      │
+│                                                                  │
+├─────────────────────────────────────────────────────────────────┤
+│  BOTTOM BAR MODE                                                 │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │ 📎 │ [Type your message...              ] │ 🎤 │ ➤ │ ⬆️    ││
+│  └─────────────────────────────────────────────────────────────┘│
+│  └─ File picker                               └─ Expand to full │
+├─────────────────────────────────────────────────────────────────┤
+│  FLOATING WINDOW MODE (Dragged/Resized)                          │
+│       ┌────────────────────┐                                     │
+│       │ ═══ Chat ═══  [×]  │ ← Draggable header                 │
+│       │                    │                                     │
+│       │   Messages...      │ ← Resizable from edges             │
+│       │                    │                                     │
+│       │ [📎] [Input   ] [➤]│                                     │
+│       └────────────────────┘                                     │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Multimodal Input Interface:**
+```
+┌────────────────────────────────────────────────────────────────┐
+│  Chat Input Area with Multimodal Support                        │
+│ ┌──────────────────────────────────────────────────────────────┐
+│ │  ┌─────┐ ┌─────┐ ┌─────────────┐                             │
+│ │  │ 📷  │ │ 📄  │ │ report.pdf  │  ← Attached files preview   │
+│ │  │ img │ │ PDF │ │ 12 pages    │                             │
+│ │  │ [×] │ │ [×] │ │ [×]         │                             │
+│ │  └─────┘ └─────┘ └─────────────┘                             │
+│ └──────────────────────────────────────────────────────────────┘
+│ ┌──────────────────────────────────────────────────────────────┐
+│ │ 📎 │ 🔍 │ [Ask about these documents...        ] │ 🎤 │ ➤ │  │
+│ └──────────────────────────────────────────────────────────────┘
+│   │     │                                            │     │    │
+│   │     └─ Search files                              │     └─ Send
+│   └─ Add file                                        └─ Voice   │
+│                                                                 │
+│  Drop Zone: "Drop files here to add to conversation"           │
+└────────────────────────────────────────────────────────────────┘
+```
+
+### 4.9 TIER 9: Settings Dashboard (P2) *(NEW)*
+
+> **Goal:** Create a comprehensive settings page that displays all environment configuration options with an optimized, user-friendly interface. Settings are organized into logical categories with visual feedback and validation.
+
+| ID | Feature | Description | Implementation |
+|----|---------|-------------|----------------|
+| 9.1 | **Settings Page Route** | New `/settings` page with tabbed navigation | Create `app/settings/page.tsx` with tab-based layout |
+| 9.2 | **Environment Variables Display** | Show all configurable env vars with current values | API endpoint to fetch sanitized env config (hide secrets) |
+| 9.3 | **Category Organization** | Group settings by domain (LLM, Database, API, Features) | Collapsible sections with icons and descriptions |
+| 9.4 | **Toggle Controls** | Boolean settings as premium toggle switches | Use `shadcn/switch` with enabled/disabled states |
+| 9.5 | **Secret Masking** | API keys shown as `sk-****...****` with reveal button | Secure display with clipboard copy |
+| 9.6 | **Validation Feedback** | Real-time validation with success/error indicators | Inline validation messages, connection test buttons |
+| 9.7 | **Connection Testing** | Test buttons for DB, LLM, and API connections | Async test with loading spinner, result toast |
+| 9.8 | **Settings Search** | Quick search/filter across all settings | Fuzzy search with highlighted matches |
+| 9.9 | **Import/Export Config** | Download/upload settings as JSON | File download/upload with validation |
+| 9.10 | **Settings History** | Track changes with undo capability | localStorage history with diff view |
+| 9.11 | **Workflow Sync Indicator** | Show which settings affect RAG workflows | Visual link to workflow page for related settings |
+
+**Settings Categories:**
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│  ⚙️ Settings                                    [🔍 Search...] │
+├────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ 🤖 LLM Configuration                              [▼]   │   │
+│  ├─────────────────────────────────────────────────────────┤   │
+│  │ Provider        │ [OpenAI    ▼] │ Anthropic, Azure...   │   │
+│  │ Model           │ [gpt-4o    ▼] │ Model selection       │   │
+│  │ API Key         │ [sk-****...] [👁] [📋] │ [Test ✓]    │   │
+│  │ Temperature     │ [═══●═══] 0.7 │ Creativity level      │   │
+│  │ Max Tokens      │ [4096     ] │ Response limit          │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ 🗄️ Database Connections                          [▼]   │   │
+│  ├─────────────────────────────────────────────────────────┤   │
+│  │ PostgreSQL      │ [postgres://...] │ [Test ✓ Connected] │   │
+│  │ Neo4j           │ [neo4j://...]    │ [Test ✓ Connected] │   │
+│  │ Redis           │ [redis://...]    │ [Test ⚠ Timeout]   │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ 🔌 API & Integrations                            [▼]   │   │
+│  ├─────────────────────────────────────────────────────────┤   │
+│  │ Backend URL     │ [http://localhost:8000]              │   │
+│  │ Tenant ID       │ [default-tenant]                     │   │
+│  │ CopilotKit      │ [/api/copilotkit] │ Runtime URL       │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ 🎛️ Feature Flags                                 [▼]   │   │
+│  ├─────────────────────────────────────────────────────────┤   │
+│  │ Voice Input     │ [●══] ON  │ Enable voice commands    │   │
+│  │ HITL Validation │ [●══] ON  │ Human-in-the-loop        │   │
+│  │ Graph RAG       │ [●══] ON  │ Knowledge graph queries  │   │
+│  │ Multimodal      │ [●══] ON  │ Image/document input     │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ 🔗 Workflow Integration                    [→ Workflows]│   │
+│  │ Settings here affect: Vector RAG, Graph RAG, Hybrid    │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  [📥 Import] [📤 Export] [↩️ Undo] [💾 Save Changes]           │
+└────────────────────────────────────────────────────────────────┘
+```
+
+### 4.10 TIER 10: Workflow Configuration Hub (P2) *(NEW)*
+
+> **Goal:** Transform the RAG workflow page into a configuration hub that comes pre-populated with the 3 standard CLI workflows (Vector RAG, Graph RAG, Hybrid RAG). Users can view, modify, and create workflows that sync with settings and persist after CLI setup.
+
+| ID | Feature | Description | Implementation |
+|----|---------|-------------|----------------|
+| 10.1 | **Pre-populated Workflows** | 3 default workflows from CLI setup shown on first load | Seed database with Vector/Graph/Hybrid RAG templates |
+| 10.2 | **Workflow Cards View** | Visual cards showing each workflow with status/description | Create `WorkflowCard.tsx` with preview, edit, delete actions |
+| 10.3 | **Workflow Visual Editor** | React Flow-based drag-and-drop workflow builder | Enhance existing `/workflow` page with editable nodes |
+| 10.4 | **Step Configuration Panels** | Click node to configure step parameters | Slide-out panel with form inputs per step type |
+| 10.5 | **Settings Sync** | Workflow steps auto-populate from Settings page values | Two-way binding: settings ↔ workflow step configs |
+| 10.6 | **Workflow Templates Gallery** | Browse and clone pre-built workflow templates | Template library with search and preview |
+| 10.7 | **Workflow Versioning** | Track changes to workflows with version history | Version dropdown, diff view, rollback capability |
+| 10.8 | **Workflow Testing** | Run workflow with test query and see step-by-step execution | Test panel with input, live execution trace |
+| 10.9 | **Export/Import Workflows** | Download/upload workflow definitions as JSON/YAML | File operations with validation |
+| 10.10 | **Workflow Documentation** | Auto-generated documentation for each workflow | Markdown export with step descriptions |
+| 10.11 | **CLI Backwards Compatibility** | Changes sync back to CLI configuration files | API endpoint to update CLI config files |
+
+**Default Workflows (Pre-populated from CLI):**
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│  🔄 RAG Workflow Configuration                                  │
+│  Configure and manage your retrieval-augmented generation       │
+│  pipelines. These workflows were initialized from CLI setup.    │
+├────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐   │
+│  │ 📊 Vector RAG   │ │ 🕸️ Graph RAG    │ │ 🔀 Hybrid RAG   │   │
+│  │ ───────────────│ │ ───────────────│ │ ───────────────│   │
+│  │ Dense vector   │ │ Knowledge graph │ │ Combined vector │   │
+│  │ similarity     │ │ traversal with  │ │ + graph with   │   │
+│  │ search using   │ │ entity linking  │ │ intelligent    │   │
+│  │ pgvector       │ │ via Neo4j       │ │ reranking      │   │
+│  │               │ │               │ │               │   │
+│  │ Status: ✅     │ │ Status: ✅     │ │ Status: ✅     │   │
+│  │ Active         │ │ Active         │ │ Default        │   │
+│  │               │ │               │ │               │   │
+│  │ [Edit] [Test] │ │ [Edit] [Test] │ │ [Edit] [Test] │   │
+│  └─────────────────┘ └─────────────────┘ └─────────────────┘   │
+│                                                                 │
+│  [+ Create Workflow]  [📥 Import]  [📚 Templates]              │
+│                                                                 │
+├────────────────────────────────────────────────────────────────┤
+│  Workflow Editor (Click card to expand)                         │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │                                                          │  │
+│  │   ┌─────────┐     ┌─────────┐     ┌─────────┐           │  │
+│  │   │ Query   │────▶│ Embed   │────▶│ Search  │           │  │
+│  │   │ Input   │     │ Query   │     │ Vectors │           │  │
+│  │   └─────────┘     └─────────┘     └────┬────┘           │  │
+│  │                                        │                 │  │
+│  │                                        ▼                 │  │
+│  │   ┌─────────┐     ┌─────────┐     ┌─────────┐           │  │
+│  │   │ Generate│◀────│ Rerank  │◀────│ Graph   │           │  │
+│  │   │ Answer  │     │ Results │     │ Expand  │           │  │
+│  │   └─────────┘     └─────────┘     └─────────┘           │  │
+│  │                                                          │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                 │
+│  Step Configuration (selected: "Search Vectors")               │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ Top K Results    │ [10        ] │ From Settings ⚙️       │  │
+│  │ Similarity       │ [0.75      ] │ Threshold              │  │
+│  │ Collection       │ [documents ▼] │ Vector store           │  │
+│  │ Include Metadata │ [●══] ON     │                        │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                 │
+│  [💾 Save] [🧪 Test Workflow] [📤 Export] [🔄 Reset to CLI]    │
+└────────────────────────────────────────────────────────────────┘
+```
+
+**Workflow-Settings Synchronization:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     TWO-WAY SYNC ARCHITECTURE                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   ⚙️ Settings Page              🔄 Workflow Page                │
+│   ┌───────────────────┐         ┌───────────────────┐           │
+│   │ LLM: gpt-4o       │◀───────▶│ Generate Step:    │           │
+│   │ Temperature: 0.7  │  SYNC   │  model: gpt-4o    │           │
+│   │ Max Tokens: 4096  │         │  temp: 0.7        │           │
+│   └───────────────────┘         └───────────────────┘           │
+│                                                                  │
+│   ┌───────────────────┐         ┌───────────────────┐           │
+│   │ Neo4j: bolt://... │◀───────▶│ Graph Expand:     │           │
+│   │ DB: knowledge     │  SYNC   │  connection: ...  │           │
+│   └───────────────────┘         └───────────────────┘           │
+│                                                                  │
+│   ┌───────────────────┐         ┌───────────────────┐           │
+│   │ pgvector: ...     │◀───────▶│ Search Vectors:   │           │
+│   │ Collection: docs  │  SYNC   │  store: pgvector  │           │
+│   └───────────────────┘         └───────────────────┘           │
+│                                                                  │
+│   CLI Config Files (backend/.env, config.yaml)                  │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │ Changes in Settings/Workflows update CLI config files   │   │
+│   │ for backwards compatibility with CLI-based workflows    │   │
+│   └─────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -1117,6 +1379,853 @@ export function AppHeader() {
 }
 ```
 
+### 5.7 Adaptive Chat System *(NEW v1.2)*
+
+**File: `frontend/components/copilot/AdaptiveChat.tsx`**
+
+> **Core component** managing all chat modes: Sidebar, Bubble, BottomBar, and Floating Window.
+
+```tsx
+"use client";
+
+import { useState, useCallback, useEffect } from "react";
+import { cn } from "@/lib/utils";
+import { CopilotSidebar, CopilotPopup, CopilotChat } from "@copilotkit/react-ui";
+import { ChatBubble } from "./ChatBubble";
+import { ChatBottomBar } from "./ChatBottomBar";
+import { ChatModeSwitcher } from "./ChatModeSwitcher";
+import { FileDropZone } from "./FileDropZone";
+import { useChatPosition } from "@/hooks/use-chat-position";
+
+export type ChatMode = "sidebar" | "bubble" | "bottombar" | "floating";
+
+interface AdaptiveChatProps {
+  defaultMode?: ChatMode;
+  enableMultimodal?: boolean;
+}
+
+export function AdaptiveChat({
+  defaultMode = "sidebar",
+  enableMultimodal = true,
+}: AdaptiveChatProps) {
+  const [mode, setMode] = useState<ChatMode>(defaultMode);
+  const [isExpanded, setIsExpanded] = useState(mode !== "bubble");
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+
+  const {
+    position,
+    size,
+    setPosition,
+    setSize,
+    resetPosition,
+  } = useChatPosition(mode);
+
+  const handleFileDrop = useCallback((files: File[]) => {
+    setAttachedFiles(prev => [...prev, ...files]);
+  }, []);
+
+  const handleRemoveFile = useCallback((index: number) => {
+    setAttachedFiles(prev => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const handleModeChange = useCallback((newMode: ChatMode) => {
+    setMode(newMode);
+    setIsExpanded(newMode !== "bubble");
+    // Persist preference
+    localStorage.setItem("chat-mode-preference", newMode);
+  }, []);
+
+  // Render based on current mode
+  if (mode === "bubble" && !isExpanded) {
+    return (
+      <ChatBubble
+        onClick={() => setIsExpanded(true)}
+        unreadCount={0}
+      />
+    );
+  }
+
+  if (mode === "bottombar") {
+    return (
+      <ChatBottomBar
+        attachedFiles={attachedFiles}
+        onFileDrop={handleFileDrop}
+        onRemoveFile={handleRemoveFile}
+        onExpand={() => handleModeChange("floating")}
+        onMinimize={() => handleModeChange("bubble")}
+      />
+    );
+  }
+
+  if (mode === "floating") {
+    return (
+      <FloatingChatWindow
+        position={position}
+        size={size}
+        onPositionChange={setPosition}
+        onSizeChange={setSize}
+        onClose={() => handleModeChange("bubble")}
+        attachedFiles={attachedFiles}
+        onFileDrop={handleFileDrop}
+        onRemoveFile={handleRemoveFile}
+      />
+    );
+  }
+
+  // Default: Sidebar mode
+  return (
+    <div className="relative">
+      <ChatModeSwitcher
+        currentMode={mode}
+        onModeChange={handleModeChange}
+      />
+      <FileDropZone
+        onDrop={handleFileDrop}
+        className="h-full"
+      >
+        <CopilotSidebar
+          defaultOpen={true}
+          className="copilot-sidebar"
+        >
+          {attachedFiles.length > 0 && (
+            <AttachedFilesPreview
+              files={attachedFiles}
+              onRemove={handleRemoveFile}
+            />
+          )}
+        </CopilotSidebar>
+      </FileDropZone>
+    </div>
+  );
+}
+```
+
+**File: `frontend/components/copilot/ChatBubble.tsx`**
+
+```tsx
+"use client";
+
+import { cn } from "@/lib/utils";
+import { MessageCircle } from "lucide-react";
+
+interface ChatBubbleProps {
+  onClick: () => void;
+  unreadCount?: number;
+  position?: { x: number; y: number };
+}
+
+export function ChatBubble({
+  onClick,
+  unreadCount = 0,
+  position = { x: 24, y: 24 },
+}: ChatBubbleProps) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        position: "fixed",
+        right: position.x,
+        bottom: position.y,
+      }}
+      className={cn(
+        "flex items-center justify-center",
+        "h-14 w-14 rounded-full",
+        "bg-gradient-to-br from-primary-500 to-primary-600",
+        "shadow-lg shadow-primary-500/30",
+        "hover:shadow-xl hover:shadow-primary-500/40",
+        "hover:scale-105 active:scale-95",
+        "transition-all duration-200",
+        "z-50"
+      )}
+      aria-label="Open chat"
+    >
+      <MessageCircle className="h-6 w-6 text-white" />
+      {unreadCount > 0 && (
+        <span className={cn(
+          "absolute -top-1 -right-1",
+          "flex items-center justify-center",
+          "h-5 w-5 rounded-full",
+          "bg-red-500 text-white text-xs font-bold"
+        )}>
+          {unreadCount > 9 ? "9+" : unreadCount}
+        </span>
+      )}
+    </button>
+  );
+}
+```
+
+**File: `frontend/components/copilot/ChatBottomBar.tsx`**
+
+```tsx
+"use client";
+
+import { useState } from "react";
+import { cn } from "@/lib/utils";
+import { Paperclip, Search, Mic, Send, ChevronUp, X } from "lucide-react";
+import { FileDropZone } from "./FileDropZone";
+import { AttachedFilesPreview } from "./AttachedFilesPreview";
+
+interface ChatBottomBarProps {
+  attachedFiles: File[];
+  onFileDrop: (files: File[]) => void;
+  onRemoveFile: (index: number) => void;
+  onExpand: () => void;
+  onMinimize: () => void;
+}
+
+export function ChatBottomBar({
+  attachedFiles,
+  onFileDrop,
+  onRemoveFile,
+  onExpand,
+  onMinimize,
+}: ChatBottomBarProps) {
+  const [message, setMessage] = useState("");
+  const [showMessages, setShowMessages] = useState(false);
+
+  return (
+    <div className={cn(
+      "fixed bottom-0 left-0 right-0 z-50",
+      "bg-white dark:bg-slate-900",
+      "border-t border-slate-200 dark:border-slate-700",
+      "shadow-lg"
+    )}>
+      {/* Expandable message panel */}
+      {showMessages && (
+        <div className={cn(
+          "h-64 overflow-y-auto p-4",
+          "border-b border-slate-200 dark:border-slate-700"
+        )}>
+          {/* Messages would render here */}
+          <p className="text-sm text-slate-500">Recent messages...</p>
+        </div>
+      )}
+
+      {/* Attached files preview */}
+      {attachedFiles.length > 0 && (
+        <div className="px-4 pt-2">
+          <AttachedFilesPreview
+            files={attachedFiles}
+            onRemove={onRemoveFile}
+            compact
+          />
+        </div>
+      )}
+
+      {/* Input bar */}
+      <FileDropZone onDrop={onFileDrop} className="p-4">
+        <div className="flex items-center gap-2">
+          {/* File picker */}
+          <button
+            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
+            aria-label="Attach file"
+          >
+            <Paperclip className="h-5 w-5 text-slate-500" />
+          </button>
+
+          {/* File search */}
+          <button
+            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
+            aria-label="Search files"
+          >
+            <Search className="h-5 w-5 text-slate-500" />
+          </button>
+
+          {/* Text input */}
+          <input
+            type="text"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Type your message..."
+            className={cn(
+              "flex-1 px-4 py-2 rounded-xl",
+              "bg-slate-100 dark:bg-slate-800",
+              "border border-transparent",
+              "focus:border-primary-500 focus:ring-2 focus:ring-primary-200",
+              "transition-all"
+            )}
+          />
+
+          {/* Voice input */}
+          <button
+            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
+            aria-label="Voice input"
+          >
+            <Mic className="h-5 w-5 text-slate-500" />
+          </button>
+
+          {/* Send */}
+          <button
+            className={cn(
+              "p-2 rounded-lg",
+              "bg-primary-500 hover:bg-primary-600",
+              "text-white"
+            )}
+            aria-label="Send message"
+          >
+            <Send className="h-5 w-5" />
+          </button>
+
+          {/* Expand to full */}
+          <button
+            onClick={onExpand}
+            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
+            aria-label="Expand chat"
+          >
+            <ChevronUp className="h-5 w-5 text-slate-500" />
+          </button>
+        </div>
+      </FileDropZone>
+    </div>
+  );
+}
+```
+
+**File: `frontend/components/copilot/FileDropZone.tsx`**
+
+```tsx
+"use client";
+
+import { useState, useCallback, ReactNode } from "react";
+import { cn } from "@/lib/utils";
+import { Upload } from "lucide-react";
+
+interface FileDropZoneProps {
+  onDrop: (files: File[]) => void;
+  children: ReactNode;
+  className?: string;
+  acceptedTypes?: string[];
+}
+
+const DEFAULT_ACCEPTED_TYPES = [
+  "image/png", "image/jpeg", "image/gif", "image/webp",
+  "application/pdf",
+  "text/plain", "text/markdown",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
+
+export function FileDropZone({
+  onDrop,
+  children,
+  className,
+  acceptedTypes = DEFAULT_ACCEPTED_TYPES,
+}: FileDropZoneProps) {
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+
+    const files = Array.from(e.dataTransfer.files).filter(file =>
+      acceptedTypes.includes(file.type)
+    );
+
+    if (files.length > 0) {
+      onDrop(files);
+    }
+  }, [acceptedTypes, onDrop]);
+
+  return (
+    <div
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={cn("relative", className)}
+    >
+      {children}
+
+      {/* Drag overlay */}
+      {isDragOver && (
+        <div className={cn(
+          "absolute inset-0 z-50",
+          "flex flex-col items-center justify-center gap-2",
+          "bg-primary-50/95 dark:bg-primary-900/95",
+          "border-2 border-dashed border-primary-400",
+          "rounded-lg"
+        )}>
+          <Upload className="h-8 w-8 text-primary-600" />
+          <p className="text-sm font-medium text-primary-700">
+            Drop files to add to conversation
+          </p>
+          <p className="text-xs text-primary-500">
+            Images, PDFs, and documents supported
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### 5.8 Settings Dashboard *(NEW v1.2)*
+
+**File: `frontend/app/settings/page.tsx`**
+
+```tsx
+"use client";
+
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { cn } from "@/lib/utils";
+import {
+  Bot, Database, Plug, Settings2, Search, Download, Upload,
+  Undo, Save, ExternalLink, Eye, EyeOff, Copy, Check, AlertCircle
+} from "lucide-react";
+import { SettingsSection } from "@/components/settings/SettingsSection";
+import { ConnectionTester } from "@/components/settings/ConnectionTester";
+import { SecretInput } from "@/components/settings/SecretInput";
+
+interface SettingsConfig {
+  llm: {
+    provider: string;
+    model: string;
+    apiKey: string;
+    temperature: number;
+    maxTokens: number;
+  };
+  database: {
+    postgres: string;
+    neo4j: string;
+    redis: string;
+  };
+  api: {
+    backendUrl: string;
+    tenantId: string;
+    copilotRuntime: string;
+  };
+  features: {
+    voiceInput: boolean;
+    hitlValidation: boolean;
+    graphRag: boolean;
+    multimodal: boolean;
+  };
+}
+
+export default function SettingsPage() {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [hasChanges, setHasChanges] = useState(false);
+
+  const { data: settings, isLoading } = useQuery<SettingsConfig>({
+    queryKey: ["settings"],
+    queryFn: async () => {
+      const res = await fetch("/api/settings");
+      return res.json();
+    },
+  });
+
+  const saveSettings = useMutation({
+    mutationFn: async (newSettings: SettingsConfig) => {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify(newSettings),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      setHasChanges(false);
+    },
+  });
+
+  if (isLoading) {
+    return <SettingsPageSkeleton />;
+  }
+
+  return (
+    <main className="min-h-screen bg-slate-50 dark:bg-slate-900">
+      <div className="container mx-auto py-8 px-4 max-w-4xl">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              "flex items-center justify-center",
+              "h-10 w-10 rounded-xl",
+              "bg-primary-100 dark:bg-primary-900/30"
+            )}>
+              <Settings2 className="h-5 w-5 text-primary-600" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+                Settings
+              </h1>
+              <p className="text-sm text-slate-500">
+                Configure your RAG platform
+              </p>
+            </div>
+          </div>
+
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search settings..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={cn(
+                "pl-10 pr-4 py-2 rounded-lg",
+                "bg-white dark:bg-slate-800",
+                "border border-slate-200 dark:border-slate-700",
+                "focus:ring-2 focus:ring-primary-200"
+              )}
+            />
+          </div>
+        </div>
+
+        {/* Settings Sections */}
+        <div className="space-y-6">
+          {/* LLM Configuration */}
+          <SettingsSection
+            icon={Bot}
+            title="LLM Configuration"
+            description="Configure your language model provider"
+          >
+            {/* Provider, Model, API Key, Temperature, Max Tokens */}
+          </SettingsSection>
+
+          {/* Database Connections */}
+          <SettingsSection
+            icon={Database}
+            title="Database Connections"
+            description="Manage database connection strings"
+          >
+            <ConnectionTester
+              label="PostgreSQL"
+              connectionString={settings?.database.postgres}
+              testEndpoint="/api/test-connection/postgres"
+            />
+            <ConnectionTester
+              label="Neo4j"
+              connectionString={settings?.database.neo4j}
+              testEndpoint="/api/test-connection/neo4j"
+            />
+            <ConnectionTester
+              label="Redis"
+              connectionString={settings?.database.redis}
+              testEndpoint="/api/test-connection/redis"
+            />
+          </SettingsSection>
+
+          {/* API & Integrations */}
+          <SettingsSection
+            icon={Plug}
+            title="API & Integrations"
+            description="Backend and runtime configuration"
+          >
+            {/* Backend URL, Tenant ID, CopilotKit Runtime */}
+          </SettingsSection>
+
+          {/* Feature Flags */}
+          <SettingsSection
+            icon={Settings2}
+            title="Feature Flags"
+            description="Enable or disable platform features"
+          >
+            {/* Toggle switches for features */}
+          </SettingsSection>
+
+          {/* Workflow Integration Link */}
+          <div className={cn(
+            "flex items-center justify-between p-4",
+            "bg-slate-100 dark:bg-slate-800",
+            "rounded-xl border border-slate-200 dark:border-slate-700"
+          )}>
+            <div>
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                Workflow Integration
+              </p>
+              <p className="text-xs text-slate-500">
+                Settings here affect: Vector RAG, Graph RAG, Hybrid RAG
+              </p>
+            </div>
+            <a
+              href="/workflow"
+              className="flex items-center gap-1 text-sm text-primary-600 hover:underline"
+            >
+              Go to Workflows
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          </div>
+        </div>
+
+        {/* Action Bar */}
+        <div className={cn(
+          "fixed bottom-0 left-0 right-0",
+          "bg-white dark:bg-slate-900",
+          "border-t border-slate-200 dark:border-slate-700",
+          "p-4"
+        )}>
+          <div className="container mx-auto max-w-4xl flex items-center justify-between">
+            <div className="flex gap-2">
+              <button className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">
+                <Download className="h-4 w-4" /> Import
+              </button>
+              <button className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">
+                <Upload className="h-4 w-4" /> Export
+              </button>
+              <button className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">
+                <Undo className="h-4 w-4" /> Undo
+              </button>
+            </div>
+            <button
+              disabled={!hasChanges}
+              onClick={() => settings && saveSettings.mutate(settings)}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-lg",
+                "bg-primary-500 text-white",
+                "hover:bg-primary-600",
+                "disabled:opacity-50 disabled:cursor-not-allowed"
+              )}
+            >
+              <Save className="h-4 w-4" /> Save Changes
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+```
+
+### 5.9 Workflow Configuration Hub *(NEW v1.2)*
+
+**File: `frontend/app/workflow/page.tsx`** *(Enhanced)*
+
+> This enhances the existing workflow page with pre-populated workflows and settings sync.
+
+```tsx
+"use client";
+
+import { useState, useCallback } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import ReactFlow, { Background, Controls, MiniMap } from "reactflow";
+import { cn } from "@/lib/utils";
+import {
+  Plus, Download, Upload, BookOpen, Play, Save,
+  RefreshCw, Settings, BarChart3, GitBranch, Shuffle
+} from "lucide-react";
+import { WorkflowCard } from "@/components/workflow/WorkflowCard";
+import { StepConfigPanel } from "@/components/workflow/StepConfigPanel";
+import { WorkflowTestPanel } from "@/components/workflow/WorkflowTestPanel";
+
+interface Workflow {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  status: "active" | "inactive" | "default";
+  steps: WorkflowStep[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Default workflows seeded from CLI
+const DEFAULT_WORKFLOWS: Workflow[] = [
+  {
+    id: "vector-rag",
+    name: "Vector RAG",
+    description: "Dense vector similarity search using pgvector",
+    icon: "BarChart3",
+    status: "active",
+    steps: [
+      { id: "input", type: "query-input", config: {} },
+      { id: "embed", type: "embed-query", config: { model: "text-embedding-ada-002" } },
+      { id: "search", type: "vector-search", config: { topK: 10, threshold: 0.75 } },
+      { id: "generate", type: "generate-answer", config: { model: "gpt-4o" } },
+    ],
+    createdAt: "2026-01-01",
+    updatedAt: "2026-01-01",
+  },
+  {
+    id: "graph-rag",
+    name: "Graph RAG",
+    description: "Knowledge graph traversal with entity linking via Neo4j",
+    icon: "GitBranch",
+    status: "active",
+    steps: [
+      { id: "input", type: "query-input", config: {} },
+      { id: "extract", type: "extract-entities", config: {} },
+      { id: "traverse", type: "graph-traverse", config: { depth: 2 } },
+      { id: "generate", type: "generate-answer", config: { model: "gpt-4o" } },
+    ],
+    createdAt: "2026-01-01",
+    updatedAt: "2026-01-01",
+  },
+  {
+    id: "hybrid-rag",
+    name: "Hybrid RAG",
+    description: "Combined vector + graph with intelligent reranking",
+    icon: "Shuffle",
+    status: "default",
+    steps: [
+      { id: "input", type: "query-input", config: {} },
+      { id: "embed", type: "embed-query", config: { model: "text-embedding-ada-002" } },
+      { id: "search", type: "vector-search", config: { topK: 10 } },
+      { id: "graph", type: "graph-expand", config: { depth: 1 } },
+      { id: "rerank", type: "rerank-results", config: { model: "cohere-rerank-v3" } },
+      { id: "generate", type: "generate-answer", config: { model: "gpt-4o" } },
+    ],
+    createdAt: "2026-01-01",
+    updatedAt: "2026-01-01",
+  },
+];
+
+export default function WorkflowPage() {
+  const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
+  const [selectedStep, setSelectedStep] = useState<string | null>(null);
+  const [showTestPanel, setShowTestPanel] = useState(false);
+
+  const { data: workflows = DEFAULT_WORKFLOWS } = useQuery<Workflow[]>({
+    queryKey: ["workflows"],
+    queryFn: async () => {
+      const res = await fetch("/api/workflows");
+      if (!res.ok) return DEFAULT_WORKFLOWS;
+      return res.json();
+    },
+  });
+
+  const saveWorkflow = useMutation({
+    mutationFn: async (workflow: Workflow) => {
+      const res = await fetch(`/api/workflows/${workflow.id}`, {
+        method: "PUT",
+        body: JSON.stringify(workflow),
+      });
+      return res.json();
+    },
+  });
+
+  const resetToCLI = useMutation({
+    mutationFn: async (workflowId: string) => {
+      const res = await fetch(`/api/workflows/${workflowId}/reset`, {
+        method: "POST",
+      });
+      return res.json();
+    },
+  });
+
+  return (
+    <main className="min-h-screen bg-slate-50 dark:bg-slate-900">
+      <div className="container mx-auto py-8 px-4">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+              RAG Workflow Configuration
+            </h1>
+            <p className="text-sm text-slate-500 mt-1">
+              Configure and manage your retrieval-augmented generation pipelines.
+              These workflows were initialized from CLI setup.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button className="flex items-center gap-2 px-3 py-2 text-sm bg-white dark:bg-slate-800 border rounded-lg hover:bg-slate-50">
+              <Plus className="h-4 w-4" /> Create Workflow
+            </button>
+            <button className="flex items-center gap-2 px-3 py-2 text-sm bg-white dark:bg-slate-800 border rounded-lg hover:bg-slate-50">
+              <Download className="h-4 w-4" /> Import
+            </button>
+            <button className="flex items-center gap-2 px-3 py-2 text-sm bg-white dark:bg-slate-800 border rounded-lg hover:bg-slate-50">
+              <BookOpen className="h-4 w-4" /> Templates
+            </button>
+          </div>
+        </div>
+
+        {/* Workflow Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          {workflows.map((workflow) => (
+            <WorkflowCard
+              key={workflow.id}
+              workflow={workflow}
+              isSelected={selectedWorkflow?.id === workflow.id}
+              onClick={() => setSelectedWorkflow(workflow)}
+              onTest={() => {
+                setSelectedWorkflow(workflow);
+                setShowTestPanel(true);
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Workflow Editor */}
+        {selectedWorkflow && (
+          <div className="bg-white dark:bg-slate-800 rounded-xl border shadow-sm">
+            {/* Editor Header */}
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className="font-semibold text-lg">
+                Editing: {selectedWorkflow.name}
+              </h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => resetToCLI.mutate(selectedWorkflow.id)}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+                >
+                  <RefreshCw className="h-4 w-4" /> Reset to CLI
+                </button>
+                <button
+                  onClick={() => setShowTestPanel(true)}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm bg-secondary-500 text-white rounded-lg hover:bg-secondary-600"
+                >
+                  <Play className="h-4 w-4" /> Test Workflow
+                </button>
+                <button
+                  onClick={() => saveWorkflow.mutate(selectedWorkflow)}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm bg-primary-500 text-white rounded-lg hover:bg-primary-600"
+                >
+                  <Save className="h-4 w-4" /> Save
+                </button>
+              </div>
+            </div>
+
+            {/* React Flow Editor */}
+            <div className="h-[400px]">
+              <ReactFlow
+                nodes={workflowToNodes(selectedWorkflow)}
+                edges={workflowToEdges(selectedWorkflow)}
+                onNodeClick={(_, node) => setSelectedStep(node.id)}
+              >
+                <Background />
+                <Controls />
+                <MiniMap />
+              </ReactFlow>
+            </div>
+
+            {/* Step Configuration Panel */}
+            {selectedStep && (
+              <StepConfigPanel
+                step={selectedWorkflow.steps.find(s => s.id === selectedStep)!}
+                onUpdate={(updatedStep) => {
+                  // Update step and mark sync needed
+                }}
+                onClose={() => setSelectedStep(null)}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Test Panel Modal */}
+        {showTestPanel && selectedWorkflow && (
+          <WorkflowTestPanel
+            workflow={selectedWorkflow}
+            onClose={() => setShowTestPanel(false)}
+          />
+        )}
+      </div>
+    </main>
+  );
+}
+```
+
 ---
 
 ## 6. Component Architecture
@@ -1131,6 +2240,12 @@ frontend/
 │   ├── animations.css             # NEW: Keyframes and utilities
 │   └── globals.css                # ENHANCE: Import new styles
 │
+├── app/
+│   ├── settings/                  # NEW: Settings page (TIER 9)
+│   │   └── page.tsx               # Settings dashboard
+│   └── workflow/                  # ENHANCE: Workflow hub (TIER 10)
+│       └── page.tsx               # Pre-populated workflows
+│
 ├── components/
 │   ├── ui/                        # shadcn/ui components
 │   │   ├── badge.tsx              # ADD
@@ -1140,6 +2255,7 @@ frontend/
 │   │   ├── progress.tsx           # ADD
 │   │   ├── skeleton.tsx           # ADD
 │   │   ├── spinner.tsx            # ADD
+│   │   ├── switch.tsx             # ADD (TIER 9)
 │   │   └── tabs.tsx               # ADD
 │   │
 │   ├── copilot/
@@ -1325,7 +2441,7 @@ export default function RootLayout({ children }) {
 
 ### Phase 2: Chat Hero (Sprint 2)
 
-**Duration:** 1 sprint
+**Duration:** 1.5 sprints
 **Dependencies:** Phase 1 complete
 **Deliverables:**
 - [ ] 2.1 Agent Activity Panel
@@ -1333,12 +2449,26 @@ export default function RootLayout({ children }) {
 - [ ] 2.3 Custom Tool Call Cards
 - [ ] 2.5 Custom Message Renderers
 - [ ] 2.7 Loading/Thinking States
+- [ ] **8.1 Chat Mode Selector** (TIER 8 - NEW v1.2)
+- [ ] **8.2 Sidebar Mode** (TIER 8 - NEW v1.2)
+- [ ] **8.3 Bubble Mode** (TIER 8 - NEW v1.2)
+- [ ] **8.4 Bottom Bar Mode** (TIER 8 - NEW v1.2)
+- [ ] **8.5 Floating Mode** (TIER 8 - NEW v1.2)
+- [ ] **8.6 Drag & Drop Positioning** (TIER 8 - NEW v1.2)
+- [ ] **8.7 Resizable Windows** (TIER 8 - NEW v1.2)
+- [ ] **8.8 Mode Persistence** (TIER 8 - NEW v1.2)
+- [ ] **8.9 Multimodal File Input** (TIER 8 - NEW v1.2)
+- [ ] **8.10 File Preview & Management** (TIER 8 - NEW v1.2)
 
 **Acceptance Criteria:**
 - Agent steps visualized in real-time
 - AI responses animate smoothly
 - Tool calls display rich status cards
 - Messages use branded styling
+- Chat can switch between sidebar, bubble, bottom bar, and floating modes
+- Drag-and-drop positioning works smoothly
+- File attachments display previews before sending
+- Mode preference persists across sessions
 
 ### Phase 3: Trust & HITL (Sprint 3)
 
@@ -1397,6 +2527,48 @@ export default function RootLayout({ children }) {
 - [ ] 7.4 Keyboard Shortcuts
 - [ ] 7.5 Mobile Responsive
 - [ ] 7.6 Accessibility Audit
+
+### Phase 7: Configuration Hub (Sprint 6-7) - NEW v1.2
+
+**Duration:** 2 sprints
+**Dependencies:** Phase 1 complete (can run parallel to Phases 3-5)
+**Deliverables:**
+
+#### TIER 9: Settings Dashboard
+- [ ] **9.1 Settings Page Structure** (`/settings` route)
+- [ ] **9.2 LLM Provider Settings** (API keys, model selection)
+- [ ] **9.3 Database Settings** (PostgreSQL, Neo4j, Redis)
+- [ ] **9.4 API Configuration** (base URLs, endpoints)
+- [ ] **9.5 Feature Flags** (toggles with descriptions)
+- [ ] **9.6 Connection Testing** (live test buttons)
+- [ ] **9.7 Settings Import/Export** (JSON backup/restore)
+- [ ] **9.8 Undo Functionality** (revert changes)
+- [ ] **9.9 Workflow Integration Link** (navigate to workflow page)
+- [ ] **9.10 Visual Status Indicators** (connection health)
+- [ ] **9.11 Search & Filter** (find settings quickly)
+
+#### TIER 10: Workflow Configuration Hub
+- [ ] **10.1 Pre-populated Workflows** (Vector, Graph, Hybrid RAG)
+- [ ] **10.2 Visual Workflow Editor** (React Flow canvas)
+- [ ] **10.3 Node Palette** (drag-and-drop components)
+- [ ] **10.4 Workflow Properties Panel** (configuration sidebar)
+- [ ] **10.5 Two-way Settings Sync** (bidirectional with Settings page)
+- [ ] **10.6 CLI Backwards Compatibility** (export to CLI format)
+- [ ] **10.7 Reset to CLI Defaults** (restore original workflows)
+- [ ] **10.8 Workflow Test Panel** (live execution preview)
+- [ ] **10.9 Save/Load Presets** (custom workflow templates)
+- [ ] **10.10 Workflow Comparison** (diff between configs)
+- [ ] **10.11 Validation Warnings** (config compatibility checks)
+
+**Acceptance Criteria:**
+- Settings page displays all env configurations grouped by category
+- Connection test buttons verify DB connectivity in real-time
+- Import/Export produces valid JSON that can round-trip
+- Workflow page shows 3 pre-configured RAG workflows on first load
+- Changes in Settings page reflect in Workflow page and vice versa
+- "Reset to CLI" restores original workflow configurations
+- Workflow test panel shows live execution results
+- CLI commands continue to work with exported configurations
 
 ---
 
