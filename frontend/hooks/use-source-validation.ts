@@ -330,17 +330,21 @@ export function useSourceValidation(
       if (args) {
         console.log("[HITL] args:", JSON.stringify(args, null, 2));
       }
-      // Guard: respond is only available during "executing" status
-      // CopilotKit 1.x uses lowercase status values
-      if (status === "executing" && respond) {
+      // Guard: respond is only available during "inProgress" status
+      // CopilotKit 1.50+ uses camelCase "inProgress" status
+      if (status === "inProgress" && respond) {
+        // Cast args and respond to work around TypeScript narrowing issues with union types
+        const typedArgs = args as Record<string, unknown> | undefined;
+        const typedRespond = respond as (result: { approved: string[] }) => void;
+
         // Safely extract sources from args - may be undefined or wrong type
-        const rawSources = args?.sources;
+        const rawSources = typedArgs?.sources;
         const sources: Source[] = Array.isArray(rawSources)
           ? (rawSources as unknown as Source[])
           : [];
 
         // Extract checkpoint_id from args (sent by backend HITL system)
-        const rawCheckpointId = args?.checkpoint_id;
+        const rawCheckpointId = typedArgs?.checkpoint_id;
         const checkpointId = typeof rawCheckpointId === "string" ? rawCheckpointId : "";
         console.log("[HITL] checkpoint_id:", checkpointId, "sources:", sources.length);
 
@@ -427,7 +431,7 @@ export function useSourceValidation(
             safeInvokeCallback(onValidationComplete, approvedIds);
 
             // Respond to the agent (for CopilotKit flow)
-            respond({ approved: approvedIds });
+            typedRespond({ approved: approvedIds });
           },
           onCancel: async () => {
             // Mark as responded (Issue 2.4)
@@ -448,7 +452,7 @@ export function useSourceValidation(
             safeInvokeCallback(onValidationCancelled);
 
             // Respond with empty approval (cancellation)
-            respond({ approved: [] });
+            typedRespond({ approved: [] });
           },
           isSubmitting: false,
         });
