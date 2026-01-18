@@ -1,10 +1,10 @@
 # Ultimate AI RAG - Comprehensive UI/UX Upgrade Plan
 
-**Document Version:** 1.3
+**Document Version:** 1.4
 **Created:** 2026-01-17
 **Updated:** 2026-01-18
 **Author:** BMAD Party Mode (Sally, Caravaggio, Maya, Winston, Amelia, Mary, Bob, Murat, Dr. Quinn)
-**Status:** Ready for Implementation (Audit Corrections + New Features + Hybrid Activation Applied)
+**Status:** Ready for Implementation (All Audit Corrections Applied)
 
 ---
 
@@ -34,10 +34,23 @@ This document outlines a comprehensive UI/UX upgrade plan for the Ultimate AI RA
 ### Hybrid Settings Activation (v1.3)
 - 🟢 **Hot Reload** - Feature flags, LLM params, RAG thresholds apply instantly via Redis
 - 🔴 **Restart Required** - DB connections, API keys require app restart (banner notification)
-- Full backend `RuntimeConfig` service + Settings API + frontend types included
+- Backend `RuntimeConfig` service + Settings API + frontend types **TO BE IMPLEMENTED** (new backend epic)
+
+### Audit Corrections Applied (v1.4)
+This version addresses findings from second codebase audit validation:
+- ✅ Fixed A2UI contradiction (7.2 marked DEFERRED, not active deliverable)
+- ✅ Settings backend marked as new implementation (TO BE IMPLEMENTED, not included)
+- ✅ Adaptive Chat integration note (MUST extend existing `ChatInterface.tsx`)
+- ✅ Tool rendering uses `useRenderToolCall` pattern (NOT `useFrontendTool`)
+- ✅ Tool names corrected: `graph_search`, `ingest_url`, `ingest_pdf` (NOT `graph_query`, `retrieve_documents`)
+- ✅ Added `QueryClientProvider` requirement for Settings page
+- ✅ Phase 0 deps updated: removed Recharts (custom SVG exists), added `react-draggable`, `@dnd-kit/core`, `react-resizable`, `dagre`
+- ✅ Fixed typo: `useCopilotChatHeadless` (NOT `useCopilotChatHeadless_c`)
+- ✅ Agent name fixed: `"default"` (NOT `"orchestrator"`)
+- ✅ Config paths fixed: `config/profiles/*.yaml` (NOT `config.yaml` or `backend/.env`)
 
 ### Audit Corrections Applied (v1.1)
-This version addresses findings from codebase audit validation:
+Previous audit corrections:
 - ✅ Fixed runtime URL (`/api/copilotkit` not `/api/copilot`)
 - ✅ Added Phase 0: Prerequisites for dependencies and directory structure
 - ✅ Clarified A2UI strategy (deferred, not parallel implementation)
@@ -313,7 +326,7 @@ A2UI is a "declarative protocol enabling AI agents to generate rich, interactive
 ```typescript
 // Agent state visualization
 useCoAgentStateRender({
-  name: "orchestrator",
+  name: "default", // Must match agent name in CopilotRuntime (see ThoughtTraceStepper.tsx:177)
   render: ({ state, status }) => <AgentActivityPanel state={state} />
 });
 
@@ -498,7 +511,7 @@ useHumanInTheLoop({
 |----|---------|-------------|----------------|
 | 2.1 | **Agent Activity Panel** | Real-time visualization of agent steps | Enhance `ThoughtTraceStepper.tsx` with premium styling |
 | 2.2 | **Streaming Text Animation** | Smooth typing effect for AI responses | CSS `@keyframes` + component wrapper |
-| 2.3 | **Custom Tool Call Cards** | Rich cards showing tool execution | Create `ToolCallCard.tsx` with `useFrontendTool` |
+| 2.3 | **Custom Tool Call Cards** | Rich cards showing tool execution | Enhance existing `tool-renderers.tsx` using `useRenderToolCall` pattern (NOT `useFrontendTool`) |
 | 2.4 | **HITL Source Validation UI** | Premium "trust ceremony" | Enhance `SourceValidationPanel.tsx` styling |
 | 2.5 | **Custom Message Renderers** | Branded AssistantMessage/UserMessage | Create custom renderers with avatars |
 | 2.6 | **Chat Suggestions Styling** | Premium quick-action buttons | Style static `useChatSuggestions` hook output (`frontend/hooks/use-chat-suggestions.ts`) - **DO NOT use `useCopilotChatSuggestions`** as it bypasses AG-UI backend causing ZodError validation failures |
@@ -558,7 +571,7 @@ useHumanInTheLoop({
 | ID | Feature | Description | Implementation |
 |----|---------|-------------|----------------|
 | 7.1 | **Command Palette** | Raycast-style ⌘K menu | `shadcn/command` component |
-| 7.2 | **A2UI Component Catalog** | Agent-generated UI | A2UI protocol integration |
+| ~~7.2~~ | ~~**A2UI Component Catalog**~~ | ~~Agent-generated UI~~ | **DEFERRED** - See A2UI Protocol Status note; revisit when A2UI reaches v1.0 |
 | 7.3 | **Voice Input UI** | Waveform visualization | Canvas/SVG animation |
 | 7.4 | **Keyboard Shortcuts** | Power user shortcuts | Custom hook + hints |
 | 7.5 | **Mobile Responsive** | Full mobile optimization | Tailwind responsive utilities |
@@ -567,6 +580,8 @@ useHumanInTheLoop({
 ### 4.8 TIER 8: Adaptive Chat Interface (P1) *(NEW)*
 
 > **Goal:** Transform the fixed sidebar chat into a flexible, adaptive interface that users can position, resize, and interact with in multiple modes. Supports multimodal input (documents, images) for the enhanced RAG experience.
+
+> ⚠️ **INTEGRATION NOTE:** This MUST extend the existing `ChatInterface.tsx` architecture, NOT bypass it. The current implementation uses `ChatSidebar`, `PopupChat`, and `EmbeddedChat` wrappers that include `ThoughtTraceStepper` and `GenerativeUIRenderer`. New modes (bubble, bottom bar, floating) should be added as new cases in `ChatInterface.tsx` following the same wrapper pattern to preserve AG-UI event handling and tool rendering.
 
 | ID | Feature | Description | Implementation |
 |----|---------|-------------|----------------|
@@ -866,10 +881,13 @@ useHumanInTheLoop({
 │   │ Collection: docs  │  SYNC   │  store: pgvector  │           │
 │   └───────────────────┘         └───────────────────┘           │
 │                                                                  │
-│   CLI Config Files (backend/.env, config.yaml)                  │
+│   Config Files (actual paths - see config/ directory)           │
 │   ┌─────────────────────────────────────────────────────────┐   │
-│   │ Changes in Settings/Workflows update CLI config files   │   │
-│   │ for backwards compatibility with CLI-based workflows    │   │
+│   │ • .env (root) - Environment variables                   │   │
+│   │ • config/profiles/*.yaml - Profile configs              │   │
+│   │   (standard.yaml, minimal.yaml, enterprise.yaml)        │   │
+│   │ • CONFIG_PROFILE env var selects active profile         │   │
+│   │ NOTE: No config.yaml exists; use profile system instead │   │
 │   └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -1091,7 +1109,7 @@ const statusConfig = {
 
 export function AgentActivityPanel() {
   useCoAgentStateRender<AgentState>({
-    name: "orchestrator",
+    name: "default", // Must match agent name in CopilotRuntime (see ThoughtTraceStepper.tsx:177)
     render: ({ state, status }) => {
       if (!state?.steps?.length) return null;
 
@@ -1181,15 +1199,20 @@ export function AgentActivityPanel() {
 
 **File: `frontend/components/copilot/ToolCallCard.tsx`**
 
+> ⚠️ **INTEGRATION NOTE:** This component should enhance the existing `tool-renderers.tsx` pattern using `useRenderToolCall` (NOT `useFrontendTool`). The current tool rendering uses `MCPToolCallCard` and `VectorSearchCard` via `useToolCallRenderers()`.
+
 ```tsx
 "use client";
 
-import { useFrontendTool } from "@copilotkit/react-core";
+// NOTE: This is a STYLING enhancement, NOT a replacement for tool-renderers.tsx
+// Import pattern matches existing tool-renderers.tsx architecture
 import { cn } from "@/lib/utils";
 import {
   Search,
   Database,
   GitBranch,
+  FileText,
+  Globe,
   Loader2,
   CheckCircle2,
   AlertCircle
@@ -1202,10 +1225,12 @@ interface ToolCallCardProps {
   result?: unknown;
 }
 
+// Tool names MUST match actual tools in tool-renderers.tsx
 const toolConfig: Record<string, { icon: typeof Search; label: string; color: string }> = {
   vector_search: { icon: Search, label: "Vector Search", color: "blue" },
-  graph_query: { icon: GitBranch, label: "Graph Query", color: "purple" },
-  retrieve_documents: { icon: Database, label: "Document Retrieval", color: "emerald" },
+  graph_search: { icon: GitBranch, label: "Graph Search", color: "purple" },  // NOT graph_query
+  ingest_url: { icon: Globe, label: "URL Ingestion", color: "emerald" },       // NOT retrieve_documents
+  ingest_pdf: { icon: FileText, label: "PDF Ingestion", color: "orange" },
 };
 
 export function ToolCallCard({ toolName, status, args, result }: ToolCallCardProps) {
@@ -1841,11 +1866,14 @@ export function FileDropZone({
 
 **File: `frontend/app/settings/page.tsx`**
 
+> ⚠️ **NOTE:** This page requires a `QueryClientProvider` wrapper (like `/ops` and `/knowledge` pages). The QueryClient is created inside the component using useState to avoid SSR issues.
+
 ```tsx
 "use client";
 
 import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import {
   Bot, Database, Plug, Settings2, Search, Download, Upload,
@@ -2650,8 +2678,8 @@ touch frontend/styles/animations.css
 ```bash
 cd frontend
 
-# Charting library (required for Ops Dashboard)
-pnpm add recharts
+# NOTE: Recharts NOT needed - custom SVG ChartWidget already exists in
+# frontend/components/widgets/ChartWidget.tsx (BarChartWidget, LineChartWidget, PieChartWidget)
 
 # Animation library (required for micro-interactions)
 pnpm add framer-motion
@@ -2661,6 +2689,14 @@ pnpm add sonner
 
 # Theme provider (required for dark mode)
 pnpm add next-themes
+
+# Adaptive Chat dependencies (TIER 8)
+pnpm add react-draggable        # Drag-and-drop positioning
+pnpm add @dnd-kit/core          # Alternative DnD library
+pnpm add react-resizable        # Resizable windows
+
+# Graph layout (Knowledge Graph clustering/auto-layout)
+pnpm add dagre                  # Directed graph layout algorithm
 ```
 
 #### 0.3 Initialize shadcn/ui (if not already configured)
@@ -2694,9 +2730,10 @@ pnpm dlx shadcn@latest add tabs
 
 **Acceptance Criteria:**
 - [ ] `frontend/styles/` directory exists with 3 empty CSS files
-- [ ] `recharts`, `framer-motion`, `next-themes` installed in package.json
+- [ ] `framer-motion`, `next-themes`, `react-draggable`, `@dnd-kit/core`, `react-resizable`, `dagre` installed in package.json
 - [ ] shadcn/ui components (badge, chart, progress, skeleton, tabs) available
 - [ ] globals.css imports new style files without errors
+- [ ] NOTE: `recharts` NOT needed - verify custom `ChartWidget.tsx` exists with SVG implementation
 
 ---
 
@@ -2832,7 +2869,7 @@ export default function RootLayout({ children }) {
 **Dependencies:** Phase 5 complete
 **Deliverables:**
 - [ ] 7.1 Command Palette
-- [ ] 7.2 A2UI Component Catalog
+- [ ] ~~7.2 A2UI Component Catalog~~ **(DEFERRED - awaiting A2UI v1.0)**
 - [ ] 7.3 Voice Input UI
 - [ ] 7.4 Keyboard Shortcuts
 - [ ] 7.5 Mobile Responsive
@@ -2961,7 +2998,7 @@ test('animations maintain 60fps', async ({ page }) => {
 - `useFrontendTool` - Custom tool rendering
 - `useHumanInTheLoop` - HITL patterns
 - `useCopilotChat` - Headless chat interface
-- `useCopilotChatHeadless_c` - Advanced headless UI
+- `useCopilotChatHeadless` - Advanced headless UI
 
 **Components:**
 - `CopilotSidebar` - Pre-built sidebar
