@@ -186,9 +186,20 @@ export function useDefaultToolHandler(): void {
     [toast]
   );
 
+  // Tools that have specific handlers (useHumanInTheLoop, useCopilotAction, etc.)
+  // These should NOT be handled by the default catch-all handler
+  const toolsWithSpecificHandlers = new Set([
+    "validate_sources", // HITL source validation (use-source-validation.ts)
+  ]);
+
   useDefaultTool({
     render: (props) => {
       const { name, args, status } = props as DefaultToolRenderProps;
+
+      // Skip tools that have specific handlers - let their handlers render instead
+      if (toolsWithSpecificHandlers.has(name)) {
+        return <></>;
+      }
 
       try {
         // Generate a stable unique ID for this tool call across renders
