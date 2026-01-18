@@ -7,6 +7,50 @@ import { validateSourcesToolParams } from "@/lib/schemas/tools";
 import type { Source, ValidationDecision, SourceValidationState } from "@/types/copilot";
 
 /**
+ * Send validation response to backend API.
+ * This is needed because the respond() callback from useHumanInTheLoop
+ * doesn't automatically communicate with our backend's HITL system.
+ *
+ * @param checkpointId - The checkpoint ID from the backend
+ * @param approvedSourceIds - List of approved source IDs
+ * @returns Promise resolving to the API response
+ */
+async function sendValidationToBackend(
+  checkpointId: string,
+  approvedSourceIds: string[]
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+    const tenantId = process.env.NEXT_PUBLIC_TENANT_ID || "550e8400-e29b-41d4-a716-446655440000";
+
+    const response = await fetch(`${backendUrl}/api/v1/copilot/validation-response`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Tenant-ID": tenantId,
+      },
+      body: JSON.stringify({
+        checkpoint_id: checkpointId,
+        approved_source_ids: approvedSourceIds,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[HITL] Backend validation response failed:", response.status, errorText);
+      return { success: false, error: errorText };
+    }
+
+    const data = await response.json();
+    console.log("[HITL] Backend validation response success:", data);
+    return { success: true };
+  } catch (error) {
+    console.error("[HITL] Failed to send validation to backend:", error);
+    return { success: false, error: String(error) };
+  }
+}
+
+/**
  * Options for the useSourceValidation hook.
  */
 export interface UseSourceValidationOptions {
@@ -75,6 +119,7 @@ interface PendingAutoRespond {
   sources: Source[];
   decisions: Map<string, ValidationDecision>;
   autoApprovedIds: string[];
+  checkpointId: string;
   respond: (result: { approved: string[] }) => void;
 }
 
@@ -178,27 +223,44 @@ export function useSourceValidation(
   // Handle auto-respond in useEffect to avoid setState during render (Issue 1.1)
   useEffect(() => {
     if (pendingAutoRespond) {
-      const { sources, decisions, autoApprovedIds, respond } = pendingAutoRespond;
+      const { sources, decisions, autoApprovedIds, checkpointId, respond } = pendingAutoRespond;
 
-      // Update state
-      setState({
-        isValidating: false,
-        pendingSources: sources,
-        decisions,
-        approvedIds: autoApprovedIds,
-        rejectedIds: sources.filter(s => !autoApprovedIds.includes(s.id)).map(s => s.id),
-        isSubmitting: false,
-        error: null,
-      });
+      // Async function to handle the auto-respond with backend call
+      const handleAutoRespond = async () => {
+        // Update state
+        setState({
+          isValidating: false,
+          pendingSources: sources,
+          decisions,
+          approvedIds: autoApprovedIds,
+          rejectedIds: sources.filter(s => !autoApprovedIds.includes(s.id)).map(s => s.id),
+          isSubmitting: false,
+          error: null,
+        });
 
-      // Call completion callback with error handling (Issue 2.5)
-      safeInvokeCallback(onValidationComplete, autoApprovedIds);
+        // Send validation to backend API (critical for HITL to work)
+        if (checkpointId) {
+          const result = await sendValidationToBackend(checkpointId, autoApprovedIds);
+          if (!result.success) {
+            console.error("[HITL] Backend auto-validation failed:", result.error);
+          } else {
+            console.log("[HITL] Auto-validation sent to backend successfully");
+          }
+        } else {
+          console.warn("[HITL] No checkpoint_id for auto-respond, backend won't receive validation");
+        }
 
-      // Respond to the agent
-      respond({ approved: autoApprovedIds });
+        // Call completion callback with error handling (Issue 2.5)
+        safeInvokeCallback(onValidationComplete, autoApprovedIds);
 
-      // Clear pending action
-      setPendingAutoRespond(null);
+        // Respond to the agent
+        respond({ approved: autoApprovedIds });
+
+        // Clear pending action
+        setPendingAutoRespond(null);
+      };
+
+      handleAutoRespond();
     }
   }, [pendingAutoRespond, onValidationComplete]);
 
@@ -263,6 +325,11 @@ export function useSourceValidation(
       "Request human approval for retrieved sources before answer generation",
     parameters: validateSourcesToolParams,
     render: ({ status, args, respond, result }) => {
+      // Debug logging to trace HITL flow
+      console.log("[HITL] render called:", { status, hasArgs: !!args, hasRespond: !!respond, hasResult: !!result });
+      if (args) {
+        console.log("[HITL] args:", JSON.stringify(args, null, 2));
+      }
       // Guard: respond is only available during "executing" status
       // CopilotKit 1.x uses lowercase status values
       if (status === "executing" && respond) {
@@ -271,6 +338,11 @@ export function useSourceValidation(
         const sources: Source[] = Array.isArray(rawSources)
           ? (rawSources as unknown as Source[])
           : [];
+
+        // Extract checkpoint_id from args (sent by backend HITL system)
+        const rawCheckpointId = args?.checkpoint_id;
+        const checkpointId = typeof rawCheckpointId === "string" ? rawCheckpointId : "";
+        console.log("[HITL] checkpoint_id:", checkpointId, "sources:", sources.length);
 
         // Generate unique call ID for one-shot guard (Issue 2.4)
         const callId = sources.map(s => s.id).sort().join(",");
@@ -299,6 +371,7 @@ export function useSourceValidation(
             sources,
             decisions,
             autoApprovedIds,
+            checkpointId,
             respond,
           });
 
@@ -318,7 +391,7 @@ export function useSourceValidation(
         return React.createElement(SourceValidationDialog, {
           open: true,
           sources: sources,
-          onSubmit: (approvedIds: string[]) => {
+          onSubmit: async (approvedIds: string[]) => {
             // Mark as responded (Issue 2.4)
             respondedCallsRef.current.add(callId);
 
@@ -333,22 +406,43 @@ export function useSourceValidation(
               decisions: new Map(sources.map(s => [s.id, approvedIds.includes(s.id) ? "approved" : "rejected"] as const)),
               approvedIds,
               rejectedIds,
-              isSubmitting: false,
+              isSubmitting: true, // Show submitting state while calling backend
               error: null,
             });
+
+            // Send validation to backend API (critical for HITL to work)
+            if (checkpointId) {
+              const result = await sendValidationToBackend(checkpointId, approvedIds);
+              if (!result.success) {
+                console.error("[HITL] Backend validation failed, but continuing with CopilotKit respond");
+              }
+            } else {
+              console.warn("[HITL] No checkpoint_id in args, cannot send validation to backend");
+            }
+
+            // Update submitting state
+            setState((prev) => ({ ...prev, isSubmitting: false }));
 
             // Call completion callback with error handling (Issue 2.5)
             safeInvokeCallback(onValidationComplete, approvedIds);
 
-            // Respond to the agent
+            // Respond to the agent (for CopilotKit flow)
             respond({ approved: approvedIds });
           },
-          onCancel: () => {
+          onCancel: async () => {
             // Mark as responded (Issue 2.4)
             respondedCallsRef.current.add(callId);
 
             // Update state
             setState(initialState);
+
+            // Send cancellation to backend (empty approval = cancel)
+            if (checkpointId) {
+              const result = await sendValidationToBackend(checkpointId, []);
+              if (!result.success) {
+                console.error("[HITL] Backend cancellation failed");
+              }
+            }
 
             // Call cancellation callback with error handling (Issue 2.5)
             safeInvokeCallback(onValidationCancelled);

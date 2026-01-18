@@ -129,7 +129,7 @@ class Neo4jClient:
                     "CREATE INDEX entity_id IF NOT EXISTS FOR (e:Entity) ON (e.id)"
                 )
                 await session.run(
-                    "CREATE INDEX entity_tenant IF NOT EXISTS FOR (e:Entity) ON (e.tenant_id)"
+                    "CREATE INDEX entity_tenant IF NOT EXISTS FOR (e:Entity) ON (e.group_id)"
                 )
                 await session.run(
                     "CREATE INDEX entity_type IF NOT EXISTS FOR (e:Entity) ON (e.type)"
@@ -199,9 +199,10 @@ class Neo4jClient:
             properties_json = json.dumps(properties) if properties else None
 
             async with self.driver.session() as session:
+                # Use group_id for Graphiti compatibility and consistent tenant isolation
                 result = await session.run(
                     """
-                    MERGE (e:Entity {id: $id, tenant_id: $tenant_id})
+                    MERGE (e:Entity {id: $id, group_id: $tenant_id})
                     ON CREATE SET e.created_at = datetime()
                     SET e.name = $name,
                         e.type = $type,
@@ -291,9 +292,10 @@ class Neo4jClient:
             async with self.driver.session() as session:
                 # Dynamic relationship type requires string formatting
                 # We've validated the type above to prevent injection
+                # Use group_id for Graphiti compatibility
                 query = f"""
-                MATCH (source:Entity {{id: $source_id, tenant_id: $tenant_id}})
-                MATCH (target:Entity {{id: $target_id, tenant_id: $tenant_id}})
+                MATCH (source:Entity {{id: $source_id, group_id: $tenant_id}})
+                MATCH (target:Entity {{id: $target_id, group_id: $tenant_id}})
                 MERGE (source)-[r:{relationship_type}]->(target)
                 SET r.confidence = $confidence,
                     r.source_chunk = $chunk_id,
@@ -348,7 +350,7 @@ class Neo4jClient:
             async with self.driver.session() as session:
                 result = await session.run(
                     """
-                    MATCH (e:Entity {tenant_id: $tenant_id, type: $type})
+                    MATCH (e:Entity {group_id: $tenant_id, type: $type})
                     WHERE toLower(trim(e.name)) = toLower(trim($name))
                     RETURN e
                     LIMIT 1
@@ -383,7 +385,7 @@ class Neo4jClient:
             async with self.driver.session() as session:
                 result = await session.run(
                     """
-                    MATCH (e:Entity {id: $id, tenant_id: $tenant_id})
+                    MATCH (e:Entity {id: $id, group_id: $tenant_id})
                     RETURN e
                     """,
                     id=entity_id,
@@ -417,7 +419,7 @@ class Neo4jClient:
             async with self.driver.session() as session:
                 result = await session.run(
                     """
-                    MATCH (e:Entity {tenant_id: $tenant_id, type: $type})
+                    MATCH (e:Entity {group_id: $tenant_id, type: $type})
                     RETURN e
                     ORDER BY e.name
                     LIMIT $limit
@@ -452,8 +454,8 @@ class Neo4jClient:
             async with self.driver.session() as session:
                 result = await session.run(
                     """
-                    MATCH (source:Entity {id: $id, tenant_id: $tenant_id})-[r]->(target:Entity)
-                    WHERE target.tenant_id = $tenant_id
+                    MATCH (source:Entity {id: $id, group_id: $tenant_id})-[r]->(target:Entity)
+                    WHERE target.group_id = $tenant_id
                     RETURN type(r) as type,
                            target.id as target_id,
                            target.name as target_name,
@@ -608,7 +610,7 @@ class Neo4jClient:
             async with self.driver.session() as session:
                 result = await session.run(
                     """
-                    MATCH (e:Entity {id: $id, tenant_id: $tenant_id})
+                    MATCH (e:Entity {id: $id, group_id: $tenant_id})
                     SET e.source_chunks = CASE
                         WHEN NOT $chunk_id IN COALESCE(e.source_chunks, [])
                         THEN COALESCE(e.source_chunks, []) + $chunk_id
@@ -657,7 +659,7 @@ class Neo4jClient:
                 result = await session.run(
                     """
                     MATCH (c:Chunk {id: $chunk_id, tenant_id: $tenant_id})
-                    MATCH (e:Entity {id: $entity_id, tenant_id: $tenant_id})
+                    MATCH (e:Entity {id: $entity_id, group_id: $tenant_id})
                     MERGE (c)-[r:MENTIONS]->(e)
                     SET r.confidence = $confidence,
                         r.created_at = COALESCE(r.created_at, datetime())
@@ -687,7 +689,7 @@ class Neo4jClient:
             async with self.driver.session() as session:
                 # Count entities
                 entity_result = await session.run(
-                    "MATCH (e:Entity {tenant_id: $tenant_id}) RETURN count(e) as count",
+                    "MATCH (e:Entity {group_id: $tenant_id}) RETURN count(e) as count",
                     tenant_id=tenant_id,
                 )
                 entity_record = await entity_result.single()
@@ -712,7 +714,7 @@ class Neo4jClient:
                 # Count relationships
                 rel_result = await session.run(
                     """
-                    MATCH (e:Entity {tenant_id: $tenant_id})-[r]-()
+                    MATCH (e:Entity {group_id: $tenant_id})-[r]-()
                     RETURN count(r) as count
                     """,
                     tenant_id=tenant_id,
@@ -761,7 +763,7 @@ class Neo4jClient:
             async with self.driver.session() as session:
                 result = await session.run(
                     """
-                    MATCH (e:Entity {tenant_id: $tenant_id})
+                    MATCH (e:Entity {group_id: $tenant_id})
                     WHERE any(term IN $terms WHERE toLower(e.name) CONTAINS term)
                     RETURN e
                     ORDER BY e.name
@@ -808,8 +810,8 @@ class Neo4jClient:
                     """
                     MATCH p=(start:Entity)-[r*1..]-(target:Entity)
                     WHERE start.id IN $start_ids
-                      AND start.tenant_id = $tenant_id
-                      AND all(n IN nodes(p) WHERE n.tenant_id = $tenant_id)
+                      AND start.group_id = $tenant_id
+                      AND all(n IN nodes(p) WHERE n.group_id = $tenant_id)
                       AND all(rel IN relationships(p) WHERE type(rel) IN $rel_types)
                       AND length(p) <= $max_hops
                     RETURN p
@@ -854,7 +856,7 @@ class Neo4jClient:
                 # Build the query based on filters
                 if entity_type:
                     node_query = """
-                    MATCH (n:Entity {tenant_id: $tenant_id, type: $entity_type})
+                    MATCH (n:Entity {group_id: $tenant_id, type: $entity_type})
                     RETURN n
                     ORDER BY n.name
                     SKIP $offset
@@ -868,7 +870,7 @@ class Neo4jClient:
                     }
                 else:
                     node_query = """
-                    MATCH (n:Entity {tenant_id: $tenant_id})
+                    MATCH (n:Entity {group_id: $tenant_id})
                     RETURN n
                     ORDER BY n.name
                     SKIP $offset
@@ -892,7 +894,7 @@ class Neo4jClient:
                 if node_ids:
                     orphan_query = """
                     MATCH (n:Entity)
-                    WHERE n.id IN $node_ids AND n.tenant_id = $tenant_id
+                    WHERE n.id IN $node_ids AND n.group_id = $tenant_id
                     AND NOT (n)-[]-()
                     RETURN n.id as id
                     """
@@ -931,7 +933,7 @@ class Neo4jClient:
                             edge_query = f"""
                             MATCH (source:Entity)-[r:{relationship_type}]->(target:Entity)
                             WHERE source.id IN $node_ids AND target.id IN $node_ids
-                            AND source.tenant_id = $tenant_id
+                            AND source.group_id = $tenant_id
                             RETURN source.id as source_id, target.id as target_id, 
                                    type(r) as rel_type, r.confidence as confidence,
                                    r.description as description
@@ -946,7 +948,7 @@ class Neo4jClient:
                         edge_query = """
                         MATCH (source:Entity)-[r]->(target:Entity)
                         WHERE source.id IN $node_ids AND target.id IN $node_ids
-                        AND source.tenant_id = $tenant_id
+                        AND source.group_id = $tenant_id
                         AND type(r) IN ['MENTIONS', 'AUTHORED_BY', 'PART_OF', 'USES', 'RELATED_TO']
                         RETURN source.id as source_id, target.id as target_id, 
                                type(r) as rel_type, r.confidence as confidence,
@@ -991,7 +993,7 @@ class Neo4jClient:
             async with self.driver.session() as session:
                 # Count total entities
                 entity_result = await session.run(
-                    "MATCH (e:Entity {tenant_id: $tenant_id}) RETURN count(e) as count",
+                    "MATCH (e:Entity {group_id: $tenant_id}) RETURN count(e) as count",
                     tenant_id=tenant_id,
                 )
                 entity_record = await entity_result.single()
@@ -1000,7 +1002,7 @@ class Neo4jClient:
                 # Count entity-to-entity relationships
                 rel_result = await session.run(
                     """
-                    MATCH (e1:Entity {tenant_id: $tenant_id})-[r]->(e2:Entity {tenant_id: $tenant_id})
+                    MATCH (e1:Entity {group_id: $tenant_id})-[r]->(e2:Entity {group_id: $tenant_id})
                     WHERE type(r) IN ['MENTIONS', 'AUTHORED_BY', 'PART_OF', 'USES', 'RELATED_TO']
                     RETURN count(r) as count
                     """,
@@ -1012,7 +1014,7 @@ class Neo4jClient:
                 # Count orphan nodes
                 orphan_result = await session.run(
                     """
-                    MATCH (e:Entity {tenant_id: $tenant_id})
+                    MATCH (e:Entity {group_id: $tenant_id})
                     WHERE NOT (e)-[]-()
                     RETURN count(e) as count
                     """,
@@ -1024,7 +1026,7 @@ class Neo4jClient:
                 # Count by entity type
                 type_result = await session.run(
                     """
-                    MATCH (e:Entity {tenant_id: $tenant_id})
+                    MATCH (e:Entity {group_id: $tenant_id})
                     RETURN e.type as type, count(e) as count
                     """,
                     tenant_id=tenant_id,
@@ -1035,7 +1037,7 @@ class Neo4jClient:
                 # Count by relationship type
                 rel_type_result = await session.run(
                     """
-                    MATCH (e1:Entity {tenant_id: $tenant_id})-[r]->(e2:Entity {tenant_id: $tenant_id})
+                    MATCH (e1:Entity {group_id: $tenant_id})-[r]->(e2:Entity {group_id: $tenant_id})
                     WHERE type(r) IN ['MENTIONS', 'AUTHORED_BY', 'PART_OF', 'USES', 'RELATED_TO']
                     RETURN type(r) as type, count(r) as count
                     """,
@@ -1074,7 +1076,7 @@ class Neo4jClient:
             async with self.driver.session() as session:
                 result = await session.run(
                     """
-                    MATCH (e:Entity {tenant_id: $tenant_id})
+                    MATCH (e:Entity {group_id: $tenant_id})
                     WHERE NOT (e)-[]-()
                     RETURN e
                     ORDER BY e.name

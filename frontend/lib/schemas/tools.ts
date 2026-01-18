@@ -267,6 +267,7 @@ export const suggestFollowUpToolParams: ToolParameter[] = [
 export const ValidateSourcesSchema = z.object({
   sources: z.array(SourceSchema).describe("Array of sources requiring human validation"),
   query: z.string().optional().describe("The original user query for context"),
+  checkpoint_id: z.string().optional().describe("HITL checkpoint ID for backend response correlation"),
 });
 
 /** Inferred TypeScript type for validate_sources parameters */
@@ -296,6 +297,12 @@ export const validateSourcesToolParams: ToolParameter[] = [
     name: "query",
     type: "string",
     description: "The original user query for context",
+    required: false,
+  },
+  {
+    name: "checkpoint_id",
+    type: "string",
+    description: "HITL checkpoint ID for backend response correlation",
     required: false,
   },
 ];
