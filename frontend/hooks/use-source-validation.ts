@@ -20,10 +20,11 @@ async function sendValidationToBackend(
   approvedSourceIds: string[]
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+    // Use the Next.js API proxy route to avoid URL mismatch issues in Docker
+    // The proxy route uses COPILOT_BACKEND_URL (internal) instead of NEXT_PUBLIC_BACKEND_URL (external)
     const tenantId = process.env.NEXT_PUBLIC_TENANT_ID || "550e8400-e29b-41d4-a716-446655440000";
 
-    const response = await fetch(`${backendUrl}/api/v1/copilot/validation-response`, {
+    const response = await fetch("/api/validation", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -330,9 +331,12 @@ export function useSourceValidation(
       if (args) {
         console.log("[HITL] args:", JSON.stringify(args, null, 2));
       }
-      // Guard: respond is only available during "inProgress" status
-      // CopilotKit 1.50+ uses camelCase "inProgress" status
-      if (status === "inProgress" && respond) {
+      // Guard: respond is only available during "executing" status per CopilotKit types
+      // - InProgress: tool call started, respond is undefined
+      // - Executing: waiting for user input, respond is available
+      // - Complete: tool call finished, respond is undefined
+      // Accept both for backwards compatibility, but respond callback only works in "executing"
+      if ((status === "executing" || status === "inProgress") && respond) {
         // Cast args and respond to work around TypeScript narrowing issues with union types
         const typedArgs = args as Record<string, unknown> | undefined;
         const typedRespond = respond as (result: { approved: string[] }) => void;
