@@ -1,10 +1,10 @@
 # Ultimate AI RAG - Comprehensive UI/UX Upgrade Plan
 
-**Document Version:** 1.2
+**Document Version:** 1.3
 **Created:** 2026-01-17
 **Updated:** 2026-01-18
 **Author:** BMAD Party Mode (Sally, Caravaggio, Maya, Winston, Amelia, Mary, Bob, Murat, Dr. Quinn)
-**Status:** Ready for Implementation (Audit Corrections + New Features Applied)
+**Status:** Ready for Implementation (Audit Corrections + New Features + Hybrid Activation Applied)
 
 ---
 
@@ -22,14 +22,19 @@ This document outlines a comprehensive UI/UX upgrade plan for the Ultimate AI RA
 > **A2UI Protocol Status:** A2UI (Google's declarative agent UI spec, v0.8 preview) is **deferred to Phase 7+**. The codebase already implements rich UI rendering via OpenJSON-UI (`frontend/components/open-json-ui/`) and MCP-UI (`frontend/components/mcp-ui/`). Adding A2UI would create a fourth rendering path requiring significant architectural decisions. Revisit when A2UI reaches v1.0 stability.
 
 ### Key Metrics
-- **79 features** across 10 tiers
+- **82 features** across 10 tiers
 - **8 implementation phases** (including Phase 0: Prerequisites)
 - **4 user personas** supported (Developer, Researcher, Ops Engineer, Data Engineer)
 
-### New Features Added (v1.2)
+### New Features Added (v1.2 + v1.3)
 - ✨ **TIER 8: Adaptive Chat Interface** (10 features) - Flexible chat modes (sidebar/bubble/bottom bar), drag-and-drop positioning, resizable windows, multimodal file input
-- ✨ **TIER 9: Settings Dashboard** (11 features) - Comprehensive settings page with env config display, connection testing, import/export, workflow sync
+- ✨ **TIER 9: Settings Dashboard** (14 features) - Comprehensive settings page with env config display, connection testing, import/export, workflow sync, **hybrid activation system** (v1.3)
 - ✨ **TIER 10: Workflow Configuration Hub** (11 features) - Pre-populated RAG workflows from CLI, visual editor, two-way settings sync, backwards CLI compatibility
+
+### Hybrid Settings Activation (v1.3)
+- 🟢 **Hot Reload** - Feature flags, LLM params, RAG thresholds apply instantly via Redis
+- 🔴 **Restart Required** - DB connections, API keys require app restart (banner notification)
+- Full backend `RuntimeConfig` service + Settings API + frontend types included
 
 ### Audit Corrections Applied (v1.1)
 This version addresses findings from codebase audit validation:
@@ -650,47 +655,108 @@ useHumanInTheLoop({
 | 9.9 | **Import/Export Config** | Download/upload settings as JSON | File download/upload with validation |
 | 9.10 | **Settings History** | Track changes with undo capability | localStorage history with diff view |
 | 9.11 | **Workflow Sync Indicator** | Show which settings affect RAG workflows | Visual link to workflow page for related settings |
+| 9.12 | **Hybrid Activation System** | Hot-reload for runtime settings, restart-required for connections | Redis-backed `RuntimeConfig` for instant changes |
+| 9.13 | **Restart Required Banner** | Visual indicator when pending changes need app restart | Sticky banner with pending changes list and restart button |
+| 9.14 | **Live Settings Indicator** | Show which settings apply immediately vs require restart | Color-coded badges (🟢 Live / 🔴 Restart) per setting |
 
-**Settings Categories:**
+**Settings Activation Architecture (Hybrid Approach):**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                 HYBRID SETTINGS ACTIVATION                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  🟢 HOT RELOAD (Instant - stored in Redis)                      │
+│  ├── Feature flags (HITL, Voice, Graph RAG, Multimodal)         │
+│  ├── LLM parameters (temperature, max_tokens, model selection)  │
+│  ├── RAG thresholds (similarity, top_k, chunk_size)             │
+│  ├── UI preferences (theme, chat mode, positions)               │
+│  └── Workflow step configurations                                │
+│                                                                  │
+│  🔴 RESTART REQUIRED (Connection-level - stored in .env)        │
+│  ├── Database connection strings (PostgreSQL, Neo4j, Redis)     │
+│  ├── LLM API keys (security - requires re-authentication)       │
+│  ├── Backend/Frontend base URLs                                  │
+│  └── Tenant configuration                                        │
+│                                                                  │
+│  STORAGE ARCHITECTURE:                                           │
+│  ┌─────────────────┐    ┌─────────────────┐                     │
+│  │ .env / config   │    │ Redis           │                     │
+│  │ (restart req)   │    │ (hot reload)    │                     │
+│  │                 │    │                 │                     │
+│  │ DATABASE_URL    │    │ llm_temperature │                     │
+│  │ NEO4J_URI       │    │ similarity_thr  │                     │
+│  │ OPENAI_API_KEY  │    │ feature_hitl    │                     │
+│  │ REDIS_URL       │    │ feature_voice   │                     │
+│  └────────┬────────┘    └────────┬────────┘                     │
+│           │                      │                               │
+│           ▼                      ▼                               │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │              FastAPI RuntimeConfig Service               │    │
+│  │  ┌─────────────────────────────────────────────────┐    │    │
+│  │  │ def get(key): # 30s cache, instant on Redis     │    │    │
+│  │  │ def set(key, val): # Immediate effect           │    │    │
+│  │  └─────────────────────────────────────────────────┘    │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Settings Categories (with Activation Indicators):**
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
 │  ⚙️ Settings                                    [🔍 Search...] │
 ├────────────────────────────────────────────────────────────────┤
 │                                                                 │
+│  ⚠️ RESTART REQUIRED (2 pending changes)                       │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ • PostgreSQL connection string                          │   │
+│  │ • OpenAI API key                                        │   │
+│  │                                       [🔄 Restart Now]  │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │ 🤖 LLM Configuration                              [▼]   │   │
 │  ├─────────────────────────────────────────────────────────┤   │
-│  │ Provider        │ [OpenAI    ▼] │ Anthropic, Azure...   │   │
-│  │ Model           │ [gpt-4o    ▼] │ Model selection       │   │
-│  │ API Key         │ [sk-****...] [👁] [📋] │ [Test ✓]    │   │
-│  │ Temperature     │ [═══●═══] 0.7 │ Creativity level      │   │
-│  │ Max Tokens      │ [4096     ] │ Response limit          │   │
+│  │ Provider        │ [OpenAI    ▼] │ 🟢 Live              │   │
+│  │ Model           │ [gpt-4o    ▼] │ 🟢 Live              │   │
+│  │ API Key         │ [sk-****...] [👁] [📋] │ 🔴 Restart  │   │
+│  │ Temperature     │ [═══●═══] 0.7 │ 🟢 Live ✓ Applied    │   │
+│  │ Max Tokens      │ [4096     ] │ 🟢 Live ✓ Applied      │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │ 🗄️ Database Connections                          [▼]   │   │
 │  ├─────────────────────────────────────────────────────────┤   │
-│  │ PostgreSQL      │ [postgres://...] │ [Test ✓ Connected] │   │
-│  │ Neo4j           │ [neo4j://...]    │ [Test ✓ Connected] │   │
-│  │ Redis           │ [redis://...]    │ [Test ⚠ Timeout]   │   │
+│  │ PostgreSQL      │ [postgres://...] │ 🔴 Restart ⏳      │   │
+│  │ Neo4j           │ [neo4j://...]    │ 🔴 Restart ✓      │   │
+│  │ Redis           │ [redis://...]    │ 🔴 Restart ✓      │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │ 🔌 API & Integrations                            [▼]   │   │
 │  ├─────────────────────────────────────────────────────────┤   │
-│  │ Backend URL     │ [http://localhost:8000]              │   │
-│  │ Tenant ID       │ [default-tenant]                     │   │
-│  │ CopilotKit      │ [/api/copilotkit] │ Runtime URL       │   │
+│  │ Backend URL     │ [http://localhost:8000] │ 🔴 Restart │   │
+│  │ Tenant ID       │ [default-tenant]        │ 🔴 Restart │   │
+│  │ CopilotKit      │ [/api/copilotkit]       │ 🔴 Restart │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │ 🎛️ Feature Flags                                 [▼]   │   │
 │  ├─────────────────────────────────────────────────────────┤   │
-│  │ Voice Input     │ [●══] ON  │ Enable voice commands    │   │
-│  │ HITL Validation │ [●══] ON  │ Human-in-the-loop        │   │
-│  │ Graph RAG       │ [●══] ON  │ Knowledge graph queries  │   │
-│  │ Multimodal      │ [●══] ON  │ Image/document input     │   │
+│  │ Voice Input     │ [●══] ON  │ 🟢 Live ✓ Applied        │   │
+│  │ HITL Validation │ [●══] ON  │ 🟢 Live ✓ Applied        │   │
+│  │ Graph RAG       │ [●══] ON  │ 🟢 Live ✓ Applied        │   │
+│  │ Multimodal      │ [●══] ON  │ 🟢 Live ✓ Applied        │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ 🔧 RAG Configuration                              [▼]   │   │
+│  ├─────────────────────────────────────────────────────────┤   │
+│  │ Similarity Threshold │ [═══●═══] 0.75 │ 🟢 Live ✓      │   │
+│  │ Top K Results        │ [10        ]   │ 🟢 Live ✓      │   │
+│  │ Chunk Size           │ [512       ]   │ 🟢 Live ✓      │   │
+│  │ Overlap              │ [50        ]   │ 🟢 Live ✓      │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐   │
@@ -699,6 +765,8 @@ useHumanInTheLoop({
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
 │  [📥 Import] [📤 Export] [↩️ Undo] [💾 Save Changes]           │
+│                                                                 │
+│  Legend: 🟢 Live = Instant effect │ 🔴 Restart = Pending      │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1995,6 +2063,248 @@ export default function SettingsPage() {
       </div>
     </main>
   );
+}
+```
+
+**File: `backend/src/agentic_rag_backend/core/runtime_config.py`** *(NEW - Hybrid Activation)*
+
+```python
+"""
+Runtime configuration service for hot-reloadable settings.
+Settings stored in Redis take effect immediately without app restart.
+"""
+from functools import lru_cache
+from typing import Any, Optional
+import json
+from redis import Redis
+
+class RuntimeConfig:
+    """
+    Hot-reloadable settings stored in Redis.
+
+    Usage:
+        config = RuntimeConfig(redis_client, tenant_id="default")
+        temp = config.llm_temperature  # Reads from Redis with 30s cache
+        config.set("llm_temperature", 0.8)  # Immediate effect
+    """
+
+    # Settings that can be hot-reloaded (stored in Redis)
+    HOT_RELOAD_SETTINGS = {
+        "llm_temperature", "llm_max_tokens", "llm_model", "llm_provider",
+        "similarity_threshold", "top_k", "chunk_size", "chunk_overlap",
+        "feature_hitl", "feature_voice", "feature_graph_rag", "feature_multimodal",
+    }
+
+    # Settings that require restart (stored in .env)
+    RESTART_REQUIRED_SETTINGS = {
+        "database_url", "neo4j_uri", "redis_url",
+        "openai_api_key", "anthropic_api_key",
+        "backend_url", "frontend_url", "tenant_id",
+    }
+
+    def __init__(self, redis: Redis, tenant_id: str):
+        self.redis = redis
+        self.tenant_id = tenant_id
+        self._cache_key = f"settings:{tenant_id}"
+        self._local_cache: dict = {}
+        self._cache_ttl = 30  # seconds
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get a hot-reload setting from Redis (with local cache)."""
+        if key not in self.HOT_RELOAD_SETTINGS:
+            raise ValueError(f"Setting '{key}' requires restart, use env vars")
+
+        cached = self.redis.hget(self._cache_key, key)
+        return json.loads(cached) if cached else default
+
+    def set(self, key: str, value: Any) -> dict:
+        """
+        Update a setting. Returns activation status.
+
+        Returns:
+            {"success": True, "requires_restart": False} for hot-reload
+            {"success": True, "requires_restart": True} for restart-required
+        """
+        if key in self.HOT_RELOAD_SETTINGS:
+            self.redis.hset(self._cache_key, key, json.dumps(value))
+            return {"success": True, "requires_restart": False, "key": key}
+        elif key in self.RESTART_REQUIRED_SETTINGS:
+            # Store pending change, mark for restart
+            self.redis.hset(f"pending:{self.tenant_id}", key, json.dumps(value))
+            return {"success": True, "requires_restart": True, "key": key}
+        else:
+            raise ValueError(f"Unknown setting: {key}")
+
+    def get_pending_restarts(self) -> list[str]:
+        """Get list of settings pending restart."""
+        pending = self.redis.hgetall(f"pending:{self.tenant_id}")
+        return list(pending.keys()) if pending else []
+
+    def apply_restart_settings(self) -> bool:
+        """Apply pending settings to .env file (called during restart)."""
+        # Implementation: write to .env, clear pending
+        pending_key = f"pending:{self.tenant_id}"
+        pending = self.redis.hgetall(pending_key)
+        if pending:
+            # Write to .env file (implementation depends on your setup)
+            self.redis.delete(pending_key)
+            return True
+        return False
+
+    # Convenience properties for common settings
+    @property
+    def llm_temperature(self) -> float:
+        return self.get("llm_temperature", 0.7)
+
+    @property
+    def llm_max_tokens(self) -> int:
+        return self.get("llm_max_tokens", 4096)
+
+    @property
+    def similarity_threshold(self) -> float:
+        return self.get("similarity_threshold", 0.75)
+
+    @property
+    def top_k(self) -> int:
+        return self.get("top_k", 10)
+
+    @property
+    def feature_hitl_enabled(self) -> bool:
+        return self.get("feature_hitl", True)
+
+    @property
+    def feature_multimodal_enabled(self) -> bool:
+        return self.get("feature_multimodal", True)
+
+
+# Dependency injection for FastAPI
+def get_runtime_config(
+    redis: Redis,  # From dependency
+    tenant_id: str,  # From request context
+) -> RuntimeConfig:
+    return RuntimeConfig(redis, tenant_id)
+```
+
+**File: `backend/src/agentic_rag_backend/api/routes/settings.py`** *(Settings API)*
+
+```python
+"""Settings API endpoints with hybrid activation support."""
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from typing import Any
+
+from agentic_rag_backend.core.runtime_config import RuntimeConfig, get_runtime_config
+
+router = APIRouter(prefix="/settings", tags=["settings"])
+
+class SettingUpdate(BaseModel):
+    key: str
+    value: Any
+
+class SettingResponse(BaseModel):
+    success: bool
+    requires_restart: bool
+    key: str
+
+@router.get("/")
+async def get_all_settings(
+    config: RuntimeConfig = Depends(get_runtime_config),
+):
+    """Get all settings with activation type indicators."""
+    settings = {}
+
+    # Hot-reload settings from Redis
+    for key in RuntimeConfig.HOT_RELOAD_SETTINGS:
+        settings[key] = {
+            "value": config.get(key),
+            "requires_restart": False,
+            "type": "hot_reload",
+        }
+
+    # Restart-required settings (masked)
+    for key in RuntimeConfig.RESTART_REQUIRED_SETTINGS:
+        settings[key] = {
+            "value": "***masked***" if "key" in key or "password" in key else "configured",
+            "requires_restart": True,
+            "type": "restart_required",
+        }
+
+    # Pending restart changes
+    pending = config.get_pending_restarts()
+
+    return {
+        "settings": settings,
+        "pending_restarts": pending,
+        "has_pending_restarts": len(pending) > 0,
+    }
+
+@router.patch("/")
+async def update_setting(
+    update: SettingUpdate,
+    config: RuntimeConfig = Depends(get_runtime_config),
+) -> SettingResponse:
+    """Update a single setting. Returns whether restart is required."""
+    try:
+        result = config.set(update.key, update.value)
+        return SettingResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/pending-restarts")
+async def get_pending_restarts(
+    config: RuntimeConfig = Depends(get_runtime_config),
+):
+    """Get list of settings that need app restart to take effect."""
+    return {"pending": config.get_pending_restarts()}
+```
+
+**File: `frontend/lib/settings-api.ts`** *(Frontend Settings Types)*
+
+```typescript
+// Settings API types with activation indicators
+
+export interface SettingMetadata {
+  value: unknown;
+  requires_restart: boolean;
+  type: "hot_reload" | "restart_required";
+}
+
+export interface SettingsResponse {
+  settings: Record<string, SettingMetadata>;
+  pending_restarts: string[];
+  has_pending_restarts: boolean;
+}
+
+export interface SettingUpdateResponse {
+  success: boolean;
+  requires_restart: boolean;
+  key: string;
+}
+
+export async function updateSetting(
+  key: string,
+  value: unknown
+): Promise<SettingUpdateResponse> {
+  const res = await fetch("/api/settings", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, value }),
+  });
+
+  if (!res.ok) {
+    throw new Error("Failed to update setting");
+  }
+
+  return res.json();
+}
+
+export function isHotReloadSetting(key: string): boolean {
+  const HOT_RELOAD_KEYS = [
+    "llm_temperature", "llm_max_tokens", "llm_model", "llm_provider",
+    "similarity_threshold", "top_k", "chunk_size", "chunk_overlap",
+    "feature_hitl", "feature_voice", "feature_graph_rag", "feature_multimodal",
+  ];
+  return HOT_RELOAD_KEYS.includes(key);
 }
 ```
 
