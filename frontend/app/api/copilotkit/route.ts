@@ -25,8 +25,12 @@ import OpenAI from "openai";
  */
 
 const BACKEND_URL = process.env.COPILOT_BACKEND_URL || "http://localhost:8000";
+// Use NEXT_PUBLIC_TENANT_ID for consistency with ingest page and other frontend components
+// Falls back to the default dev tenant if not configured
 const DEFAULT_TENANT_ID =
-  process.env.DEFAULT_TENANT_ID || "550e8400-e29b-41d4-a716-446655440000";
+  process.env.NEXT_PUBLIC_TENANT_ID ||
+  process.env.DEFAULT_TENANT_ID ||
+  "550e8400-e29b-41d4-a716-446655440000";
 
 const SERVICE_ADAPTER = process.env.COPILOT_SERVICE_ADAPTER ?? "empty";
 
