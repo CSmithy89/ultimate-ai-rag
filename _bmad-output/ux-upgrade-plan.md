@@ -1,9 +1,10 @@
 # Ultimate AI RAG - Comprehensive UI/UX Upgrade Plan
 
-**Document Version:** 1.0
+**Document Version:** 1.1
 **Created:** 2026-01-17
+**Updated:** 2026-01-18
 **Author:** BMAD Party Mode (Sally, Caravaggio, Maya, Winston, Amelia, Mary, Bob, Murat, Dr. Quinn)
-**Status:** Ready for Implementation
+**Status:** Ready for Implementation (Audit Corrections Applied)
 
 ---
 
@@ -13,26 +14,43 @@ This document outlines a comprehensive UI/UX upgrade plan for the Ultimate AI RA
 
 - **AG-UI Protocol** event visualization for transparency
 - **CopilotKit** theming and custom components for branded experience
-- **A2UI Protocol** for declarative agent-generated interfaces
+- **OpenJSON-UI** enhancements for existing component-based rendering (12 components)
+- **MCP-UI** integration improvements for tool execution rendering
 - **shadcn/ui** components for consistent design language
 - **React Flow** enhancements for Knowledge Graph visualization
 
+> **A2UI Protocol Status:** A2UI (Google's declarative agent UI spec, v0.8 preview) is **deferred to Phase 7+**. The codebase already implements rich UI rendering via OpenJSON-UI (`frontend/components/open-json-ui/`) and MCP-UI (`frontend/components/mcp-ui/`). Adding A2UI would create a fourth rendering path requiring significant architectural decisions. Revisit when A2UI reaches v1.0 stability.
+
 ### Key Metrics
 - **47 features** across 7 tiers
-- **6 implementation phases** (sprints)
+- **7 implementation phases** (including Phase 0: Prerequisites)
 - **4 user personas** supported (Developer, Researcher, Ops Engineer, Data Engineer)
+
+### Audit Corrections Applied (v1.1)
+This version addresses findings from codebase audit validation:
+- ✅ Fixed runtime URL (`/api/copilotkit` not `/api/copilot`)
+- ✅ Added Phase 0: Prerequisites for dependencies and directory structure
+- ✅ Clarified A2UI strategy (deferred, not parallel implementation)
+- ✅ Rewrote Feature 2.6 to use static `useChatSuggestions` hook
+- ✅ Added Component Inventory reconciling 40+ existing components
+- ✅ Clarified CSS strategy (layering approach)
+- ✅ Reframed Ops Dashboard as enhancement of existing components
+- ✅ Added GraphFilterControls to TIER 3
+- ✅ Added theme provider setup requirement
 
 ---
 
 ## Table of Contents
 
 1. [Current State Analysis](#1-current-state-analysis)
+   - 1.4 [Component Inventory & Upgrade Strategy](#14-component-inventory--upgrade-strategy) *(NEW)*
 2. [Protocol Capabilities Research](#2-protocol-capabilities-research)
 3. [Design System Foundation](#3-design-system-foundation)
 4. [Feature Implementation Plan](#4-feature-implementation-plan)
 5. [Code Implementation Guide](#5-code-implementation-guide)
 6. [Component Architecture](#6-component-architecture)
 7. [Phase-by-Phase Roadmap](#7-phase-by-phase-roadmap)
+   - 7.0 [Phase 0: Prerequisites](#phase-0-prerequisites-sprint-0) *(NEW)*
 8. [Testing & Validation](#8-testing--validation)
 9. [References & Citations](#9-references--citations)
 
@@ -95,6 +113,101 @@ colors: {
 | **Sarah** | Safety-First Researcher | Trust through transparency | HITL validation ceremony, source cards |
 | **Jordan** | Reliability Ops Engineer | At-a-glance monitoring | Color-coded dashboards, sparklines |
 | **Maya** | Quality Data Engineer | Knowledge exploration | Rich graph visualization, filtering |
+
+### 1.4 Component Inventory & Upgrade Strategy
+
+> **CRITICAL:** This section reconciles all 69 existing component files with the upgrade plan. Each component is marked with its upgrade strategy.
+
+#### 1.4.1 Copilot Components (33 files)
+
+| Component | Path | Strategy | Phase |
+|-----------|------|----------|-------|
+| `ChatSidebar.tsx` | copilot/ | **ENHANCE** - Add custom renderers | 2 |
+| `ChatInterface.tsx` | copilot/ | **ENHANCE** - Premium styling | 2 |
+| `PopupChat.tsx` | copilot/ | **ENHANCE** - Match sidebar styling | 2 |
+| `EmbeddedChat.tsx` | copilot/ | **ENHANCE** - Custom renderers | 2 |
+| `VoiceInput.tsx` | copilot/ | **ENHANCE** - Waveform animation | 6 |
+| `SpeakButton.tsx` | copilot/ | **ENHANCE** - Pulse animation | 6 |
+| `VoiceChatInput.tsx` | copilot/ | **ENHANCE** - Match VoiceInput | 6 |
+| `MessageWithSpeech.tsx` | copilot/ | **ENHANCE** - TTS indicator styling | 6 |
+| `AITextarea.tsx` | copilot/ | **ENHANCE** - Focus states | 1 |
+| `QuickActions.tsx` | copilot/ | **ENHANCE** - Button styling | 2 |
+| `ThoughtTraceStepper.tsx` | copilot/ | **ENHANCE** - Premium step cards | 2 |
+| `GenerativeUIRenderer.tsx` | copilot/ | **KEEP AS-IS** - Working well | - |
+| `StatusBadge.tsx` | copilot/ | **ENHANCE** - Semantic colors | 1 |
+| `MCPToolCallCard.tsx` | copilot/ | **ENHANCE** - Match ToolCallCard | 2 |
+| `tool-renderers.tsx` | copilot/ | **ENHANCE** - Unified styling | 2 |
+| `CustomEventRenderer.tsx` | copilot/ | **ENHANCE** - Event icons | 3 |
+| `CopilotErrorBoundary.tsx` | copilot/ | **KEEP AS-IS** | - |
+| `ErrorHandler.tsx` | copilot/ | **KEEP AS-IS** | - |
+| `AGUIErrorListener.tsx` | copilot/ | **KEEP AS-IS** - Critical for AG-UI | - |
+| `SourceValidationDialog.tsx` | copilot/ | **ENHANCE** - Trust ceremony | 3 |
+| `SourceValidationPanel.tsx` | copilot/ | **ENHANCE** - Trust ceremony | 3 |
+| `ActionButtons.tsx` | copilot/ | **ENHANCE** - Button styling | 1 |
+| `ActionPanel.tsx` | copilot/ | **ENHANCE** - Panel styling | 2 |
+| `CopilotProvider.tsx` | copilot/ | **KEEP AS-IS** | - |
+| `DynamicInstructionsProvider.tsx` | copilot/ | **KEEP AS-IS** | - |
+| `VectorSearchCard.tsx` | copilot/ | **ENHANCE** - Match ToolCallCard | 2 |
+| `ActivityProgress.tsx` | copilot/ | **ENHANCE** - Progress styling | 2 |
+| `index.ts` | copilot/ | **KEEP AS-IS** | - |
+| `AnswerPanel.tsx` | copilot/components/ | **ENHANCE** - Card styling | 2 |
+| `GraphPreview.tsx` | copilot/components/ | **ENHANCE** - Mini graph styling | 4 |
+| `SourceCard.tsx` | copilot/components/ | **ENHANCE** - Trust indicators | 3 |
+| `SourceValidationCard.tsx` | copilot/components/ | **ENHANCE** - Trust ceremony | 3 |
+
+#### 1.4.2 Widgets Components (7 files)
+
+| Component | Path | Strategy | Phase |
+|-----------|------|----------|-------|
+| `ActivityTrackerWidget.tsx` | widgets/ | **ENHANCE** - AG-UI activity styling | 2 |
+| `ApprovalDialogWidget.tsx` | widgets/ | **ENHANCE** - HITL styling | 3 |
+| `ChartWidget.tsx` | widgets/ | **REPLACE** - Use recharts | 4 |
+| `DataTableWidget.tsx` | widgets/ | **ENHANCE** - Table styling | 4 |
+| `StatusIndicatorWidget.tsx` | widgets/ | **ENHANCE** - Semantic colors | 4 |
+| `StepProgressWidget.tsx` | widgets/ | **ENHANCE** - Step styling | 2 |
+| `WidgetErrorBoundary.tsx` | widgets/ | **KEEP AS-IS** | - |
+
+#### 1.4.3 OpenJSON-UI Components (12 files)
+
+| Component | Path | Strategy | Phase |
+|-----------|------|----------|-------|
+| `OpenJSONUIRenderer.tsx` | open-json-ui/ | **KEEP AS-IS** - Core renderer | - |
+| `AlertComponent.tsx` | open-json-ui/ | **ENHANCE** - Semantic variants | 5 |
+| `ButtonComponent.tsx` | open-json-ui/ | **ENHANCE** - Button styling | 1 |
+| `CodeComponent.tsx` | open-json-ui/ | **ENHANCE** - Syntax theme | 5 |
+| `DividerComponent.tsx` | open-json-ui/ | **KEEP AS-IS** | - |
+| `HeadingComponent.tsx` | open-json-ui/ | **ENHANCE** - Typography | 1 |
+| `ImageComponent.tsx` | open-json-ui/ | **ENHANCE** - Loading states | 5 |
+| `LinkComponent.tsx` | open-json-ui/ | **ENHANCE** - Hover states | 1 |
+| `ListComponent.tsx` | open-json-ui/ | **ENHANCE** - List styling | 5 |
+| `ProgressComponent.tsx` | open-json-ui/ | **ENHANCE** - Gradient bar | 5 |
+| `TableComponent.tsx` | open-json-ui/ | **ENHANCE** - Table styling | 5 |
+| `TextComponent.tsx` | open-json-ui/ | **ENHANCE** - Typography | 1 |
+
+#### 1.4.4 Graph Components (4 files)
+
+| Component | Path | Strategy | Phase |
+|-----------|------|----------|-------|
+| `KnowledgeGraph.tsx` | graphs/ | **ENHANCE** - Layout improvements | 4 |
+| `EntityNode.tsx` | graphs/ | **ENHANCE** - Expanded colors | 4 |
+| `RelationshipEdge.tsx` | graphs/ | **ENHANCE** - Animated edges | 4 |
+| `GraphFilterControls.tsx` | graphs/ | **ENHANCE** - Premium filter UI | 4 |
+
+#### 1.4.5 MCP-UI Components (2 files)
+
+| Component | Path | Strategy | Phase |
+|-----------|------|----------|-------|
+| `MCPUIBridge.tsx` | mcp-ui/ | **KEEP AS-IS** - Protocol layer | - |
+| `MCPUIRenderer.tsx` | mcp-ui/ | **ENHANCE** - Match OpenJSON-UI styling | 5 |
+
+#### 1.4.6 Summary
+
+| Strategy | Count | Description |
+|----------|-------|-------------|
+| **ENHANCE** | 48 | Apply premium styling, keep functionality |
+| **KEEP AS-IS** | 12 | Working well, no changes needed |
+| **REPLACE** | 1 | `ChartWidget.tsx` → recharts implementation |
+| **NEW** | 8 | Components to create (see Section 6) |
 
 ---
 
@@ -368,7 +481,7 @@ useHumanInTheLoop({
 | 2.3 | **Custom Tool Call Cards** | Rich cards showing tool execution | Create `ToolCallCard.tsx` with `useFrontendTool` |
 | 2.4 | **HITL Source Validation UI** | Premium "trust ceremony" | Enhance `SourceValidationPanel.tsx` styling |
 | 2.5 | **Custom Message Renderers** | Branded AssistantMessage/UserMessage | Create custom renderers with avatars |
-| 2.6 | **Chat Suggestions Styling** | Premium quick-action buttons | Style `useCopilotChatSuggestions` output |
+| 2.6 | **Chat Suggestions Styling** | Premium quick-action buttons | Style static `useChatSuggestions` hook output (`frontend/hooks/use-chat-suggestions.ts`) - **DO NOT use `useCopilotChatSuggestions`** as it bypasses AG-UI backend causing ZodError validation failures |
 | 2.7 | **Loading/Thinking States** | Skeleton loaders, pulsing indicators | Add `shadcn/skeleton`, create `ThinkingIndicator.tsx` |
 
 ### 4.3 TIER 3: Knowledge Graph (P1)
@@ -382,18 +495,21 @@ useHumanInTheLoop({
 | 3.5 | **Graph Statistics Cards** | Premium stat cards with sparklines | Create `GraphStatsCard.tsx` |
 | 3.6 | **Search Highlighting** | Highlight searched entities | CSS transitions + state management |
 | 3.7 | **Empty State Design** | Welcoming illustration | Create `EmptyGraphState.tsx` |
+| 3.8 | **Filter Controls Enhancement** | Premium filter UI with visual feedback | Enhance existing `GraphFilterControls.tsx` with dropdown styling, active state indicators, and filter badges |
 
 ### 4.4 TIER 4: Ops Dashboard (P1)
 
+> **Note:** The Ops Dashboard (`frontend/app/ops/page.tsx`) already implements metrics cards, TrendBars chart, cost breakdown, and alert configuration. This tier **enhances existing components** rather than replacing them.
+
 | ID | Feature | Description | Implementation |
 |----|---------|-------------|----------------|
-| 4.1 | **Cost Trend Charts** | Larger, interactive charts | Use `shadcn/chart` + `recharts` |
-| 4.2 | **At-a-Glance Status Cards** | Color-coded status cards | Create `StatusCard.tsx` with semantic colors |
-| 4.3 | **Model Usage Breakdown** | Pie/donut chart | `recharts` PieChart component |
-| 4.4 | **Trajectory Timeline** | Visual timeline with events | Create `TrajectoryTimeline.tsx` |
-| 4.5 | **Event Type Icons** | Icons for AG-UI events | Lucide icons mapped to event types |
-| 4.6 | **Alert Badges** | Visual threshold indicators | `shadcn/badge` with variants |
-| 4.7 | **Request Sparklines** | Mini charts in request list | `recharts` Sparkline component |
+| 4.1 | **Cost Trend Charts** | Enhance existing `TrendBars` with interactive tooltips | Upgrade `TrendBars` component OR replace with `recharts` AreaChart - keep existing data fetching |
+| 4.2 | **At-a-Glance Status Cards** | Enhance existing 4 metric cards with semantic colors | Add color variants (green/amber/red) based on threshold proximity to existing cards in `ops/page.tsx` |
+| 4.3 | **Model Usage Breakdown** | Add pie/donut chart visualization | Add `recharts` PieChart alongside existing "Cost by Model" list |
+| 4.4 | **Trajectory Timeline** | Visual timeline with events | Create `TrajectoryTimeline.tsx` for `/ops/trajectories` page |
+| 4.5 | **Event Type Icons** | Icons for AG-UI events | Lucide icons mapped to event types (RunStarted, ToolCallStart, etc.) |
+| 4.6 | **Alert Badges** | Enhance existing alert threshold UI | Add `shadcn/badge` with warning/danger variants to existing threshold display |
+| 4.7 | **Request Sparklines** | Mini charts in recent events list | Add `recharts` Sparkline to existing "Recent Events" section |
 
 ### 4.5 TIER 5: Homepage & Navigation (P2)
 
@@ -432,9 +548,45 @@ useHumanInTheLoop({
 
 ## 5. Code Implementation Guide
 
+### 5.0 CSS Strategy: Layering Approach
+
+> **IMPORTANT:** This plan uses a **layering approach** for CSS, not replacement.
+
+**Current State (`frontend/app/globals.css`):**
+- Custom `.copilot-sidebar` class (lines 21-30) - App-specific container styling
+- CopilotKit overrides: `.copilotKitMessages`, `.copilotKitInput` (lines 74-80)
+- CSS custom properties in `:root` for CopilotKit theming
+
+**Strategy:**
+1. **Keep existing** `.copilot-sidebar` for app-level layout
+2. **Add** CopilotKit native classes (`.copilotKitSidebar`, `.copilotKitWindow`) for component-level styling
+3. **Layer** new styles ON TOP of existing ones - do not replace
+4. **Import order** in globals.css: base → design-tokens → copilotkit-theme → animations
+
+**File Organization:**
+```css
+/* globals.css - UPDATED import order */
+@import './design-tokens.css';        /* NEW: CSS custom properties */
+@import './copilotkit-theme.css';     /* NEW: CopilotKit overrides */
+@import './animations.css';           /* NEW: Keyframes */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Existing app-level styles remain below */
+```
+
+**Class Hierarchy:**
+```
+.copilot-sidebar              /* App layout container (KEEP) */
+  └── .copilotKitSidebar      /* CopilotKit component (ADD) */
+      └── .copilotKitWindow   /* CopilotKit inner window (ADD) */
+```
+
 ### 5.1 CopilotKit Theme Configuration
 
-**File: `frontend/styles/copilotkit-theme.css`**
+**File: `frontend/styles/copilotkit-theme.css`** *(NEW - create this file)*
 
 ```css
 /* CopilotKit Theme Overrides */
@@ -821,43 +973,37 @@ export function ToolCallCard({ toolName, status, args, result }: ToolCallCardPro
 
 **File: `frontend/components/layout/ThemeToggle.tsx`**
 
+> **Updated to use `next-themes`** - Requires Phase 0 dependency installation and Phase 1 ThemeProvider setup.
+
 ```tsx
 "use client";
 
+import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function ThemeToggle() {
-  const [isDark, setIsDark] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const { theme, setTheme, resolvedTheme } = useTheme();
 
+  // Avoid hydration mismatch
   useEffect(() => {
-    // Check for saved preference or system preference
-    const saved = localStorage.getItem("theme");
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-
-    if (saved === "dark" || (!saved && prefersDark)) {
-      setIsDark(true);
-      document.documentElement.classList.add("dark");
-    }
+    setMounted(true);
   }, []);
 
-  const toggleTheme = () => {
-    const newValue = !isDark;
-    setIsDark(newValue);
+  if (!mounted) {
+    // Return placeholder to avoid layout shift
+    return (
+      <div className="h-9 w-9 rounded-full bg-slate-100 dark:bg-slate-800" />
+    );
+  }
 
-    if (newValue) {
-      document.documentElement.classList.add("dark");
-      localStorage.setItem("theme", "dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-      localStorage.setItem("theme", "light");
-    }
-  };
+  const isDark = resolvedTheme === "dark";
 
   return (
     <button
-      onClick={toggleTheme}
+      onClick={() => setTheme(isDark ? "light" : "dark")}
       className={cn(
         "relative flex items-center justify-center",
         "h-9 w-9 rounded-full",
@@ -879,6 +1025,12 @@ export function ThemeToggle() {
   );
 }
 ```
+
+**Key Changes from Original:**
+- Uses `next-themes` `useTheme` hook instead of manual localStorage
+- Handles hydration mismatch with `mounted` state
+- `resolvedTheme` correctly handles system preference
+- ThemeProvider in layout.tsx manages `.dark` class automatically
 
 ### 5.6 Enhanced Header with Gradient
 
@@ -1051,22 +1203,125 @@ graph TD
 
 ## 7. Phase-by-Phase Roadmap
 
+### Phase 0: Prerequisites (Sprint 0)
+
+**Duration:** 0.5 sprint (setup tasks)
+**Dependencies:** None
+**Deliverables:**
+
+#### 0.1 Directory Structure Setup
+```bash
+# Create styles directory (does not exist)
+mkdir -p frontend/styles
+
+# Create empty style files
+touch frontend/styles/design-tokens.css
+touch frontend/styles/copilotkit-theme.css
+touch frontend/styles/animations.css
+```
+
+#### 0.2 Install Required Dependencies
+```bash
+cd frontend
+
+# Charting library (required for Ops Dashboard)
+pnpm add recharts
+
+# Animation library (required for micro-interactions)
+pnpm add framer-motion
+
+# Toast notifications (optional, can use existing Toaster)
+pnpm add sonner
+
+# Theme provider (required for dark mode)
+pnpm add next-themes
+```
+
+#### 0.3 Initialize shadcn/ui (if not already configured)
+```bash
+# Check if components.json exists
+ls frontend/components.json
+
+# If not, initialize shadcn
+pnpm dlx shadcn@latest init
+
+# Install required components
+pnpm dlx shadcn@latest add badge
+pnpm dlx shadcn@latest add chart
+pnpm dlx shadcn@latest add progress
+pnpm dlx shadcn@latest add skeleton
+pnpm dlx shadcn@latest add tabs
+```
+
+#### 0.4 Update globals.css Import Structure
+```css
+/* frontend/app/globals.css - ADD at top */
+@import '../styles/design-tokens.css';
+@import '../styles/copilotkit-theme.css';
+@import '../styles/animations.css';
+
+/* Existing Tailwind directives remain */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+```
+
+**Acceptance Criteria:**
+- [ ] `frontend/styles/` directory exists with 3 empty CSS files
+- [ ] `recharts`, `framer-motion`, `next-themes` installed in package.json
+- [ ] shadcn/ui components (badge, chart, progress, skeleton, tabs) available
+- [ ] globals.css imports new style files without errors
+
+---
+
 ### Phase 1: Foundation (Sprint 1)
 
 **Duration:** 1 sprint
-**Dependencies:** None
+**Dependencies:** Phase 0 complete
 **Deliverables:**
+- [ ] 1.0 Theme Provider Setup (`next-themes` in `layout.tsx`)
 - [ ] 1.1 Design Token System (`design-tokens.css`)
 - [ ] 1.2 CopilotKit Theming (`copilotkit-theme.css`)
 - [ ] 1.3 Dark Mode Toggle (`ThemeToggle.tsx`)
 - [ ] 1.4 Header Rebrand (`AppHeader.tsx` enhancement)
 - [ ] 1.5 Typography Hierarchy (Tailwind config updates)
 
+#### 1.0 Theme Provider Setup (NEW - REQUIRED)
+
+**File: `frontend/app/layout.tsx`** - Add ThemeProvider wrapper:
+
+```tsx
+import { ThemeProvider } from "next-themes";
+
+export default function RootLayout({ children }) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <body>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <CopilotProvider>
+            {/* ... existing content */}
+          </CopilotProvider>
+        </ThemeProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+**Note:** The `attribute="class"` ensures CopilotKit's `.dark` class detection works correctly.
+
 **Acceptance Criteria:**
-- Design tokens documented and applied
+- Theme provider wraps entire app
 - Dark mode toggle functional across all pages
+- System preference detection works
 - Header displays gradient and branded logo
 - Typography scales correctly
+- No hydration mismatch errors
 
 ### Phase 2: Chat Hero (Sprint 2)
 
@@ -1258,8 +1513,10 @@ test('animations maintain 60fps', async ({ page }) => {
 
 ## Appendix A: shadcn Components to Install
 
+> **Note:** These commands are now part of **Phase 0: Prerequisites**. See Section 7.0 for complete setup instructions.
+
 ```bash
-# Required components
+# Required components (Phase 0)
 pnpm dlx shadcn@latest add badge
 pnpm dlx shadcn@latest add chart
 pnpm dlx shadcn@latest add progress
@@ -1269,6 +1526,15 @@ pnpm dlx shadcn@latest add tabs
 # Optional (Phase 6)
 pnpm dlx shadcn@latest add command
 pnpm dlx shadcn@latest add breadcrumb
+```
+
+**Additional Dependencies (Phase 0):**
+```bash
+# Required for this plan
+pnpm add recharts framer-motion next-themes
+
+# Optional
+pnpm add sonner
 ```
 
 ---
@@ -1837,27 +2103,37 @@ const alertVariants = {
 
 **File:** `frontend/components/copilot/CopilotProvider.tsx`
 
-**Configuration for custom renderers:**
+> **IMPORTANT:** The actual codebase uses `/api/copilotkit` as the runtime URL. Do not change this.
+
+**Current Configuration (DO NOT MODIFY):**
 
 ```tsx
-import { CopilotKit } from "@copilotkit/react-core";
+// frontend/components/copilot/CopilotProvider.tsx - Line 66
+<CopilotKit runtimeUrl="/api/copilotkit" useSingleEndpoint>
+  {children}
+</CopilotKit>
+```
+
+**Custom renderers are passed at the COMPONENT level, not provider level:**
+
+```tsx
+// Example: ChatSidebar.tsx
+import { CopilotSidebar } from "@copilotkit/react-ui";
 import { CustomAssistantMessage } from "./CustomAssistantMessage";
 import { CustomUserMessage } from "./CustomUserMessage";
 
-export function CopilotProvider({ children }: { children: React.ReactNode }) {
+export function ChatSidebar() {
   return (
-    <CopilotKit
-      runtimeUrl="/api/copilot"
-      // Enable dark mode detection
-      // CopilotKit auto-detects .dark class on html element
-    >
-      {children}
-    </CopilotKit>
+    <CopilotSidebar
+      AssistantMessage={CustomAssistantMessage}
+      UserMessage={CustomUserMessage}
+      // ... other props
+    />
   );
 }
 ```
 
-**Note:** Custom message renderers are passed at the component level (`CopilotSidebar`, `CopilotChat`) not at the provider level.
+**Note:** The provider configuration should remain unchanged. Custom message renderers are passed to individual chat components (`CopilotSidebar`, `CopilotChat`, `CopilotPopup`).
 
 ---
 
@@ -1865,13 +2141,29 @@ export function CopilotProvider({ children }: { children: React.ReactNode }) {
 
 Use this checklist to track progress:
 
+### Phase 0: Prerequisites
+- [ ] Create `frontend/styles/` directory
+- [ ] Create `styles/design-tokens.css` (empty placeholder)
+- [ ] Create `styles/copilotkit-theme.css` (empty placeholder)
+- [ ] Create `styles/animations.css` (empty placeholder)
+- [ ] Install `recharts` dependency
+- [ ] Install `framer-motion` dependency
+- [ ] Install `next-themes` dependency
+- [ ] Initialize shadcn/ui (if not configured)
+- [ ] Install shadcn badge component
+- [ ] Install shadcn chart component
+- [ ] Install shadcn progress component
+- [ ] Install shadcn skeleton component
+- [ ] Install shadcn tabs component
+- [ ] Update `globals.css` to import new style files
+
 ### Phase 1: Foundation
-- [ ] Create `styles/design-tokens.css`
-- [ ] Create `styles/copilotkit-theme.css`
-- [ ] Create `styles/animations.css`
-- [ ] Update `globals.css` to import new styles
-- [ ] Create `components/layout/ThemeToggle.tsx`
-- [ ] Enhance `components/layout/AppHeader.tsx`
+- [ ] Add ThemeProvider to `app/layout.tsx` (wrap CopilotProvider)
+- [ ] Populate `styles/design-tokens.css` with CSS custom properties
+- [ ] Populate `styles/copilotkit-theme.css` with CopilotKit overrides
+- [ ] Populate `styles/animations.css` with keyframes
+- [ ] Create `components/layout/ThemeToggle.tsx` (using next-themes)
+- [ ] Enhance `components/layout/AppHeader.tsx` with gradient
 - [ ] Update `tailwind.config.ts` with new tokens
 
 ### Phase 2: Chat Hero
