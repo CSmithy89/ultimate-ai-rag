@@ -17,14 +17,15 @@ This plan consolidates all discoveries from our analysis of CopilotKit Premium, 
 | Phase 2: Frontend Hooks | ✅ COMPLETE | useOrchestratorState, HITL v2, context |
 | Phase 3: Widget System | ✅ COMPLETE | Registry + 8 widgets (Step, Approval, Table, Activity, Status, Charts) |
 | Phase 4: THINKING Events | ✅ COMPLETE | THINKING_START, _CONTENT, _END events |
-| Phase 5: ACTIVITY Events | ✅ COMPLETE | ACTIVITY_SNAPSHOT, _DELTA + ActivityTrackerWidget |
+| Phase 5: ACTIVITY Events | ✅ COMPLETE | ACTIVITY_SNAPSHOT, _DELTA + ActivityTrackerWidget + useActivityTracker |
 | Phase 6.1: Cancel/Resume | ✅ COMPLETE | RunManager + useRunControl hook |
 | Phase 6.2: Agent Steering | ✅ COMPLETE | /steer API + useAgentSteering hook |
 | Phase 7.1: Sub-Agent Composition | ✅ COMPLETE | SubAgentManager + context passing |
 | Phase 7.2: Multimodal Input | ✅ COMPLETE | TextInputContent, BinaryInputContent, MultimodalMessage + useMultimodalInput |
 | Phase 7.3: RAW Events | ✅ COMPLETE | RawEvent for MCP/A2A protocol wrapping |
+| Phase 8: Code Review Fixes | ✅ COMPLETE | Security, type safety, tests, documentation |
 
-**Tests:** 48 passing (backend AG-UI protocol tests)
+**Tests:** 48 passing (backend), 1043 passing (frontend)
 **Last Updated:** 2026-01-18
 
 ---
@@ -498,12 +499,16 @@ export const widgetRegistry = {
 - `backend/src/agentic_rag_backend/models/copilot.py`
 - `backend/src/agentic_rag_backend/protocols/ag_ui_bridge.py`
 
-### Phase 5: ACTIVITY Events ⏳ PENDING
+### Phase 5: ACTIVITY Events ✅ COMPLETE
 
 1. ✅ Add ACTIVITY_* event models (done in Phase 1)
-2. ⏳ Emit activity events for long operations (ingestion, large searches)
-3. ⏳ Create ActivityTracker component
-4. ⏳ Show progress in UI
+2. ✅ Emit activity events for long operations (ingestion, large searches)
+3. ✅ Create ActivityTrackerWidget component
+4. ✅ Show progress in UI with useActivityTracker hook
+
+**Files Created:**
+- `frontend/components/widgets/ActivityTrackerWidget.tsx`
+- `frontend/hooks/use-activity-tracker.ts`
 
 ---
 
@@ -896,3 +901,91 @@ async def process_mcp_tool_call(mcp_event: MCPToolResponse):
 | Enterprise | From $5K/mo | Pooled | Custom terms |
 
 **Self-Hosted = FREE unlimited users** (current configuration)
+
+---
+
+## Part 11: Code Review Fixes ✅ COMPLETE
+
+Comprehensive code review of Phases 5-7 identified 16 issues across security, type safety, error handling, and code quality. All have been resolved.
+
+### 11.1 Critical Issues (3)
+
+| Issue | Fix | File |
+|-------|-----|------|
+| ✅ Tenant authorization on cancel/resume | Already in place (verified) | `copilot.py` |
+| ✅ Tenant validation in steering | Already in place (verified) | `copilot.py` |
+| ✅ Backend size validation | Added `MAX_BINARY_CONTENT_SIZE` (10MB) + `ALLOWED_BINARY_MEDIA_TYPES` validators | `models/copilot.py` |
+
+### 11.2 Medium Issues (10)
+
+| Issue | Fix | File |
+|-------|-----|------|
+| ✅ Race condition in run cancellation | Added `asyncio.Lock` to `RunManager` | `ag_ui_bridge.py` |
+| ✅ Unsafe type casting in activity tracker | Added type guards in `applyPatchOperation()` | `use-activity-tracker.ts` |
+| ✅ Loose typing in JSON Patch operations | Created shared types in `types/ag-ui.ts` | `types/ag-ui.ts` |
+| ✅ Silent failure in run state retrieval | Created `GetRunStateResult` interface | `use-run-control.ts` |
+| ✅ Steering injection after completion | Added `checkRunStatus()` method | `use-agent-steering.ts` |
+| ✅ Activity completion race condition | Added activity ID tracking with `useRef` | `use-activity-tracker.ts` |
+| ✅ Unnecessary re-renders | Optimized memoization with stable deps | `use-activity-tracker.ts` |
+| ✅ Error boundary in widget rendering | Created `WidgetErrorBoundary` component | `WidgetErrorBoundary.tsx` |
+| ✅ Memory leak in chart widget | Fixed memoization dependencies | `ChartWidget.tsx` |
+| ✅ OpenAPI documentation | Added to all Phase 6 endpoints | `copilot.py` |
+
+### 11.3 Low Issues (3)
+
+| Issue | Fix | File |
+|-------|-----|------|
+| ✅ Extract shared types | Created `frontend/types/ag-ui.ts` | `types/ag-ui.ts` |
+| ✅ Magic numbers | Added `ACTIVITY_RESET_DELAY_MS`, `MAX_FILE_SIZE`, `MAX_ATTACHMENTS` | `types/ag-ui.ts` |
+| ✅ Invalid chart type handling | Added fallback UI for unknown types | `ChartWidget.tsx` |
+
+### 11.4 New Test Coverage
+
+| Test File | Tests | Coverage |
+|-----------|-------|----------|
+| `use-activity-tracker.test.ts` | 10 | Snapshots, deltas, security, auto-reset |
+| `use-run-control.test.ts` | 10 | Cancel, resume, state retrieval, errors |
+| `use-agent-steering.test.ts` | 11 | Validation, status check, API calls |
+| `WidgetErrorBoundary.test.tsx` | 9 | Error catching, retry, custom fallback |
+
+### 11.5 Files Created
+
+| File | Purpose |
+|------|---------|
+| `frontend/types/ag-ui.ts` | Shared types and constants for AG-UI |
+| `frontend/components/widgets/WidgetErrorBoundary.tsx` | Error boundary for widget rendering |
+| `frontend/__tests__/hooks/use-activity-tracker.test.ts` | Activity tracker hook tests |
+| `frontend/__tests__/hooks/use-run-control.test.ts` | Run control hook tests |
+| `frontend/__tests__/hooks/use-agent-steering.test.ts` | Agent steering hook tests |
+| `frontend/__tests__/components/widgets/WidgetErrorBoundary.test.tsx` | Error boundary tests |
+
+### 11.6 Files Modified
+
+| File | Changes |
+|------|---------|
+| `backend/.../models/copilot.py` | Size/type validation for BinaryInputContent |
+| `backend/.../protocols/ag_ui_bridge.py` | Thread-safe RunManager with asyncio.Lock |
+| `backend/.../api/routes/copilot.py` | OpenAPI documentation for all endpoints |
+| `frontend/hooks/use-activity-tracker.ts` | Type guards, memoization, activity ID tracking |
+| `frontend/hooks/use-run-control.ts` | GetRunStateResult type, explicit error handling |
+| `frontend/hooks/use-agent-steering.ts` | checkRunStatus(), status validation |
+| `frontend/hooks/use-multimodal-input.ts` | Use shared constants from types/ag-ui.ts |
+| `frontend/components/widgets/ActivityTrackerWidget.tsx` | Import from shared types |
+| `frontend/components/widgets/ChartWidget.tsx` | Fixed memoization, invalid type handling |
+
+### 11.7 Security Improvements
+
+1. **Prototype Pollution Prevention**: JSON Patch operations now validate keys against `ACTIVITY_STATE_KEYS` set
+2. **Type Validation**: All patch values validated against expected types before application
+3. **Size Limits**: Backend enforces 10MB limit on binary content with allowed media types
+4. **Race Condition Protection**: `asyncio.Lock` prevents concurrent state mutations
+
+### 11.8 Verification
+
+```bash
+# Backend tests
+cd backend && uv run pytest  # 48 passing
+
+# Frontend tests
+cd frontend && pnpm test     # 1043 passing (47 suites)
+```
