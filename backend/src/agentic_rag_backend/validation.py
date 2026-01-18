@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import re
 
+# Default anonymous tenant UUID for unauthenticated requests
+# This is a well-known UUID that represents anonymous/unauthenticated users
+ANONYMOUS_TENANT_ID = "00000000-0000-0000-0000-000000000000"
+
 TENANT_ID_PATTERN = (
     r"^[0-9a-fA-F]{8}-"
     r"[0-9a-fA-F]{4}-"

@@ -148,7 +148,7 @@ class StubHitlManager:
             ),
             ToolCallEndEvent(tool_call_id=checkpoint.checkpoint_id),
             StateSnapshotEvent(
-                state={
+                snapshot={
                     "hitl_checkpoint": checkpoint.to_dict(),
                     "approved_sources": checkpoint.sources,
                 },
@@ -462,10 +462,10 @@ class TestAGUIBridgeEventModels:
 
     def test_state_snapshot_event_structure(self):
         """Test StateSnapshotEvent has correct structure."""
-        state = {"currentStep": "completed", "thoughts": []}
-        event = StateSnapshotEvent(state=state)
+        snapshot_data = {"currentStep": "completed", "thoughts": []}
+        event = StateSnapshotEvent(snapshot=snapshot_data)
         assert event.type == AGUIEventType.STATE_SNAPSHOT
-        assert event.snapshot == state
+        assert event.snapshot == snapshot_data
 
 
 class TestAGUIEnhancedEventModels:
@@ -506,26 +506,39 @@ class TestAGUIEnhancedEventModels:
         assert event.messages == messages
 
     def test_activity_snapshot_event_structure(self):
-        """Test ActivitySnapshotEvent has correct structure."""
-        activity = {
-            "id": "activity-123",
-            "type": "indexing",
+        """Test ActivitySnapshotEvent has correct AG-UI spec structure."""
+        content = {
             "progress": 0.0,
             "message": "Starting document processing...",
+            "totalSteps": 4,
+            "currentStep": 0,
+            "metadata": {},
         }
-        event = ActivitySnapshotEvent(activity=activity)
+        event = ActivitySnapshotEvent(
+            messageId="activity-123",
+            activityType="INDEXING",
+            content=content,
+        )
         assert event.type == AGUIEventType.ACTIVITY_SNAPSHOT
-        assert event.activity == activity
+        assert event.messageId == "activity-123"
+        assert event.activityType == "INDEXING"
+        assert event.content == content
 
     def test_activity_delta_event_structure(self):
-        """Test ActivityDeltaEvent has correct RFC 6902 structure."""
-        delta = [
+        """Test ActivityDeltaEvent has correct AG-UI spec RFC 6902 structure."""
+        patch = [
             {"op": "replace", "path": "/progress", "value": 0.45},
             {"op": "replace", "path": "/message", "value": "Processing page 3/7..."},
         ]
-        event = ActivityDeltaEvent(delta=delta)
+        event = ActivityDeltaEvent(
+            messageId="activity-123",
+            activityType="INDEXING",
+            patch=patch,
+        )
         assert event.type == AGUIEventType.ACTIVITY_DELTA
-        assert event.delta == delta
+        assert event.messageId == "activity-123"
+        assert event.activityType == "INDEXING"
+        assert event.patch == patch
 
     def test_thinking_start_event_structure(self):
         """Test ThinkingStartEvent has correct structure."""
@@ -535,14 +548,12 @@ class TestAGUIEnhancedEventModels:
         assert event.runId == "run-456"
 
     def test_thinking_text_message_content_event_structure(self):
-        """Test ThinkingTextMessageContentEvent has correct structure."""
+        """Test ThinkingTextMessageContentEvent has correct AG-UI spec structure."""
         event = ThinkingTextMessageContentEvent(
-            content="Analyzing the query to determine retrieval strategy...",
-            threadId="thread-123",
-            runId="run-456",
+            delta="Analyzing the query to determine retrieval strategy...",
         )
         assert event.type == AGUIEventType.THINKING_TEXT_MESSAGE_CONTENT
-        assert "retrieval strategy" in event.content
+        assert "retrieval strategy" in event.delta
 
     def test_thinking_end_event_structure(self):
         """Test ThinkingEndEvent has correct structure."""
@@ -618,9 +629,9 @@ class TestAGUIThinkingEventsEmission:
         # Should have one content event per thought
         assert len(thinking_content_events) == len(expected_thoughts)
 
-        # Verify content matches thoughts
+        # Verify delta matches thoughts (AG-UI spec uses 'delta' not 'content')
         for i, event in enumerate(thinking_content_events):
-            assert event.content == expected_thoughts[i]
+            assert event.delta == expected_thoughts[i]
 
 
 class TestAGUIToolCallResultEmission:
@@ -715,14 +726,13 @@ class TestAGUIActivityEventsEmission:
         snapshot_events = [e for e in events if e.type == AGUIEventType.ACTIVITY_SNAPSHOT]
         assert len(snapshot_events) == 1
 
-        # Verify snapshot content
+        # Verify snapshot content (AG-UI spec: messageId, activityType, content)
         snapshot = snapshot_events[0]
-        assert "id" in snapshot.activity
-        assert "type" in snapshot.activity
-        assert snapshot.activity["type"] == "query_processing"
-        assert "progress" in snapshot.activity
-        assert snapshot.activity["progress"] == 0.0
-        assert "message" in snapshot.activity
+        assert snapshot.messageId is not None
+        assert snapshot.activityType == "QUERY_PROCESSING"
+        assert "progress" in snapshot.content
+        assert snapshot.content["progress"] == 0.0
+        assert "message" in snapshot.content
 
     @pytest.mark.asyncio
     async def test_process_request_emits_activity_deltas(
@@ -740,10 +750,10 @@ class TestAGUIActivityEventsEmission:
         # Should have at least retrieval and response generation deltas
         assert len(delta_events) >= 2
 
-        # Verify delta structure (RFC 6902 JSON Patch)
+        # Verify patch structure (AG-UI spec: RFC 6902 JSON Patch)
         for delta_event in delta_events:
-            assert isinstance(delta_event.delta, list)
-            for op in delta_event.delta:
+            assert isinstance(delta_event.patch, list)
+            for op in delta_event.patch:
                 assert "op" in op
                 assert "path" in op
                 assert "value" in op
@@ -791,10 +801,10 @@ class TestAGUIActivityEventsEmission:
         delta_events = [e for e in events if e.type == AGUIEventType.ACTIVITY_DELTA]
         assert len(delta_events) >= 2
 
-        # Extract progress values from deltas
+        # Extract progress values from deltas (AG-UI spec: uses 'patch' not 'delta')
         progress_values = []
         for delta_event in delta_events:
-            for op in delta_event.delta:
+            for op in delta_event.patch:
                 if op["path"] == "/progress":
                     progress_values.append(op["value"])
 
@@ -806,31 +816,26 @@ class TestAGUIActivityEventsEmission:
         assert progress_values[-1] == 1.0
 
     @pytest.mark.asyncio
-    async def test_activity_events_have_thread_and_run_ids(
+    async def test_activity_events_have_consistent_message_ids(
         self, mock_orchestrator, sample_copilot_request
     ):
-        """Test that ACTIVITY events include threadId and runId."""
+        """Test that ACTIVITY events share consistent messageId and activityType."""
         bridge = AGUIBridge(mock_orchestrator)
         events = []
 
         async for event in bridge.process_request(sample_copilot_request):
             events.append(event)
 
-        # Get RUN_STARTED to extract expected IDs
-        run_started = [e for e in events if e.type == AGUIEventType.RUN_STARTED][0]
-        expected_thread_id = run_started.threadId
-        expected_run_id = run_started.runId
-
-        # Verify snapshot has correct IDs
+        # Get snapshot to extract expected messageId
         snapshot = [e for e in events if e.type == AGUIEventType.ACTIVITY_SNAPSHOT][0]
-        assert snapshot.threadId == expected_thread_id
-        assert snapshot.runId == expected_run_id
+        expected_message_id = snapshot.messageId
+        expected_activity_type = snapshot.activityType
 
-        # Verify deltas have correct IDs
+        # Verify deltas have matching messageId and activityType
         deltas = [e for e in events if e.type == AGUIEventType.ACTIVITY_DELTA]
         for delta in deltas:
-            assert delta.threadId == expected_thread_id
-            assert delta.runId == expected_run_id
+            assert delta.messageId == expected_message_id
+            assert delta.activityType == expected_activity_type
 
 
 class TestAGUIRawEventModel:
@@ -918,7 +923,7 @@ class TestAGUIMultimodalModels:
         original_data = b"test binary data for size calculation"
         encoded_data = base64.b64encode(original_data).decode()
         content = BinaryInputContent(
-            media_type="application/octet-stream",
+            media_type="text/plain",  # Use allowed media type
             data=encoded_data,
         )
         # Size should match original data size (not base64 size)

@@ -74,7 +74,9 @@ KNOWN_EVENT_TYPES: frozenset[str] = frozenset({
 
     # Thinking/reasoning events (AG-UI Enhancement)
     "THINKING_START",
+    "THINKING_TEXT_MESSAGE_START",
     "THINKING_TEXT_MESSAGE_CONTENT",
+    "THINKING_TEXT_MESSAGE_END",
     "THINKING_END",
 
     # Custom events (AG-UI Enhancement)
@@ -95,7 +97,7 @@ Full AG-UI Protocol Event Types:
 - State management: STATE_SNAPSHOT, STATE_DELTA
 - Message history: MESSAGES_SNAPSHOT
 - Activities: ACTIVITY_SNAPSHOT, ACTIVITY_DELTA
-- Agent reasoning: THINKING_START, THINKING_TEXT_MESSAGE_CONTENT, THINKING_END
+- Agent reasoning: THINKING_START, THINKING_TEXT_MESSAGE_START, THINKING_TEXT_MESSAGE_CONTENT, THINKING_TEXT_MESSAGE_END, THINKING_END
 - Custom events: CUSTOM
 - Actions: ACTION_REQUEST
 """

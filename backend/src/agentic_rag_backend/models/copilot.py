@@ -222,7 +222,9 @@ class AGUIEventType(str, Enum):
 
     # Agent reasoning/thinking events
     THINKING_START = "THINKING_START"
+    THINKING_TEXT_MESSAGE_START = "THINKING_TEXT_MESSAGE_START"
     THINKING_TEXT_MESSAGE_CONTENT = "THINKING_TEXT_MESSAGE_CONTENT"
+    THINKING_TEXT_MESSAGE_END = "THINKING_TEXT_MESSAGE_END"
     THINKING_END = "THINKING_END"
 
     # Custom events for application-specific data
@@ -295,7 +297,11 @@ class TextDeltaEvent(AGUIEvent):
 
 
 class StateSnapshotEvent(AGUIEvent):
-    """Event for agent state updates."""
+    """Event for agent state updates.
+
+    AG-UI protocol: snapshot field contains the agent state data.
+    Note: @ag-ui/client expects 'snapshot' field (not 'state').
+    """
     type: Literal[AGUIEventType.STATE_SNAPSHOT] = AGUIEventType.STATE_SNAPSHOT
     threadId: str = Field(default_factory=lambda: f"thread-{uuid.uuid4().hex[:12]}")
     runId: str = Field(default_factory=lambda: f"run-{uuid.uuid4().hex[:12]}")
@@ -303,15 +309,14 @@ class StateSnapshotEvent(AGUIEvent):
 
     def __init__(
         self,
-        state: Optional[dict[str, Any]] = None,
+        snapshot: Optional[dict[str, Any]] = None,
         threadId: Optional[str] = None,
         runId: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
-        # AG-UI protocol: state data goes in 'snapshot' field at top level
         # AG-UI protocol: threadId and runId are required on all events
-        if state is not None:
-            kwargs["snapshot"] = state
+        if snapshot is not None:
+            kwargs["snapshot"] = snapshot
         if threadId is not None:
             kwargs["threadId"] = threadId
         if runId is not None:
@@ -516,33 +521,42 @@ class ActivitySnapshotEvent(AGUIEvent):
     AG-UI Protocol: ACTIVITY_SNAPSHOT provides full activity state for
     long-running operations. Use for initial activity state or major changes.
 
-    Activity structure:
+    Required fields per AG-UI spec:
+        - messageId: Unique identifier for the activity message
+        - activityType: Discriminator like "PLAN", "SEARCH", "PROCESSING"
+        - content: Structured JSON payload with full activity state
+
+    Example content structure:
         {
-            "id": "activity-uuid",
-            "type": "indexing" | "search" | "processing",
             "progress": 0.0 to 1.0,
             "message": "Processing page 3/7...",
+            "totalSteps": 4,
+            "currentStep": 1,
             "metadata": {...}
         }
     """
     type: Literal[AGUIEventType.ACTIVITY_SNAPSHOT] = AGUIEventType.ACTIVITY_SNAPSHOT
-    threadId: str = Field(default_factory=lambda: f"thread-{uuid.uuid4().hex[:12]}")
-    runId: str = Field(default_factory=lambda: f"run-{uuid.uuid4().hex[:12]}")
-    activity: dict[str, Any] = Field(default_factory=dict)
+    messageId: str = Field(default_factory=lambda: f"activity-{uuid.uuid4().hex[:12]}")
+    activityType: str = Field(default="PROCESSING")
+    content: dict[str, Any] = Field(default_factory=dict)
+    replace: bool = Field(default=True)
 
     def __init__(
         self,
-        activity: Optional[dict[str, Any]] = None,
-        threadId: Optional[str] = None,
-        runId: Optional[str] = None,
+        messageId: Optional[str] = None,
+        activityType: Optional[str] = None,
+        content: Optional[dict[str, Any]] = None,
+        replace: Optional[bool] = None,
         **kwargs: Any,
     ) -> None:
-        if activity is not None:
-            kwargs["activity"] = activity
-        if threadId is not None:
-            kwargs["threadId"] = threadId
-        if runId is not None:
-            kwargs["runId"] = runId
+        if messageId is not None:
+            kwargs["messageId"] = messageId
+        if activityType is not None:
+            kwargs["activityType"] = activityType
+        if content is not None:
+            kwargs["content"] = content
+        if replace is not None:
+            kwargs["replace"] = replace
         super().__init__(**kwargs)
 
 
@@ -552,30 +566,39 @@ class ActivityDeltaEvent(AGUIEvent):
     AG-UI Protocol: ACTIVITY_DELTA provides efficient incremental updates
     using RFC 6902 JSON Patch format.
 
+    Required fields per AG-UI spec:
+        - messageId: Target activity message ID (must match snapshot)
+        - activityType: Activity discriminator (must match snapshot)
+        - patch: RFC 6902 JSON Patch operations (non-empty array)
+
     Example:
-        yield ActivityDeltaEvent(delta=[
-            {"op": "replace", "path": "/progress", "value": 0.45},
-            {"op": "replace", "path": "/message", "value": "Processing page 3/7..."},
-        ])
+        yield ActivityDeltaEvent(
+            messageId="activity-123",
+            activityType="PROCESSING",
+            patch=[
+                {"op": "replace", "path": "/progress", "value": 0.45},
+                {"op": "replace", "path": "/message", "value": "Processing page 3/7..."},
+            ]
+        )
     """
     type: Literal[AGUIEventType.ACTIVITY_DELTA] = AGUIEventType.ACTIVITY_DELTA
-    threadId: str = Field(default_factory=lambda: f"thread-{uuid.uuid4().hex[:12]}")
-    runId: str = Field(default_factory=lambda: f"run-{uuid.uuid4().hex[:12]}")
-    delta: list[dict[str, Any]] = Field(default_factory=list)
+    messageId: str = Field(default_factory=lambda: f"activity-{uuid.uuid4().hex[:12]}")
+    activityType: str = Field(default="PROCESSING")
+    patch: list[dict[str, Any]] = Field(default_factory=list)
 
     def __init__(
         self,
-        delta: Optional[list[dict[str, Any]]] = None,
-        threadId: Optional[str] = None,
-        runId: Optional[str] = None,
+        messageId: Optional[str] = None,
+        activityType: Optional[str] = None,
+        patch: Optional[list[dict[str, Any]]] = None,
         **kwargs: Any,
     ) -> None:
-        if delta is not None:
-            kwargs["delta"] = delta
-        if threadId is not None:
-            kwargs["threadId"] = threadId
-        if runId is not None:
-            kwargs["runId"] = runId
+        if messageId is not None:
+            kwargs["messageId"] = messageId
+        if activityType is not None:
+            kwargs["activityType"] = activityType
+        if patch is not None:
+            kwargs["patch"] = patch
         super().__init__(**kwargs)
 
 
@@ -608,29 +631,58 @@ class ThinkingStartEvent(AGUIEvent):
         super().__init__(**kwargs)
 
 
+class ThinkingTextMessageStartEvent(AGUIEvent):
+    """Event signaling start of a thinking text message.
+
+    AG-UI Protocol: THINKING_TEXT_MESSAGE_START must be emitted before
+    any THINKING_TEXT_MESSAGE_CONTENT events to start a new thinking message.
+
+    Required fields per AG-UI spec:
+        - messageId: Unique identifier for this thinking message
+    """
+    type: Literal[AGUIEventType.THINKING_TEXT_MESSAGE_START] = AGUIEventType.THINKING_TEXT_MESSAGE_START
+    messageId: str = Field(default_factory=lambda: f"thinking-{uuid.uuid4().hex[:12]}")
+
+
 class ThinkingTextMessageContentEvent(AGUIEvent):
     """Event containing agent reasoning content.
 
     AG-UI Protocol: THINKING_TEXT_MESSAGE_CONTENT streams the agent's
     reasoning/thinking content to the frontend for display.
+
+    Required fields per AG-UI spec:
+        - delta: Non-empty string representing a chunk of thinking text
+        - messageId: Must match the messageId from THINKING_TEXT_MESSAGE_START
     """
     type: Literal[AGUIEventType.THINKING_TEXT_MESSAGE_CONTENT] = AGUIEventType.THINKING_TEXT_MESSAGE_CONTENT
-    threadId: str = Field(default_factory=lambda: f"thread-{uuid.uuid4().hex[:12]}")
-    runId: str = Field(default_factory=lambda: f"run-{uuid.uuid4().hex[:12]}")
-    content: str = ""
+    messageId: str = Field(default_factory=lambda: f"thinking-{uuid.uuid4().hex[:12]}")
+    delta: str = ""
 
     def __init__(
         self,
-        content: str = "",
-        threadId: Optional[str] = None,
-        runId: Optional[str] = None,
+        content: str = "",  # Accept 'content' for backward compatibility
+        delta: Optional[str] = None,
+        messageId: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
-        if threadId is not None:
-            kwargs["threadId"] = threadId
-        if runId is not None:
-            kwargs["runId"] = runId
-        super().__init__(content=content, **kwargs)
+        # Use delta if provided, otherwise use content for backward compatibility
+        final_delta = delta if delta is not None else content
+        if messageId is not None:
+            kwargs["messageId"] = messageId
+        super().__init__(delta=final_delta, **kwargs)
+
+
+class ThinkingTextMessageEndEvent(AGUIEvent):
+    """Event signaling end of a thinking text message.
+
+    AG-UI Protocol: THINKING_TEXT_MESSAGE_END marks the completion of
+    a thinking message started with THINKING_TEXT_MESSAGE_START.
+
+    Required fields per AG-UI spec:
+        - messageId: Must match the messageId from THINKING_TEXT_MESSAGE_START
+    """
+    type: Literal[AGUIEventType.THINKING_TEXT_MESSAGE_END] = AGUIEventType.THINKING_TEXT_MESSAGE_END
+    messageId: str = Field(default_factory=lambda: f"thinking-{uuid.uuid4().hex[:12]}")
 
 
 class ThinkingEndEvent(AGUIEvent):

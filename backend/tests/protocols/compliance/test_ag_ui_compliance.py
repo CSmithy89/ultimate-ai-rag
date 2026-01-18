@@ -43,29 +43,29 @@ class TestAGUIEventFormatCompliance:
     def test_run_started_event_has_event_type(self) -> None:
         """RUN_STARTED must have correct event type."""
         event = RunStartedEvent()
-        assert event.event == AGUIEventType.RUN_STARTED
+        assert event.type == AGUIEventType.RUN_STARTED
 
     def test_run_finished_event_has_event_type(self) -> None:
         """RUN_FINISHED must have correct event type."""
         event = RunFinishedEvent()
-        assert event.event == AGUIEventType.RUN_FINISHED
+        assert event.type == AGUIEventType.RUN_FINISHED
 
     def test_text_delta_event_has_content(self) -> None:
-        """TEXT_MESSAGE_CONTENT must include content in data."""
+        """TEXT_MESSAGE_CONTENT must include content in delta field."""
         event = TextDeltaEvent(content="Hello ")
-        assert event.event == AGUIEventType.TEXT_MESSAGE_CONTENT
-        assert event.data["content"] == "Hello "
+        assert event.type == AGUIEventType.TEXT_MESSAGE_CONTENT
+        assert event.delta == "Hello "
 
     def test_text_delta_accepts_empty_string(self) -> None:
         """TEXT_MESSAGE_CONTENT can have empty content."""
         event = TextDeltaEvent(content="")
-        assert event.data["content"] == ""
+        assert event.delta == ""
 
     def test_state_snapshot_event_has_state(self) -> None:
-        """STATE_SNAPSHOT must include state in data."""
-        event = StateSnapshotEvent(state={"key": "value"})
-        assert event.event == AGUIEventType.STATE_SNAPSHOT
-        assert event.data["state"] == {"key": "value"}
+        """STATE_SNAPSHOT must include snapshot field."""
+        event = StateSnapshotEvent(snapshot={"key": "value"})
+        assert event.type == AGUIEventType.STATE_SNAPSHOT
+        assert event.snapshot == {"key": "value"}
 
     def test_state_snapshot_accepts_nested_objects(self) -> None:
         """STATE_SNAPSHOT can have deeply nested state."""
@@ -76,28 +76,29 @@ class TestAGUIEventFormatCompliance:
                 }
             }
         }
-        event = StateSnapshotEvent(state=nested_state)
-        assert event.data["state"]["level1"]["level2"]["level3"]["data"] == [1, 2, 3]
+        event = StateSnapshotEvent(snapshot=nested_state)
+        assert event.snapshot["level1"]["level2"]["level3"]["data"] == [1, 2, 3]
 
     def test_tool_call_start_event_has_required_fields(self) -> None:
-        """TOOL_CALL_START must include tool_call_id and tool_name in data."""
+        """TOOL_CALL_START must include tool_call_id and tool_name."""
         event = ToolCallStartEvent(tool_call_id="tc-123", tool_name="vector_search")
-        assert event.event == AGUIEventType.TOOL_CALL_START
-        assert event.data["tool_call_id"] == "tc-123"
-        assert event.data["tool_name"] == "vector_search"
+        assert event.type == AGUIEventType.TOOL_CALL_START
+        assert event.toolCallId == "tc-123"
+        assert event.toolCallName == "vector_search"
 
     def test_tool_call_args_event_has_args(self) -> None:
-        """TOOL_CALL_ARGS must include tool_call_id and args in data."""
+        """TOOL_CALL_ARGS must include tool_call_id and args."""
         event = ToolCallArgsEvent(tool_call_id="tc-123", args={"query": "test"})
-        assert event.event == AGUIEventType.TOOL_CALL_ARGS
-        assert event.data["tool_call_id"] == "tc-123"
-        assert event.data["args"] == {"query": "test"}
+        assert event.type == AGUIEventType.TOOL_CALL_ARGS
+        assert event.toolCallId == "tc-123"
+        # ToolCallArgsEvent uses 'delta' field for args in AG-UI protocol
+        assert event.delta == '{"query": "test"}'
 
     def test_tool_call_end_event_has_tool_call_id(self) -> None:
-        """TOOL_CALL_END must include tool_call_id in data."""
+        """TOOL_CALL_END must include tool_call_id."""
         event = ToolCallEndEvent(tool_call_id="tc-123")
-        assert event.event == AGUIEventType.TOOL_CALL_END
-        assert event.data["tool_call_id"] == "tc-123"
+        assert event.type == AGUIEventType.TOOL_CALL_END
+        assert event.toolCallId == "tc-123"
 
 
 class TestAGUIEventTypeCompliance:
@@ -171,43 +172,43 @@ class TestAGUIErrorEventCompliance:
     """Verify AG-UI error events have required fields."""
 
     def test_error_event_has_required_fields(self) -> None:
-        """AGUIErrorEvent must include code, message, http_status in data."""
+        """AGUIErrorEvent must include code, message, httpStatus fields."""
         event = AGUIErrorEvent(
             code=AGUIErrorCode.AGENT_EXECUTION_ERROR,
             message="Test error",
             http_status=500,
         )
-        assert event.event == AGUIEventType.RUN_ERROR
-        assert event.data["code"] == "AGENT_EXECUTION_ERROR"
-        assert event.data["message"] == "Test error"
-        assert event.data["http_status"] == 500
+        assert event.type == AGUIEventType.RUN_ERROR
+        assert event.code == "AGENT_EXECUTION_ERROR"
+        assert event.message == "Test error"
+        assert event.httpStatus == 500
 
     def test_error_event_optional_retry_after(self) -> None:
-        """RATE_LIMITED error should include retry_after in data."""
+        """RATE_LIMITED error should include retryAfter field."""
         event = AGUIErrorEvent(
             code=AGUIErrorCode.RATE_LIMITED,
             message="Too many requests",
             http_status=429,
             retry_after=60,
         )
-        assert event.data["retry_after"] == 60
+        assert event.retryAfter == 60
 
     def test_error_event_optional_details(self) -> None:
-        """Error events can include debug details in data."""
+        """Error events can include debug details field."""
         event = AGUIErrorEvent(
             code=AGUIErrorCode.AGENT_EXECUTION_ERROR,
             message="Test error",
             http_status=500,
             details={"traceback": "..."},
         )
-        assert event.data["details"] == {"traceback": "..."}
+        assert event.details == {"traceback": "..."}
 
     def test_create_error_event_from_exception(self) -> None:
         """create_error_event should handle exceptions."""
         exc = ValueError("Test exception")
         event = create_error_event(exc)
-        assert event.event == AGUIEventType.RUN_ERROR
-        assert event.data["code"] == AGUIErrorCode.AGENT_EXECUTION_ERROR.value
+        assert event.type == AGUIEventType.RUN_ERROR
+        assert event.code == AGUIErrorCode.AGENT_EXECUTION_ERROR.value
 
 
 # =============================================================================
@@ -259,7 +260,7 @@ class TestAGUIStreamLifecycleCompliance:
             TextDeltaEvent(content="Hello"),
             RunFinishedEvent(),
         ]
-        assert events[0].event == AGUIEventType.RUN_STARTED
+        assert events[0].type == AGUIEventType.RUN_STARTED
 
     def test_valid_stream_ends_with_run_finished(self) -> None:
         """Successful stream must end with RUN_FINISHED."""
@@ -268,7 +269,7 @@ class TestAGUIStreamLifecycleCompliance:
             TextDeltaEvent(content="Hello"),
             RunFinishedEvent(),
         ]
-        assert events[-1].event == AGUIEventType.RUN_FINISHED
+        assert events[-1].type == AGUIEventType.RUN_FINISHED
 
     def test_error_stream_ends_with_run_error(self) -> None:
         """Error stream must end with RUN_ERROR."""
@@ -280,7 +281,7 @@ class TestAGUIStreamLifecycleCompliance:
                 http_status=500,
             ),
         ]
-        assert events[-1].event == AGUIEventType.RUN_ERROR
+        assert events[-1].type == AGUIEventType.RUN_ERROR
 
     def test_tool_call_lifecycle(self) -> None:
         """Tool calls follow START -> ARGS -> END lifecycle."""
@@ -289,16 +290,16 @@ class TestAGUIStreamLifecycleCompliance:
             ToolCallArgsEvent(tool_call_id="tc-1", args={"q": "test"}),
             ToolCallEndEvent(tool_call_id="tc-1"),
         ]
-        assert events[0].event == AGUIEventType.TOOL_CALL_START
-        assert events[1].event == AGUIEventType.TOOL_CALL_ARGS
-        assert events[2].event == AGUIEventType.TOOL_CALL_END
+        assert events[0].type == AGUIEventType.TOOL_CALL_START
+        assert events[1].type == AGUIEventType.TOOL_CALL_ARGS
+        assert events[2].type == AGUIEventType.TOOL_CALL_END
 
     def test_tool_call_id_consistency(self) -> None:
-        """tool_call_id must be consistent across tool call events."""
+        """toolCallId must be consistent across tool call events."""
         tc_id = "consistent-tc-123"
         start = ToolCallStartEvent(tool_call_id=tc_id, tool_name="search")
         args = ToolCallArgsEvent(tool_call_id=tc_id, args={})
         end = ToolCallEndEvent(tool_call_id=tc_id)
-        assert start.data["tool_call_id"] == tc_id
-        assert args.data["tool_call_id"] == tc_id
-        assert end.data["tool_call_id"] == tc_id
+        assert start.toolCallId == tc_id
+        assert args.toolCallId == tc_id
+        assert end.toolCallId == tc_id

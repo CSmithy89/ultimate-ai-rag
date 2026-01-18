@@ -281,12 +281,14 @@ class TestHITLManager:
 
         events = manager.get_completion_events(checkpoint)
 
-        assert len(events) == 2
-        # First event should be TOOL_CALL_END
+        assert len(events) == 3
+        # First event should be TOOL_CALL_RESULT
         assert events[0].toolCallId == "test-123"
-        # Second event should be STATE_SNAPSHOT
-        assert "hitl_checkpoint" in events[1].snapshot
-        assert "approved_sources" in events[1].snapshot
+        # Second event should be TOOL_CALL_END
+        assert events[1].toolCallId == "test-123"
+        # Third event should be STATE_SNAPSHOT
+        assert "hitl_checkpoint" in events[2].snapshot
+        assert "approved_sources" in events[2].snapshot
 
 
 class TestCreateValidateSourcesEvents:

@@ -27,7 +27,9 @@ from ..models.copilot import (
     ToolCallEndEvent,
     ToolCallResultEvent,
     ThinkingStartEvent,
+    ThinkingTextMessageStartEvent,
     ThinkingTextMessageContentEvent,
+    ThinkingTextMessageEndEvent,
     ThinkingEndEvent,
     ActivitySnapshotEvent,
     ActivityDeltaEvent,
@@ -162,7 +164,7 @@ class SubAgentManager:
                 runId=subagent_run_id,
             ),
             StateSnapshotEvent(
-                state={
+                snapshot={
                     "subagent": {
                         "name": context.subagent_name,
                         "parent_run_id": context.parent_run_id,
@@ -196,7 +198,7 @@ class SubAgentManager:
         if result:
             events.append(
                 StateSnapshotEvent(
-                    state={
+                    snapshot={
                         "subagent_result": {
                             "name": context.subagent_name,
                             "result": result,
@@ -613,12 +615,14 @@ class AGUIBridge:
 
         Phase 5: ACTIVITY Events for progress tracking.
 
+        AG-UI Spec: ACTIVITY_SNAPSHOT requires messageId, activityType, content fields.
+
         Args:
             activity_type: Type of activity being performed
             message: Human-readable description of the activity
             total_steps: Total number of steps in the activity
-            thread_id: AG-UI thread ID
-            run_id: AG-UI run ID
+            thread_id: AG-UI thread ID (unused in AG-UI spec)
+            run_id: AG-UI run ID (unused in AG-UI spec)
             metadata: Additional metadata for the activity
 
         Returns:
@@ -634,10 +638,18 @@ class AGUIBridge:
             current_step=0,
             metadata=metadata or {},
         )
+        # AG-UI spec: activityType is uppercase discriminator like "PLAN", "SEARCH", "PROCESSING"
+        ag_ui_activity_type = activity_type.value.upper()
         return ActivitySnapshotEvent(
-            activity=self._current_activity.to_dict(),
-            threadId=thread_id,
-            runId=run_id,
+            messageId=activity_id,
+            activityType=ag_ui_activity_type,
+            content={
+                "progress": 0.0,
+                "message": message,
+                "totalSteps": total_steps,
+                "currentStep": 0,
+                "metadata": metadata or {},
+            },
         )
 
     def _create_activity_delta(
@@ -653,11 +665,13 @@ class AGUIBridge:
 
         Phase 5: ACTIVITY Events for incremental progress.
 
+        AG-UI Spec: ACTIVITY_DELTA requires messageId, activityType, patch fields.
+
         Args:
             current_step: Current step number (1-indexed)
             message: Updated status message
-            thread_id: AG-UI thread ID
-            run_id: AG-UI run ID
+            thread_id: AG-UI thread ID (unused in AG-UI spec)
+            run_id: AG-UI run ID (unused in AG-UI spec)
             additional_metadata: Additional metadata to merge
 
         Returns:
@@ -678,16 +692,18 @@ class AGUIBridge:
             self._current_activity.metadata.update(additional_metadata)
 
         # Create RFC 6902 JSON Patch operations
-        delta = [
+        patch = [
             {"op": "replace", "path": "/currentStep", "value": current_step},
             {"op": "replace", "path": "/progress", "value": self._current_activity.progress},
             {"op": "replace", "path": "/message", "value": message},
         ]
 
+        # AG-UI spec: activityType must match the snapshot
+        ag_ui_activity_type = self._current_activity.activity_type.value.upper()
         return ActivityDeltaEvent(
-            delta=delta,
-            threadId=thread_id,
-            runId=run_id,
+            messageId=self._current_activity.activity_id,
+            activityType=ag_ui_activity_type,
+            patch=patch,
         )
 
     def _format_thought_steps(self, thoughts: list[Any]) -> list[dict[str, Any]]:
@@ -870,6 +886,12 @@ class AGUIBridge:
 
                 # AG-UI Enhancement: Emit THINKING events for agent reasoning
                 # This allows the frontend to display the agent's thinking process
+                # Sequence per AG-UI spec:
+                # 1. THINKING_START
+                # 2. THINKING_TEXT_MESSAGE_START (with messageId)
+                # 3. THINKING_TEXT_MESSAGE_CONTENT (multiple, same messageId)
+                # 4. THINKING_TEXT_MESSAGE_END (same messageId)
+                # 5. THINKING_END
                 if result.thoughts:
                     thinking_start = ThinkingStartEvent(
                         threadId=run_thread_id,
@@ -878,7 +900,17 @@ class AGUIBridge:
                     metrics.event_emitted(thinking_start.type.value)
                     yield thinking_start
 
-                    # Emit each thought as thinking content
+                    # Generate a shared messageId for this thinking message block
+                    thinking_message_id = f"thinking-{uuid.uuid4().hex[:12]}"
+
+                    # Start the thinking text message
+                    thinking_msg_start = ThinkingTextMessageStartEvent(
+                        messageId=thinking_message_id,
+                    )
+                    metrics.event_emitted(thinking_msg_start.type.value)
+                    yield thinking_msg_start
+
+                    # Emit each thought as thinking content with the same messageId
                     for thought in result.thoughts:
                         thought_content = (
                             thought if isinstance(thought, str)
@@ -886,12 +918,18 @@ class AGUIBridge:
                             else str(thought)
                         )
                         thinking_content = ThinkingTextMessageContentEvent(
-                            content=thought_content,
-                            threadId=run_thread_id,
-                            runId=run_id,
+                            delta=thought_content,
+                            messageId=thinking_message_id,
                         )
                         metrics.event_emitted(thinking_content.type.value)
                         yield thinking_content
+
+                    # End the thinking text message
+                    thinking_msg_end = ThinkingTextMessageEndEvent(
+                        messageId=thinking_message_id,
+                    )
+                    metrics.event_emitted(thinking_msg_end.type.value)
+                    yield thinking_msg_end
 
                     thinking_end = ThinkingEndEvent(
                         threadId=run_thread_id,
@@ -918,7 +956,7 @@ class AGUIBridge:
                 # Emit state snapshot with steps (changed from "thoughts" key)
                 # AG-UI protocol: threadId and runId required on all events
                 state_event = StateSnapshotEvent(
-                    state={
+                    snapshot={
                         "currentStep": "completed",
                         "steps": steps,
                         "retrievalStrategy": result.retrieval_strategy.value,
@@ -1376,7 +1414,7 @@ class HITLManager:
             ),
             ToolCallEndEvent(tool_call_id=checkpoint.checkpoint_id),
             StateSnapshotEvent(
-                state={
+                snapshot={
                     "hitl_checkpoint": checkpoint.to_dict(),
                     "approved_sources": approved_sources,
                 },

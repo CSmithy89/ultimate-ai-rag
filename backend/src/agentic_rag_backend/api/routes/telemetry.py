@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from ..utils import rate_limit_exceeded
 from ...rate_limit import RateLimiter
 from ...observability.metrics import record_telemetry_event
+from ...validation import ANONYMOUS_TENANT_ID
 
 router = APIRouter()
 
@@ -75,7 +76,7 @@ async def track_telemetry(
     # Rate limiting using composite key of tenant_id and IP (Story 22-TD5)
     # This prevents users behind shared NAT gateways from being incorrectly rate-limited
     client_ip = request.client.host if request.client else "unknown"
-    tenant_id = getattr(request.state, "tenant_id", None) or "anonymous"
+    tenant_id = getattr(request.state, "tenant_id", None) or ANONYMOUS_TENANT_ID
     rate_key = f"telemetry:{tenant_id}:{client_ip}"
     if not await limiter.allow(rate_key):
         raise rate_limit_exceeded()

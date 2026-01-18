@@ -19,6 +19,7 @@ from ...api.utils import rate_limit_exceeded
 from ...models.copilot import CopilotRequest
 from ...protocols.ag_ui_bridge import AGUIBridge
 from ...rate_limit import RateLimiter
+from ...validation import ANONYMOUS_TENANT_ID
 from ...voice import VoiceAdapter
 
 logger = structlog.get_logger(__name__)
@@ -61,10 +62,10 @@ async def copilot_handler(
     - state_snapshot: Agent state updates
     - action_request: Frontend action requests
     """
-    # Extract tenant_id: prefer header, fall back to config
-    tenant_id = x_tenant_id or "anonymous"
-    if tenant_id == "anonymous" and request.config and request.config.configurable:
-        tenant_id = request.config.configurable.get("tenant_id", "anonymous")
+    # Extract tenant_id: prefer header, fall back to config, default to anonymous UUID
+    tenant_id = x_tenant_id or ANONYMOUS_TENANT_ID
+    if tenant_id == ANONYMOUS_TENANT_ID and request.config and request.config.configurable:
+        tenant_id = request.config.configurable.get("tenant_id", ANONYMOUS_TENANT_ID)
 
     # Inject tenant_id into request config for downstream processing
     if request.config is None:
@@ -757,7 +758,7 @@ async def transcribe_audio(
         503: Voice adapter not configured
     """
     # Rate limiting
-    tenant_id = x_tenant_id or "anonymous"
+    tenant_id = x_tenant_id or ANONYMOUS_TENANT_ID
     if not await limiter.allow(tenant_id):
         raise rate_limit_exceeded()
 
@@ -846,7 +847,7 @@ async def text_to_speech(
         503: Voice adapter not configured
     """
     # Rate limiting
-    tenant_id = x_tenant_id or "anonymous"
+    tenant_id = x_tenant_id or ANONYMOUS_TENANT_ID
     if not await limiter.allow(tenant_id):
         raise rate_limit_exceeded()
 

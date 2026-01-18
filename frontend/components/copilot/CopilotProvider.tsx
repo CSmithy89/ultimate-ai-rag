@@ -63,7 +63,7 @@ function CopilotContextProvider() {
  */
 export function CopilotProvider({ children }: CopilotProviderProps) {
   return (
-    <CopilotKit runtimeUrl="/api/copilotkit">
+    <CopilotKit runtimeUrl="/api/copilotkit" useSingleEndpoint>
       <DynamicInstructionsProvider />
       <CopilotContextProvider />
       {children}
