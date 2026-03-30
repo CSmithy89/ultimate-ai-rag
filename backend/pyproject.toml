@@ -5,13 +5,13 @@ description = "Backend API for the Agentic RAG + GraphRAG system."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-  "agno==2.3.21",
-  "fastapi==0.111.0",
-  "psycopg[binary]==3.3.2",
-  "psycopg-pool==3.2.2",
-  "redis==5.0.4",
-  "python-dotenv==1.0.1",
-  "uvicorn[standard]==0.30.0",
+  "agno==2.5.11",
+  "fastapi==0.135.2",
+  "psycopg[binary]==3.3.3",
+  "psycopg-pool==3.3.0",
+  "redis==7.4.0",
+  "python-dotenv==1.2.2",
+  "uvicorn[standard]==0.42.0",
   # Epic 4 - Knowledge Ingestion Pipeline
   "crawl4ai>=0.3.0",
   "asyncpg>=0.29.0",
@@ -57,11 +57,11 @@ dependencies = [
   # Story 19-C5 - Prometheus Observability
   "prometheus-client>=0.20.0",
   # Story 20-A2 - Memory Consolidation Scheduler
-  "apscheduler==3.10.4",
+  "apscheduler==3.11.2",
   # Story 20-B1 - Community Detection (Graph Intelligence)
-  "networkx==3.4.2",
+  "networkx==3.6.1",
   # Story 20-H1 - Sparse Vector Search (BM42)
-  "fastembed==0.4.2",
+  "fastembed==0.8.0",
 ]
 
 [project.scripts]
